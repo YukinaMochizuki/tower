@@ -1,0 +1,21 @@
+# Runs after buf.gen.yaml: protoc-gen-hangar imports the generated
+# hangar.meta.v1 package to read resource declarations.
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/YukinaMochizuki/hangar/gen/go
+plugins:
+  - local: [go, run, ./tools/protoc-gen-hangar]
+    out: gen/go
+    opt: [mode=registry, domain=hangarlab.cloud]
+    strategy: all
+  - local: [go, run, ./tools/protoc-gen-hangar]
+    out: gen/go
+    opt: [mode=schema, domain=hangarlab.cloud]
+    strategy: all
+  - local: [go, run, ./tools/protoc-gen-hangar]
+    out: internal/apiserver/servicegen
+    opt: mode=server
+    strategy: all

@@ -1,0 +1,15 @@
+{
+  "name": "hangar",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "postCreateCommand": "pnpm install --frozen-lockfile && go mod download && go mod download -modfile=tools/tools.mod",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "bufbuild.vscode-buf"
+      ]
+    }
+  }
+}

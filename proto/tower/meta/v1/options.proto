@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package hangar.meta.v1;
+
+import "google/protobuf/descriptor.proto";
+
+// Scope says where objects of a kind live.
+enum Scope {
+  SCOPE_UNSPECIFIED = 0;
+  // Objects belong to a project and are addressed by project and name.
+  SCOPE_PROJECT = 1;
+  // Objects are addressed by name alone, unique across the platform.
+  SCOPE_GLOBAL = 2;
+}
+
+// ResourceOptions declares a message as an API resource. Codegen, the
+// registry, the CLI and authorization all read it; see
+// docs/decisions/resource-codegen.md.
+message ResourceOptions {
+  // The kind; must equal the message name.
+  string kind = 1;
+  // Lowercase plural used in paths, permissions and the CLI.
+  string plural = 2;
+  // Extra CLI aliases, such as "vm".
+  repeated string short_names = 3;
+  Scope scope = 4;
+}
+
+// FieldOptions carries per-field rules enforced by generic admission.
+message FieldOptions {
+  // The field cannot change after the object is created.
+  bool immutable = 1;
+}
+
+extend google.protobuf.MessageOptions {
+  ResourceOptions resource = 50001;
+}
+
+extend google.protobuf.FieldOptions {
+  FieldOptions field = 50001;
+}

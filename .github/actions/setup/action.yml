@@ -1,0 +1,25 @@
+name: setup
+description: Go, Node and pnpm at the versions pinned in the repo.
+inputs:
+  cache:
+    description: >
+      Restore and save Go's module and build caches. The release workflow
+      turns it off, so nothing an earlier run left goes into a release.
+    default: 'true'
+runs:
+  using: composite
+  steps:
+    # Pinned by commit: the release workflow builds with this action.
+    - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+      with:
+        go-version-file: go.mod
+        cache: ${{ inputs.cache }}
+        cache-dependency-path: |
+          go.sum
+          tools/tools.sum
+    - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+      with:
+        node-version-file: .nvmrc
+        package-manager-cache: false
+    - shell: bash
+      run: corepack enable pnpm && pnpm install --frozen-lockfile
