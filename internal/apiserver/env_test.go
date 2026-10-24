@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -47,6 +49,8 @@ type env struct {
 	systemURL string
 	sock      string
 	dbDir     string
+	// watches counts the watches the public listener is serving.
+	watches *atomic.Int32
 }
 
 type envOption func(*apiserver.Config)
@@ -81,7 +85,15 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 	if tokens, ok := srv.ServiceTokens(); ok {
 		chain = append(auth.Chain{tokens}, chain...)
 	}
-	public := httptest.NewServer(srv.Handler(chain))
+	watches := &atomic.Int32{}
+	api := srv.Handler(chain)
+	public := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/Watch") {
+			watches.Add(1)
+			defer watches.Add(-1)
+		}
+		api.ServeHTTP(w, r)
+	}))
 	system := httptest.NewServer(srv.Handler(auth.Chain{asSystem{}}))
 	// Unix socket paths are short; t.TempDir can be too long for one.
 	sockDir, err := os.MkdirTemp("", "tower")
@@ -109,7 +121,7 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 		_ = st.Close()
 		_ = os.RemoveAll(sockDir)
 	})
-	e := &env{t: t, srv: srv, store: st, clock: clock, url: public.URL, systemURL: system.URL, sock: sock, dbDir: dbDir}
+	e := &env{t: t, srv: srv, store: st, clock: clock, url: public.URL, systemURL: system.URL, sock: sock, dbDir: dbDir, watches: watches}
 	for name, role := range map[string]iamv1alpha1.Role{admin: iamv1alpha1.Role_ROLE_ADMIN, workstream: iamv1alpha1.Role_ROLE_WORKSTREAM, hostd: iamv1alpha1.Role_ROLE_HOSTD} {
 		target := ""
 		if role == iamv1alpha1.Role_ROLE_HOSTD {

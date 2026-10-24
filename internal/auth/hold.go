@@ -121,6 +121,7 @@ func (c Chain) Hold(ctx context.Context, header http.Header, clock clockwork.Clo
 				h.ended = refusal
 				h.mu.Unlock()
 				cancel(refusal)
+				cutOffWrites(ctx, EndGrace)
 				return
 			}
 		}

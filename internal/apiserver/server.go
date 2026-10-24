@@ -118,7 +118,9 @@ func (s *Server) ControllerStatus() []controller.Status {
 
 func (s *Server) backend(r registry.Resource) *backend { return s.backends[r.Kind] }
 
-// Handler serves the API, authenticating every call with chain.
+// Handler serves the API, authenticating every call with chain. A stream
+// a recheck refuses stops writing within auth.EndGrace, whether or not its
+// client reads.
 func (s *Server) Handler(chain auth.Chain) http.Handler {
 	mux := http.NewServeMux()
 	servicegen.Mount(mux, func(r registry.Resource) resource.Backend { return s.backend(r) },
@@ -127,7 +129,7 @@ func (s *Server) Handler(chain auth.Chain) http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
 	})
-	return mux
+	return auth.CutOff(mux)
 }
 
 // interceptors authenticate a listener's Connect calls with chain, and
