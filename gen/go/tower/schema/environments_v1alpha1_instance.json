@@ -1,0 +1,289 @@
+{
+  "$defs": {
+    "tower.environments.v1alpha1.InstanceSpec": {
+      "additionalProperties": false,
+      "description": "InstanceSpec is the instance tower wants on its target.",
+      "properties": {
+        "alias": {
+          "type": "string"
+        },
+        "diskGolden": {
+          "description": "The Golden its disk is cloned from; empty is a blank disk.",
+          "type": "string"
+        },
+        "exposePorts": {
+          "description": "Ports others on its network reach it at.",
+          "items": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "image": {
+          "description": "A container's image, a reference by digest in tower's registry; or a VM's base image by name, as Blueprint.base_image names it, such as \"ubuntu-24.04\".",
+          "type": "string"
+        },
+        "kind": {
+          "description": "InstanceKind is what an instance runs as.",
+          "enum": [
+            "INSTANCE_KIND_CONTAINER",
+            "INSTANCE_KIND_VM"
+          ],
+          "type": "string"
+        },
+        "network": {
+          "description": "The workstream network it joins, and its name there.",
+          "type": "string"
+        },
+        "resources": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.Resources"
+        },
+        "runState": {
+          "description": "RunState is whether an environment should be running. Stopped keeps its disk.",
+          "enum": [
+            "RUN_STATE_RUNNING",
+            "RUN_STATE_STOPPED"
+          ],
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.InstanceStatus": {
+      "additionalProperties": false,
+      "description": "InstanceStatus is what the provider reports.",
+      "properties": {
+        "address": {
+          "description": "Its address on its network.",
+          "type": "string"
+        },
+        "conditions": {
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.Condition"
+          },
+          "type": "array"
+        },
+        "observedGeneration": {
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "phase": {
+          "description": "InstancePhase is what the provider last saw of the instance.\n\n- INSTANCE_PHASE_GONE: It existed and is not there any more.",
+          "enum": [
+            "INSTANCE_PHASE_PENDING",
+            "INSTANCE_PHASE_RUNNING",
+            "INSTANCE_PHASE_STOPPED",
+            "INSTANCE_PHASE_FAILED",
+            "INSTANCE_PHASE_GONE"
+          ],
+          "type": "string"
+        },
+        "startTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "usedDisk": {
+          "description": "What its disk holds beyond the golden it was cloned from.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.Resources": {
+      "additionalProperties": false,
+      "description": "Resources is a shape, as quantities; an empty one takes tower's default.",
+      "properties": {
+        "cpu": {
+          "description": "Such as \"2\".",
+          "type": "string"
+        },
+        "disk": {
+          "description": "Such as \"40Gi\"; a disk only grows.",
+          "type": "string"
+        },
+        "memory": {
+          "description": "Such as \"4Gi\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.Condition": {
+      "additionalProperties": false,
+      "description": "Condition is one observed aspect of an object's state, such as \"Ready\".",
+      "properties": {
+        "lastTransitionTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "message": {
+          "description": "Human-readable detail.",
+          "type": "string"
+        },
+        "observedGeneration": {
+          "description": "The generation this condition was computed from.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "reason": {
+          "description": "CamelCase machine-readable cause of the last transition.",
+          "type": "string"
+        },
+        "status": {
+          "description": "ConditionStatus is the state of a condition.",
+          "enum": [
+            "CONDITION_STATUS_TRUE",
+            "CONDITION_STATUS_FALSE",
+            "CONDITION_STATUS_UNKNOWN"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "description": "CamelCase, such as \"Ready\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.ObjectMeta": {
+      "additionalProperties": false,
+      "description": "ObjectMeta is the metadata every resource carries. Users set name, project, labels and annotations; everything else is owned by the system. See docs/decisions/apply-semantics.md.",
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "createTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "deleteTime": {
+          "description": "Set when deletion was requested and finalizers are still pending.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "finalizers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "generation": {
+          "description": "Incremented on every change to spec.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "name": {
+          "description": "DNS-1123 label, unique within the project (or the platform, for global kinds). An Invitation's is an email instead.",
+          "type": "string"
+        },
+        "ownerReferences": {
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.OwnerReference"
+          },
+          "type": "array"
+        },
+        "project": {
+          "description": "Empty for global kinds.",
+          "type": "string"
+        },
+        "resourceVersion": {
+          "description": "Store revision of the last write to this object.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "uid": {
+          "description": "UUIDv7, assigned at creation.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.OwnerReference": {
+      "additionalProperties": false,
+      "description": "OwnerReference points at the object that owns this one. An owner is in the same project, a global object, or, for a global object, one in the project the reference names; when it is deleted, its dependents are garbage collected.",
+      "properties": {
+        "apiVersion": {
+          "type": "string"
+        },
+        "controller": {
+          "description": "The owner is the controller responsible for this object.",
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "project": {
+          "description": "The owner's project, when the owner is project-scoped and this object is global, as a RoleBinding owned by the ServiceToken it names. Empty otherwise.",
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Instance is a container or a VM on one target: what a provider makes real. tower's controllers make one for each box and machine; hostd reads those of its own target and nothing about what they are for. It carries no secret: values reach an instance only through commands (docs/decisions/secrets.md).",
+  "properties": {
+    "apiVersion": {
+      "const": "environments.tower.hangarlab.cloud/v1alpha1",
+      "type": "string"
+    },
+    "kind": {
+      "const": "Instance",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/tower.meta.v1.ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/tower.environments.v1alpha1.InstanceSpec"
+    },
+    "status": {
+      "$ref": "#/$defs/tower.environments.v1alpha1.InstanceStatus",
+      "readOnly": true
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata"
+  ],
+  "title": "Instance",
+  "type": "object"
+}

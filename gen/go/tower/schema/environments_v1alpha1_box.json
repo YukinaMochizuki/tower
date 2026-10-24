@@ -1,0 +1,323 @@
+{
+  "$defs": {
+    "tower.environments.v1alpha1.BoxSpec": {
+      "additionalProperties": false,
+      "description": "BoxSpec is what workstream wants. What the box is made of cannot change: a different recipe is a different box.",
+      "properties": {
+        "addons": {
+          "description": "Add-ons layered onto the image, such as \"browser\" or \"desktop\".",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "backgroundWork": {
+          "description": "A job or a service runs in the box, which tower cannot see from the commands it relays. While set the box is never stopped for idleness, as if kept. workstream sets it while it holds a job or a service there.",
+          "type": "boolean"
+        },
+        "checkouts": {
+          "description": "The repositories to check out: the first at /workspace, each other at /repos/<repository>. Empty is an empty box, which needs image.",
+          "items": {
+            "$ref": "#/$defs/tower.environments.v1alpha1.Checkout"
+          },
+          "type": "array"
+        },
+        "image": {
+          "description": "An explicit base image, which skips the first checkout's devcontainer.",
+          "type": "string"
+        },
+        "keep": {
+          "description": "Never stopped for idleness while set: workstream's keep_box.",
+          "type": "boolean"
+        },
+        "privilegedSecret": {
+          "description": "A Secret in the same project whose values reach every command run in the box, as environment variables; empty is not privileged. The values never enter a spec of a lower layer (docs/decisions/secrets.md).",
+          "type": "string"
+        },
+        "resources": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.Resources"
+        },
+        "runState": {
+          "description": "RUN_STATE_STOPPED when workstream hibernates the box.",
+          "enum": [
+            "RUN_STATE_RUNNING",
+            "RUN_STATE_STOPPED"
+          ],
+          "type": "string"
+        },
+        "workstream": {
+          "description": "The workstream the box belongs to, by id. A workstream's boxes and machines share a network and reach each other by alias.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.BoxStatus": {
+      "additionalProperties": false,
+      "description": "BoxStatus is what tower reports about the box.",
+      "properties": {
+        "alias": {
+          "description": "Its name on the workstream's network.",
+          "type": "string"
+        },
+        "conditions": {
+          "description": "Ready, with ImageBuilt and Materialized on the way to it.",
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.Condition"
+          },
+          "type": "array"
+        },
+        "imageGolden": {
+          "description": "The Goldens it was made from: its image, and the warm checkout it was cloned from if its repository had one.",
+          "type": "string"
+        },
+        "instance": {
+          "description": "The Instance that holds it.",
+          "type": "string"
+        },
+        "lastUseTime": {
+          "description": "When it was last used through tower, to within a minute: what idleness is measured from.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "observedGeneration": {
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "phase": {
+          "description": "BoxPhase is where a box is in its life.\n\n- BOX_PHASE_PENDING: Waiting for its turn.\n- BOX_PHASE_UNPLACED: Its project has no Placement.\n- BOX_PHASE_BUILDING: Its image or golden is being built.\n- BOX_PHASE_STARTING: Its instance is being made or started.\n- BOX_PHASE_STOPPED: Stopped, its disk kept; stopped_reason says why.\n- BOX_PHASE_FAILED: It cannot be made; the Ready condition says why.",
+          "enum": [
+            "BOX_PHASE_PENDING",
+            "BOX_PHASE_UNPLACED",
+            "BOX_PHASE_BUILDING",
+            "BOX_PHASE_STARTING",
+            "BOX_PHASE_READY",
+            "BOX_PHASE_STOPPED",
+            "BOX_PHASE_FAILED"
+          ],
+          "type": "string"
+        },
+        "stoppedReason": {
+          "description": "Why a STOPPED box stopped: \"Requested\" (run_state) or \"Idle\".",
+          "type": "string"
+        },
+        "target": {
+          "description": "The Target it runs on.",
+          "type": "string"
+        },
+        "warmGolden": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.Checkout": {
+      "additionalProperties": false,
+      "description": "Checkout is one repository checked out in a box.",
+      "properties": {
+        "ref": {
+          "description": "A branch, tag or commit; empty is the repository's default branch.",
+          "type": "string"
+        },
+        "repository": {
+          "description": "A Repository in the same project, by name.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.Resources": {
+      "additionalProperties": false,
+      "description": "Resources is a shape, as quantities; an empty one takes tower's default.",
+      "properties": {
+        "cpu": {
+          "description": "Such as \"2\".",
+          "type": "string"
+        },
+        "disk": {
+          "description": "Such as \"40Gi\"; a disk only grows.",
+          "type": "string"
+        },
+        "memory": {
+          "description": "Such as \"4Gi\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.Condition": {
+      "additionalProperties": false,
+      "description": "Condition is one observed aspect of an object's state, such as \"Ready\".",
+      "properties": {
+        "lastTransitionTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "message": {
+          "description": "Human-readable detail.",
+          "type": "string"
+        },
+        "observedGeneration": {
+          "description": "The generation this condition was computed from.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "reason": {
+          "description": "CamelCase machine-readable cause of the last transition.",
+          "type": "string"
+        },
+        "status": {
+          "description": "ConditionStatus is the state of a condition.",
+          "enum": [
+            "CONDITION_STATUS_TRUE",
+            "CONDITION_STATUS_FALSE",
+            "CONDITION_STATUS_UNKNOWN"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "description": "CamelCase, such as \"Ready\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.ObjectMeta": {
+      "additionalProperties": false,
+      "description": "ObjectMeta is the metadata every resource carries. Users set name, project, labels and annotations; everything else is owned by the system. See docs/decisions/apply-semantics.md.",
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "createTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "deleteTime": {
+          "description": "Set when deletion was requested and finalizers are still pending.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "finalizers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "generation": {
+          "description": "Incremented on every change to spec.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "name": {
+          "description": "DNS-1123 label, unique within the project (or the platform, for global kinds). An Invitation's is an email instead.",
+          "type": "string"
+        },
+        "ownerReferences": {
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.OwnerReference"
+          },
+          "type": "array"
+        },
+        "project": {
+          "description": "Empty for global kinds.",
+          "type": "string"
+        },
+        "resourceVersion": {
+          "description": "Store revision of the last write to this object.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "uid": {
+          "description": "UUIDv7, assigned at creation.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.OwnerReference": {
+      "additionalProperties": false,
+      "description": "OwnerReference points at the object that owns this one. An owner is in the same project, a global object, or, for a global object, one in the project the reference names; when it is deleted, its dependents are garbage collected.",
+      "properties": {
+        "apiVersion": {
+          "type": "string"
+        },
+        "controller": {
+          "description": "The owner is the controller responsible for this object.",
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "project": {
+          "description": "The owner's project, when the owner is project-scoped and this object is global, as a RoleBinding owned by the ServiceToken it names. Empty otherwise.",
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Box is a working copy an agent edits, builds and runs things in: one or more repositories checked out in a container on the project's target. workstream applies it and watches it; tower decides the rest. A box tower stopped for idleness keeps this object and runs again on its next use. See docs/decisions/declarative-api.md.",
+  "properties": {
+    "apiVersion": {
+      "const": "environments.tower.hangarlab.cloud/v1alpha1",
+      "type": "string"
+    },
+    "kind": {
+      "const": "Box",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/tower.meta.v1.ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/tower.environments.v1alpha1.BoxSpec"
+    },
+    "status": {
+      "$ref": "#/$defs/tower.environments.v1alpha1.BoxStatus",
+      "readOnly": true
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata"
+  ],
+  "title": "Box",
+  "type": "object"
+}

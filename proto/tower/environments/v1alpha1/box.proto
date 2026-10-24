@@ -1,0 +1,183 @@
+syntax = "proto3";
+
+package tower.environments.v1alpha1;
+
+import "google/protobuf/timestamp.proto";
+import "tower/environments/v1alpha1/common.proto";
+import "tower/meta/v1/meta.proto";
+import "tower/meta/v1/options.proto";
+
+// Box is a working copy an agent edits, builds and runs things in: one or
+// more repositories checked out in a container on the project's target.
+// workstream applies it and watches it; tower decides the rest. A box tower
+// stopped for idleness keeps this object and runs again on its next use.
+// See docs/decisions/declarative-api.md.
+message Box {
+  option (tower.meta.v1.resource) = {
+    kind: "Box"
+    plural: "boxes"
+    short_names: ["bx"]
+    scope: SCOPE_PROJECT
+  };
+  string api_version = 1;
+  string kind = 2;
+  tower.meta.v1.ObjectMeta metadata = 3;
+  BoxSpec spec = 4;
+  BoxStatus status = 5;
+}
+
+// BoxSpec is what workstream wants. What the box is made of cannot change:
+// a different recipe is a different box.
+message BoxSpec {
+  // The workstream the box belongs to, by id. A workstream's boxes and
+  // machines share a network and reach each other by alias.
+  string workstream = 1 [(tower.meta.v1.field).immutable = true];
+  // The repositories to check out: the first at /workspace, each other at
+  // /repos/<repository>. Empty is an empty box, which needs image.
+  repeated Checkout checkouts = 2 [(tower.meta.v1.field).immutable = true];
+  // Add-ons layered onto the image, such as "browser" or "desktop".
+  repeated string addons = 3 [(tower.meta.v1.field).immutable = true];
+  // An explicit base image, which skips the first checkout's devcontainer.
+  string image = 4 [(tower.meta.v1.field).immutable = true];
+  // A Secret in the same project whose values reach every command run in
+  // the box, as environment variables; empty is not privileged. The values
+  // never enter a spec of a lower layer (docs/decisions/secrets.md).
+  string privileged_secret = 5 [(tower.meta.v1.field).immutable = true];
+  // Never stopped for idleness while set: workstream's keep_box.
+  bool keep = 6;
+  // A job or a service runs in the box, which tower cannot see from the
+  // commands it relays. While set the box is never stopped for idleness, as
+  // if kept. workstream sets it while it holds a job or a service there.
+  bool background_work = 7;
+  // RUN_STATE_STOPPED when workstream hibernates the box.
+  RunState run_state = 8;
+  Resources resources = 9;
+}
+
+// Checkout is one repository checked out in a box.
+message Checkout {
+  // A Repository in the same project, by name.
+  string repository = 1;
+  // A branch, tag or commit; empty is the repository's default branch.
+  string ref = 2;
+}
+
+// BoxPhase is where a box is in its life.
+enum BoxPhase {
+  BOX_PHASE_UNSPECIFIED = 0;
+  // Waiting for its turn.
+  BOX_PHASE_PENDING = 1;
+  // Its project has no Placement.
+  BOX_PHASE_UNPLACED = 2;
+  // Its image or golden is being built.
+  BOX_PHASE_BUILDING = 3;
+  // Its instance is being made or started.
+  BOX_PHASE_STARTING = 4;
+  BOX_PHASE_READY = 5;
+  // Stopped, its disk kept; stopped_reason says why.
+  BOX_PHASE_STOPPED = 6;
+  // It cannot be made; the Ready condition says why.
+  BOX_PHASE_FAILED = 7;
+}
+
+// BoxStatus is what tower reports about the box.
+message BoxStatus {
+  int64 observed_generation = 1;
+  // Ready, with ImageBuilt and Materialized on the way to it.
+  repeated tower.meta.v1.Condition conditions = 2;
+  BoxPhase phase = 3;
+  // Why a STOPPED box stopped: "Requested" (run_state) or "Idle".
+  string stopped_reason = 4;
+  // The Target it runs on.
+  string target = 5;
+  // The Goldens it was made from: its image, and the warm checkout it was
+  // cloned from if its repository had one.
+  string image_golden = 6;
+  string warm_golden = 7;
+  // The Instance that holds it.
+  string instance = 8;
+  // Its name on the workstream's network.
+  string alias = 9;
+  // When it was last used through tower, to within a minute: what idleness
+  // is measured from.
+  google.protobuf.Timestamp last_use_time = 10;
+}
+
+// BoxService manages boxes.
+service BoxService {
+  rpc GetBox(GetBoxRequest) returns (GetBoxResponse);
+  rpc ListBoxes(ListBoxesRequest) returns (ListBoxesResponse);
+  rpc WatchBoxes(WatchBoxesRequest) returns (stream WatchBoxesResponse);
+  rpc ApplyBox(ApplyBoxRequest) returns (ApplyBoxResponse);
+  rpc DeleteBox(DeleteBoxRequest) returns (DeleteBoxResponse);
+  rpc UpdateBoxStatus(UpdateBoxStatusRequest) returns (UpdateBoxStatusResponse);
+}
+
+message GetBoxRequest {
+  string project = 1;
+  string name = 2;
+}
+
+message GetBoxResponse {
+  Box box = 1;
+}
+
+message ListBoxesRequest {
+  // Empty lists across every project the caller can read.
+  string project = 1;
+  string label_selector = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+}
+
+message ListBoxesResponse {
+  repeated Box items = 1;
+  string next_page_token = 2;
+  int64 revision = 3;
+}
+
+message WatchBoxesRequest {
+  // Empty watches every project the caller can read.
+  string project = 1;
+  string label_selector = 2;
+  int64 since_revision = 3;
+}
+
+message WatchBoxesResponse {
+  tower.meta.v1.EventType type = 1;
+  Box box = 2;
+  int64 revision = 3;
+}
+
+message ApplyBoxRequest {
+  Box box = 1;
+  // Refuses an existing object with ALREADY_EXISTS, changing nothing.
+  bool create_only = 2;
+}
+
+message ApplyBoxResponse {
+  Box box = 1;
+  repeated string warnings = 2;
+  bool created = 3;
+}
+
+message DeleteBoxRequest {
+  string project = 1;
+  string name = 2;
+  optional int64 expected_resource_version = 3;
+}
+
+message DeleteBoxResponse {
+  Box box = 1;
+}
+
+message UpdateBoxStatusRequest {
+  string project = 1;
+  string name = 2;
+  BoxStatus status = 3;
+  optional int64 expected_resource_version = 4;
+}
+
+message UpdateBoxStatusResponse {
+  Box box = 1;
+}

@@ -5,10 +5,12 @@
 package registry
 
 import (
-	v1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/iam/v1alpha1"
+	v1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
+	v1alpha11 "github.com/YukinaMochizuki/tower/gen/go/tower/iam/v1alpha1"
 	v1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
-	v1alpha11 "github.com/YukinaMochizuki/tower/gen/go/tower/secrets/v1alpha1"
-	v1alpha12 "github.com/YukinaMochizuki/tower/gen/go/tower/tenancy/v1alpha1"
+	v1alpha12 "github.com/YukinaMochizuki/tower/gen/go/tower/secrets/v1alpha1"
+	v1alpha13 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
+	v1alpha14 "github.com/YukinaMochizuki/tower/gen/go/tower/tenancy/v1alpha1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	slices "slices"
 	strings "strings"
@@ -38,6 +40,56 @@ func (r Resource) APIVersion() string { return r.Group + "." + Domain + "/" + r.
 func (r Resource) ProjectScoped() bool { return r.Scope == v1.Scope_SCOPE_PROJECT }
 
 var (
+	Box = Resource{
+		Group:      "environments",
+		Version:    "v1alpha1",
+		Kind:       "Box",
+		Plural:     "boxes",
+		ShortNames: []string{"bx"},
+		Scope:      v1.Scope_SCOPE_PROJECT,
+		Message:    (*v1alpha1.Box)(nil).ProtoReflect().Type(),
+		Service:    "tower.environments.v1alpha1.BoxService",
+	}
+	Golden = Resource{
+		Group:      "environments",
+		Version:    "v1alpha1",
+		Kind:       "Golden",
+		Plural:     "goldens",
+		ShortNames: []string{"gd"},
+		Scope:      v1.Scope_SCOPE_PROJECT,
+		Message:    (*v1alpha1.Golden)(nil).ProtoReflect().Type(),
+		Service:    "tower.environments.v1alpha1.GoldenService",
+	}
+	Instance = Resource{
+		Group:      "environments",
+		Version:    "v1alpha1",
+		Kind:       "Instance",
+		Plural:     "instances",
+		ShortNames: []string{"inst"},
+		Scope:      v1.Scope_SCOPE_PROJECT,
+		Message:    (*v1alpha1.Instance)(nil).ProtoReflect().Type(),
+		Service:    "tower.environments.v1alpha1.InstanceService",
+	}
+	Machine = Resource{
+		Group:      "environments",
+		Version:    "v1alpha1",
+		Kind:       "Machine",
+		Plural:     "machines",
+		ShortNames: []string{"mc"},
+		Scope:      v1.Scope_SCOPE_PROJECT,
+		Message:    (*v1alpha1.Machine)(nil).ProtoReflect().Type(),
+		Service:    "tower.environments.v1alpha1.MachineService",
+	}
+	Repository = Resource{
+		Group:      "environments",
+		Version:    "v1alpha1",
+		Kind:       "Repository",
+		Plural:     "repositories",
+		ShortNames: []string{"repo"},
+		Scope:      v1.Scope_SCOPE_PROJECT,
+		Message:    (*v1alpha1.Repository)(nil).ProtoReflect().Type(),
+		Service:    "tower.environments.v1alpha1.RepositoryService",
+	}
 	ServiceToken = Resource{
 		Group:      "iam",
 		Version:    "v1alpha1",
@@ -45,7 +97,7 @@ var (
 		Plural:     "servicetokens",
 		ShortNames: []string{"st"},
 		Scope:      v1.Scope_SCOPE_GLOBAL,
-		Message:    (*v1alpha1.ServiceToken)(nil).ProtoReflect().Type(),
+		Message:    (*v1alpha11.ServiceToken)(nil).ProtoReflect().Type(),
 		Service:    "tower.iam.v1alpha1.ServiceTokenService",
 	}
 	Secret = Resource{
@@ -55,8 +107,28 @@ var (
 		Plural:     "secrets",
 		ShortNames: []string{},
 		Scope:      v1.Scope_SCOPE_PROJECT,
-		Message:    (*v1alpha11.Secret)(nil).ProtoReflect().Type(),
+		Message:    (*v1alpha12.Secret)(nil).ProtoReflect().Type(),
 		Service:    "tower.secrets.v1alpha1.SecretService",
+	}
+	Placement = Resource{
+		Group:      "targets",
+		Version:    "v1alpha1",
+		Kind:       "Placement",
+		Plural:     "placements",
+		ShortNames: []string{"pl"},
+		Scope:      v1.Scope_SCOPE_GLOBAL,
+		Message:    (*v1alpha13.Placement)(nil).ProtoReflect().Type(),
+		Service:    "tower.targets.v1alpha1.PlacementService",
+	}
+	Target = Resource{
+		Group:      "targets",
+		Version:    "v1alpha1",
+		Kind:       "Target",
+		Plural:     "targets",
+		ShortNames: []string{"tgt"},
+		Scope:      v1.Scope_SCOPE_GLOBAL,
+		Message:    (*v1alpha13.Target)(nil).ProtoReflect().Type(),
+		Service:    "tower.targets.v1alpha1.TargetService",
 	}
 	Project = Resource{
 		Group:      "tenancy",
@@ -65,15 +137,22 @@ var (
 		Plural:     "projects",
 		ShortNames: []string{"proj"},
 		Scope:      v1.Scope_SCOPE_GLOBAL,
-		Message:    (*v1alpha12.Project)(nil).ProtoReflect().Type(),
+		Message:    (*v1alpha14.Project)(nil).ProtoReflect().Type(),
 		Service:    "tower.tenancy.v1alpha1.ProjectService",
 	}
 )
 
 // All lists every resource kind, ordered by group and kind.
 var All = []Resource{
+	Box,
+	Golden,
+	Instance,
+	Machine,
+	Repository,
 	ServiceToken,
 	Secret,
+	Placement,
+	Target,
 	Project,
 }
 

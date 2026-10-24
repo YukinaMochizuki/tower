@@ -1,0 +1,155 @@
+syntax = "proto3";
+
+package tower.environments.v1alpha1;
+
+import "google/protobuf/timestamp.proto";
+import "tower/environments/v1alpha1/common.proto";
+import "tower/meta/v1/meta.proto";
+import "tower/meta/v1/options.proto";
+
+// Instance is a container or a VM on one target: what a provider makes
+// real. tower's controllers make one for each box and machine; hostd reads
+// those of its own target and nothing about what they are for. It carries
+// no secret: values reach an instance only through commands
+// (docs/decisions/secrets.md).
+message Instance {
+  option (tower.meta.v1.resource) = {
+    kind: "Instance"
+    plural: "instances"
+    short_names: ["inst"]
+    scope: SCOPE_PROJECT
+  };
+  string api_version = 1;
+  string kind = 2;
+  tower.meta.v1.ObjectMeta metadata = 3;
+  InstanceSpec spec = 4;
+  InstanceStatus status = 5;
+}
+
+// InstanceKind is what an instance runs as.
+enum InstanceKind {
+  INSTANCE_KIND_UNSPECIFIED = 0;
+  INSTANCE_KIND_CONTAINER = 1;
+  INSTANCE_KIND_VM = 2;
+}
+
+// InstanceSpec is the instance tower wants on its target.
+message InstanceSpec {
+  string target = 1 [(tower.meta.v1.field).immutable = true];
+  InstanceKind kind = 2 [(tower.meta.v1.field).immutable = true];
+  // A container's image, a reference by digest in tower's registry; or a
+  // VM's base image by name, as Blueprint.base_image names it, such as
+  // "ubuntu-24.04".
+  string image = 3 [(tower.meta.v1.field).immutable = true];
+  // The Golden its disk is cloned from; empty is a blank disk.
+  string disk_golden = 4 [(tower.meta.v1.field).immutable = true];
+  // The workstream network it joins, and its name there.
+  string network = 5 [(tower.meta.v1.field).immutable = true];
+  string alias = 6 [(tower.meta.v1.field).immutable = true];
+  Resources resources = 7;
+  RunState run_state = 8;
+  // Ports others on its network reach it at.
+  repeated int32 expose_ports = 9;
+}
+
+// InstancePhase is what the provider last saw of the instance.
+enum InstancePhase {
+  INSTANCE_PHASE_UNSPECIFIED = 0;
+  INSTANCE_PHASE_PENDING = 1;
+  INSTANCE_PHASE_RUNNING = 2;
+  INSTANCE_PHASE_STOPPED = 3;
+  INSTANCE_PHASE_FAILED = 4;
+  // It existed and is not there any more.
+  INSTANCE_PHASE_GONE = 5;
+}
+
+// InstanceStatus is what the provider reports.
+message InstanceStatus {
+  int64 observed_generation = 1;
+  repeated tower.meta.v1.Condition conditions = 2;
+  InstancePhase phase = 3;
+  // Its address on its network.
+  string address = 4;
+  // What its disk holds beyond the golden it was cloned from.
+  string used_disk = 5;
+  google.protobuf.Timestamp start_time = 6;
+}
+
+// InstanceService manages instances.
+service InstanceService {
+  rpc GetInstance(GetInstanceRequest) returns (GetInstanceResponse);
+  rpc ListInstances(ListInstancesRequest) returns (ListInstancesResponse);
+  rpc WatchInstances(WatchInstancesRequest) returns (stream WatchInstancesResponse);
+  rpc ApplyInstance(ApplyInstanceRequest) returns (ApplyInstanceResponse);
+  rpc DeleteInstance(DeleteInstanceRequest) returns (DeleteInstanceResponse);
+  rpc UpdateInstanceStatus(UpdateInstanceStatusRequest) returns (UpdateInstanceStatusResponse);
+}
+
+message GetInstanceRequest {
+  string project = 1;
+  string name = 2;
+}
+
+message GetInstanceResponse {
+  Instance instance = 1;
+}
+
+message ListInstancesRequest {
+  // Empty lists across every project the caller can read.
+  string project = 1;
+  string label_selector = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+}
+
+message ListInstancesResponse {
+  repeated Instance items = 1;
+  string next_page_token = 2;
+  int64 revision = 3;
+}
+
+message WatchInstancesRequest {
+  // Empty watches every project the caller can read.
+  string project = 1;
+  string label_selector = 2;
+  int64 since_revision = 3;
+}
+
+message WatchInstancesResponse {
+  tower.meta.v1.EventType type = 1;
+  Instance instance = 2;
+  int64 revision = 3;
+}
+
+message ApplyInstanceRequest {
+  Instance instance = 1;
+  // Refuses an existing object with ALREADY_EXISTS, changing nothing.
+  bool create_only = 2;
+}
+
+message ApplyInstanceResponse {
+  Instance instance = 1;
+  repeated string warnings = 2;
+  bool created = 3;
+}
+
+message DeleteInstanceRequest {
+  string project = 1;
+  string name = 2;
+  optional int64 expected_resource_version = 3;
+}
+
+message DeleteInstanceResponse {
+  Instance instance = 1;
+}
+
+message UpdateInstanceStatusRequest {
+  string project = 1;
+  string name = 2;
+  InstanceStatus status = 3;
+  optional int64 expected_resource_version = 4;
+}
+
+message UpdateInstanceStatusResponse {
+  Instance instance = 1;
+}

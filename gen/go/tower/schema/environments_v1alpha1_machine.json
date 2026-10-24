@@ -1,0 +1,333 @@
+{
+  "$defs": {
+    "tower.environments.v1alpha1.Blueprint": {
+      "additionalProperties": false,
+      "description": "Blueprint is what a machine is: workstream's blueprint, carried whole, as blueprints are workstream's.",
+      "properties": {
+        "baseImage": {
+          "description": "The image the golden is converged from, such as \"ubuntu-24.04\".",
+          "type": "string"
+        },
+        "content": {
+          "description": "The converge body (an ansible playbook). tower hashes it.",
+          "type": "string"
+        },
+        "exposePorts": {
+          "description": "Ports a box on the network reaches it at.",
+          "items": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "goldenVars": {
+          "additionalProperties": true,
+          "description": "Variables of the golden phase, which are part of what the golden is.",
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        },
+        "netAlias": {
+          "description": "Its name on the workstream's network; empty is the blueprint's name.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.MachineSpec": {
+      "additionalProperties": false,
+      "description": "MachineSpec is what workstream wants.",
+      "properties": {
+        "blueprint": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.Blueprint"
+        },
+        "resources": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.Resources"
+        },
+        "runState": {
+          "description": "RunState is whether an environment should be running. Stopped keeps its disk.",
+          "enum": [
+            "RUN_STATE_RUNNING",
+            "RUN_STATE_STOPPED"
+          ],
+          "type": "string"
+        },
+        "secrets": {
+          "description": "The blueprint's required secrets, given in the configure phase only.",
+          "items": {
+            "$ref": "#/$defs/tower.environments.v1alpha1.SecretRef"
+          },
+          "type": "array"
+        },
+        "vars": {
+          "additionalProperties": true,
+          "description": "This machine's own variables, given in its configure phase only; they never enter its golden.",
+          "type": "object"
+        },
+        "workstream": {
+          "description": "As BoxSpec.workstream.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.MachineStatus": {
+      "additionalProperties": false,
+      "description": "MachineStatus is what tower reports about the machine.",
+      "properties": {
+        "address": {
+          "description": "Its address on the workstream's network.",
+          "type": "string"
+        },
+        "alias": {
+          "type": "string"
+        },
+        "conditions": {
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.Condition"
+          },
+          "type": "array"
+        },
+        "golden": {
+          "type": "string"
+        },
+        "instance": {
+          "type": "string"
+        },
+        "observedGeneration": {
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "phase": {
+          "description": "MachinePhase is where a machine is in its life.\n\n- MACHINE_PHASE_BUILDING: Its golden is being converged.\n- MACHINE_PHASE_CONFIGURING: Cloned from its golden; its configure phase runs.",
+          "enum": [
+            "MACHINE_PHASE_PENDING",
+            "MACHINE_PHASE_UNPLACED",
+            "MACHINE_PHASE_BUILDING",
+            "MACHINE_PHASE_CONFIGURING",
+            "MACHINE_PHASE_READY",
+            "MACHINE_PHASE_STOPPED",
+            "MACHINE_PHASE_FAILED"
+          ],
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.Resources": {
+      "additionalProperties": false,
+      "description": "Resources is a shape, as quantities; an empty one takes tower's default.",
+      "properties": {
+        "cpu": {
+          "description": "Such as \"2\".",
+          "type": "string"
+        },
+        "disk": {
+          "description": "Such as \"40Gi\"; a disk only grows.",
+          "type": "string"
+        },
+        "memory": {
+          "description": "Such as \"4Gi\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.SecretRef": {
+      "additionalProperties": false,
+      "description": "SecretRef names one value of a Secret and what to call it.",
+      "properties": {
+        "as": {
+          "description": "The variable the value is given as.",
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "secret": {
+          "description": "A Secret in the same project.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.Condition": {
+      "additionalProperties": false,
+      "description": "Condition is one observed aspect of an object's state, such as \"Ready\".",
+      "properties": {
+        "lastTransitionTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "message": {
+          "description": "Human-readable detail.",
+          "type": "string"
+        },
+        "observedGeneration": {
+          "description": "The generation this condition was computed from.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "reason": {
+          "description": "CamelCase machine-readable cause of the last transition.",
+          "type": "string"
+        },
+        "status": {
+          "description": "ConditionStatus is the state of a condition.",
+          "enum": [
+            "CONDITION_STATUS_TRUE",
+            "CONDITION_STATUS_FALSE",
+            "CONDITION_STATUS_UNKNOWN"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "description": "CamelCase, such as \"Ready\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.ObjectMeta": {
+      "additionalProperties": false,
+      "description": "ObjectMeta is the metadata every resource carries. Users set name, project, labels and annotations; everything else is owned by the system. See docs/decisions/apply-semantics.md.",
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "createTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "deleteTime": {
+          "description": "Set when deletion was requested and finalizers are still pending.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "finalizers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "generation": {
+          "description": "Incremented on every change to spec.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "name": {
+          "description": "DNS-1123 label, unique within the project (or the platform, for global kinds). An Invitation's is an email instead.",
+          "type": "string"
+        },
+        "ownerReferences": {
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.OwnerReference"
+          },
+          "type": "array"
+        },
+        "project": {
+          "description": "Empty for global kinds.",
+          "type": "string"
+        },
+        "resourceVersion": {
+          "description": "Store revision of the last write to this object.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "uid": {
+          "description": "UUIDv7, assigned at creation.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.OwnerReference": {
+      "additionalProperties": false,
+      "description": "OwnerReference points at the object that owns this one. An owner is in the same project, a global object, or, for a global object, one in the project the reference names; when it is deleted, its dependents are garbage collected.",
+      "properties": {
+        "apiVersion": {
+          "type": "string"
+        },
+        "controller": {
+          "description": "The owner is the controller responsible for this object.",
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "project": {
+          "description": "The owner's project, when the owner is project-scoped and this object is global, as a RoleBinding owned by the ServiceToken it names. Empty otherwise.",
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Machine is a VM an agent builds against, such as a k3s cluster: a blueprint converged on the project's target. tower never stops a machine for idleness, because what uses it (a box on the same network) does not pass through tower; it stops only when workstream asks.",
+  "properties": {
+    "apiVersion": {
+      "const": "environments.tower.hangarlab.cloud/v1alpha1",
+      "type": "string"
+    },
+    "kind": {
+      "const": "Machine",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/tower.meta.v1.ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/tower.environments.v1alpha1.MachineSpec"
+    },
+    "status": {
+      "$ref": "#/$defs/tower.environments.v1alpha1.MachineStatus",
+      "readOnly": true
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata"
+  ],
+  "title": "Machine",
+  "type": "object"
+}

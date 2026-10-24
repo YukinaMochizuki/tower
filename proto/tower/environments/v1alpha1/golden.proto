@@ -1,0 +1,174 @@
+syntax = "proto3";
+
+package tower.environments.v1alpha1;
+
+import "google/protobuf/timestamp.proto";
+import "tower/meta/v1/meta.proto";
+import "tower/meta/v1/options.proto";
+
+// Golden is what environments are made from on one target: a box's image,
+// a warm checkout of a repository with its dependencies, or a converged
+// machine. There is one per target and input hash, shared by every
+// environment of the same inputs; a change of input is a new Golden, and
+// one nothing was made from for a while is pruned. tower's controllers make
+// them; workstream may read them. See docs/decisions/hostd-storage.md.
+message Golden {
+  option (tower.meta.v1.resource) = {
+    kind: "Golden"
+    plural: "goldens"
+    short_names: ["gd"]
+    scope: SCOPE_PROJECT
+  };
+  string api_version = 1;
+  string kind = 2;
+  tower.meta.v1.ObjectMeta metadata = 3;
+  GoldenSpec spec = 4;
+  GoldenStatus status = 5;
+}
+
+// GoldenSpec is what the golden is built from. All of it is fixed.
+message GoldenSpec {
+  string target = 1 [(tower.meta.v1.field).immutable = true];
+  // The hash of inputs: what makes two goldens the same.
+  string input_hash = 2 [(tower.meta.v1.field).immutable = true];
+  // The Golden a warm golden is made on, its box image; empty otherwise.
+  string parent = 3 [(tower.meta.v1.field).immutable = true];
+  oneof inputs {
+    BoxImageInputs box_image = 4;
+    BoxWarmInputs box_warm = 5;
+    MachineInputs machine = 6;
+  }
+}
+
+// BoxImageInputs make a box's image, which lives in the registry.
+message BoxImageInputs {
+  // The image the devcontainer starts from, by digest.
+  string base_image_digest = 1;
+  // A hash of the resolved devcontainer: devcontainer.json with its
+  // features, its Dockerfile, and the files that Dockerfile copies.
+  string devcontainer_hash = 2;
+  // Add-ons with their versions, such as "browser@3".
+  repeated string addons = 3;
+}
+
+// BoxWarmInputs make a warm golden: a checkout of a repository's default
+// branch with its toolchain and dependencies installed, on the target's
+// disk. Only the most used repositories get one.
+message BoxWarmInputs {
+  string repository = 1;
+  // The commit checked out.
+  string commit = 2;
+  // A hash of the toolchain's configuration (mise.toml, .tool-versions).
+  string toolchain_hash = 3;
+  // A hash of the lockfiles (go.sum, pnpm-lock.yaml, package-lock.json,
+  // uv.lock, Cargo.lock, ...).
+  string lockfiles_hash = 4;
+}
+
+// MachineInputs make a converged machine.
+message MachineInputs {
+  // A hash of the blueprint's content and its golden_vars.
+  string blueprint_hash = 1;
+  string base_image = 2;
+}
+
+// GoldenPhase is where a golden is in its life.
+enum GoldenPhase {
+  GOLDEN_PHASE_UNSPECIFIED = 0;
+  GOLDEN_PHASE_BUILDING = 1;
+  GOLDEN_PHASE_READY = 2;
+  GOLDEN_PHASE_FAILED = 3;
+}
+
+// GoldenStatus is what the golden came to.
+message GoldenStatus {
+  int64 observed_generation = 1;
+  repeated tower.meta.v1.Condition conditions = 2;
+  GoldenPhase phase = 3;
+  // What environments are made from: an image reference by digest, a
+  // hangar CustomImage, or a hostd snapshot.
+  string artifact = 4;
+  // What it holds on the target, as a quantity.
+  string size = 5;
+  // When an environment was last made from it: what pruning reads.
+  google.protobuf.Timestamp last_use_time = 6;
+}
+
+// GoldenService manages goldens.
+service GoldenService {
+  rpc GetGolden(GetGoldenRequest) returns (GetGoldenResponse);
+  rpc ListGoldens(ListGoldensRequest) returns (ListGoldensResponse);
+  rpc WatchGoldens(WatchGoldensRequest) returns (stream WatchGoldensResponse);
+  rpc ApplyGolden(ApplyGoldenRequest) returns (ApplyGoldenResponse);
+  rpc DeleteGolden(DeleteGoldenRequest) returns (DeleteGoldenResponse);
+  rpc UpdateGoldenStatus(UpdateGoldenStatusRequest) returns (UpdateGoldenStatusResponse);
+}
+
+message GetGoldenRequest {
+  string project = 1;
+  string name = 2;
+}
+
+message GetGoldenResponse {
+  Golden golden = 1;
+}
+
+message ListGoldensRequest {
+  // Empty lists across every project the caller can read.
+  string project = 1;
+  string label_selector = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+}
+
+message ListGoldensResponse {
+  repeated Golden items = 1;
+  string next_page_token = 2;
+  int64 revision = 3;
+}
+
+message WatchGoldensRequest {
+  // Empty watches every project the caller can read.
+  string project = 1;
+  string label_selector = 2;
+  int64 since_revision = 3;
+}
+
+message WatchGoldensResponse {
+  tower.meta.v1.EventType type = 1;
+  Golden golden = 2;
+  int64 revision = 3;
+}
+
+message ApplyGoldenRequest {
+  Golden golden = 1;
+  // Refuses an existing object with ALREADY_EXISTS, changing nothing.
+  bool create_only = 2;
+}
+
+message ApplyGoldenResponse {
+  Golden golden = 1;
+  repeated string warnings = 2;
+  bool created = 3;
+}
+
+message DeleteGoldenRequest {
+  string project = 1;
+  string name = 2;
+  optional int64 expected_resource_version = 3;
+}
+
+message DeleteGoldenResponse {
+  Golden golden = 1;
+}
+
+message UpdateGoldenStatusRequest {
+  string project = 1;
+  string name = 2;
+  GoldenStatus status = 3;
+  optional int64 expected_resource_version = 4;
+}
+
+message UpdateGoldenStatusResponse {
+  Golden golden = 1;
+}

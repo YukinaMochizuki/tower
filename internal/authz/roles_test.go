@@ -17,6 +17,18 @@ func token(role iamv1alpha1.Role) authz.Caller {
 // writes is every verb a role may hold: all but UpdateStatus.
 var writes = []authz.Verb{authz.Get, authz.List, authz.Watch, authz.Apply, authz.Delete}
 
+// reads change nothing.
+var reads = []authz.Verb{authz.Get, authz.List, authz.Watch}
+
+// admin is what an admin token and root on the host hold: every kind, and
+// only reads of what tower's controllers alone make.
+var admin = map[string][]authz.Verb{
+	registry.Project.Kind: writes, registry.Secret.Kind: writes, registry.ServiceToken.Kind: writes,
+	registry.Target.Kind: writes, registry.Placement.Kind: writes,
+	registry.Repository.Kind: writes, registry.Box.Kind: writes, registry.Machine.Kind: writes,
+	registry.Golden.Kind: reads, registry.Instance.Kind: reads,
+}
+
 // TestTheRoleTable holds every role's verbs on every kind exactly: what it
 // lists is allowed, and every other verb refused.
 func TestTheRoleTable(t *testing.T) {
@@ -26,14 +38,13 @@ func TestTheRoleTable(t *testing.T) {
 		caller authz.Caller
 		want   map[string][]authz.Verb
 	}{
-		{"admin", token(iamv1alpha1.Role_ROLE_ADMIN), map[string][]authz.Verb{
-			registry.Project.Kind: writes, registry.Secret.Kind: writes, registry.ServiceToken.Kind: writes,
-		}},
-		{"root on the host", local, map[string][]authz.Verb{
-			registry.Project.Kind: writes, registry.Secret.Kind: writes, registry.ServiceToken.Kind: writes,
-		}},
+		{"admin", token(iamv1alpha1.Role_ROLE_ADMIN), admin},
+		{"root on the host", local, admin},
 		{"workstream", token(iamv1alpha1.Role_ROLE_WORKSTREAM), map[string][]authz.Verb{
 			registry.Project.Kind: writes, registry.Secret.Kind: writes,
+			registry.Repository.Kind: writes, registry.Box.Kind: writes, registry.Machine.Kind: writes,
+			registry.Target.Kind: reads, registry.Placement.Kind: reads,
+			registry.Golden.Kind: reads, registry.Instance.Kind: reads,
 		}},
 		{"hostd", token(iamv1alpha1.Role_ROLE_HOSTD), nil},
 		{"a token without a role", token(iamv1alpha1.Role_ROLE_UNSPECIFIED), nil},

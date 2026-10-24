@@ -1,0 +1,171 @@
+syntax = "proto3";
+
+package tower.environments.v1alpha1;
+
+import "google/protobuf/struct.proto";
+import "tower/environments/v1alpha1/common.proto";
+import "tower/meta/v1/meta.proto";
+import "tower/meta/v1/options.proto";
+
+// Machine is a VM an agent builds against, such as a k3s cluster: a
+// blueprint converged on the project's target. tower never stops a machine
+// for idleness, because what uses it (a box on the same network) does not
+// pass through tower; it stops only when workstream asks.
+message Machine {
+  option (tower.meta.v1.resource) = {
+    kind: "Machine"
+    plural: "machines"
+    short_names: ["mc"]
+    scope: SCOPE_PROJECT
+  };
+  string api_version = 1;
+  string kind = 2;
+  tower.meta.v1.ObjectMeta metadata = 3;
+  MachineSpec spec = 4;
+  MachineStatus status = 5;
+}
+
+// MachineSpec is what workstream wants.
+message MachineSpec {
+  // As BoxSpec.workstream.
+  string workstream = 1 [(tower.meta.v1.field).immutable = true];
+  Blueprint blueprint = 2 [(tower.meta.v1.field).immutable = true];
+  // This machine's own variables, given in its configure phase only; they
+  // never enter its golden.
+  google.protobuf.Struct vars = 3 [(tower.meta.v1.field).immutable = true];
+  Resources resources = 4;
+  // The blueprint's required secrets, given in the configure phase only.
+  repeated SecretRef secrets = 5 [(tower.meta.v1.field).immutable = true];
+  RunState run_state = 6;
+}
+
+// Blueprint is what a machine is: workstream's blueprint, carried whole, as
+// blueprints are workstream's.
+message Blueprint {
+  string name = 1;
+  // The converge body (an ansible playbook). tower hashes it.
+  string content = 2;
+  // The image the golden is converged from, such as "ubuntu-24.04".
+  string base_image = 3;
+  // Variables of the golden phase, which are part of what the golden is.
+  google.protobuf.Struct golden_vars = 4;
+  // Ports a box on the network reaches it at.
+  repeated int32 expose_ports = 5;
+  // Its name on the workstream's network; empty is the blueprint's name.
+  string net_alias = 6;
+}
+
+// SecretRef names one value of a Secret and what to call it.
+message SecretRef {
+  // A Secret in the same project.
+  string secret = 1;
+  string key = 2;
+  // The variable the value is given as.
+  string as = 3;
+}
+
+// MachinePhase is where a machine is in its life.
+enum MachinePhase {
+  MACHINE_PHASE_UNSPECIFIED = 0;
+  MACHINE_PHASE_PENDING = 1;
+  MACHINE_PHASE_UNPLACED = 2;
+  // Its golden is being converged.
+  MACHINE_PHASE_BUILDING = 3;
+  // Cloned from its golden; its configure phase runs.
+  MACHINE_PHASE_CONFIGURING = 4;
+  MACHINE_PHASE_READY = 5;
+  MACHINE_PHASE_STOPPED = 6;
+  MACHINE_PHASE_FAILED = 7;
+}
+
+// MachineStatus is what tower reports about the machine.
+message MachineStatus {
+  int64 observed_generation = 1;
+  repeated tower.meta.v1.Condition conditions = 2;
+  MachinePhase phase = 3;
+  string target = 4;
+  string golden = 5;
+  string instance = 6;
+  string alias = 7;
+  // Its address on the workstream's network.
+  string address = 8;
+}
+
+// MachineService manages machines.
+service MachineService {
+  rpc GetMachine(GetMachineRequest) returns (GetMachineResponse);
+  rpc ListMachines(ListMachinesRequest) returns (ListMachinesResponse);
+  rpc WatchMachines(WatchMachinesRequest) returns (stream WatchMachinesResponse);
+  rpc ApplyMachine(ApplyMachineRequest) returns (ApplyMachineResponse);
+  rpc DeleteMachine(DeleteMachineRequest) returns (DeleteMachineResponse);
+  rpc UpdateMachineStatus(UpdateMachineStatusRequest) returns (UpdateMachineStatusResponse);
+}
+
+message GetMachineRequest {
+  string project = 1;
+  string name = 2;
+}
+
+message GetMachineResponse {
+  Machine machine = 1;
+}
+
+message ListMachinesRequest {
+  // Empty lists across every project the caller can read.
+  string project = 1;
+  string label_selector = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+}
+
+message ListMachinesResponse {
+  repeated Machine items = 1;
+  string next_page_token = 2;
+  int64 revision = 3;
+}
+
+message WatchMachinesRequest {
+  // Empty watches every project the caller can read.
+  string project = 1;
+  string label_selector = 2;
+  int64 since_revision = 3;
+}
+
+message WatchMachinesResponse {
+  tower.meta.v1.EventType type = 1;
+  Machine machine = 2;
+  int64 revision = 3;
+}
+
+message ApplyMachineRequest {
+  Machine machine = 1;
+  // Refuses an existing object with ALREADY_EXISTS, changing nothing.
+  bool create_only = 2;
+}
+
+message ApplyMachineResponse {
+  Machine machine = 1;
+  repeated string warnings = 2;
+  bool created = 3;
+}
+
+message DeleteMachineRequest {
+  string project = 1;
+  string name = 2;
+  optional int64 expected_resource_version = 3;
+}
+
+message DeleteMachineResponse {
+  Machine machine = 1;
+}
+
+message UpdateMachineStatusRequest {
+  string project = 1;
+  string name = 2;
+  MachineStatus status = 3;
+  optional int64 expected_resource_version = 4;
+}
+
+message UpdateMachineStatusResponse {
+  Machine machine = 1;
+}

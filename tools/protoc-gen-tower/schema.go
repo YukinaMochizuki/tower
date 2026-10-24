@@ -161,9 +161,13 @@ func (s *schemaWriter) value(fd protoreflect.FieldDescriptor) map[string]any {
 		return map[string]any{"type": "string", "pattern": `^-?[0-9]+(\.[0-9]{1,9})?s$`, "examples": []string{"30s", "1.5s"}}
 	case "google.protobuf.Empty":
 		return map[string]any{"type": "object", "maxProperties": 0}
+	case "google.protobuf.Struct":
+		// protojson writes a Struct as the JSON object it holds, any keys,
+		// any values.
+		return map[string]any{"type": "object", "additionalProperties": true}
 	}
 	if md.ParentFile().Package() == "google.protobuf" {
-		// protojson gives the rest of them, such as Struct or the wrappers,
+		// protojson gives the rest of them, such as the wrappers,
 		// JSON forms of their own, which this writer does not know.
 		if s.err == nil {
 			s.err = fmt.Errorf("field %s is a %s, which has no JSON Schema here; add one to schemaWriter.value", fd.FullName(), md.FullName())

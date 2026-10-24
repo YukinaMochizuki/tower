@@ -8,11 +8,12 @@ workstream's box and machine interfaces are imperative: create, get, stop,
 destroy. tower could serve the same calls and reconcile behind them, or serve
 resources that clients apply and watch, as hangar does.
 
-What decided it is reclaim. tower reclaims boxes under disk pressure and
-brings them back when they are used again. With imperative calls, tower would
-delete something workstream believes it holds, and would need a protocol to
-tell workstream, which would then have to remember what it wanted: a status,
-reinvented. Opening an environment also takes minutes (an image build, a
+What decided it is that tower acts on boxes by itself: it stops a box that has
+been idle and starts it again when it is used, and is meant later to release
+the disk of boxes under pressure and bring them back. With imperative calls,
+tower would stop or delete something workstream believes it holds, and would
+need a protocol to tell workstream, which would then have to remember what it
+wanted: a status, reinvented. Opening an environment also takes minutes (an image build, a
 clone, a seed), and an imperative call interrupted halfway needs its own
 operation records to finish.
 
@@ -20,11 +21,12 @@ operation records to finish.
 
 - **Clients apply intents as resources and watch their status.** A `Box`
   object is what workstream wants; its status says whether it is
-  materialized, and where. A reclaimed box keeps its object, with a status
-  that says so, and is materialized again on its next use: the identity
-  workstream holds stays valid throughout.
-- **Policy is controllers.** Rebuilding a golden, reclaiming under pressure
-  and pre-warming are reconcilers over specs and statuses, as everything else
+  materialized, and where. A box tower stopped for idleness keeps its object,
+  with a status that says so, and runs again on its next use: the identity
+  workstream holds stays valid throughout. A box whose disk is released will
+  keep it the same way, once tower does that.
+- **Policy is controllers.** Rebuilding a golden, stopping idle boxes and
+  pre-warming are reconcilers over specs and statuses, as everything else
   is, and are tested the same way.
 - **Imperative work hangs off a resource as RPCs:** running a command,
   reading and writing files, copying between environments, pushing a branch,

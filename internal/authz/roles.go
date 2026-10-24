@@ -38,21 +38,41 @@ var Verbs = []Verb{Get, List, Watch, Apply, Delete, UpdateStatus}
 // userVerbs are what a role may grant: every verb but UpdateStatus.
 var userVerbs = []Verb{Get, List, Watch, Apply, Delete}
 
+// readVerbs read a kind and change nothing.
+var readVerbs = []Verb{Get, List, Watch}
+
+// systemKinds are made only by tower's own controllers: a role reads them
+// at most.
+var systemKinds = []string{registry.Golden.Kind, registry.Instance.Kind}
+
 // grants is each role's verbs by kind. A kind or role it does not list is
-// refused everything. ROLE_HOSTD holds nothing yet: its reads come with the
-// kinds it acts on.
+// refused everything. ROLE_HOSTD holds nothing here: what it reads is only
+// its own target's, which the apiserver decides object by object.
 var grants = map[iamv1alpha1.Role]map[string][]Verb{
-	iamv1alpha1.Role_ROLE_ADMIN: everyKind(userVerbs),
+	iamv1alpha1.Role_ROLE_ADMIN: adminGrants(),
 	iamv1alpha1.Role_ROLE_WORKSTREAM: {
-		registry.Project.Kind: userVerbs,
-		registry.Secret.Kind:  userVerbs,
+		registry.Project.Kind:    userVerbs,
+		registry.Secret.Kind:     userVerbs,
+		registry.Repository.Kind: userVerbs,
+		registry.Box.Kind:        userVerbs,
+		registry.Machine.Kind:    userVerbs,
+		// workstream shows where a project runs and what it is made of.
+		registry.Target.Kind:    readVerbs,
+		registry.Placement.Kind: readVerbs,
+		registry.Golden.Kind:    readVerbs,
+		registry.Instance.Kind:  readVerbs,
 	},
 }
 
-func everyKind(verbs []Verb) map[string][]Verb {
+// adminGrants is every user verb on every kind, but only reads of the
+// kinds tower's controllers alone make.
+func adminGrants() map[string][]Verb {
 	m := map[string][]Verb{}
 	for _, r := range registry.All {
-		m[r.Kind] = verbs
+		m[r.Kind] = userVerbs
+		if slices.Contains(systemKinds, r.Kind) {
+			m[r.Kind] = readVerbs
+		}
 	}
 	return m
 }
