@@ -296,7 +296,7 @@ func (b *backend) Watch(ctx context.Context, opts resource.WatchOptions, send fu
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	progress := make(chan struct{})
-	ticker := b.s.clock.NewTicker(b.s.cfg.BookmarkInterval)
+	ticker := b.s.cfg.BookmarkClock.NewTicker(b.s.cfg.BookmarkInterval)
 	defer ticker.Stop()
 	go func() {
 		for {

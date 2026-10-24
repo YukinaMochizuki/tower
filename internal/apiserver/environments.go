@@ -68,7 +68,10 @@ func providerOf(t *targetsv1alpha1.Target) string {
 	return ""
 }
 
-func validateTarget(_ context.Context, _ *Server, _ authz.Caller, old, obj proto.Message) error {
+// validateTarget checks a target. Its provider never changes: a hangar
+// target's endpoint and project are immutable, which refuses a change to
+// or from hangar before this runs.
+func validateTarget(_ context.Context, _ *Server, _ authz.Caller, _, obj proto.Message) error {
 	t := obj.(*targetsv1alpha1.Target)
 	switch providerOf(t) {
 	case "":
@@ -84,10 +87,6 @@ func validateTarget(_ context.Context, _ *Server, _ authz.Caller, old, obj proto
 		if err := ValidName(h.GetCredentialSecret()); err != nil {
 			return invalid("spec.hangar.credential_secret: %v", err)
 		}
-	}
-	if old != nil && providerOf(old.(*targetsv1alpha1.Target)) != providerOf(t) {
-		return invalid("spec.provider cannot change from %s to %s: another provider is another target",
-			providerOf(old.(*targetsv1alpha1.Target)), providerOf(t))
 	}
 	set := t.GetSpec().GetSettings()
 	for name, d := range map[string]*durationpb.Duration{

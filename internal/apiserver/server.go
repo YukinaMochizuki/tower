@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -24,6 +25,8 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/auth"
 	"github.com/YukinaMochizuki/tower/internal/auth/session"
 	"github.com/YukinaMochizuki/tower/internal/controller"
+	"github.com/YukinaMochizuki/tower/internal/devcontainer"
+	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/secrets"
 	"github.com/YukinaMochizuki/tower/internal/store"
 )
@@ -33,8 +36,12 @@ type Config struct {
 	Store  store.Store
 	Clock  clockwork.Clock
 	Logger *slog.Logger
-	// BookmarkInterval is how often an idle watch sends a bookmark.
+	// BookmarkInterval is how often an idle watch sends a bookmark, on
+	// BookmarkClock; nil is Clock. A test that moves Clock by hand runs
+	// bookmarks on real time, so a client following the API, such as a
+	// provider, comes up to date by itself.
 	BookmarkInterval time.Duration
+	BookmarkClock    clockwork.Clock
 	// EventRetention is how many revisions of history watches can resume
 	// from.
 	EventRetention int64
@@ -50,6 +57,18 @@ type Config struct {
 	// Credentials keeps the service tokens' secrets the apiserver issues.
 	// Nil issues none, and ServiceTokenIssuerService fails.
 	Credentials store.Credentials
+	// Providers returns the provider of a target, by name. Nil, or an
+	// error, leaves the target's environments waiting.
+	Providers func(target string) (provider.Provider, error)
+	// Resolver says what boxes' images and warm checkouts are made of; nil
+	// is devcontainer.Fake.
+	Resolver devcontainer.Resolver
+	// GoldenPruneAfter is how long a golden nothing was made from, and
+	// nothing references, is kept; zero is DefaultGoldenPruneAfter.
+	GoldenPruneAfter time.Duration
+	// DisableControllers leaves the policy controllers out, as tests of the
+	// generic machinery do.
+	DisableControllers bool
 }
 
 // Server is the API server. Create it with New, start its background work
@@ -71,6 +90,19 @@ type Server struct {
 	tokenUses chan tokenUse
 	// gc is how far garbage collection has come.
 	gc gcProgress
+	// The policy controllers, and the slow work they start.
+	controllers                                   []*controller.Controller
+	placementCtrl, repositoryCtrl, boxCtrl        *controller.Controller
+	machineCtrl, goldenCtrl, warmCtrl, targetCtrl *controller.Controller
+	jobs                                          jobs
+	// uses are boxes' uses through Touch, not yet written to them.
+	uses lastUses
+	// warmSizes is the last size of each repository's warm golden seen, by
+	// its key; see warmSize.
+	warmSizesMu sync.Mutex
+	warmSizes   map[controller.Key]uint64
+	// runCtx is Run's, which jobs run under.
+	runCtx context.Context
 }
 
 // New returns a server over cfg.Store.
@@ -80,6 +112,9 @@ func New(cfg Config) *Server {
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
+	}
+	if cfg.BookmarkClock == nil {
+		cfg.BookmarkClock = cfg.Clock
 	}
 	if cfg.BookmarkInterval == 0 {
 		cfg.BookmarkInterval = 30 * time.Second
@@ -92,6 +127,12 @@ func New(cfg Config) *Server {
 	}
 	if cfg.SweepInterval == 0 {
 		cfg.SweepInterval = 5 * time.Minute
+	}
+	if cfg.Resolver == nil {
+		cfg.Resolver = devcontainer.Fake{}
+	}
+	if cfg.GoldenPruneAfter == 0 {
+		cfg.GoldenPruneAfter = DefaultGoldenPruneAfter
 	}
 	s := &Server{
 		cfg:       cfg,
@@ -107,13 +148,20 @@ func New(cfg Config) *Server {
 	for _, r := range registry.All {
 		s.backends[r.Kind] = &backend{s: s, r: r, hooks: hooksFor(r)}
 	}
+	if !cfg.DisableControllers {
+		s.controllers = s.newControllers()
+	}
 	return s
 }
 
-// ControllerStatus reports what the garbage collector is doing, as a
-// controller's status.
+// ControllerStatus reports what the garbage collector, the controllers and
+// their jobs are doing.
 func (s *Server) ControllerStatus() []controller.Status {
-	return []controller.Status{s.gc.status()}
+	st := []controller.Status{s.gc.status(), s.jobs.status()}
+	for _, c := range s.controllers {
+		st = append(st, c.Status())
+	}
+	return st
 }
 
 func (s *Server) backend(r registry.Resource) *backend { return s.backends[r.Kind] }
@@ -152,12 +200,20 @@ func (s *Server) newSessions(creds store.Credentials) *session.Manager {
 	return session.New(creds, session.Options{Now: s.clock.Now, Log: s.log, ServiceUsed: s.serviceTokenUsed, ServiceLive: s.serviceTokenLive})
 }
 
-// Run does the server's background work until ctx is done: it collects
-// garbage, compacts history, deletes expired credentials and records service
-// tokens' uses.
+// Run does the server's background work until ctx is done: it runs the
+// policy controllers, collects garbage, compacts history, deletes expired
+// credentials and records service tokens' and boxes' uses.
 func (s *Server) Run(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
+	s.runCtx = gctx
 	g.Go(func() error { return s.runGC(gctx) })
+	for _, c := range s.controllers {
+		g.Go(func() error { return c.Run(gctx) })
+	}
+	if len(s.controllers) > 0 {
+		g.Go(func() error { return s.runLastUse(gctx) })
+	}
+	defer s.jobs.wg.Wait()
 	g.Go(func() error { return s.runCompaction(gctx) })
 	if s.sessions != nil {
 		g.Go(func() error { return s.sessions.Run(gctx) })

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -46,6 +47,7 @@ type env struct {
 	srv   *apiserver.Server
 	store *sqlite.Store
 	clock *clockwork.FakeClock
+	cfg   apiserver.Config
 	url   string
 	// systemURL serves every caller as the system.
 	systemURL string
@@ -53,6 +55,11 @@ type env struct {
 	dbDir     string
 	// watches counts the watches the public listener is serving.
 	watches *atomic.Int32
+	// stop stops the apiserver serving now, and waits until it has.
+	stop func()
+	// others are the statuses of what runs beside the apiserver, such as a
+	// fake provider's, which waitSettled waits for too.
+	others []controllertest.Statuses
 }
 
 type envOption func(*apiserver.Config)
@@ -61,12 +68,12 @@ type envOption func(*apiserver.Config)
 // makes an admin, a workstream and a hostd token by apply, as the system.
 func newEnv(t *testing.T, opts ...envOption) *env {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
 	dbDir := t.TempDir()
-	st, err := sqlite.Open(ctx, filepath.Join(dbDir, "tower.db"))
+	st, err := sqlite.Open(context.Background(), filepath.Join(dbDir, "tower.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
 	keys, err := secrets.NewKeyring(secrets.NewKEK("test"))
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +83,29 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 	for _, o := range opts {
 		o(&cfg)
 	}
-	srv := apiserver.New(cfg)
+	// An option may bring a fake clock of its own.
+	if fc, ok := cfg.Clock.(*clockwork.FakeClock); ok {
+		clock = fc
+	}
+	e := &env{t: t, store: st, clock: clock, cfg: cfg, dbDir: dbDir, watches: &atomic.Int32{}}
+	e.serve()
+	for name, role := range map[string]iamv1alpha1.Role{admin: iamv1alpha1.Role_ROLE_ADMIN, workstream: iamv1alpha1.Role_ROLE_WORKSTREAM, hostd: iamv1alpha1.Role_ROLE_HOSTD} {
+		target := ""
+		if role == iamv1alpha1.Role_ROLE_HOSTD {
+			target = "h1"
+		}
+		if _, err := e.asSystem().tokens.ApplyServiceToken(t.Context(), connect.NewRequest(&iamv1alpha1.ApplyServiceTokenRequest{ServiceToken: serviceToken(name, role, target)})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return e
+}
+
+// serve starts an apiserver of e.cfg over e's store, and its listeners.
+func (e *env) serve() {
+	t := e.t
+	ctx, cancel := context.WithCancel(context.Background())
+	srv := apiserver.New(e.cfg)
 	if err := srv.PrepareSecrets(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -87,12 +116,11 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 	if tokens, ok := srv.ServiceTokens(); ok {
 		chain = append(auth.Chain{tokens}, chain...)
 	}
-	watches := &atomic.Int32{}
 	api := srv.Handler(chain)
 	public := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/Watch") {
-			watches.Add(1)
-			defer watches.Add(-1)
+			e.watches.Add(1)
+			defer e.watches.Add(-1)
 		}
 		api.ServeHTTP(w, r)
 	}))
@@ -112,35 +140,38 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 		ConnContext: auth.AdminConnContext,
 	}
 	go func() { _ = adminSock.Serve(ln) }()
-	t.Cleanup(func() {
-		public.Close()
-		system.Close()
-		_ = adminSock.Close()
-		cancel()
-		if err := <-done; err != nil {
-			t.Errorf("server Run: %v", err)
-		}
-		_ = st.Close()
-		_ = os.RemoveAll(sockDir)
-	})
-	e := &env{t: t, srv: srv, store: st, clock: clock, url: public.URL, systemURL: system.URL, sock: sock, dbDir: dbDir, watches: watches}
-	for name, role := range map[string]iamv1alpha1.Role{admin: iamv1alpha1.Role_ROLE_ADMIN, workstream: iamv1alpha1.Role_ROLE_WORKSTREAM, hostd: iamv1alpha1.Role_ROLE_HOSTD} {
-		target := ""
-		if role == iamv1alpha1.Role_ROLE_HOSTD {
-			target = "h1"
-		}
-		if _, err := e.asSystem().tokens.ApplyServiceToken(ctx, connect.NewRequest(&iamv1alpha1.ApplyServiceTokenRequest{ServiceToken: serviceToken(name, role, target)})); err != nil {
-			t.Fatal(err)
-		}
+	var once sync.Once
+	e.stop = func() {
+		once.Do(func() {
+			public.Close()
+			system.Close()
+			_ = adminSock.Close()
+			cancel()
+			if err := <-done; err != nil {
+				t.Errorf("server Run: %v", err)
+			}
+			_ = os.RemoveAll(sockDir)
+		})
 	}
-	return e
+	t.Cleanup(e.stop)
+	e.srv, e.url, e.systemURL, e.sock = srv, public.URL, system.URL, sock
 }
 
-// waitSettled waits until the server's garbage collector has finished
-// reacting to every write so far (see controllertest.WaitSettled).
+// restart stops the apiserver and starts another over the same store, as
+// a restart of tower does.
+func (e *env) restart() {
+	e.t.Helper()
+	e.stop()
+	e.serve()
+}
+
+// waitSettled waits until the server's garbage collector, controllers and
+// jobs, and what runs beside them, have finished reacting to every write so
+// far, and returns the keys still waiting on something outside them (see
+// controllertest.WaitSettled).
 func (e *env) waitSettled() []controllertest.Waiting {
 	e.t.Helper()
-	return controllertest.WaitSettled(e.t, e.store.Revision, e.srv.ControllerStatus)
+	return controllertest.WaitSettled(e.t, e.store.Revision, append([]controllertest.Statuses{e.srv.ControllerStatus}, e.others...)...)
 }
 
 // clients are typed clients of every service, calling as one caller.
