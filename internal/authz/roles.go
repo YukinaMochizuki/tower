@@ -115,6 +115,26 @@ func Allowed(c Caller, r registry.Resource, verb Verb) bool {
 	return false
 }
 
+// MayUseEnvironments reports whether c may call EnvironmentService, and so
+// run commands, read and write files, and push from environments:
+// ROLE_WORKSTREAM, and the system. Not an admin, nor root on the host: what
+// runs in an environment is judged in workstream (docs/decisions/secrets.md).
+func MayUseEnvironments(c Caller) bool {
+	switch c.Type {
+	case auth.System:
+		return true
+	case auth.ServiceToken:
+		return c.Role == iamv1alpha1.Role_ROLE_WORKSTREAM
+	}
+	return false
+}
+
+// MayOpenTunnel reports whether c may open its target's tunnel: a
+// ROLE_HOSTD token, for its own target alone.
+func MayOpenTunnel(c Caller) bool {
+	return c.Type == auth.ServiceToken && c.Role == iamv1alpha1.Role_ROLE_HOSTD && c.Target != ""
+}
+
 // MayIssueTokens reports whether c may call ServiceTokenIssuerService: an
 // admin token, root on the host, and the system.
 func MayIssueTokens(c Caller) bool {

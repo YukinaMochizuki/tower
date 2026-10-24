@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1/environmentsv1alpha1connect"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/iam/v1alpha1/iamv1alpha1connect"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
@@ -27,8 +28,11 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/controller"
 	"github.com/YukinaMochizuki/tower/internal/devcontainer"
 	"github.com/YukinaMochizuki/tower/internal/provider"
+	"github.com/YukinaMochizuki/tower/internal/provider/hostd"
 	"github.com/YukinaMochizuki/tower/internal/secrets"
 	"github.com/YukinaMochizuki/tower/internal/store"
+	"github.com/YukinaMochizuki/tower/internal/ticket"
+	"github.com/YukinaMochizuki/tower/internal/tunnel"
 )
 
 // Config configures a Server. Zero durations and counts take defaults.
@@ -57,9 +61,22 @@ type Config struct {
 	// Credentials keeps the service tokens' secrets the apiserver issues.
 	// Nil issues none, and ServiceTokenIssuerService fails.
 	Credentials store.Credentials
-	// Providers returns the provider of a target, by name. Nil, or an
-	// error, leaves the target's environments waiting.
+	// Providers returns the provider of a target, by name. An error leaves
+	// the target's environments waiting. Nil is tower's own: a hostd
+	// target's is its host over the tunnel it opens; a hangar target has
+	// none yet.
 	Providers func(target string) (provider.Provider, error)
+	// TunnelLiveness is the hostd tunnels'; zero is
+	// tunnel.DefaultLiveness.
+	TunnelLiveness tunnel.Liveness
+	// HostdCalls caps the calls open to hostd hosts; zero is hostd's
+	// defaults.
+	HostdCalls struct{ PerCaller, PerProject, PerTarget int }
+	// Tickets signs the tickets of direct streams; nil issues none, and
+	// IssueTicket fails.
+	Tickets *ticket.Signer
+	// TicketTTL is how long a ticket lasts; zero is DefaultTicketTTL.
+	TicketTTL time.Duration
 	// Resolver says what boxes' images and warm checkouts are made of; nil
 	// is devcontainer.Fake.
 	Resolver devcontainer.Resolver
@@ -103,6 +120,11 @@ type Server struct {
 	warmSizes   map[controller.Key]uint64
 	// runCtx is Run's, which jobs run under.
 	runCtx context.Context
+	// tunnels are the tunnels hostd hosts opened, one per target, and
+	// reach what Reachable says of each.
+	tunnels    *tunnel.Hub
+	reach      reachability
+	hostdCalls *hostd.Calls
 }
 
 // New returns a server over cfg.Store.
@@ -134,6 +156,9 @@ func New(cfg Config) *Server {
 	if cfg.GoldenPruneAfter == 0 {
 		cfg.GoldenPruneAfter = DefaultGoldenPruneAfter
 	}
+	if cfg.TicketTTL == 0 {
+		cfg.TicketTTL = DefaultTicketTTL
+	}
 	s := &Server{
 		cfg:       cfg,
 		store:     txStore{cfg.Store},
@@ -145,6 +170,8 @@ func New(cfg Config) *Server {
 	if cfg.Credentials != nil {
 		s.sessions = s.newSessions(cfg.Credentials)
 	}
+	s.tunnels = &tunnel.Hub{Liveness: cfg.TunnelLiveness, Log: cfg.Logger, Changed: s.tunnelChanged}
+	s.hostdCalls = &hostd.Calls{MaxPerCaller: cfg.HostdCalls.PerCaller, MaxPerProject: cfg.HostdCalls.PerProject, MaxPerTarget: cfg.HostdCalls.PerTarget}
 	for _, r := range registry.All {
 		s.backends[r.Kind] = &backend{s: s, r: r, hooks: hooksFor(r)}
 	}
@@ -174,6 +201,9 @@ func (s *Server) Handler(chain auth.Chain) http.Handler {
 	servicegen.Mount(mux, func(r registry.Resource) resource.Backend { return s.backend(r) },
 		s.interceptors(chain))
 	mux.Handle(iamv1alpha1connect.NewServiceTokenIssuerServiceHandler(tokenIssuer{s}, s.interceptors(chain)))
+	mux.Handle(environmentsv1alpha1connect.NewEnvironmentServiceHandler(environmentService{s}, s.interceptors(chain),
+		connect.WithReadMaxBytes(maxEnvironmentMessage)))
+	mux.HandleFunc(tunnel.Path, s.openTunnel(chain))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
 	})
@@ -206,6 +236,11 @@ func (s *Server) newSessions(creds store.Credentials) *session.Manager {
 func (s *Server) Run(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
 	s.runCtx = gctx
+	g.Go(func() error {
+		<-gctx.Done()
+		s.tunnels.Close()
+		return nil
+	})
 	g.Go(func() error { return s.runGC(gctx) })
 	for _, c := range s.controllers {
 		g.Go(func() error { return c.Run(gctx) })

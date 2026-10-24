@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,6 +16,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,6 +27,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/auth"
 	"github.com/YukinaMochizuki/tower/internal/secrets"
 	"github.com/YukinaMochizuki/tower/internal/store/sqlite"
+	"github.com/YukinaMochizuki/tower/internal/ticket"
 )
 
 type flags struct {
@@ -32,6 +36,7 @@ type flags struct {
 	adminSocket  string
 	secretsKEK   string
 	previousKEKs []string
+	ticketKey    string
 	dev          bool
 }
 
@@ -45,6 +50,7 @@ func main() {
 		f.previousKEKs = append(f.previousKEKs, s)
 		return nil
 	})
+	flag.StringVar(&f.ticketKey, "ticket-key", "", "the ed25519 key tickets for direct streams are signed with, a file only its owner reads, made if missing; its public key, which hostd verifies tickets with, is written beside it with .pub added. Empty is ticket-key beside --secrets-kek; with neither, no ticket is issued")
 	flag.BoolVar(&f.dev, "dev", false, "for local development only: trust the "+auth.DevPrincipalHeader+" header as the caller, and take the admin socket from the uid the apiserver runs as; only on a loopback IP")
 	flag.Parse()
 
@@ -86,7 +92,11 @@ func run(ctx context.Context, f flags, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	srv := apiserver.New(apiserver.Config{Store: st, Logger: log, Secrets: keys, Credentials: st})
+	tickets, err := loadTicketKey(f, log)
+	if err != nil {
+		return err
+	}
+	srv := apiserver.New(apiserver.Config{Store: st, Logger: log, Secrets: keys, Credentials: st, Tickets: tickets})
 	tokens, ok := srv.ServiceTokens()
 	if !ok {
 		return errors.New("the apiserver keeps no credentials")
@@ -214,6 +224,31 @@ func serve(ctx context.Context, srv *http.Server, ln net.Listener) error {
 		_ = srv.Close()
 	}
 	return nil
+}
+
+// loadTicketKey loads the key tickets are signed with, from --ticket-key or
+// beside the KEK, making it if missing, and writes its public key beside
+// it. Without either flag it is nil, and no ticket is issued.
+func loadTicketKey(f flags, log *slog.Logger) (*ticket.Signer, error) {
+	path := f.ticketKey
+	if path == "" && f.secretsKEK != "" {
+		path = filepath.Join(filepath.Dir(f.secretsKEK), "ticket-key")
+	}
+	if path == "" {
+		log.Warn("no --ticket-key nor --secrets-kek: no ticket for a direct stream is issued")
+		return nil, nil
+	}
+	key, err := ticket.LoadOrCreateKey(path)
+	if err != nil {
+		return nil, fmt.Errorf("--ticket-key: %w", err)
+	}
+	s := ticket.NewSigner(key)
+	pub := base64.StdEncoding.EncodeToString(s.PublicKey()) + "\n"
+	if err := os.WriteFile(path+".pub", []byte(pub), 0o644); err != nil { //nolint:gosec // a public key
+		return nil, fmt.Errorf("writing the ticket key's public key: %w", err)
+	}
+	log.Info("loaded the ticket signing key", "ticket_key", path, "public_key", strings.TrimSpace(pub))
+	return s, nil
 }
 
 // loadKeyring loads the key-encryption keys. Without a current one, it is

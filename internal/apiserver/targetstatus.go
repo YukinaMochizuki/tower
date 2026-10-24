@@ -19,9 +19,10 @@ import (
 
 // TargetDiskPressure says a target has less disk free than its warm budget
 // and a margin need. tower's controllers own it, counts and usage of
-// goldens and instances; the provider owns the rest of TargetStatus
-// (capacity, facts, Reachable, Reporting, the other usage), which they
-// leave as it is.
+// goldens and instances, and a hostd target's Reachable and last_error
+// (reachable); the provider owns the rest of TargetStatus (capacity,
+// facts, a hangar target's Reachable, Reporting, the other usage), which
+// they leave as it is.
 const TargetDiskPressure = "DiskPressure"
 
 // reconcileTargetStatus counts what tower holds on the target into its
@@ -70,6 +71,9 @@ func (s *Server) reconcileTargetStatus(ctx context.Context, key controller.Key) 
 		st.Usage = &targetsv1alpha1.Usage{}
 	}
 	st.Usage.Goldens, st.Usage.Instances = quantity.FormatDisk(goldenDisk), quantity.FormatDisk(instanceDisk)
+	if t.GetSpec().GetHostd() != nil {
+		s.reachable(key.Name, st)
+	}
 	if free, err := quantity.Bytes(st.GetCapacity().GetDiskFree()); err == nil && st.GetCapacity().GetDiskFree() != "" {
 		need := settingsOf(t).warmBudget + mustBytes(DiskPressureMargin)
 		c := &metav1.Condition{Type: TargetDiskPressure, Status: metav1.ConditionStatus_CONDITION_STATUS_FALSE, Reason: "EnoughFree",

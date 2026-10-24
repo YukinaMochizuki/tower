@@ -2,6 +2,7 @@ package apiserver_test
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"github.com/jonboulle/clockwork"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
+	"github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1/environmentsv1alpha1connect"
 	iamv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/iam/v1alpha1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/iam/v1alpha1/iamv1alpha1connect"
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
@@ -28,6 +30,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/auth"
 	"github.com/YukinaMochizuki/tower/internal/client"
 	"github.com/YukinaMochizuki/tower/internal/controller/controllertest"
+	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/secrets"
 	"github.com/YukinaMochizuki/tower/internal/store/sqlite"
 )
@@ -64,6 +67,10 @@ type env struct {
 
 type envOption func(*apiserver.Config)
 
+// errNoProviderHere is the provider of every target of an env not given
+// one.
+var errNoProviderHere = errors.New("this test gives the target no provider")
+
 // newEnv starts an apiserver, with a KEK and the store's credentials, and
 // makes an admin, a workstream and a hostd token by apply, as the system.
 func newEnv(t *testing.T, opts ...envOption) *env {
@@ -79,7 +86,10 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 		t.Fatal(err)
 	}
 	clock := clockwork.NewFakeClock()
-	cfg := apiserver.Config{Store: st, Clock: clock, Secrets: keys, Credentials: st}
+	cfg := apiserver.Config{Store: st, Clock: clock, Secrets: keys, Credentials: st,
+		// No target has a provider unless a test gives it one, or asks for
+		// tower's own with nil.
+		Providers: func(string) (provider.Provider, error) { return nil, errNoProviderHere }}
 	for _, o := range opts {
 		o(&cfg)
 	}
@@ -180,6 +190,7 @@ type clients struct {
 	secrets  secretsv1alpha1connect.SecretServiceClient
 	tokens   iamv1alpha1connect.ServiceTokenServiceClient
 	issuer   iamv1alpha1connect.ServiceTokenIssuerServiceClient
+	envs     environmentsv1alpha1connect.EnvironmentServiceClient
 	generic  *client.Client
 }
 
@@ -189,6 +200,7 @@ func newClients(hc connect.HTTPClient, base string) clients {
 		secrets:  secretsv1alpha1connect.NewSecretServiceClient(hc, base),
 		tokens:   iamv1alpha1connect.NewServiceTokenServiceClient(hc, base),
 		issuer:   iamv1alpha1connect.NewServiceTokenIssuerServiceClient(hc, base),
+		envs:     environmentsv1alpha1connect.NewEnvironmentServiceClient(hc, base),
 		generic:  client.New(hc, base),
 	}
 }

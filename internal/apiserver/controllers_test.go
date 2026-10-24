@@ -345,9 +345,16 @@ func TestAMachinesSecretsReachOnlyItsCommands(t *testing.T) {
 		t.Errorf("the configure phase was not given the secret: %v", w.fake.Execs())
 	}
 	w.waitSettled()
-	// Every object and event the store holds, and its files.
+	w.nowhere(canary, &logs)
+}
+
+// nowhere fails the test if any object or event the store holds, any of
+// its files, or logs holds value.
+func (w *world) nowhere(value string, logs *syncBuffer) {
+	t := w.t
+	t.Helper()
 	err := w.store.Watch(t.Context(), store.WatchOptions{SinceRevision: 0}, func(ev store.Event) error {
-		if strings.Contains(string(ev.Object.Data), canary) {
+		if strings.Contains(string(ev.Object.Data), value) {
 			t.Errorf("event %d of %s %s holds the secret", ev.Revision, ev.Object.Kind, ev.Object.Name)
 		}
 		if rev, _ := w.store.Revision(t.Context()); ev.Revision >= rev {
@@ -361,11 +368,11 @@ func TestAMachinesSecretsReachOnlyItsCommands(t *testing.T) {
 	files, _ := filepath.Glob(filepath.Join(w.dbDir, "*"))
 	for _, f := range files {
 		b, _ := os.ReadFile(f)
-		if strings.Contains(string(b), canary) {
+		if strings.Contains(string(b), value) {
 			t.Errorf("%s holds the secret", filepath.Base(f))
 		}
 	}
-	if strings.Contains(logs.String(), canary) {
+	if strings.Contains(logs.String(), value) {
 		t.Error("the log holds the secret")
 	}
 }

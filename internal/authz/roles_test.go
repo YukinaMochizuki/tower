@@ -92,3 +92,36 @@ func TestWhoMayIssueTokens(t *testing.T) {
 		}
 	}
 }
+
+func TestWhoMayUseEnvironments(t *testing.T) {
+	for c, want := range map[authz.Caller]bool{
+		token(iamv1alpha1.Role_ROLE_WORKSTREAM):                               true,
+		token(iamv1alpha1.Role_ROLE_ADMIN):                                    false,
+		token(iamv1alpha1.Role_ROLE_HOSTD):                                    false,
+		token(iamv1alpha1.Role_ROLE_UNSPECIFIED):                              false,
+		{Principal: auth.Principal{Type: auth.Local, ID: "root@n1"}}:          false,
+		{Principal: auth.SystemPrincipal}:                                     true,
+		{Principal: auth.Principal{}, Role: iamv1alpha1.Role_ROLE_WORKSTREAM}: false,
+	} {
+		if got := authz.MayUseEnvironments(c); got != want {
+			t.Errorf("%v (role %v) may use environments: %t, want %t", c.Principal, c.Role, got, want)
+		}
+	}
+}
+
+func TestWhoMayOpenATunnel(t *testing.T) {
+	hostd := token(iamv1alpha1.Role_ROLE_HOSTD)
+	hostd.Target = "t1"
+	for c, want := range map[authz.Caller]bool{
+		hostd:                                   true,
+		token(iamv1alpha1.Role_ROLE_HOSTD):      false,
+		token(iamv1alpha1.Role_ROLE_WORKSTREAM): false,
+		token(iamv1alpha1.Role_ROLE_ADMIN):      false,
+		{Principal: auth.Principal{Type: auth.Local, ID: "root@n1"}}: false,
+		{Principal: auth.SystemPrincipal}:                            false,
+	} {
+		if got := authz.MayOpenTunnel(c); got != want {
+			t.Errorf("%v (role %v, target %q) may open a tunnel: %t, want %t", c.Principal, c.Role, c.Target, got, want)
+		}
+	}
+}

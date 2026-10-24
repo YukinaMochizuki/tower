@@ -163,10 +163,11 @@ var (
 
 // providerFor is the provider of the target.
 func (s *Server) providerFor(target string) (provider.Provider, error) {
-	if s.cfg.Providers == nil {
-		return nil, errNoProvider
+	providers := s.cfg.Providers
+	if providers == nil {
+		providers = s.defaultProvider
 	}
-	p, err := s.cfg.Providers(target)
+	p, err := providers(target)
 	if err != nil {
 		return nil, err
 	}
