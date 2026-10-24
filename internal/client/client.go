@@ -228,6 +228,15 @@ func (c *Client) Delete(ctx context.Context, r registry.Resource, k Key) (proto.
 	return c.single(ctx, r, "Delete", keyFields(r, k))
 }
 
+// UpdateStatus writes an object's status, compared against
+// expectedResourceVersion when it is set, and returns the object.
+func (c *Client) UpdateStatus(ctx context.Context, r registry.Resource, k Key, status proto.Message, expectedResourceVersion *int64) (proto.Message, error) {
+	fields := keyFields(r, k)
+	fields["status"] = status
+	fields["expected_resource_version"] = expectedResourceVersion
+	return c.single(ctx, r, "Update", fields)
+}
+
 // Apply creates or replaces an object.
 func (c *Client) Apply(ctx context.Context, r registry.Resource, obj proto.Message) (ApplyResult, error) {
 	return c.apply(ctx, r, obj, false)

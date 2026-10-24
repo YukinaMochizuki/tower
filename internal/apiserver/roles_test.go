@@ -11,10 +11,13 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
+	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	iamv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/iam/v1alpha1"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
-	secretsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/secrets/v1alpha1"
+	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	tenancyv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/tenancy/v1alpha1"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/object"
 	"github.com/YukinaMochizuki/tower/internal/authz"
 	"github.com/YukinaMochizuki/tower/internal/client"
 )
@@ -49,25 +52,24 @@ func call(ctx context.Context, c clients, r registry.Resource, verb authz.Verb, 
 		_, err := c.generic.Delete(ctx, r, key)
 		return err
 	case authz.UpdateStatus:
-		var err error
-		switch r.Kind {
-		case registry.Project.Kind:
-			_, err = c.projects.UpdateProjectStatus(ctx, connect.NewRequest(&tenancyv1alpha1.UpdateProjectStatusRequest{Name: name, Status: &tenancyv1alpha1.ProjectStatus{}}))
-		case registry.Secret.Kind:
-			_, err = c.secrets.UpdateSecretStatus(ctx, connect.NewRequest(&secretsv1alpha1.UpdateSecretStatusRequest{Project: "web", Name: name, Status: &secretsv1alpha1.SecretStatus{}}))
-		case registry.ServiceToken.Kind:
-			_, err = c.tokens.UpdateServiceTokenStatus(ctx, connect.NewRequest(&iamv1alpha1.UpdateServiceTokenStatusRequest{Name: name, Status: &iamv1alpha1.ServiceTokenStatus{}}))
-		default:
-			panic("no status call for " + r.Kind)
-		}
+		_, err := c.generic.UpdateStatus(ctx, r, key, emptyStatus(r), nil)
 		return err
 	}
 	panic("no call for " + string(verb))
 }
 
-// sample is an object of kind r, as the fixtures of TestEveryRolesVerbs
-// have it, so an apply of it allowed changes nothing.
+// emptyStatus is a status of kind r holding nothing.
+func emptyStatus(r registry.Resource) proto.Message {
+	return r.Message.New().Get(r.Message.Descriptor().Fields().ByName("status")).Message().New().Interface()
+}
+
+// sample is an object of kind r, as fixtures makes it, so an apply of it
+// allowed changes nothing.
 func sample(r registry.Resource, name string) proto.Message {
+	meta := &metav1.ObjectMeta{Name: name}
+	if r.ProjectScoped() {
+		meta.Project = "web"
+	}
 	switch r.Kind {
 	case registry.Project.Kind:
 		return project(name)
@@ -75,29 +77,90 @@ func sample(r registry.Resource, name string) proto.Message {
 		return secret("web", name, map[string]string{"A": "x"})
 	case registry.ServiceToken.Kind:
 		return serviceToken(name, iamv1alpha1.Role_ROLE_WORKSTREAM, "")
+	case registry.Target.Kind:
+		return hostdTarget(name)
+	case registry.Placement.Kind:
+		return &targetsv1alpha1.Placement{Metadata: meta, Spec: &targetsv1alpha1.PlacementSpec{Target: "t1"}}
+	case registry.Repository.Kind:
+		return repository(name)
+	case registry.Box.Kind:
+		return box(name, "repo")
+	case registry.Machine.Kind:
+		return machine(name)
+	case registry.Golden.Kind:
+		return &envv1alpha1.Golden{Metadata: meta, Spec: &envv1alpha1.GoldenSpec{
+			Target: "t1", InputHash: "h-" + name, Inputs: &envv1alpha1.GoldenSpec_BoxImage{BoxImage: &envv1alpha1.BoxImageInputs{}},
+		}}
+	case registry.Instance.Kind:
+		return &envv1alpha1.Instance{Metadata: meta, Spec: &envv1alpha1.InstanceSpec{Target: "t1", Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER}}
 	}
 	panic("no sample of " + r.Kind)
+}
+
+// fixtures makes, as the system, one object of every kind, of target t1
+// where an object has a target, and another Golden and Instance of target
+// t2: gd2 and in2.
+func (e *env) fixtures() {
+	e.t.Helper()
+	ctx := e.t.Context()
+	sys := e.asSystem().generic
+	for _, m := range []struct {
+		r   registry.Resource
+		obj proto.Message
+	}{
+		{registry.Project, project("web")},
+		{registry.Target, hostdTarget("t1")},
+		{registry.Target, hostdTarget("t2")},
+		{registry.Placement, sample(registry.Placement, "web")},
+		{registry.Secret, sample(registry.Secret, "s")},
+		{registry.Repository, sample(registry.Repository, "repo")},
+		{registry.Box, sample(registry.Box, "bx")},
+		{registry.Machine, sample(registry.Machine, "mc")},
+		{registry.Golden, sample(registry.Golden, "gd")},
+		{registry.Instance, sample(registry.Instance, "in")},
+	} {
+		if _, err := sys.Apply(ctx, m.r, m.obj); err != nil {
+			e.t.Fatalf("making %s: %v", m.r.Kind, err)
+		}
+	}
+	gd2 := sample(registry.Golden, "gd2").(*envv1alpha1.Golden)
+	gd2.Spec.Target = "t2"
+	in2 := sample(registry.Instance, "in2").(*envv1alpha1.Instance)
+	in2.Spec.Target = "t2"
+	if _, err := sys.Apply(ctx, registry.Golden, gd2); err != nil {
+		e.t.Fatal(err)
+	}
+	if _, err := sys.Apply(ctx, registry.Instance, in2); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// fixtureOf is the object of each kind fixtures makes, which sample
+// matches.
+var fixtureOf = map[string]string{
+	registry.Project.Kind: "web", registry.Secret.Kind: "s", registry.ServiceToken.Kind: workstream,
+	registry.Target.Kind: "t1", registry.Placement.Kind: "web", registry.Repository.Kind: "repo",
+	registry.Box.Kind: "bx", registry.Machine.Kind: "mc", registry.Golden.Kind: "gd", registry.Instance.Kind: "in",
 }
 
 // TestEveryRolesVerbs: every caller may use exactly the verbs its role
 // lists on each kind, and is refused every other, on an object that exists
 // and on one that does not alike; a refusal says only what the request
-// named. A hostd token is authenticated, and refused everything.
+// named. A hostd token is held to its own target, object by object: see
+// TestHostdTouchesOnlyItsOwnTarget.
 func TestEveryRolesVerbs(t *testing.T) {
 	e := newEnv(t)
 	ctx := t.Context()
-	e.setup()
-	must[secretsv1alpha1.ApplySecretResponse](t)(e.as(admin).secrets.ApplySecret(ctx, applySecret(secret("web", "s", map[string]string{"A": "x"}))))
+	e.fixtures()
 	adminSecret := must[iamv1alpha1.CreateServiceTokenResponse](t)(e.local().issuer.CreateServiceToken(ctx, createToken("admin2", iamv1alpha1.Role_ROLE_ADMIN, ""))).GetSecret()
-	hostdSecret := must[iamv1alpha1.CreateServiceTokenResponse](t)(e.local().issuer.CreateServiceToken(ctx, createToken("hostd2", iamv1alpha1.Role_ROLE_HOSTD, "h1"))).GetSecret()
-	if ok, err := e.authenticates(hostdSecret); !ok || err != nil {
-		t.Fatalf("a hostd token's secret does not authenticate: %v", err)
-	}
-	// The existing object of each kind, which sample matches.
-	existing := map[string]string{registry.Project.Kind: "web", registry.Secret.Kind: "s", registry.ServiceToken.Kind: workstream}
 
 	writes := []authz.Verb{authz.Get, authz.List, authz.Watch, authz.Apply, authz.Delete}
-	every := map[string][]authz.Verb{registry.Project.Kind: writes, registry.Secret.Kind: writes, registry.ServiceToken.Kind: writes}
+	reads := []authz.Verb{authz.Get, authz.List, authz.Watch}
+	every := map[string][]authz.Verb{}
+	for _, r := range registry.All {
+		every[r.Kind] = writes
+	}
+	every[registry.Golden.Kind], every[registry.Instance.Kind] = reads, reads
 	for _, tc := range []struct {
 		name    string
 		c       clients
@@ -106,45 +169,150 @@ func TestEveryRolesVerbs(t *testing.T) {
 		{"admin, by its secret", e.withToken(adminSecret), every},
 		{"admin, by the dev header", e.as(admin), every},
 		{"root on the host", e.local(), every},
-		{"workstream", e.as(workstream), map[string][]authz.Verb{registry.Project.Kind: writes, registry.Secret.Kind: writes}},
-		{"hostd, by its secret", e.withToken(hostdSecret), nil},
-		{"hostd, by the dev header", e.as(hostd), nil},
+		{"workstream", e.as(workstream), map[string][]authz.Verb{
+			registry.Project.Kind: writes, registry.Secret.Kind: writes,
+			registry.Repository.Kind: writes, registry.Box.Kind: writes, registry.Machine.Kind: writes,
+			registry.Target.Kind: reads, registry.Placement.Kind: reads,
+			registry.Golden.Kind: reads, registry.Instance.Kind: reads,
+		}},
 		{"a token that is not there", e.as("nobody"), nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, r := range registry.All {
 				for _, verb := range authz.Verbs {
-					allowed := slices.Contains(tc.allowed[r.Kind], verb)
-					var msgs []string
-					for _, name := range []string{existing[r.Kind], "absent"} {
-						if verb == authz.Delete && name != "absent" {
-							continue // deleting what the others use is not the point
-						}
-						if verb == authz.Apply && name == "absent" && allowed {
-							continue // an allowed apply would make it
-						}
-						err := call(ctx, tc.c, r, verb, name)
-						code := connect.CodeOf(err)
-						if allowed && (code == connect.CodePermissionDenied || code == connect.CodeUnauthenticated) {
-							t.Errorf("%s %s %q: %v, want allowed", verb, r.Plural, name, err)
-						}
-						if !allowed {
-							if code != connect.CodePermissionDenied {
-								t.Errorf("%s %s %q: %v, want permission denied", verb, r.Plural, name, err)
-								continue
-							}
-							msgs = append(msgs, messageWithout(err, name))
-							if !strings.Contains(err.Error(), string(verb)) || !strings.Contains(err.Error(), r.Plural) {
-								t.Errorf("%s %s %q: the refusal %q does not say what was asked", verb, r.Plural, name, err)
-							}
-						}
-					}
-					if len(msgs) == 2 && msgs[0] != msgs[1] {
-						t.Errorf("%s %s: the refusals tell an existing object from an absent one: %q, %q", verb, r.Plural, msgs[0], msgs[1])
-					}
+					checkVerb(t, ctx, tc.c, r, verb, slices.Contains(tc.allowed[r.Kind], verb), fixtureOf[r.Kind], "absent")
 				}
 			}
 		})
+	}
+}
+
+// checkVerb calls verb on r for each name and checks it is allowed or
+// refused alike for each, a refusal saying only what was asked.
+func checkVerb(t *testing.T, ctx context.Context, c clients, r registry.Resource, verb authz.Verb, allowed bool, names ...string) {
+	t.Helper()
+	var msgs []string
+	for _, name := range names {
+		if verb == authz.Delete && allowed && name != "absent" {
+			continue // deleting what the others use is not the point
+		}
+		if verb == authz.Apply && name == "absent" && allowed {
+			continue // an allowed apply would make it
+		}
+		err := call(ctx, c, r, verb, name)
+		code := connect.CodeOf(err)
+		if allowed && (code == connect.CodePermissionDenied || code == connect.CodeUnauthenticated) {
+			t.Errorf("%s %s %q: %v, want allowed", verb, r.Plural, name, err)
+		}
+		if !allowed {
+			if code != connect.CodePermissionDenied {
+				t.Errorf("%s %s %q: %v, want permission denied", verb, r.Plural, name, err)
+				continue
+			}
+			msgs = append(msgs, messageWithout(err, name))
+			if !strings.Contains(err.Error(), string(verb)) || !strings.Contains(err.Error(), r.Plural) {
+				t.Errorf("%s %s %q: the refusal %q does not say what was asked", verb, r.Plural, name, err)
+			}
+		}
+	}
+	for _, m := range msgs[min(1, len(msgs)):] {
+		if m != msgs[0] {
+			t.Errorf("%s %s: the refusals tell one object from another: %q", verb, r.Plural, msgs)
+			break
+		}
+	}
+}
+
+// TestHostdTouchesOnlyItsOwnTarget: a hostd token reads the Instances and
+// Goldens of its target and its Target, writes the status of those
+// Instances and of its Target, and nothing else: another target's objects,
+// and ones that do not exist, are refused alike; a list or a watch shows
+// only its own. A hostd token is authenticated, and its secret works.
+func TestHostdTouchesOnlyItsOwnTarget(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	e.fixtures()
+	secret := must[iamv1alpha1.CreateServiceTokenResponse](t)(e.local().issuer.CreateServiceToken(ctx, createToken("agent", iamv1alpha1.Role_ROLE_HOSTD, "t1"))).GetSecret()
+	if ok, err := e.authenticates(secret); !ok || err != nil {
+		t.Fatalf("a hostd token's secret does not authenticate: %v", err)
+	}
+	own := map[string][]authz.Verb{
+		registry.Instance.Kind: {authz.Get, authz.UpdateStatus},
+		registry.Golden.Kind:   {authz.Get},
+		registry.Target.Kind:   {authz.Get, authz.UpdateStatus},
+	}
+	others := map[string]string{registry.Instance.Kind: "in2", registry.Golden.Kind: "gd2", registry.Target.Kind: "t2"}
+	for how, c := range map[string]clients{"by its secret": e.withToken(secret), "by the dev header": e.as("agent")} {
+		t.Run(how, func(t *testing.T) {
+			for _, r := range registry.All {
+				for _, verb := range authz.Verbs {
+					if verb == authz.List || verb == authz.Watch {
+						continue // below: allowed, and filtered
+					}
+					if slices.Contains(own[r.Kind], verb) {
+						checkVerb(t, ctx, c, r, verb, true, fixtureOf[r.Kind])
+						checkVerb(t, ctx, c, r, verb, false, others[r.Kind], "absent")
+						continue
+					}
+					checkVerb(t, ctx, c, r, verb, false, fixtureOf[r.Kind], "absent")
+				}
+			}
+			for _, r := range []registry.Resource{registry.Instance, registry.Golden} {
+				for _, project := range []string{"web", ""} {
+					res, err := c.generic.List(ctx, r, client.ListOptions{Project: project})
+					if err != nil {
+						t.Fatalf("listing %s in %q: %v", r.Plural, project, err)
+					}
+					var names []string
+					for _, o := range res.Items {
+						names = append(names, object.Meta(o).GetName())
+					}
+					if !slices.Equal(names, []string{fixtureOf[r.Kind]}) {
+						t.Errorf("listing %s in %q shows %v, want only its own target's %s", r.Plural, project, names, fixtureOf[r.Kind])
+					}
+				}
+			}
+			for _, r := range []registry.Resource{registry.Target, registry.Placement, registry.Box} {
+				checkVerb(t, ctx, c, r, authz.List, false, "absent")
+				checkVerb(t, ctx, c, r, authz.Watch, false, "absent")
+			}
+		})
+	}
+	// A watch shows its own target's objects alone.
+	rev, err := e.store.Revision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var seen []string
+	done := errors.New("done")
+	applied := make(chan struct{})
+	go func() {
+		defer close(applied)
+		for _, name := range []string{"in3", "in4"} {
+			in := sample(registry.Instance, name).(*envv1alpha1.Instance)
+			if name == "in3" {
+				in.Spec.Target = "t2"
+			}
+			if _, err := e.asSystem().generic.Apply(ctx, registry.Instance, in); err != nil {
+				t.Error(err)
+			}
+		}
+	}()
+	err = e.withToken(secret).generic.Watch(wctx, registry.Instance, client.ListOptions{}, rev, func(ev client.Event) error {
+		if ev.Object == nil {
+			return nil
+		}
+		seen = append(seen, object.Meta(ev.Object).GetName())
+		if object.Meta(ev.Object).GetName() == "in4" {
+			return done
+		}
+		return nil
+	})
+	<-applied
+	if !errors.Is(err, done) || !slices.Equal(seen, []string{"in4"}) {
+		t.Errorf("a hostd watch saw %v (%v), want only in4, of its target", seen, err)
 	}
 }
 

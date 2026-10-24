@@ -30,6 +30,16 @@ func apiError(err error) error {
 	return connect.NewError(connect.CodeInternal, err)
 }
 
+// messageOf is what an error says, without the code a Connect error
+// prefixes its message with.
+func messageOf(err error) string {
+	var ce *connect.Error
+	if errors.As(err, &ce) {
+		return ce.Message()
+	}
+	return err.Error()
+}
+
 func invalid(format string, args ...any) error {
 	return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf(format, args...))
 }

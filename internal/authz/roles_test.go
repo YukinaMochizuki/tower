@@ -46,7 +46,12 @@ func TestTheRoleTable(t *testing.T) {
 			registry.Target.Kind: reads, registry.Placement.Kind: reads,
 			registry.Golden.Kind: reads, registry.Instance.Kind: reads,
 		}},
-		{"hostd", token(iamv1alpha1.Role_ROLE_HOSTD), nil},
+		// On its own target's objects alone, which the apiserver checks.
+		{"hostd", token(iamv1alpha1.Role_ROLE_HOSTD), map[string][]authz.Verb{
+			registry.Instance.Kind: {authz.Get, authz.List, authz.Watch, authz.UpdateStatus},
+			registry.Golden.Kind:   reads,
+			registry.Target.Kind:   {authz.Get, authz.UpdateStatus},
+		}},
 		{"a token without a role", token(iamv1alpha1.Role_ROLE_UNSPECIFIED), nil},
 		{"no principal", authz.Caller{}, nil},
 	} {

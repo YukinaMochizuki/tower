@@ -14,11 +14,13 @@ import (
 	"connectrpc.com/connect"
 	"github.com/jonboulle/clockwork"
 
+	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	iamv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/iam/v1alpha1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/iam/v1alpha1/iamv1alpha1connect"
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	secretsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/secrets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/secrets/v1alpha1/secretsv1alpha1connect"
+	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	tenancyv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/tenancy/v1alpha1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/tenancy/v1alpha1/tenancyv1alpha1connect"
 	"github.com/YukinaMochizuki/tower/internal/apiserver"
@@ -227,6 +229,50 @@ func project(name string) *tenancyv1alpha1.Project {
 
 func serviceToken(name string, role iamv1alpha1.Role, target string) *iamv1alpha1.ServiceToken {
 	return &iamv1alpha1.ServiceToken{Metadata: &metav1.ObjectMeta{Name: name}, Spec: &iamv1alpha1.ServiceTokenSpec{Role: role, Target: target}}
+}
+
+// hostdTarget is a Target of hostd, with tower's default settings.
+func hostdTarget(name string) *targetsv1alpha1.Target {
+	return &targetsv1alpha1.Target{
+		Metadata: &metav1.ObjectMeta{Name: name},
+		Spec:     &targetsv1alpha1.TargetSpec{Provider: &targetsv1alpha1.TargetSpec_Hostd{Hostd: &targetsv1alpha1.HostdTarget{}}},
+	}
+}
+
+// placement places project on target.
+func placement(project, target string) *targetsv1alpha1.Placement {
+	return &targetsv1alpha1.Placement{Metadata: &metav1.ObjectMeta{Name: project}, Spec: &targetsv1alpha1.PlacementSpec{Target: target}}
+}
+
+// repository is a Repository of project "web".
+func repository(name string) *envv1alpha1.Repository {
+	return &envv1alpha1.Repository{
+		Metadata: &metav1.ObjectMeta{Project: "web", Name: name},
+		Spec:     &envv1alpha1.RepositorySpec{Url: "https://git.example.com/" + name + ".git", DefaultBranch: "main"},
+	}
+}
+
+// box is a Box of project "web" in workstream ws1, checking out repos.
+func box(name string, repos ...string) *envv1alpha1.Box {
+	b := &envv1alpha1.Box{
+		Metadata: &metav1.ObjectMeta{Project: "web", Name: name},
+		Spec:     &envv1alpha1.BoxSpec{Workstream: "ws1"},
+	}
+	for _, r := range repos {
+		b.Spec.Checkouts = append(b.Spec.Checkouts, &envv1alpha1.Checkout{Repository: r})
+	}
+	return b
+}
+
+// machine is a Machine of project "web" in workstream ws1, of a small
+// blueprint.
+func machine(name string) *envv1alpha1.Machine {
+	return &envv1alpha1.Machine{
+		Metadata: &metav1.ObjectMeta{Project: "web", Name: name},
+		Spec: &envv1alpha1.MachineSpec{Workstream: "ws1", Blueprint: &envv1alpha1.Blueprint{
+			Name: "k3s", Content: "- hosts: all\n", BaseImage: "ubuntu-24.04",
+		}},
+	}
 }
 
 // secret is an opaque secret in the project, holding data.

@@ -99,6 +99,13 @@ type kindHooks struct {
 	// asks: a Secret's values. It is applied to every object answered, by
 	// every call and event.
 	redact func(obj proto.Message)
+	// beforeDelete may refuse a delete; it runs when the delete is asked
+	// for, not again while finalizers hold the object.
+	beforeDelete func(ctx context.Context, s *Server, p authz.Caller, obj proto.Message) error
+	// targetOf names the Target obj belongs to: a caller held to its own
+	// target (authz.OwnTargetOnly) touches only the objects of it. A kind
+	// without it holds none of theirs.
+	targetOf func(obj proto.Message) string
 }
 
 // ownedByProject makes every project-scoped object belong to its project.
@@ -130,6 +137,9 @@ func hooksFor(r registry.Resource) kindHooks {
 			seal:     sealSecret,
 			redact:   redactSecret,
 		}
+	}
+	if h, ok := environmentHooks(r); ok {
+		return h
 	}
 	if r.ProjectScoped() {
 		return kindHooks{owner: ownedByProject}

@@ -68,18 +68,18 @@ func validateServiceToken(_ context.Context, _ *Server, _ authz.Caller, _, obj p
 	return nil
 }
 
-// roleOf is the role the service token of the name holds now: none if it is
-// gone or being deleted.
-func (s *Server) roleOf(ctx context.Context, name string) (iamv1alpha1.Role, error) {
+// roleOf is the role the service token of the name holds now, and its
+// target: none if it is gone or being deleted.
+func (s *Server) roleOf(ctx context.Context, name string) (iamv1alpha1.Role, string, error) {
 	o, err := s.get(ctx, registry.ServiceToken, resource.Key{Name: name})
 	if err != nil || o == nil {
-		return iamv1alpha1.Role_ROLE_UNSPECIFIED, err
+		return iamv1alpha1.Role_ROLE_UNSPECIFIED, "", err
 	}
 	tok := o.(*iamv1alpha1.ServiceToken)
 	if tok.GetMetadata().GetDeleteTime() != nil {
-		return iamv1alpha1.Role_ROLE_UNSPECIFIED, nil
+		return iamv1alpha1.Role_ROLE_UNSPECIFIED, "", nil
 	}
-	return tok.GetSpec().GetRole(), nil
+	return tok.GetSpec().GetRole(), tok.GetSpec().GetTarget(), nil
 }
 
 // revokeServiceToken revokes a deleted token's secret, at once. It runs

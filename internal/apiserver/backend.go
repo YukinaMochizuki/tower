@@ -81,11 +81,11 @@ func (s *Server) begin(ctx context.Context) (authz.Caller, error) {
 	}
 	c := authz.Caller{Principal: p}
 	if p.Type == auth.ServiceToken {
-		role, err := s.roleOf(ctx, p.ID)
+		role, target, err := s.roleOf(ctx, p.ID)
 		if err != nil {
 			return c, apiError(err)
 		}
-		c.Role = role
+		c.Role, c.Target = role, target
 	}
 	return c, nil
 }
@@ -171,6 +171,11 @@ func (b *backend) read(ctx context.Context, p authz.Caller, verb authz.Verb, key
 		return store.Object{}, nil, err
 	}
 	cur, err := b.s.store.Get(ctx, b.storeKey(key))
+	if errors.Is(err, store.ErrNotFound) && authz.OwnTargetOnly(p) {
+		// Whether another target's object exists is not this caller's to
+		// learn.
+		return store.Object{}, nil, denied("%s may not %s %s", p, verb, b.asked(key))
+	}
 	if err != nil {
 		return store.Object{}, nil, apiError(err)
 	}
@@ -178,7 +183,19 @@ func (b *backend) read(ctx context.Context, p authz.Caller, verb authz.Verb, key
 	if err != nil {
 		return store.Object{}, nil, apiError(err)
 	}
+	if !b.ownTarget(p, obj) {
+		return store.Object{}, nil, denied("%s may not %s %s", p, verb, b.asked(key))
+	}
 	return cur, obj, nil
+}
+
+// ownTarget reports whether p may see obj at all: whoever is not held to
+// its own target may; a caller who is, only an object of that target.
+func (b *backend) ownTarget(p authz.Caller, obj proto.Message) bool {
+	if !authz.OwnTargetOnly(p) {
+		return true
+	}
+	return b.hooks.targetOf != nil && p.Target != "" && b.hooks.targetOf(obj) == p.Target
 }
 
 func (b *backend) List(ctx context.Context, opts resource.ListOptions) (resource.ListResult, error) {
@@ -212,7 +229,7 @@ func (b *backend) List(ctx context.Context, opts resource.ListOptions) (resource
 		if err != nil {
 			return resource.ListResult{}, apiError(err)
 		}
-		if !sel.Matches(object.Meta(obj).GetLabels()) {
+		if !b.ownTarget(p, obj) || !sel.Matches(object.Meta(obj).GetLabels()) {
 			continue
 		}
 		b.answer(obj)
@@ -306,7 +323,7 @@ func (b *backend) Watch(ctx context.Context, opts resource.WatchOptions, send fu
 		if err != nil {
 			return err
 		}
-		if !sel.Matches(object.Meta(obj).GetLabels()) {
+		if !b.ownTarget(p, obj) || !sel.Matches(object.Meta(obj).GetLabels()) {
 			return nil
 		}
 		b.answer(obj)
@@ -567,6 +584,11 @@ func (b *backend) Delete(ctx context.Context, key resource.Key, expected *int64)
 				fmt.Errorf("%s %s is at resource version %d, not %d", b.r.Kind, key.Name, cur.Revision, *expected))
 		}
 		meta := object.Meta(old)
+		if meta.GetDeleteTime() == nil && b.hooks.beforeDelete != nil {
+			if err := b.hooks.beforeDelete(ctx, b.s, p, old); err != nil {
+				return nil, apiError(err)
+			}
+		}
 		if len(meta.GetFinalizers()) > 0 {
 			if meta.GetDeleteTime() != nil {
 				if err := b.afterDelete(ctx, key); err != nil {

@@ -46,10 +46,15 @@ var readVerbs = []Verb{Get, List, Watch}
 var systemKinds = []string{registry.Golden.Kind, registry.Instance.Kind}
 
 // grants is each role's verbs by kind. A kind or role it does not list is
-// refused everything. ROLE_HOSTD holds nothing here: what it reads is only
-// its own target's, which the apiserver decides object by object.
+// refused everything. ROLE_HOSTD's verbs hold only on its own target's
+// objects (OwnTargetOnly), which the apiserver decides object by object.
 var grants = map[iamv1alpha1.Role]map[string][]Verb{
 	iamv1alpha1.Role_ROLE_ADMIN: adminGrants(),
+	iamv1alpha1.Role_ROLE_HOSTD: {
+		registry.Instance.Kind: {Get, List, Watch, UpdateStatus},
+		registry.Golden.Kind:   readVerbs,
+		registry.Target.Kind:   {Get, UpdateStatus},
+	},
 	iamv1alpha1.Role_ROLE_WORKSTREAM: {
 		registry.Project.Kind:    userVerbs,
 		registry.Secret.Kind:     userVerbs,
@@ -84,6 +89,16 @@ type Caller struct {
 	// Role is a service token's; unset for any other principal, and for a
 	// token whose ServiceToken is gone.
 	Role iamv1alpha1.Role
+	// Target is a ROLE_HOSTD token's: the one target whose objects it may
+	// touch.
+	Target string
+}
+
+// OwnTargetOnly reports whether what c may do on a kind holds only on the
+// objects of its own target, which the caller of Allowed then checks on
+// each object.
+func OwnTargetOnly(c Caller) bool {
+	return c.Type == auth.ServiceToken && c.Role == iamv1alpha1.Role_ROLE_HOSTD
 }
 
 // Allowed reports whether c may do verb on objects of kind r. The system
