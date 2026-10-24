@@ -28,7 +28,7 @@ type credential struct {
 	p   auth.Principal
 }
 
-var alice = auth.Principal{Type: auth.User, ID: "alice@example.com"}
+var alice = auth.Principal{Type: auth.ServiceToken, ID: "alice"}
 
 func (c *credential) set(p auth.Principal, err error) {
 	c.mu.Lock()
@@ -233,7 +233,7 @@ func TestAStuckRoundIsUndecided(t *testing.T) {
 func TestAHeldStreamIsItsPrincipalsAlone(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cred, _ := held(t)
-		cred.set(auth.Principal{Type: auth.User, ID: "bob@example.com"}, nil)
+		cred.set(auth.Principal{Type: auth.ServiceToken, ID: "bob"}, nil)
 		endedWithin(t, ctx, connect.CodeUnauthenticated)
 	})
 }
@@ -317,7 +317,7 @@ func TestAStreamCredentialIsRecheckedWithoutUse(t *testing.T) {
 	})
 }
 
-const streamProcedure = "/hangar.test.v1.Test/Stream"
+const streamProcedure = "/tower.test.v1.Test/Stream"
 
 // TestAStreamThatRegistersNoDecisionIsLogged: a held stream that answers
 // without registering what it was let in under, which no recheck but its
@@ -341,7 +341,7 @@ func TestAStreamThatRegistersNoDecisionIsLogged(t *testing.T) {
 		srv := httptest.NewServer(mux)
 		defer srv.Close()
 		req := connect.NewRequest(&emptypb.Empty{})
-		req.Header().Set(auth.DevUserHeader, "alice@example.com")
+		req.Header().Set(auth.DevPrincipalHeader, "serviceToken:alice")
 		stream, err := connect.NewClient[emptypb.Empty, emptypb.Empty](http.DefaultClient, srv.URL+streamProcedure).CallServerStream(t.Context(), req)
 		if err != nil {
 			t.Fatal(err)
@@ -354,7 +354,7 @@ func TestAStreamThatRegistersNoDecisionIsLogged(t *testing.T) {
 		log.Reset()
 		return out
 	}
-	if out := serve(false, true); !strings.Contains(out, "level=WARN") || !strings.Contains(out, streamProcedure) || !strings.Contains(out, "user:alice@example.com") {
+	if out := serve(false, true); !strings.Contains(out, "level=WARN") || !strings.Contains(out, streamProcedure) || !strings.Contains(out, "serviceToken:alice") {
 		t.Errorf("a stream that answered without registering a decision was not logged:\n%s", out)
 	}
 	if out := serve(true, true); out != "" {

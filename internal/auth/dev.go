@@ -7,29 +7,28 @@ import (
 	"strings"
 )
 
-// DevUserHeader names the header dev mode reads the caller's email from.
-const DevUserHeader = "X-Hangar-Dev-User"
+// DevPrincipalHeader names the header dev mode reads the caller from, a
+// principal as Principal.String writes it, such as serviceToken:workstream.
+const DevPrincipalHeader = "X-Tower-Dev-Principal"
 
-// cloudflareEdgeHeaders mark a request that came through Cloudflare: its edge
-// sets the first three, and cloudflared adds Cf-Warp-Tag-Id to every request
-// it proxies to the origin, whatever the edge sent.
-var cloudflareEdgeHeaders = []string{"Cf-Connecting-Ip", "Cdn-Loop", "Cf-Ray", "Cf-Warp-Tag-Id"}
-
-// Dev trusts DevUserHeader as the caller's email. It exists for local
-// development and tests; the apiserver only enables it on a loopback address,
-// and it refuses anything that came through Cloudflare, so a tunnel pointed at
-// a dev-mode apiserver cannot reach it.
+// Dev trusts DevPrincipalHeader as the caller. It exists for local
+// development and tests; the apiserver only enables it on a loopback
+// address. It names a service token alone, which holds the role its
+// ServiceToken object gives it, as one presenting its secret would; the
+// system and root on the host never come from a header.
 type Dev struct{}
 
 func (Dev) Authenticate(_ context.Context, header http.Header) (Principal, bool, error) {
-	for _, h := range cloudflareEdgeHeaders {
-		if _, ok := header[http.CanonicalHeaderKey(h)]; ok {
-			return Principal{}, false, errors.New("dev auth refuses requests that came through Cloudflare (" + h + " is set); switch the apiserver to oidc auth")
-		}
-	}
-	email := strings.ToLower(strings.TrimSpace(header.Get(DevUserHeader)))
-	if email == "" {
+	v := strings.TrimSpace(header.Get(DevPrincipalHeader))
+	if v == "" {
 		return Principal{}, false, nil
 	}
-	return Principal{Type: User, ID: email}, true, nil
+	p, err := ParsePrincipal(v)
+	if err != nil {
+		return Principal{}, false, err
+	}
+	if p.Type != ServiceToken {
+		return Principal{}, false, errors.New("dev auth takes a service token alone, as serviceToken:<name>")
+	}
+	return p, true, nil
 }

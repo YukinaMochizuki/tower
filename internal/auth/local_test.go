@@ -89,21 +89,16 @@ func TestLocalRoot(t *testing.T) {
 			t.Fatalf("root got %v, %t, %v", r.p, r.ok, r.err)
 		}
 	})
-	t.Run("the node socket's peers are not seen", func(t *testing.T) {
-		// Root's node agent on the node socket is not root on the admin one.
-		r := overSocket(t, auth.ConnContext, auth.LocalRoot{Host: "n1", UID: me}, nil)
+	t.Run("another socket's peers are not seen", func(t *testing.T) {
+		// A listener that records no peer for LocalRoot, as every one but
+		// the admin socket, makes no one root, whoever connects.
+		r := overSocket(t, nil, auth.LocalRoot{Host: "n1", UID: me}, nil)
 		if r.ok || r.err != nil {
-			t.Fatalf("a peer the node listener recorded was recognized: %v, %t, %v", r.p, r.ok, r.err)
-		}
-	})
-	t.Run("the admin socket's peers are not a node", func(t *testing.T) {
-		r := overSocket(t, auth.AdminConnContext, auth.PeerCred{NodeUIDs: []uint32{me}, NodeName: "n1"}, nil)
-		if r.ok || r.err != nil {
-			t.Fatalf("a peer the admin listener recorded was a node: %v, %t, %v", r.p, r.ok, r.err)
+			t.Fatalf("a peer another listener took was recognized: %v, %t, %v", r.p, r.ok, r.err)
 		}
 	})
 	t.Run("no header makes it", func(t *testing.T) {
-		h := http.Header{auth.DevUserHeader: {"root@n1"}, "Authorization": {"Bearer x"}}
+		h := http.Header{auth.DevPrincipalHeader: {"local:root@n1"}, "Authorization": {"Bearer x"}}
 		_, ok, err := auth.LocalRoot{Host: "n1", UID: me}.Authenticate(t.Context(), h)
 		if ok || err != nil {
 			t.Fatalf("headers without a connection were recognized: %t, %v", ok, err)
@@ -114,37 +109,13 @@ func TestLocalRoot(t *testing.T) {
 // No authenticator but LocalRoot makes a Local principal, whatever the
 // request says.
 func TestOnlyLocalRootMakesLocal(t *testing.T) {
-	h := http.Header{auth.DevUserHeader: {"local:root@n1"}}
-	p, ok, err := auth.Dev{}.Authenticate(t.Context(), h)
-	if err != nil || !ok || p.Type != auth.User {
-		t.Fatalf("dev made %v, %t, %v; want a user", p, ok, err)
+	h := http.Header{auth.DevPrincipalHeader: {"local:root@n1"}}
+	if p, ok, err := (auth.Dev{}).Authenticate(t.Context(), h); err == nil || ok {
+		t.Fatalf("dev made %v, %t, %v; want a refusal", p, ok, err)
 	}
 	me := uint32(os.Getuid())
-	r := overSocket(t, auth.ConnContext, auth.PeerCred{NodeUIDs: []uint32{me}, NodeName: "n1"}, h)
-	if r.p.Type != auth.Node {
-		t.Fatalf("the node socket made %v", r.p)
+	r := overSocket(t, auth.AdminConnContext, auth.LocalRoot{Host: "n1", UID: me}, h)
+	if r.p != (auth.Principal{Type: auth.Local, ID: "root@n1"}) {
+		t.Fatalf("the admin socket made %v", r.p)
 	}
-}
-
-func TestDevRefusesCloudflareTraffic(t *testing.T) {
-	for _, h := range []string{"Cf-Connecting-Ip", "CDN-Loop", "cf-ray", "Cf-Warp-Tag-Id"} {
-		t.Run(h, func(t *testing.T) {
-			header := http.Header{}
-			header.Set(auth.DevUserHeader, "root@example.com")
-			header.Set(h, "x")
-			_, err := auth.Chain{auth.Dev{}}.Authenticate(t.Context(), header)
-			if err == nil {
-				t.Fatal("dev auth took a request that came through Cloudflare")
-			}
-			if !strings.Contains(err.Error(), "came through Cloudflare") {
-				t.Errorf("refusal %q does not say why", err)
-			}
-		})
-	}
-	t.Run("even without a dev user", func(t *testing.T) {
-		_, ok, err := auth.Dev{}.Authenticate(t.Context(), http.Header{"Cdn-Loop": {"cloudflare"}})
-		if ok || err == nil {
-			t.Fatalf("got %t, %v; want a refusal", ok, err)
-		}
-	})
 }

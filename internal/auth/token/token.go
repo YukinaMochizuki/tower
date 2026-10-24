@@ -1,4 +1,4 @@
-// Package token is the format of every secret Hangar issues: a prefix that
+// Package token is the format of every secret tower issues: a prefix that
 // says what it is, then 32 random bytes in unpadded base64url. Only its
 // SHA-256 is ever stored. A Secret never prints itself, so a token cannot
 // end up in a log, an error or a terminal by accident. See
@@ -17,20 +17,12 @@ import (
 // Prefixes name what a token is. Each is unique, so a token found in the
 // open says what it unlocks, and secret scanners can match it.
 const (
-	// Session is a browser's session cookie.
-	Session = "hgs_"
-	// Access is a CLI's short-lived access token.
-	Access = "hga_"
-	// Refresh is a CLI's refresh token.
-	Refresh = "hgf_"
-	// Service is an agent's service token.
-	Service = "hgr_"
-	// Endpoint is a browser's session cookie on one private endpoint.
-	Endpoint = "hge_"
+	// Service is a client's service token.
+	Service = "twr_"
 )
 
 // Prefixes is every prefix there is.
-var Prefixes = []string{Session, Access, Refresh, Service, Endpoint}
+var Prefixes = []string{Service}
 
 // randomBytes is how much randomness a token carries.
 const randomBytes = 32
@@ -55,8 +47,8 @@ func Random() string {
 // Reveal returns the secret's value.
 func (s Secret) Reveal() string { return string(s) }
 
-// Prefix returns the secret's prefix, such as "hga_", or "" if it has none
-// Hangar knows.
+// Prefix returns the secret's prefix, such as "twr_", or "" if it has none
+// tower knows.
 func (s Secret) Prefix() string {
 	for _, p := range Prefixes {
 		if strings.HasPrefix(string(s), p) {

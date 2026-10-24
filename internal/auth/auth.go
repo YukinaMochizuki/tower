@@ -20,37 +20,25 @@ import (
 type Type int
 
 const (
-	// User is a person, identified by an email their identity provider
-	// verified.
-	User Type = iota + 1
-	// ServiceToken is an agent, identified by its service token.
-	ServiceToken
-	// Node is a hangar-node process.
-	Node
+	// ServiceToken is a client, identified by its service token; its ID is
+	// the token's name.
+	ServiceToken Type = iota + 1
 	// System is the apiserver itself, acting through its controllers.
 	System
-	// Local is root on the host, through the admin socket. It holds
-	// platform.root without a RoleBinding, and no RoleBinding can name it.
+	// Local is root on the host, through the admin socket. It may do what
+	// an admin token may, issuing tokens included, so it is how the first
+	// one is made.
 	Local
-	// Edge is a hangar-edge process, through the edge socket. It reads the
-	// public endpoints and what decides who may use them, nothing else.
-	Edge
 )
 
 func (t Type) String() string {
 	switch t {
-	case User:
-		return "user"
 	case ServiceToken:
 		return "serviceToken"
-	case Node:
-		return "node"
 	case System:
 		return "system"
 	case Local:
 		return "local"
-	case Edge:
-		return "edge"
 	}
 	return fmt.Sprintf("Type(%d)", int(t))
 }
@@ -67,7 +55,7 @@ func (p Principal) String() string { return p.Type.String() + ":" + p.ID }
 func ParsePrincipal(s string) (Principal, error) {
 	name, id, ok := strings.Cut(s, ":")
 	if ok && id != "" {
-		for t := User; t <= Edge; t++ {
+		for t := ServiceToken; t <= Local; t++ {
 			if t.String() == name {
 				return Principal{Type: t, ID: id}, nil
 			}
