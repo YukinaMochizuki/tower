@@ -19,7 +19,7 @@ CLI are being built. `docs/architecture.md` describes the target.
 |---|---|
 | `proto/tower/<group>/<version>/` | API schema, the single source of truth for resources |
 | `gen/go`, `gen/ts` | Generated code. Committed, never edited by hand |
-| `cmd/` | Binaries: `tower-apiserver` |
+| `cmd/` | Binaries: `tower-apiserver`, `hostd`, and the `tower` CLI |
 | `internal/` | Implementation, split by function rather than by binary |
 | `tools/` | Our own codegen; `tools/tools.mod` pins third-party CLIs |
 | `test/` | End-to-end harnesses |
@@ -62,6 +62,7 @@ Every other tool is pinned in the repo (`go.mod`, `tools/tools.mod`, or
 | `docs/architecture.md` | You need the map: layers, components, data flow |
 | `docs/decisions/` | You are about to question why something is the way it is |
 | `docs/runbook/dev-env.md` | You run tower locally (`make dev`) and need the first admin token |
+| `docs/runbook/demo.md` | You run tower and hostd on a fake host by hand, as `make e2e` does |
 | `docs/conventions/comments.md` | You write or review a code comment |
 | hangar's `docs/conventions/testing.md` | You write or change a test: its tools and examples hold here (`docs/decisions/testing-strategy.md`) |
 | hangar's `docs/checklists/new-resource.md` and `new-controller.md` | You add a kind or a controller; read "tower" for "hangar" |
