@@ -60,6 +60,7 @@ Every other tool is pinned in the repo (`go.mod`, `tools/tools.mod`, or
 |---|---|
 | `docs/architecture.md` | You need the map: layers, components, data flow |
 | `docs/decisions/` | You are about to question why something is the way it is |
+| `docs/runbook/dev-env.md` | You run tower locally (`make dev`) and need the first admin token |
 | `docs/conventions/comments.md` | You write or review a code comment |
 | hangar's `docs/conventions/testing.md` | You write or change a test: its tools and examples hold here (`docs/decisions/testing-strategy.md`) |
 | hangar's `docs/checklists/new-resource.md` and `new-controller.md` | You add a kind or a controller; read "tower" for "hangar" |

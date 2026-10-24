@@ -62,8 +62,18 @@ gen-check: deps
 
 check: lint breaking test e2e gen-check
 
-dev:
-	go run ./cmd/tower-apiserver --dev
+# A local apiserver on 127.0.0.1:8080, its state and a key-encryption key
+# of its own under .cache/dev, never committed. docs/runbook/dev-env.md says
+# how to make the first admin token on its admin socket.
+DEV := .cache/dev
+
+dev: $(DEV)/secrets-kek
+	go run ./cmd/tower-apiserver --dev --db $(DEV)/tower.db \
+		--admin-socket $(DEV)/admin.sock --secrets-kek $(DEV)/secrets-kek
+
+$(DEV)/secrets-kek:
+	@mkdir -p $(DEV)
+	@umask 077 && printf 'dev %s\n' "$$(head -c 32 /dev/urandom | base64)" > $@
 
 tools:
 	@go tool protoc-gen-go --version
