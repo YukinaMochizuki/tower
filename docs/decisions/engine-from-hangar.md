@@ -21,11 +21,13 @@ both; hangar exporting its generic packages; and a copy.
   paths, so `diff -r` against hangar shows every later change.
 - **Copied:** `internal/apimachinery`, `internal/store` (with its
   conformance suite), `internal/controller` (with `controllertest`),
-  `internal/client`, `internal/testutil`, the root of `internal/auth` and
-  `internal/auth/token`, `proto/tower/meta/v1`, `tools/protoc-gen-tower`, and
-  the generic parts of hangar's apiserver.
+  `internal/client`, `internal/testutil`, the root of `internal/auth`,
+  `internal/auth/token`, `internal/auth/session` cut to service tokens'
+  credentials (the name is kept for the extraction), `internal/secrets`,
+  `proto/tower/meta/v1`, `tools/protoc-gen-tower`, and the generic parts of
+  hangar's apiserver.
 - **Not copied:** tenancy and plans, quota, role bindings, people's sign-in
-  and sessions, the node tunnel, the edge, public endpoints, monitoring.
+  and browser or CLI sessions, the node tunnel, the edge, public endpoints, monitoring.
   tower's authorization is a role per token (`authentication.md`).
 - **These hangar decisions hold for tower unchanged,** read with "tower" for
   "hangar" and `tower.hangarlab.cloud` as the API domain:
