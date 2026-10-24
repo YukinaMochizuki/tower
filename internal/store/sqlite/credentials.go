@@ -7,8 +7,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/YukinaMochizuki/hangar/internal/store"
-	"github.com/YukinaMochizuki/hangar/internal/store/sqlite/db"
+	"github.com/YukinaMochizuki/tower/internal/store"
+	"github.com/YukinaMochizuki/tower/internal/store/sqlite/db"
 )
 
 var _ store.Credentials = (*Store)(nil)

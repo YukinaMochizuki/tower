@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YukinaMochizuki/hangar/internal/controller"
-	"github.com/YukinaMochizuki/hangar/internal/testutil"
+	"github.com/YukinaMochizuki/tower/internal/controller"
+	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
 // Waiting is a key a controller checks again because it waits on something

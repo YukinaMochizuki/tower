@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YukinaMochizuki/hangar/internal/testutil"
+	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
 // recorder stands in for the test a helper is given, so a test can see the

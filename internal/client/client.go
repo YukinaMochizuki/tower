@@ -16,8 +16,8 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/dynamicpb"
 
-	metav1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/meta/v1"
-	"github.com/YukinaMochizuki/hangar/gen/go/hangar/registry"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
+	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
 )
 
 // Client calls one API endpoint.
@@ -43,7 +43,7 @@ func UnixSocket(path string) *http.Client {
 
 // UnixSocketURL is the base URL for a UnixSocket client; the host is never
 // resolved.
-const UnixSocketURL = "http://hangar.sock"
+const UnixSocketURL = "http://tower.sock"
 
 // Key names one object; Project is empty for global kinds.
 type Key struct {

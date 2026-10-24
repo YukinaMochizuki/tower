@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package hangar.meta.v1;
+package tower.meta.v1;
 
 import "google/protobuf/descriptor.proto";
 

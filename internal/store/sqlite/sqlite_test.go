@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/YukinaMochizuki/hangar/internal/store"
-	"github.com/YukinaMochizuki/hangar/internal/store/sqlite"
-	"github.com/YukinaMochizuki/hangar/internal/store/storetest"
+	"github.com/YukinaMochizuki/tower/internal/store"
+	"github.com/YukinaMochizuki/tower/internal/store/sqlite"
+	"github.com/YukinaMochizuki/tower/internal/store/storetest"
 )
 
 func TestContract(t *testing.T) {

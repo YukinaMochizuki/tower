@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YukinaMochizuki/hangar/internal/store"
+	"github.com/YukinaMochizuki/tower/internal/store"
 )
 
 // CredentialStore is a store.Credentials that can be closed.

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/YukinaMochizuki/hangar/internal/auth"
-	"github.com/YukinaMochizuki/hangar/internal/client"
+	"github.com/YukinaMochizuki/tower/internal/auth"
+	"github.com/YukinaMochizuki/tower/internal/client"
 )
 
 // echoClientIP answers with the client address the request carries.

@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-const schemaPath = protogen.GoImportPath("github.com/YukinaMochizuki/hangar/gen/go/hangar/schema")
+const schemaPath = protogen.GoImportPath("github.com/YukinaMochizuki/tower/gen/go/tower/schema")
 
 // genSchema writes one JSON Schema per kind, of its objects as protojson
 // writes them, with the proto comments as descriptions, and the package that
@@ -49,11 +49,11 @@ func genSchema(gen *protogen.Plugin, kinds []*kind, domain string) error {
 		if err := enc.Encode(root); err != nil {
 			return fmt.Errorf("%s: %w", k.msg.Desc.FullName(), err)
 		}
-		g := gen.NewGeneratedFile("hangar/schema/"+schemaFile(k.group, k.version, k.name()), schemaPath)
+		g := gen.NewGeneratedFile("tower/schema/"+schemaFile(k.group, k.version, k.name()), schemaPath)
 		_, _ = g.Write(js.Bytes())
 	}
 
-	g := gen.NewGeneratedFile("hangar/schema/schema.go", schemaPath)
+	g := gen.NewGeneratedFile("tower/schema/schema.go", schemaPath)
 	g.P(header)
 	g.P("// Package schema holds the JSON Schema of every API resource kind,")
 	g.P("// generated from proto/ with its comments as descriptions.")

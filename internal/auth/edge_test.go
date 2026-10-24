@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/YukinaMochizuki/hangar/internal/auth"
+	"github.com/YukinaMochizuki/tower/internal/auth"
 )
 
 // TestPeerEdge: the edge socket makes hangar-edge's uid an Edge principal,

@@ -12,17 +12,17 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 
-	metav1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/meta/v1"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 )
 
 const (
-	objectMeta = protoreflect.FullName("hangar.meta.v1.ObjectMeta")
-	condition  = protoreflect.FullName("hangar.meta.v1.Condition")
-	eventType  = protoreflect.FullName("hangar.meta.v1.EventType")
+	objectMeta = protoreflect.FullName("tower.meta.v1.ObjectMeta")
+	condition  = protoreflect.FullName("tower.meta.v1.Condition")
+	eventType  = protoreflect.FullName("tower.meta.v1.EventType")
 )
 
 var (
-	packagePattern = regexp.MustCompile(`^hangar\.[a-z]+\.v[0-9]+((alpha|beta)[0-9]+)?$`)
+	packagePattern = regexp.MustCompile(`^tower\.[a-z]+\.v[0-9]+((alpha|beta)[0-9]+)?$`)
 	lowerPattern   = regexp.MustCompile(`^[a-z]+$`)
 )
 
@@ -32,11 +32,11 @@ type Result struct {
 	Errors []error
 }
 
-// Check verifies every resource declared in files under the hangar package.
+// Check verifies every resource declared in files under the tower package.
 func Check(files *protoregistry.Files) Result {
 	c := &checker{seen: map[string]string{}}
 	files.RangeFiles(func(f protoreflect.FileDescriptor) bool {
-		if strings.HasPrefix(string(f.Package()), "hangar.") {
+		if strings.HasPrefix(string(f.Package()), "tower.") {
 			c.file(f)
 		}
 		return true
@@ -65,7 +65,7 @@ func (c *checker) file(f protoreflect.FileDescriptor) {
 		opts := proto.GetExtension(m.Options(), metav1.E_Resource).(*metav1.ResourceOptions)
 		c.res.Kinds = append(c.res.Kinds, opts.GetKind())
 		if !packagePattern.MatchString(string(f.Package())) {
-			c.errorf(m, "package %s is not hangar.<group>.<version>", f.Package())
+			c.errorf(m, "package %s is not tower.<group>.<version>", f.Package())
 		}
 		c.options(m, opts)
 		c.envelope(m)

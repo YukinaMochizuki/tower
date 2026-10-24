@@ -17,7 +17,7 @@ import (
 	"github.com/jonboulle/clockwork"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/YukinaMochizuki/hangar/internal/auth"
+	"github.com/YukinaMochizuki/tower/internal/auth"
 )
 
 // credential is a credential the test revokes, or makes uncheckable, at

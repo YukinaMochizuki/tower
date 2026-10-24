@@ -14,9 +14,9 @@ import (
 
 	"github.com/jonboulle/clockwork"
 
-	"github.com/YukinaMochizuki/hangar/internal/store"
-	"github.com/YukinaMochizuki/hangar/internal/store/sqlite"
-	"github.com/YukinaMochizuki/hangar/internal/testutil"
+	"github.com/YukinaMochizuki/tower/internal/store"
+	"github.com/YukinaMochizuki/tower/internal/store/sqlite"
+	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
 func openStore(t *testing.T) store.Store {

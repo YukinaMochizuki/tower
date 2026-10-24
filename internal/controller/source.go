@@ -4,7 +4,7 @@ import (
 	"context"
 	"slices"
 
-	"github.com/YukinaMochizuki/hangar/internal/store"
+	"github.com/YukinaMochizuki/tower/internal/store"
 )
 
 // Source is what a controller follows: the store, inside the apiserver, or

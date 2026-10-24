@@ -9,7 +9,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	metav1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/meta/v1"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 )
 
 // Find returns the condition of the given type, or nil.

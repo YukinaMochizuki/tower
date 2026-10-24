@@ -8,11 +8,11 @@ import (
 
 	"connectrpc.com/connect"
 
-	metav1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/meta/v1"
-	"github.com/YukinaMochizuki/hangar/gen/go/hangar/registry"
-	tenancyv1alpha1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/tenancy/v1alpha1"
-	"github.com/YukinaMochizuki/hangar/internal/apiserver/apiservertest"
-	"github.com/YukinaMochizuki/hangar/internal/client"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
+	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
+	tenancyv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/tenancy/v1alpha1"
+	"github.com/YukinaMochizuki/tower/internal/apiserver/apiservertest"
+	"github.com/YukinaMochizuki/tower/internal/client"
 )
 
 func project(name string) *tenancyv1alpha1.Project {

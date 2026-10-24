@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/YukinaMochizuki/hangar/internal/auth"
+	"github.com/YukinaMochizuki/tower/internal/auth"
 )
 
 type authResult struct {

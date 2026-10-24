@@ -3,7 +3,7 @@ managed:
   enabled: true
   override:
     - file_option: go_package_prefix
-      value: github.com/YukinaMochizuki/hangar/gen/go
+      value: github.com/YukinaMochizuki/tower/gen/go
 clean: true
 plugins:
   - local: [go, tool, protoc-gen-go]

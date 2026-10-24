@@ -9,7 +9,7 @@ import (
 
 // RunQuarantined is the environment variable that, set to 1, runs the tests
 // Quarantine would skip. The stress job (.github/workflows/stress.yml) sets it.
-const RunQuarantined = "HANGAR_RUN_QUARANTINED"
+const RunQuarantined = "TOWER_RUN_QUARANTINED"
 
 // Quarantine skips a test known to be flaky, unless RunQuarantined is set.
 // issue names the GitHub issue that tracks its root cause (for example

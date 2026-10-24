@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package hangar.meta.v1;
+package tower.meta.v1;
 
 import "google/protobuf/timestamp.proto";
 
@@ -22,9 +22,9 @@ message ObjectMeta {
   google.protobuf.Timestamp create_time = 6;
   // Set when deletion was requested and finalizers are still pending.
   google.protobuf.Timestamp delete_time = 7;
-  // Keys under a *.hangarlab.cloud/ prefix are reserved for the system.
+  // Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.
   map<string, string> labels = 8;
-  // Keys under a *.hangarlab.cloud/ prefix are reserved for the system.
+  // Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.
   map<string, string> annotations = 9;
   repeated string finalizers = 10;
   repeated OwnerReference owner_references = 11;

@@ -18,7 +18,7 @@ import (
 
 	"github.com/jonboulle/clockwork"
 
-	"github.com/YukinaMochizuki/hangar/internal/store"
+	"github.com/YukinaMochizuki/tower/internal/store"
 )
 
 // Key names one object of the kind a reconciler is responsible for. Project

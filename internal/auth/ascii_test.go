@@ -3,7 +3,7 @@ package auth_test
 import (
 	"testing"
 
-	"github.com/YukinaMochizuki/hangar/internal/auth"
+	"github.com/YukinaMochizuki/tower/internal/auth"
 )
 
 // TestASCII: an email with any byte past ASCII is not ASCII, the Kelvin sign

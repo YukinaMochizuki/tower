@@ -13,10 +13,10 @@ import (
 
 	"github.com/jonboulle/clockwork"
 
-	"github.com/YukinaMochizuki/hangar/internal/controller"
-	"github.com/YukinaMochizuki/hangar/internal/store"
-	"github.com/YukinaMochizuki/hangar/internal/store/sqlite"
-	"github.com/YukinaMochizuki/hangar/internal/testutil"
+	"github.com/YukinaMochizuki/tower/internal/controller"
+	"github.com/YukinaMochizuki/tower/internal/store"
+	"github.com/YukinaMochizuki/tower/internal/store/sqlite"
+	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
 // Each test below holds something back until WaitSettled has polled a few

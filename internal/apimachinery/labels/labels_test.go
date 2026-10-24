@@ -3,7 +3,7 @@ package labels_test
 import (
 	"testing"
 
-	"github.com/YukinaMochizuki/hangar/internal/apimachinery/labels"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/labels"
 )
 
 func TestMatches(t *testing.T) {

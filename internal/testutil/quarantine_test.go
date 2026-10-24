@@ -3,7 +3,7 @@ package testutil_test
 import (
 	"testing"
 
-	"github.com/YukinaMochizuki/hangar/internal/testutil"
+	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
 func TestQuarantineSkipsUnlessAskedToRun(t *testing.T) {

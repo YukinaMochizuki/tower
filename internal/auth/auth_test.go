@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/YukinaMochizuki/hangar/internal/auth"
+	"github.com/YukinaMochizuki/tower/internal/auth"
 )
 
 func TestChain(t *testing.T) {

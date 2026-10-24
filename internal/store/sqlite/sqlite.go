@@ -17,8 +17,8 @@ import (
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite" // registers the "sqlite" driver
 
-	"github.com/YukinaMochizuki/hangar/internal/store"
-	"github.com/YukinaMochizuki/hangar/internal/store/sqlite/db"
+	"github.com/YukinaMochizuki/tower/internal/store"
+	"github.com/YukinaMochizuki/tower/internal/store/sqlite/db"
 )
 
 //go:embed migrations/*.sql

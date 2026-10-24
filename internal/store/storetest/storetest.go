@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YukinaMochizuki/hangar/internal/store"
-	"github.com/YukinaMochizuki/hangar/internal/testutil"
+	"github.com/YukinaMochizuki/tower/internal/store"
+	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
 // Run runs the whole contract. open must return a new, empty store; Run

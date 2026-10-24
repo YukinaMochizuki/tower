@@ -11,11 +11,11 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
-	metav1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/meta/v1"
-	"github.com/YukinaMochizuki/hangar/gen/go/hangar/registry"
-	"github.com/YukinaMochizuki/hangar/internal/apimachinery/object"
-	"github.com/YukinaMochizuki/hangar/internal/client"
-	"github.com/YukinaMochizuki/hangar/internal/store"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
+	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/object"
+	"github.com/YukinaMochizuki/tower/internal/client"
+	"github.com/YukinaMochizuki/tower/internal/store"
 )
 
 // APISource follows kinds through the API, as a node agent does, across

@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	metav1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/meta/v1"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 )
 
 func field(m proto.Message, name protoreflect.Name) (protoreflect.Message, protoreflect.FieldDescriptor) {

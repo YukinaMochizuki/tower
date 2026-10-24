@@ -8,7 +8,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	metav1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/meta/v1"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 )
 
 // Key identifies one object. Project is empty for global kinds.

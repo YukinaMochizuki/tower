@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	metav1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/meta/v1"
-	"github.com/YukinaMochizuki/hangar/internal/apimachinery/conditions"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/conditions"
 )
 
 const (

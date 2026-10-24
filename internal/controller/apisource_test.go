@@ -15,16 +15,16 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	computev1alpha1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/compute/v1alpha1"
-	iamv1alpha1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/iam/v1alpha1"
-	metav1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/meta/v1"
-	"github.com/YukinaMochizuki/hangar/gen/go/hangar/registry"
-	tenancyv1alpha1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/tenancy/v1alpha1"
-	"github.com/YukinaMochizuki/hangar/internal/apiserver/apiservertest"
-	"github.com/YukinaMochizuki/hangar/internal/client"
-	"github.com/YukinaMochizuki/hangar/internal/controller"
-	"github.com/YukinaMochizuki/hangar/internal/store"
-	"github.com/YukinaMochizuki/hangar/internal/testutil"
+	computev1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/compute/v1alpha1"
+	iamv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/iam/v1alpha1"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
+	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
+	tenancyv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/tenancy/v1alpha1"
+	"github.com/YukinaMochizuki/tower/internal/apiserver/apiservertest"
+	"github.com/YukinaMochizuki/tower/internal/client"
+	"github.com/YukinaMochizuki/tower/internal/controller"
+	"github.com/YukinaMochizuki/tower/internal/store"
+	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
 // seen records the keys a controller reconciled.

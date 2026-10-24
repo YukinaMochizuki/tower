@@ -1,4 +1,4 @@
-module github.com/YukinaMochizuki/hangar/tools
+module github.com/YukinaMochizuki/tower/tools
 
 go 1.27
 

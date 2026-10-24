@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/YukinaMochizuki/hangar/internal/apimachinery/quantity"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
 )
 
 func TestParse(t *testing.T) {

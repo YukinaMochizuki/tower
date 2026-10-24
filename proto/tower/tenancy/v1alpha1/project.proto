@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package tower.tenancy.v1alpha1;
+
+import "tower/meta/v1/meta.proto";
+import "tower/meta/v1/options.proto";
+
+// Project is the scope every per-product object lives in: one workstream
+// product is one project, named by the product's id. Deleting a project
+// deletes everything in it first.
+message Project {
+  option (tower.meta.v1.resource) = {
+    kind: "Project"
+    plural: "projects"
+    short_names: ["proj"]
+    scope: SCOPE_GLOBAL
+  };
+  string api_version = 1;
+  string kind = 2;
+  tower.meta.v1.ObjectMeta metadata = 3;
+  ProjectSpec spec = 4;
+  ProjectStatus status = 5;
+}
+
+// ProjectSpec is the desired state of a project.
+message ProjectSpec {
+  // A name for people to read.
+  string display_name = 1;
+}
+
+// ProjectStatus is what tower reports about a project.
+message ProjectStatus {
+  int64 observed_generation = 1;
+  repeated tower.meta.v1.Condition conditions = 2;
+}
+
+// ProjectService manages projects.
+service ProjectService {
+  rpc GetProject(GetProjectRequest) returns (GetProjectResponse);
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+  rpc WatchProjects(WatchProjectsRequest) returns (stream WatchProjectsResponse);
+  rpc ApplyProject(ApplyProjectRequest) returns (ApplyProjectResponse);
+  rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
+  rpc UpdateProjectStatus(UpdateProjectStatusRequest) returns (UpdateProjectStatusResponse);
+}
+
+message GetProjectRequest {
+  string name = 1;
+}
+
+message GetProjectResponse {
+  Project project = 1;
+}
+
+message ListProjectsRequest {
+  string label_selector = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListProjectsResponse {
+  repeated Project items = 1;
+  string next_page_token = 2;
+  int64 revision = 3;
+}
+
+message WatchProjectsRequest {
+  string label_selector = 1;
+  int64 since_revision = 2;
+}
+
+message WatchProjectsResponse {
+  tower.meta.v1.EventType type = 1;
+  Project project = 2;
+  int64 revision = 3;
+}
+
+message ApplyProjectRequest {
+  Project project = 1;
+  bool create_only = 2;
+}
+
+message ApplyProjectResponse {
+  Project project = 1;
+  repeated string warnings = 2;
+  bool created = 3;
+}
+
+message DeleteProjectRequest {
+  string name = 1;
+  optional int64 expected_resource_version = 2;
+}
+
+message DeleteProjectResponse {
+  Project project = 1;
+}
+
+message UpdateProjectStatusRequest {
+  string name = 1;
+  ProjectStatus status = 2;
+  optional int64 expected_resource_version = 3;
+}
+
+message UpdateProjectStatusResponse {
+  Project project = 1;
+}

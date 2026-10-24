@@ -4,9 +4,9 @@ import (
 	"slices"
 	"testing"
 
-	iamv1alpha1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/iam/v1alpha1"
-	tenancyv1alpha1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/tenancy/v1alpha1"
-	"github.com/YukinaMochizuki/hangar/internal/apimachinery/object"
+	iamv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/iam/v1alpha1"
+	tenancyv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/tenancy/v1alpha1"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/object"
 )
 
 func TestImmutableChanges(t *testing.T) {

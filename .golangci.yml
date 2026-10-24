@@ -43,7 +43,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/YukinaMochizuki/hangar
+        - github.com/YukinaMochizuki/tower
   exclusions:
     paths:
       - gen/

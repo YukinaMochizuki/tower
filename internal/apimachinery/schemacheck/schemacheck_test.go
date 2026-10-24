@@ -11,11 +11,11 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	computev1alpha1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/compute/v1alpha1"
-	metav1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/meta/v1"
-	"github.com/YukinaMochizuki/hangar/gen/go/hangar/registry"
-	tenancyv1alpha1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/tenancy/v1alpha1"
-	"github.com/YukinaMochizuki/hangar/internal/apimachinery/schemacheck"
+	computev1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/compute/v1alpha1"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
+	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
+	tenancyv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/tenancy/v1alpha1"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/schemacheck"
 )
 
 func TestDeclaredResources(t *testing.T) {
