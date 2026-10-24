@@ -248,10 +248,10 @@ func (s *Server) configureMachine(ctx context.Context, key controller.Key, m *en
 		if len(vars) == 0 {
 			vars = json.RawMessage("{}")
 		}
-		if err := p.WriteFile(ctx, ref, "/opt/tower/vars.json", 0o600, bytes.NewReader(vars)); err != nil {
+		if err := p.WriteFile(ctx, ref, "/opt/tower/vars.json", 0o600, 0, bytes.NewReader(vars)); err != nil {
 			return err
 		}
-		if err := p.WriteFile(ctx, ref, "/opt/tower/blueprint.yml", 0o600, bytes.NewReader([]byte(spec.GetBlueprint().GetContent()))); err != nil {
+		if err := p.WriteFile(ctx, ref, "/opt/tower/blueprint.yml", 0o600, 0, bytes.NewReader([]byte(spec.GetBlueprint().GetContent()))); err != nil {
 			return err
 		}
 		if err := s.mustRun(ctx, p, ref, env, "/opt/tower",

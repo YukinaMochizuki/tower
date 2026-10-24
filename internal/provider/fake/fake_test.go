@@ -1,17 +1,12 @@
 package fake_test
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
-	"github.com/jonboulle/clockwork"
-	"google.golang.org/protobuf/proto"
-
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
-	iamv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/iam/v1alpha1"
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
@@ -19,106 +14,34 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/client"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/provider/fake"
+	"github.com/YukinaMochizuki/tower/internal/provider/fake/faketest"
 	"github.com/YukinaMochizuki/tower/internal/provider/providertest"
-	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
-const target = "t1"
+const target = faketest.Target
 
 // world is an apiserver with a hostd target t1, realized by a fake.
 type world struct {
+	faketest.World
 	env  *apiservertest.Env
 	fake *fake.Fake
 }
 
 func newWorld(t *testing.T) world {
 	t.Helper()
-	env := apiservertest.Start(t, nil)
-	env.Setup()
-	if _, err := env.As(apiservertest.Admin).Apply(t.Context(), registry.Target, &targetsv1alpha1.Target{
-		Metadata: &metav1.ObjectMeta{Name: target},
-		Spec:     &targetsv1alpha1.TargetSpec{Provider: &targetsv1alpha1.TargetSpec_Hostd{Hostd: &targetsv1alpha1.HostdTarget{}}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	hostd := env.AsToken("hostd-"+target, iamv1alpha1.Role_ROLE_HOSTD, target)
-	f := fake.New(target, clockwork.NewRealClock())
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- f.Run(ctx, hostd) }()
-	t.Cleanup(func() {
-		cancel()
-		<-done
-	})
-	return world{env: env, fake: f}
-}
-
-func (w world) instance(t *testing.T, name string) *envv1alpha1.Instance {
-	t.Helper()
-	o, err := w.env.AsSystem().Get(t.Context(), registry.Instance, client.Key{Project: apiservertest.Project, Name: name})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return o.(*envv1alpha1.Instance)
+	w := faketest.New(t, nil)
+	return world{World: w, env: w.Env, fake: w.Fake}
 }
 
 func (w world) waitPhase(t *testing.T, name string, phase envv1alpha1.InstancePhase) *envv1alpha1.Instance {
 	t.Helper()
-	var in *envv1alpha1.Instance
-	testutil.Eventually(t, fmt.Sprintf("instance %s %v", name, phase), func() (bool, string) {
-		in = w.instance(t, name)
-		return in.GetStatus().GetPhase() == phase, in.GetStatus().String()
-	})
-	return in
+	return w.WaitPhase(t, name, phase)
 }
 
-func (w world) harness() providertest.Harness {
-	return providertest.Harness{
-		Provider: w.fake, Target: target, Image: "registry.tower.internal/base@sha256:00", BaseImage: "ubuntu-24.04",
-		Start: func(t *testing.T, name string, spec *envv1alpha1.InstanceSpec) (provider.Instance, *envv1alpha1.InstanceStatus) {
-			t.Helper()
-			if _, err := w.env.AsSystem().Apply(t.Context(), registry.Instance, &envv1alpha1.Instance{
-				Metadata: &metav1.ObjectMeta{Project: apiservertest.Project, Name: name}, Spec: spec,
-			}); err != nil {
-				t.Fatal(err)
-			}
-			in := w.waitPhase(t, name, envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING)
-			return provider.Instance{Project: apiservertest.Project, Name: name}, in.GetStatus()
-		},
-		Stop: func(t *testing.T, ref provider.Instance) {
-			t.Helper()
-			in := proto.Clone(w.instance(t, ref.Name)).(*envv1alpha1.Instance)
-			in.Spec.RunState = envv1alpha1.RunState_RUN_STATE_STOPPED
-			if _, err := w.env.AsSystem().Apply(t.Context(), registry.Instance, in); err != nil {
-				t.Fatal(err)
-			}
-			w.waitPhase(t, ref.Name, envv1alpha1.InstancePhase_INSTANCE_PHASE_STOPPED)
-		},
-		Golden: func(t *testing.T, art provider.Artifact) string {
-			t.Helper()
-			key := client.Key{Project: apiservertest.Project, Name: "golden-" + fmt.Sprint(len(art.Name))}
-			if _, err := w.env.AsSystem().Apply(t.Context(), registry.Golden, &envv1alpha1.Golden{
-				Metadata: &metav1.ObjectMeta{Project: key.Project, Name: key.Name},
-				Spec: &envv1alpha1.GoldenSpec{Target: target, InputHash: art.Name,
-					Inputs: &envv1alpha1.GoldenSpec_BoxWarm{BoxWarm: &envv1alpha1.BoxWarmInputs{Repository: "r"}}},
-			}); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := w.env.AsSystem().UpdateStatus(t.Context(), registry.Golden, key, &envv1alpha1.GoldenStatus{
-				Phase: envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY, Artifact: art.Name,
-			}, nil); err != nil {
-				t.Fatal(err)
-			}
-			return key.Name
-		},
-		Remote: "https://git.example.com/conformance.git", Branch: "main", RemoteHead: "c3",
-	}
-}
+func (w world) harness() providertest.Harness { return w.Harness(w.fake) }
 
 func TestConformance(t *testing.T) {
-	w := newWorld(t)
-	w.fake.SetRemote("https://git.example.com/conformance.git", "main", map[string]string{"go.mod": "module x\n"}, "c1", "c2", "c3")
-	providertest.Run(t, w.harness())
+	providertest.Run(t, newWorld(t).harness())
 }
 
 // TestFaults: each fault the fake injects shows as a provider shows it.

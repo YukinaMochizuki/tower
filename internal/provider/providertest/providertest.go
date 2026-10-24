@@ -9,7 +9,9 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -106,7 +108,37 @@ func testExec(t *testing.T, h Harness) {
 	if code, _ := run(t, h, in, nil, "true"); code != 0 {
 		t.Errorf("true exited %d, want 0", code)
 	}
+	if code, _ := run(t, h, in, nil, "exit", "3"); code != 3 {
+		t.Errorf("exit 3 exited %d", code)
+	}
+	// stdout and stderr reach the caller in the order they were written.
+	var mu sync.Mutex
+	var got []string
+	writer := func(stream string) io.Writer {
+		return writerFunc(func(p []byte) (int, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			for line := range strings.Lines(string(p)) {
+				got = append(got, stream+":"+strings.TrimSuffix(line, "\n"))
+			}
+			return len(p), nil
+		})
+	}
+	want := []string{"out:one", "err:two", "out:three", "err:four"}
+	code, err := h.Provider.Exec(t.Context(), provider.ExecRequest{
+		Instance: in, Command: append([]string{"emit"}, want...), Stdout: writer("out"), Stderr: writer("err"),
+	})
+	if err != nil || code != 0 {
+		t.Fatalf("emit: %d, %v", code, err)
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("the output came as %q, want %q", got, want)
+	}
 }
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
 func testEnvironmentIsPerCommand(t *testing.T, h Harness) {
 	in, _ := h.Start(t, "env", h.container("net-a"))
@@ -121,14 +153,27 @@ func testEnvironmentIsPerCommand(t *testing.T, h Harness) {
 func testFiles(t *testing.T, h Harness) {
 	in, _ := h.Start(t, "files", h.container("net-a"))
 	ctx := t.Context()
-	if err := h.Provider.WriteFile(ctx, in, "/tmp/conformance/a.txt", 0o644, strings.NewReader("contents")); err != nil {
+	if err := h.Provider.WriteFile(ctx, in, "/tmp/conformance/a.txt", 0o644, 0, strings.NewReader("cont")); err != nil {
 		t.Fatal(err)
+	}
+	if err := h.Provider.WriteFile(ctx, in, "/tmp/conformance/a.txt", 0o644, 4, strings.NewReader("ents")); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Provider.WriteFile(ctx, in, "/tmp/conformance/a.txt", 0o644, 2, strings.NewReader("xx")); !errors.Is(err, provider.ErrFailed) {
+		t.Errorf("a chunk not where the file ends: %v, want ErrFailed", err)
 	}
 	var got bytes.Buffer
 	if err := h.Provider.ReadFile(ctx, in, "/tmp/conformance/a.txt", &got); err != nil || got.String() != "contents" {
 		t.Errorf("read back %q, %v", got.String(), err)
 	}
-	if code, out := run(t, h, in, nil, "cat", "/tmp/conformance/a.txt"); code != 0 || out != "contents" {
+	if err := h.Provider.WriteFile(ctx, in, "/tmp/conformance/a.txt", 0o644, 0, strings.NewReader("new")); err != nil {
+		t.Fatal(err)
+	}
+	got.Reset()
+	if err := h.Provider.ReadFile(ctx, in, "/tmp/conformance/a.txt", &got); err != nil || got.String() != "new" {
+		t.Errorf("a write at offset 0 left %q, %v; want the file replaced", got.String(), err)
+	}
+	if code, out := run(t, h, in, nil, "cat", "/tmp/conformance/a.txt"); code != 0 || out != "new" {
 		t.Errorf("the file as a command reads it: %d %q", code, out)
 	}
 	if err := h.Provider.ReadFile(ctx, in, "/tmp/conformance/none", io.Discard); err == nil {
@@ -140,7 +185,7 @@ func testCopy(t *testing.T, h Harness) {
 	a, _ := h.Start(t, "copy-a", h.container("net-a"))
 	b, _ := h.Start(t, "copy-b", h.container("net-b"))
 	ctx := t.Context()
-	if err := h.Provider.WriteFile(ctx, a, "/tmp/out/result.txt", 0o644, strings.NewReader("built")); err != nil {
+	if err := h.Provider.WriteFile(ctx, a, "/tmp/out/result.txt", 0o644, 0, strings.NewReader("built")); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.Provider.Copy(ctx, a, "/tmp/out", b, "/tmp/in"); err != nil {
@@ -212,7 +257,7 @@ func testBuildImage(t *testing.T, h Harness) {
 func testCaptureAndClone(t *testing.T, h Harness) {
 	ctx := t.Context()
 	src, _ := h.Start(t, "capture-src", h.container("net-a"))
-	if err := h.Provider.WriteFile(ctx, src, "/workspace/warm.txt", 0o644, strings.NewReader("installed")); err != nil {
+	if err := h.Provider.WriteFile(ctx, src, "/workspace/warm.txt", 0o644, 0, strings.NewReader("installed")); err != nil {
 		t.Fatal(err)
 	}
 	h.Stop(t, src)
@@ -258,6 +303,12 @@ func testMirrorAndCheckout(t *testing.T, h Harness) {
 	if _, err := h.Provider.Checkout(ctx, in, "conformance/never-fetched", "", "/repos/x"); !errors.Is(err, provider.ErrNotFound) {
 		t.Errorf("checking out a mirror never fetched: %v, want ErrNotFound", err)
 	}
+	if err := h.Provider.UpdateOrigin(ctx, in, "conformance/repo", "/workspace"); err != nil {
+		t.Errorf("updating the checkout's origin: %v", err)
+	}
+	if err := h.Provider.UpdateOrigin(ctx, in, "conformance/never-fetched", "/workspace"); !errors.Is(err, provider.ErrNotFound) {
+		t.Errorf("updating an origin from a mirror never fetched: %v, want ErrNotFound", err)
+	}
 }
 
 func testPushNeedsItsLease(t *testing.T, h Harness) {
@@ -286,7 +337,7 @@ func testTicket(t *testing.T, h Harness) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tk.URL == "" || !tk.Expires.After(time.Time{}) {
-		t.Errorf("ticket %+v, want a URL and an expiry", tk)
+	if tk.URL == "" || (!tk.Expires.IsZero() && !tk.Expires.After(time.Now())) {
+		t.Errorf("ticket %+v, want a URL, and no expiry or one to come", tk)
 	}
 }

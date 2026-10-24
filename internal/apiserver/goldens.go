@@ -338,14 +338,14 @@ func (s *Server) convergeWarm(ctx context.Context, p provider.Provider, ref prov
 // convergeMachine runs a blueprint's golden phase in the builder, with its
 // golden vars, which are part of what the golden is.
 func (s *Server) convergeMachine(ctx context.Context, p provider.Provider, ref provider.Instance, build buildSpec) error {
-	if err := p.WriteFile(ctx, ref, "/opt/tower/blueprint.yml", 0o600, strings.NewReader(build.Blueprint)); err != nil {
+	if err := p.WriteFile(ctx, ref, "/opt/tower/blueprint.yml", 0o600, 0, strings.NewReader(build.Blueprint)); err != nil {
 		return err
 	}
 	vars := build.GoldenVars
 	if len(vars) == 0 {
 		vars = json.RawMessage("{}")
 	}
-	if err := p.WriteFile(ctx, ref, "/opt/tower/golden-vars.json", 0o600, bytes.NewReader(vars)); err != nil {
+	if err := p.WriteFile(ctx, ref, "/opt/tower/golden-vars.json", 0o600, 0, bytes.NewReader(vars)); err != nil {
 		return err
 	}
 	return s.mustRun(ctx, p, ref, nil, "/opt/tower",

@@ -1,0 +1,244 @@
+syntax = "proto3";
+
+// The protocol between tower and hostd, which hostd serves on the tunnel it
+// opens to tower (internal/tunnel). It is internal, not part of the API,
+// but its compatibility is held by buf breaking all the same: tower and a
+// host may run different versions while one is upgraded. It carries
+// provider.Provider's imperative half, one call per operation; a failure's
+// kind of provider error rides in its error's metadata. See
+// docs/decisions/traffic.md.
+package tower.hostd.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// HostService is what tower asks of the host of one target. Every call may
+// fail UNAVAILABLE when the host cannot tell what happened.
+service HostService {
+  // Exec runs a command in a running instance for as long as the call
+  // lasts: once the call ends, the command is killed. The first request
+  // starts it; later ones carry its stdin, which ends with the requests.
+  // The responses carry its output in the order it was written and, last,
+  // its exit code.
+  rpc Exec(stream ExecRequest) returns (stream ExecResponse);
+  // ReadFile streams a file of a running instance.
+  rpc ReadFile(ReadFileRequest) returns (stream ReadFileResponse);
+  // WriteFile writes a file of a running instance, making its directory.
+  // The first request says where; later ones carry the bytes.
+  rpc WriteFile(stream WriteFileRequest) returns (WriteFileResponse);
+  // Copy copies a path from one instance of the target to another, on the
+  // target.
+  rpc Copy(CopyRequest) returns (CopyResponse);
+  // BuildImage builds an image from a build context and pushes it to the
+  // registry. The first request says where it goes; later ones carry the
+  // context, a tar stream.
+  rpc BuildImage(stream BuildImageRequest) returns (BuildImageResponse);
+  // Capture makes a golden artifact of a stopped instance's disk.
+  rpc Capture(CaptureRequest) returns (CaptureResponse);
+  // DeleteArtifact deletes a golden artifact; one already gone is no
+  // error.
+  rpc DeleteArtifact(DeleteArtifactRequest) returns (DeleteArtifactResponse);
+  // Fetch brings a branch into the target's mirror of a repository.
+  rpc Fetch(FetchRequest) returns (FetchResponse);
+  // Checkout clones a mirror into a running instance, the mirror its
+  // origin.
+  rpc Checkout(CheckoutRequest) returns (CheckoutResponse);
+  // UpdateOrigin brings a checkout's origin/* up to its mirror.
+  rpc UpdateOrigin(UpdateOriginRequest) returns (UpdateOriginResponse);
+  // CommitsBehind counts the commits on a mirror's branch since a commit.
+  rpc CommitsBehind(CommitsBehindRequest) returns (CommitsBehindResponse);
+  // Push pushes a branch of an instance's checkout through the mirror,
+  // forcing only with a lease.
+  rpc Push(PushRequest) returns (PushResponse);
+  // Ticket says where a direct stream to a port of a running instance
+  // connects. tower signs the ticket the stream presents there.
+  rpc Ticket(TicketRequest) returns (TicketResponse);
+}
+
+// Instance names an Instance object of the target.
+message Instance {
+  string project = 1;
+  string name = 2;
+}
+
+message ExecRequest {
+  oneof request {
+    // The first request, and only it.
+    ExecStart start = 1;
+    // A chunk of stdin.
+    bytes stdin = 2;
+  }
+}
+
+// ExecStart is the command an Exec runs.
+message ExecStart {
+  Instance instance = 1;
+  // The program and its arguments, run without a shell.
+  repeated string command = 2;
+  // Added to the instance's environment for this command alone. It may
+  // hold secret values: the host never writes or logs them.
+  map<string, string> env = 3;
+  // Empty is the instance's default.
+  string dir = 4;
+  // Whether stdin follows; without it, the command's stdin is closed at
+  // once.
+  bool stdin = 5;
+}
+
+message ExecResponse {
+  oneof response {
+    bytes stdout = 1;
+    bytes stderr = 2;
+    // How the command ended; the last response.
+    int32 exit_code = 3;
+  }
+}
+
+message ReadFileRequest {
+  Instance instance = 1;
+  string path = 2;
+}
+
+message ReadFileResponse {
+  bytes data = 1;
+}
+
+message WriteFileRequest {
+  oneof request {
+    // The first request, and only it.
+    WriteFileStart start = 1;
+    bytes data = 2;
+  }
+}
+
+// WriteFileStart says where a WriteFile writes.
+message WriteFileStart {
+  Instance instance = 1;
+  string path = 2;
+  // Permission bits, such as 0644.
+  uint32 mode = 3;
+  // 0 replaces the file; any other offset writes a later chunk, which
+  // must start where the file ends.
+  int64 offset = 4;
+}
+
+message WriteFileResponse {}
+
+message CopyRequest {
+  Instance from = 1;
+  string from_path = 2;
+  Instance to = 3;
+  string to_path = 4;
+}
+
+message CopyResponse {}
+
+message BuildImageRequest {
+  oneof request {
+    // The first request, and only it.
+    BuildImageStart start = 1;
+    // A chunk of the build context.
+    bytes context = 2;
+  }
+}
+
+// BuildImageStart says where a built image goes.
+message BuildImageStart {
+  // Where in the registry, such as "web/box-images".
+  string repository = 1;
+}
+
+message BuildImageResponse {
+  // The image's reference by digest.
+  string image = 1;
+}
+
+message CaptureRequest {
+  Instance instance = 1;
+}
+
+message CaptureResponse {
+  string artifact = 1;
+  // What it holds on the target, in bytes.
+  uint64 size = 2;
+}
+
+message DeleteArtifactRequest {
+  string artifact = 1;
+}
+
+message DeleteArtifactResponse {}
+
+message FetchRequest {
+  // Names the mirror, one per repository, such as "web/api".
+  string mirror = 1;
+  string url = 2;
+  // Reads the repository; empty reads it anonymously. The host never
+  // writes or logs it.
+  string token = 3;
+  string branch = 4;
+}
+
+message FetchResponse {
+  // The commit the branch is at.
+  string head = 1;
+}
+
+message CheckoutRequest {
+  Instance instance = 1;
+  string mirror = 2;
+  // A branch, tag or commit; empty is the branch the mirror fetched.
+  string ref = 3;
+  string dir = 4;
+}
+
+message CheckoutResponse {
+  string commit = 1;
+}
+
+message UpdateOriginRequest {
+  Instance instance = 1;
+  string mirror = 2;
+  // The checkout, such as /workspace.
+  string dir = 3;
+}
+
+message UpdateOriginResponse {}
+
+message CommitsBehindRequest {
+  string mirror = 1;
+  string commit = 2;
+  string branch = 3;
+}
+
+message CommitsBehindResponse {
+  int32 commits = 1;
+}
+
+message PushRequest {
+  Instance instance = 1;
+  // The checkout in the instance, such as /workspace.
+  string dir = 2;
+  string mirror = 3;
+  string url = 4;
+  // Writes the repository; it never enters the instance, and the host
+  // never writes or logs it.
+  string token = 5;
+  string branch = 6;
+  // The commit the branch must be at for the push to go; empty for a
+  // branch that must not exist yet.
+  string lease = 7;
+}
+
+message PushResponse {}
+
+message TicketRequest {
+  Instance instance = 1;
+  int32 port = 2;
+}
+
+message TicketResponse {
+  // Where the stream connects, presenting tower's ticket.
+  string url = 1;
+  // When the URL stops working, if the host bounds it.
+  google.protobuf.Timestamp expire_time = 2;
+}

@@ -111,9 +111,12 @@ type PushRequest struct {
 	Lease string
 }
 
-// Ticket lets a client stream to one port of one instance directly.
+// Ticket is where a client streams to one port of one instance directly,
+// presenting a ticket tower signs (internal/ticket).
 type Ticket struct {
-	URL     string
+	URL string
+	// Expires is when the URL stops working; zero when the provider does
+	// not bound it, and the ticket's expiry alone does.
 	Expires time.Time
 }
 
@@ -127,7 +130,10 @@ type Provider interface {
 	// ReadFile streams a file of an instance to w.
 	ReadFile(ctx context.Context, in Instance, path string, w io.Writer) error
 	// WriteFile writes a file of an instance from r, making its directory.
-	WriteFile(ctx context.Context, in Instance, path string, mode fs.FileMode, r io.Reader) error
+	// Offset 0 replaces the file; any other offset writes a later chunk,
+	// which must start where the file ends (ErrFailed otherwise), so a
+	// large file is written in chunks, in order.
+	WriteFile(ctx context.Context, in Instance, path string, mode fs.FileMode, offset int64, r io.Reader) error
 	// Copy copies a path from one instance of the target to another.
 	Copy(ctx context.Context, from Instance, fromPath string, to Instance, toPath string) error
 	// BuildImage builds an image and pushes it to the registry, returning
@@ -145,13 +151,17 @@ type Provider interface {
 	// branch, tag or commit; empty is the branch the mirror fetched), with
 	// the mirror as its origin, and returns the commit checked out.
 	Checkout(ctx context.Context, in Instance, mirror, ref, dir string) (commit string, err error)
+	// UpdateOrigin brings the origin/* of a checkout Checkout made in a
+	// running instance up to its mirror, leaving its branches and work tree
+	// as they are.
+	UpdateOrigin(ctx context.Context, in Instance, mirror, dir string) error
 	// CommitsBehind counts the commits on a branch of a mirror since
 	// commit.
 	CommitsBehind(ctx context.Context, mirror, commit, branch string) (int, error)
 	// Push pushes a branch, with --force-with-lease on Lease and never
 	// otherwise.
 	Push(ctx context.Context, req PushRequest) error
-	// Ticket issues a ticket for a direct stream to one port of an
-	// instance.
+	// Ticket says where a direct stream to one port of a running instance
+	// connects.
 	Ticket(ctx context.Context, in Instance, port int32) (Ticket, error)
 }

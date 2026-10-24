@@ -531,21 +531,31 @@ func (f *Fake) running(ref provider.Instance) (*instance, error) {
 	return local, nil
 }
 
-func (f *Fake) Exec(_ context.Context, req provider.ExecRequest) (int, error) {
+func (f *Fake) Exec(ctx context.Context, req provider.ExecRequest) (int, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	local, err := f.running(req.Instance)
 	if err != nil {
+		f.mu.Unlock()
 		return 0, err
 	}
+	f.execs = append(f.execs, Exec{Instance: req.Instance, Command: slices.Clone(req.Command), Env: maps.Clone(req.Env), ExitCode: -1})
+	i := len(f.execs) - 1
+	if len(req.Command) > 0 && req.Command[0] == "sleep" {
+		// Runs until it is killed, as a command does when its call ends.
+		f.mu.Unlock()
+		<-ctx.Done()
+		return 0, ctx.Err()
+	}
+	defer f.mu.Unlock()
 	code := f.run(local, req)
-	f.execs = append(f.execs, Exec{Instance: req.Instance, Command: slices.Clone(req.Command), Env: maps.Clone(req.Env), ExitCode: code})
+	f.execs[i].ExitCode = code
 	return code, nil
 }
 
-// run runs a command of the fake's small set: true, false, echo, env, cat
-// and exit; any other exits 0 unless FailCommands names it. The caller
-// holds f.mu.
+// run runs a command of the fake's small set: true, false, echo, env,
+// cat, exit, emit (each argument "out:text" or "err:text" writes a line of
+// text to stdout or stderr, in order) and sleep (until it is killed); any
+// other exits 0 unless FailCommands names it. The caller holds f.mu.
 func (f *Fake) run(local *instance, req provider.ExecRequest) int {
 	if f.onExec != nil {
 		if code, ok := f.onExec(req); ok {
@@ -568,6 +578,19 @@ func (f *Fake) run(local *instance, req provider.ExecRequest) int {
 		return 1
 	case "echo":
 		_, _ = fmt.Fprintln(out, strings.Join(args, " "))
+	case "emit":
+		for _, a := range args {
+			w := out
+			if text, ok := strings.CutPrefix(a, "err:"); ok {
+				if w = req.Stderr; w == nil {
+					w = io.Discard
+				}
+				a = text
+			} else {
+				a = strings.TrimPrefix(a, "out:")
+			}
+			_, _ = fmt.Fprintln(w, a)
+		}
 	case "env":
 		for _, k := range slices.Sorted(maps.Keys(req.Env)) {
 			_, _ = fmt.Fprintf(out, "%s=%s\n", k, req.Env[k])
@@ -607,7 +630,7 @@ func (f *Fake) ReadFile(_ context.Context, in provider.Instance, p string, w io.
 	return err
 }
 
-func (f *Fake) WriteFile(_ context.Context, in provider.Instance, p string, _ fs.FileMode, r io.Reader) error {
+func (f *Fake) WriteFile(_ context.Context, in provider.Instance, p string, _ fs.FileMode, offset int64, r io.Reader) error {
 	b, err := io.ReadAll(r)
 	if err != nil {
 		return err
@@ -618,7 +641,14 @@ func (f *Fake) WriteFile(_ context.Context, in provider.Instance, p string, _ fs
 	if err != nil {
 		return err
 	}
-	local.files[path.Clean(p)] = b
+	p = path.Clean(p)
+	if offset != 0 {
+		if have := int64(len(local.files[p])); have != offset {
+			return fmt.Errorf("%s holds %d bytes; a chunk at %d does not start where it ends: %w", p, have, offset, provider.ErrFailed)
+		}
+		b = append(slices.Clone(local.files[p]), b...)
+	}
+	local.files[p] = b
 	return nil
 }
 
@@ -771,7 +801,31 @@ func (f *Fake) Checkout(_ context.Context, in provider.Instance, mirror, ref, di
 	}
 	local.files[path.Join(dir, ".git/HEAD")] = []byte(commit)
 	local.files[path.Join(dir, ".git/origin")] = []byte(mirror)
+	local.files[path.Join(dir, OriginRef)] = []byte(m.head())
 	return commit, nil
+}
+
+// OriginRef is the file of a fake checkout holding the commit its
+// origin's branch is at.
+const OriginRef = ".git/refs/remotes/origin/HEAD"
+
+func (f *Fake) UpdateOrigin(_ context.Context, in provider.Instance, mirror, dir string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	local, err := f.running(in)
+	if err != nil {
+		return err
+	}
+	m := f.mirrors[mirror]
+	if m == nil {
+		return fmt.Errorf("mirror %s: %w", mirror, provider.ErrNotFound)
+	}
+	dir = path.Clean(dir)
+	if string(local.files[path.Join(dir, ".git/origin")]) != mirror {
+		return fmt.Errorf("%s is no checkout of mirror %s: %w", dir, mirror, provider.ErrFailed)
+	}
+	local.files[path.Join(dir, OriginRef)] = []byte(m.head())
+	return nil
 }
 
 func (f *Fake) CommitsBehind(_ context.Context, mirror, commit, branch string) (int, error) {
