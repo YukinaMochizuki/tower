@@ -17,7 +17,7 @@ import (
 
 func project(name string) *tenancyv1alpha1.Project {
 	return &tenancyv1alpha1.Project{
-		Metadata: &metav1.ObjectMeta{Name: name}, Spec: &tenancyv1alpha1.ProjectSpec{Tenant: apiservertest.Tenant},
+		Metadata: &metav1.ObjectMeta{Name: name}, Spec: &tenancyv1alpha1.ProjectSpec{DisplayName: name},
 	}
 }
 
@@ -27,7 +27,7 @@ func TestListAllReturnsTheFirstPagesRevision(t *testing.T) {
 	env := apiservertest.Start(t, nil)
 	env.Setup()
 	ctx := t.Context()
-	root := env.As(apiservertest.Root)
+	root := env.As(apiservertest.Admin)
 	for _, name := range []string{"p1", "p2"} {
 		if _, err := root.Apply(ctx, registry.Project, project(name)); err != nil {
 			t.Fatal(err)
@@ -52,7 +52,7 @@ func TestListAllReturnsTheFirstPagesRevision(t *testing.T) {
 			return res, err
 		}
 	})
-	paging := env.As(apiservertest.Root, connect.WithInterceptors(writeAfterFirstPage))
+	paging := env.As(apiservertest.Admin, connect.WithInterceptors(writeAfterFirstPage))
 	_, rev, err := paging.ListAll(ctx, registry.Project, client.ListOptions{PageSize: 1})
 	if err != nil {
 		t.Fatal(err)

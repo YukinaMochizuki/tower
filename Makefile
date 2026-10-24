@@ -42,8 +42,13 @@ test:
 	go test -race -timeout 20m ./...
 
 # Hermetic end-to-end tests: tower, hostd and the CLI with fake drivers.
+# Passes while test/e2e holds no package yet.
 e2e:
-	go test -race -timeout 20m -tags e2e ./test/e2e/...
+	@if [ -n "$$(find test/e2e -name '*.go' 2>/dev/null)" ]; then \
+		go test -race -timeout 20m -tags e2e ./test/e2e/...; \
+	else \
+		echo "e2e: no packages under test/e2e yet"; \
+	fi
 
 # Regenerates into the working tree and fails if anything changed, so it holds
 # for uncommitted work as well as in CI.

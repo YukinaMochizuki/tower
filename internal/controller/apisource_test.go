@@ -15,10 +15,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	computev1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/compute/v1alpha1"
-	iamv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/iam/v1alpha1"
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
+	secretsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/secrets/v1alpha1"
 	tenancyv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/tenancy/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apiserver/apiservertest"
 	"github.com/YukinaMochizuki/tower/internal/client"
@@ -46,38 +45,40 @@ func (s *seen) count(k controller.Key) int {
 	return s.keys[k]
 }
 
-func container(name string) *computev1alpha1.Container {
-	return &computev1alpha1.Container{
+func secret(name string) *secretsv1alpha1.Secret {
+	return &secretsv1alpha1.Secret{
 		Metadata: &metav1.ObjectMeta{Project: apiservertest.Project, Name: name},
-		Spec:     &computev1alpha1.ContainerSpec{Image: "nginx"},
+		Spec: &secretsv1alpha1.SecretSpec{
+			Type: secretsv1alpha1.SecretType_SECRET_TYPE_OPAQUE, Data: map[string][]byte{"TOKEN": []byte("x")},
+		},
 	}
 }
 
 // TestAPISourceFollowsTheAPI: a controller following kinds through the API,
-// as the node agent, reconciles what exists, what changes, and what goes.
+// as one outside the apiserver does, reconciles what exists, what changes,
+// and what goes.
 func TestAPISourceFollowsTheAPI(t *testing.T) {
 	env := apiservertest.Start(t, nil)
 	env.Setup()
-	root := env.As(apiservertest.Root)
+	root := env.As(apiservertest.Admin)
 	ctx := t.Context()
-	if _, err := root.Apply(ctx, registry.Container, container("before")); err != nil {
+	if _, err := root.Apply(ctx, registry.Secret, secret("before")); err != nil {
 		t.Fatal(err)
 	}
 
 	r := &seen{keys: map[controller.Key]int{}}
 	c := &controller.Controller{
-		Name: "t", Source: controller.APISource{Client: env.AsNode()}, Reconciler: r,
+		Name: "t", Source: controller.APISource{Client: env.AsLocal()}, Reconciler: r,
 		Watches: []controller.Watch{
-			{Kind: registry.Container.Kind, Map: controller.Self},
-			// A machine changing reconciles the container of the same name.
-			{Kind: registry.Machine.Kind, Map: func(_ context.Context, o store.Object) []controller.Key {
-				var m computev1alpha1.Machine
-				if err := proto.Unmarshal(o.Data, &m); err != nil {
-					t.Errorf("decoding a machine: %v", err)
+			{Kind: registry.Secret.Kind, Map: controller.Self},
+			// A project changing reconciles a key of its own name.
+			{Kind: registry.Project.Kind, Map: func(_ context.Context, o store.Object) []controller.Key {
+				var p tenancyv1alpha1.Project
+				if err := proto.Unmarshal(o.Data, &p); err != nil {
+					t.Errorf("decoding a project: %v", err)
 				}
-				return []controller.Key{{Project: o.Project, Name: "machine:" + m.GetMetadata().GetName()}}
+				return []controller.Key{{Name: "project:" + p.GetMetadata().GetName()}}
 			}},
-			{Kind: registry.RoleBinding.Kind, Map: controller.Self},
 		},
 	}
 	runCtx, cancel := context.WithCancel(ctx)
@@ -89,34 +90,22 @@ func TestAPISourceFollowsTheAPI(t *testing.T) {
 	})
 
 	before := controller.Key{Project: apiservertest.Project, Name: "before"}
-	testutil.Eventually(t, "an existing container reconciled", func() bool { return r.count(before) >= 1 })
-	testutil.Eventually(t, "its machine, a second kind, reconciled", func() bool {
-		return r.count(controller.Key{Project: apiservertest.Project, Name: "machine:ct-before"}) >= 1
+	testutil.Eventually(t, "an existing secret reconciled", func() bool { return r.count(before) >= 1 })
+	testutil.Eventually(t, "its project, a second kind, reconciled", func() bool {
+		return r.count(controller.Key{Name: "project:" + apiservertest.Project}) >= 1
 	})
 
+	// A secret has no finalizers: making it is a single event, and so is
+	// deleting it.
 	after := controller.Key{Project: apiservertest.Project, Name: "after"}
-	if _, err := root.Apply(ctx, registry.Container, container("after")); err != nil {
+	if _, err := root.Apply(ctx, registry.Secret, secret("after")); err != nil {
 		t.Fatal(err)
 	}
-	testutil.Eventually(t, "a new container reconciled", func() bool { return r.count(after) >= 1 })
-
-	// A role binding has no finalizers: deleting it is a single event.
-	binding := controller.Key{Name: "member-bob"}
-	if _, err := root.Apply(ctx, registry.RoleBinding, &iamv1alpha1.RoleBinding{
-		Metadata: &metav1.ObjectMeta{Name: binding.Name},
-		Spec: &iamv1alpha1.RoleBindingSpec{
-			Subject: &iamv1alpha1.Subject{Subject: &iamv1alpha1.Subject_User{User: "bob@example.com"}},
-			Role:    "platform.member",
-			Scope:   &iamv1alpha1.BindingScope{Target: &iamv1alpha1.BindingScope_Platform{}},
-		},
-	}); err != nil {
+	testutil.Eventually(t, "a new secret reconciled", func() bool { return r.count(after) == 1 })
+	if _, err := root.Delete(ctx, registry.Secret, client.Key{Project: after.Project, Name: after.Name}); err != nil {
 		t.Fatal(err)
 	}
-	testutil.Eventually(t, "a new role binding reconciled", func() bool { return r.count(binding) == 1 })
-	if _, err := root.Delete(ctx, registry.RoleBinding, client.Key{Name: binding.Name}); err != nil {
-		t.Fatal(err)
-	}
-	testutil.Eventually(t, "a deleted role binding reconciled", func() bool { return r.count(binding) == 2 })
+	testutil.Eventually(t, "a deleted secret reconciled", func() bool { return r.count(after) == 2 })
 }
 
 // TestAPISourceFollowsPastOtherKinds: a controller following kinds through
@@ -128,10 +117,10 @@ func TestAPISourceFollowsPastOtherKinds(t *testing.T) {
 	env.Setup()
 	r := &seen{keys: map[controller.Key]int{}}
 	c := &controller.Controller{
-		Name: "t", Source: controller.APISource{Client: env.AsNode()}, Reconciler: r,
+		Name: "t", Source: controller.APISource{Client: env.AsLocal()}, Reconciler: r,
 		Watches: []controller.Watch{
-			{Kind: registry.Container.Kind, Map: controller.Self},
-			{Kind: registry.Disk.Kind, Map: controller.Self},
+			{Kind: registry.Secret.Kind, Map: controller.Self},
+			{Kind: registry.ServiceToken.Kind, Map: controller.Self},
 		},
 	}
 	runCtx, cancel := context.WithCancel(t.Context())
@@ -142,32 +131,32 @@ func TestAPISourceFollowsPastOtherKinds(t *testing.T) {
 		<-done
 	})
 
-	root := env.As(apiservertest.Root)
-	res, err := root.Apply(t.Context(), registry.Container, container("web"))
+	root := env.As(apiservertest.Admin)
+	res, err := root.Apply(t.Context(), registry.Secret, secret("web"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	written := res.Object.(*computev1alpha1.Container).GetMetadata().GetResourceVersion()
+	written := res.Object.(*secretsv1alpha1.Secret).GetMetadata().GetResourceVersion()
 	key := controller.Key{Project: apiservertest.Project, Name: "web"}
-	testutil.Eventually(t, "the container followed", func() (bool, string) {
+	testutil.Eventually(t, "the secret followed", func() (bool, string) {
 		st := c.Status()
 		if st.Followed < written {
 			return false, fmt.Sprintf("%+v, want followed to %d", st, written)
 		}
 		if st.Queued == 0 && st.InFlight == 0 && r.count(key) == 0 {
-			t.Fatalf("followed to %d with the container written at %d neither queued nor reconciled", st.Followed, written)
+			t.Fatalf("followed to %d with the secret written at %d neither queued nor reconciled", st.Followed, written)
 		}
 		return true, ""
 	})
 
-	if _, err := root.Apply(t.Context(), registry.Tenant, &tenancyv1alpha1.Tenant{Metadata: &metav1.ObjectMeta{Name: "other"}}); err != nil {
+	if _, err := root.Apply(t.Context(), registry.Project, &tenancyv1alpha1.Project{Metadata: &metav1.ObjectMeta{Name: "other"}}); err != nil {
 		t.Fatal(err)
 	}
 	rev, err := env.Store.Revision(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	testutil.Eventually(t, "followed past a tenant", func() (bool, string) {
+	testutil.Eventually(t, "followed past a project", func() (bool, string) {
 		st := c.Status()
 		return st.Followed >= rev, fmt.Sprintf("%+v, want followed to %d", st, rev)
 	})
@@ -186,7 +175,7 @@ func TestAPISourceReportsCompaction(t *testing.T) {
 	if err := env.Store.Compact(ctx, rev); err != nil {
 		t.Fatal(err)
 	}
-	err = controller.APISource{Client: env.AsNode()}.Watch(ctx, []string{registry.Container.Kind}, 1, func(store.Event) error { return nil })
+	err = controller.APISource{Client: env.AsLocal()}.Watch(ctx, []string{registry.Secret.Kind}, 1, func(store.Event) error { return nil })
 	if !errors.Is(err, store.ErrCompacted) {
 		t.Errorf("watching from a compacted revision: %v", err)
 	}
@@ -272,25 +261,25 @@ func (c *heldConn) Receive(msg any) error {
 func TestAPISourceProgressWaitsForTheSlowestKind(t *testing.T) {
 	env := apiservertest.Start(t, nil)
 	env.Setup()
-	root := env.As(apiservertest.Root)
+	root := env.As(apiservertest.Admin)
 	since, err := env.Store.Revision(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := root.Apply(t.Context(), registry.Container, container("web"))
+	res, err := root.Apply(t.Context(), registry.Secret, secret("web"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	written := res.Object.(*computev1alpha1.Container).GetMetadata().GetResourceVersion()
-	h := holdWatches{hold: "/WatchContainers", release: make(chan struct{}), at: written, passed: make(chan struct{}), once: &sync.Once{}}
-	cl := client.New(client.UnixSocket(env.Socket), client.UnixSocketURL, connect.WithInterceptors(h))
+	written := res.Object.(*secretsv1alpha1.Secret).GetMetadata().GetResourceVersion()
+	h := holdWatches{hold: "/WatchSecrets", release: make(chan struct{}), at: written, passed: make(chan struct{}), once: &sync.Once{}}
+	cl := client.New(client.UnixSocket(env.AdminSocket), client.UnixSocketURL, connect.WithInterceptors(h))
 
 	var mu sync.Mutex
 	var events []store.Event
 	ctx, cancel := context.WithCancel(t.Context())
 	finished := make(chan error, 1)
 	go func() {
-		finished <- controller.APISource{Client: cl}.Watch(ctx, []string{registry.Container.Kind, registry.Disk.Kind}, since,
+		finished <- controller.APISource{Client: cl}.Watch(ctx, []string{registry.Secret.Kind, registry.ServiceToken.Kind}, since,
 			func(ev store.Event) error {
 				mu.Lock()
 				defer mu.Unlock()
@@ -306,29 +295,29 @@ func TestAPISourceProgressWaitsForTheSlowestKind(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		var p int64
-		sawContainer := false
+		sawSecret := false
 		for _, ev := range events {
 			if ev.Type == store.EventProgress {
 				p = ev.Revision
 			} else if ev.Object.Name == "web" {
-				sawContainer = true
+				sawSecret = true
 			}
 		}
-		return p, sawContainer
+		return p, sawSecret
 	}
 
 	select {
 	case <-h.passed:
 	case <-time.After(testutil.Wait):
-		t.Fatal("the disks' watch never passed the container's write")
+		t.Fatal("the service tokens' watch never passed the secret's write")
 	}
 	if p, _ := followed(); p >= written {
-		t.Errorf("progress to %d with the container written at %d still held back", p, written)
+		t.Errorf("progress to %d with the secret written at %d still held back", p, written)
 	}
 	close(h.release)
-	testutil.Eventually(t, "progress past the container", func() (bool, string) {
+	testutil.Eventually(t, "progress past the secret", func() (bool, string) {
 		p, saw := followed()
-		return p >= written && saw, fmt.Sprintf("progress %d, container seen %t", p, saw)
+		return p >= written && saw, fmt.Sprintf("progress %d, secret seen %t", p, saw)
 	})
 }
 
@@ -338,14 +327,14 @@ func TestAPISourceProgressWaitsForTheSlowestKind(t *testing.T) {
 func TestAWatchEndingEndsThemAll(t *testing.T) {
 	env := apiservertest.Start(t, nil)
 	env.Setup()
-	cl := client.New(client.UnixSocket(env.Socket), client.UnixSocketURL, connect.WithInterceptors(endWatches{"/WatchContainers"}))
+	cl := client.New(client.UnixSocket(env.AdminSocket), client.UnixSocketURL, connect.WithInterceptors(endWatches{"/WatchSecrets"}))
 	rev, err := env.Store.Revision(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	err = controller.APISource{Client: cl}.Watch(ctx, []string{registry.Machine.Kind, registry.Container.Kind}, rev, func(store.Event) error { return nil })
+	err = controller.APISource{Client: cl}.Watch(ctx, []string{registry.ServiceToken.Kind, registry.Secret.Kind}, rev, func(store.Event) error { return nil })
 	if err != nil {
 		t.Errorf("a watch the server ended: %v, want nil once every kind's watch ends", err)
 	}
@@ -365,16 +354,21 @@ func TestAPISourceCallsFnOneAtATime(t *testing.T) {
 	var done atomic.Bool
 	finished := make(chan error, 1)
 	go func() {
-		finished <- controller.APISource{Client: env.AsNode()}.Watch(ctx, []string{registry.Container.Kind, registry.Machine.Kind}, rev,
+		finished <- controller.APISource{Client: env.AsLocal()}.Watch(ctx, []string{registry.Secret.Kind, registry.Project.Kind}, rev,
 			func(ev store.Event) error {
 				seen[ev.Object.Kind]++
-				if seen[registry.Container.Kind] > 0 && seen[registry.Machine.Kind] > 0 {
+				if seen[registry.Secret.Kind] > 0 && seen[registry.Project.Kind] > 0 {
 					done.Store(true)
 				}
 				return nil
 			})
 	}()
-	if _, err := env.As(apiservertest.Root).Apply(ctx, registry.Container, container("api")); err != nil {
+	// Two writes, one of each kind, which the watches of both deliver at
+	// once.
+	if _, err := env.As(apiservertest.Admin).Apply(ctx, registry.Project, &tenancyv1alpha1.Project{Metadata: &metav1.ObjectMeta{Name: "other"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.As(apiservertest.Admin).Apply(ctx, registry.Secret, secret("api")); err != nil {
 		t.Fatal(err)
 	}
 	testutil.Eventually(t, "events of both kinds", done.Load)
