@@ -6,19 +6,20 @@ import (
 	"sync"
 
 	"github.com/YukinaMochizuki/tower/internal/auth"
+	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/tunnel"
 )
 
-// Calls to hostd hosts open at once are capped per caller, per project and
-// per target, as hangar caps its calls to nodes (hangar:
-// docs/decisions/node-tunnel.md): no caller or project takes a target's
-// streams from the others, and a target's cap stays below what its tunnel
-// takes, leaving room for tower's own calls, which are not counted. A call
-// over a cap fails at once; none waits.
+// Calls to hostd hosts open at once are capped per environment, by its
+// instance, so no environment takes a target's streams from the others,
+// and per target, below what its tunnel takes, leaving room for tower's
+// own calls, which are not counted (as hangar caps its calls to nodes:
+// hangar: docs/decisions/node-tunnel.md). Not per caller: tower's callers
+// are a few programs, workstream above all, which calls for every
+// environment. A call over a cap fails at once; none waits.
 const (
-	DefaultMaxCallsPerCaller  = 64
-	DefaultMaxCallsPerProject = 64
-	DefaultMaxCallsPerTarget  = tunnel.MaxStreams - 100
+	DefaultMaxCallsPerInstance = 64
+	DefaultMaxCallsPerTarget   = tunnel.MaxStreams - 100
 )
 
 // ErrTooManyCalls means a call was refused for a cap on the calls open.
@@ -27,13 +28,12 @@ var ErrTooManyCalls = errors.New("too many calls open to hostd hosts")
 // Calls counts the calls open to hostd hosts, for every target's Client
 // at once. Its zero value takes the default caps.
 type Calls struct {
-	// MaxPerCaller, MaxPerProject and MaxPerTarget zero are the defaults.
-	MaxPerCaller, MaxPerProject, MaxPerTarget int
+	// MaxPerInstance and MaxPerTarget zero are the defaults.
+	MaxPerInstance, MaxPerTarget int
 
-	mu         sync.Mutex
-	perCaller  map[auth.Principal]int
-	perProject map[string]int
-	perTarget  map[string]int
+	mu          sync.Mutex
+	perInstance map[string]int
+	perTarget   map[string]int
 }
 
 func orDefault(n, def int) int {
@@ -43,30 +43,30 @@ func orDefault(n, def int) int {
 	return n
 }
 
-// take takes a slot for a call by p in project (empty for a call of no
-// project) to target, and returns what gives it back. The system's calls
+// take takes a slot for a call by p about in (zero for a call about no
+// instance) to target, and returns what gives it back. The system's calls
 // take none.
-func (c *Calls) take(p auth.Principal, project, target string) (func(), error) {
+func (c *Calls) take(p auth.Principal, in provider.Instance, target string) (func(), error) {
 	if c == nil || p.Type == auth.System {
 		return func() {}, nil
 	}
+	instance := ""
+	if in.Name != "" {
+		instance = target + "/" + in.Project + "/" + in.Name
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.perCaller == nil {
-		c.perCaller, c.perProject, c.perTarget = map[auth.Principal]int{}, map[string]int{}, map[string]int{}
+	if c.perInstance == nil {
+		c.perInstance, c.perTarget = map[string]int{}, map[string]int{}
 	}
-	if n := orDefault(c.MaxPerCaller, DefaultMaxCallsPerCaller); c.perCaller[p] >= n {
-		return nil, fmt.Errorf("%w: %s has %d open, the most one may; end one first", ErrTooManyCalls, p, n)
-	}
-	if n := orDefault(c.MaxPerProject, DefaultMaxCallsPerProject); project != "" && c.perProject[project] >= n {
-		return nil, fmt.Errorf("%w: project %q has %d open, the most it may; end one first", ErrTooManyCalls, project, n)
+	if n := orDefault(c.MaxPerInstance, DefaultMaxCallsPerInstance); instance != "" && c.perInstance[instance] >= n {
+		return nil, fmt.Errorf("%w: instance %s/%s has %d open, the most one may; end one first", ErrTooManyCalls, in.Project, in.Name, n)
 	}
 	if n := orDefault(c.MaxPerTarget, DefaultMaxCallsPerTarget); c.perTarget[target] >= n {
 		return nil, fmt.Errorf("%w: target %s has %d open, the most it takes; try again later", ErrTooManyCalls, target, n)
 	}
-	c.perCaller[p]++
-	if project != "" {
-		c.perProject[project]++
+	if instance != "" {
+		c.perInstance[instance]++
 	}
 	c.perTarget[target]++
 	var once sync.Once
@@ -74,12 +74,9 @@ func (c *Calls) take(p auth.Principal, project, target string) (func(), error) {
 		once.Do(func() {
 			c.mu.Lock()
 			defer c.mu.Unlock()
-			if c.perCaller[p]--; c.perCaller[p] == 0 {
-				delete(c.perCaller, p)
-			}
-			if project != "" {
-				if c.perProject[project]--; c.perProject[project] == 0 {
-					delete(c.perProject, project)
+			if instance != "" {
+				if c.perInstance[instance]--; c.perInstance[instance] == 0 {
+					delete(c.perInstance, instance)
 				}
 			}
 			if c.perTarget[target]--; c.perTarget[target] == 0 {

@@ -3,7 +3,10 @@
 // an ed25519 key it keeps in a file beside its key-encryption key, and the
 // target, holding only tower's public key, verifies them. A ticket names
 // its target, its instance, its port and when it expires; it says nothing
-// else and grants nothing else. See docs/decisions/traffic.md.
+// else and grants nothing else. A ticket is a bearer credential and
+// nothing marks it used: whoever holds it may present it again, any number
+// of times, until it expires, which is why tickets live minutes. See
+// docs/decisions/traffic.md.
 package ticket
 
 import (

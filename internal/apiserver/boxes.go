@@ -40,6 +40,11 @@ var errMirrorNotFetched = fmt.Errorf("the repository's mirror is not fetched yet
 type boxState struct {
 	s  *Server
 	st *envv1alpha1.BoxStatus
+	// idleStop says the reconcile decided to stop the box for idleness, at
+	// its use epoch idleEpoch: the status is written only if the box was
+	// not used since (commitIdleStop).
+	idleStop  bool
+	idleEpoch uint64
 }
 
 func (b boxState) cond(typ string, ok bool, reason, msg string) {
@@ -66,17 +71,34 @@ func (s *Server) reconcileBox(ctx context.Context, key controller.Key) error {
 		st = &envv1alpha1.BoxStatus{}
 	}
 	st.ObservedGeneration = box.GetMetadata().GetGeneration()
-	bs := boxState{s: s, st: st}
+	bs := &boxState{s: s, st: st}
 	waitErr := s.boxSteps(ctx, key, box, bs)
-	if err := s.updateStatus(ctx, registry.Box, box, st); err != nil {
+	write := func() error { return s.updateStatus(ctx, registry.Box, box, st) }
+	if !bs.idleStop {
+		if err := write(); err != nil {
+			return err
+		}
+		return waitErr
+	}
+	if hook := s.beforeIdleStop.Load(); hook != nil {
+		(*hook)(key)
+	}
+	stopped, err := s.commitIdleStop(key, bs.idleEpoch, write)
+	if err != nil {
 		return err
 	}
+	if !stopped {
+		// Used as it was decided: decided again from what it is now.
+		s.boxCtrl.Enqueue(key)
+		return nil
+	}
+	s.log.Info("stopping a box unused for its target's idle_stop_after", "project", key.Project, "box", key.Name)
 	return waitErr
 }
 
 // boxSteps brings the box along as far as it can go now, saying in bs
 // where it is; its error is one to retry.
-func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alpha1.Box, bs boxState) error {
+func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alpha1.Box, bs *boxState) error {
 	st, spec := bs.st, box.GetSpec()
 	if st.Phase == envv1alpha1.BoxPhase_BOX_PHASE_UNSPECIFIED {
 		st.Phase = envv1alpha1.BoxPhase_BOX_PHASE_PENDING
@@ -123,18 +145,23 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		}
 		st.ImageGolden = name
 	}
-	img, ok, err := getTyped[*envv1alpha1.Golden](ctx, s, registry.Golden, resource.Key{Project: key.Project, Name: st.ImageGolden})
+	img, ok, err := s.liveGolden(ctx, key.Project, st.ImageGolden)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		// Pruned before the box ran: resolve it again.
+		// Pruned, or deleted to be built again, before the box ran:
+		// resolve it again.
 		st.ImageGolden = ""
-		return fmt.Errorf("box %s: its image golden is gone; resolving it again", key)
+		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_PENDING, "ImageGoldenGone", "its image golden is gone; it is resolved again")
+		return fmt.Errorf("box %s: its image golden is gone; resolving it again: %w", key, controller.ErrWaiting)
 	}
 	switch goldenPhase(img) {
 	case envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED:
-		msg := conditions.Find(img.GetStatus().GetConditions(), GoldenReady).GetMessage()
+		msg, err := s.failedGoldenMessage(ctx, img)
+		if err != nil {
+			return err
+		}
 		bs.cond(BoxImageBuilt, false, "BuildFailed", msg)
 		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_FAILED, "ImageBuildFailed", msg)
 		return nil
@@ -178,9 +205,14 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		desired, reason = envv1alpha1.RunState_RUN_STATE_STOPPED, stoppedRequested
 	case st.StoppedReason == stoppedIdle:
 		desired, reason = envv1alpha1.RunState_RUN_STATE_STOPPED, stoppedIdle
-	case st.Phase == envv1alpha1.BoxPhase_BOX_PHASE_READY && s.idle(key, box, target):
-		desired, reason = envv1alpha1.RunState_RUN_STATE_STOPPED, stoppedIdle
-		s.log.Info("stopping a box unused for its target's idle_stop_after", "project", key.Project, "box", key.Name)
+	case st.Phase == envv1alpha1.BoxPhase_BOX_PHASE_READY:
+		if idle, epoch := s.idle(key, box, target); idle {
+			// Decided here, written by reconcileBox unless the box is used
+			// meanwhile; its instance stops on the next reconcile.
+			st.StoppedReason, bs.idleStop, bs.idleEpoch = stoppedIdle, true, epoch
+			bs.cond(BoxReady, false, "Stopping", "stopping: "+stoppedIdle)
+			return nil
+		}
 	}
 	st.StoppedReason = reason
 	if in.GetSpec().GetRunState() != desired {
@@ -266,18 +298,28 @@ func (s *Server) boxImageGolden(ctx context.Context, project, target string, spe
 
 // makeBoxInstance makes the box's instance from its image, with its disk
 // cloned from its first repository's warm golden when one is ready.
-func (s *Server) makeBoxInstance(ctx context.Context, key controller.Key, box *envv1alpha1.Box, img *envv1alpha1.Golden, name string, bs boxState) error {
+func (s *Server) makeBoxInstance(ctx context.Context, key controller.Key, box *envv1alpha1.Box, img *envv1alpha1.Golden, name string, bs *boxState) error {
 	st, spec := bs.st, box.GetSpec()
 	warm := ""
 	if cs := spec.GetCheckouts(); len(cs) > 0 {
 		var err error
-		if warm, err = s.readyWarm(ctx, key.Project, cs[0].GetRepository()); err != nil {
+		if warm, err = s.readyWarm(ctx, key.Project, cs[0].GetRepository(), st.Target, img.GetMetadata().GetName()); err != nil {
 			return err
 		}
 	}
 	runState := envv1alpha1.RunState_RUN_STATE_RUNNING
 	if spec.GetRunState() == envv1alpha1.RunState_RUN_STATE_STOPPED {
 		runState = envv1alpha1.RunState_RUN_STATE_STOPPED
+	}
+	// Recorded before the instance names them, so pruning, which reads the
+	// use, never takes a golden an instance is about to be made of.
+	for _, g := range []string{img.GetMetadata().GetName(), warm} {
+		if g == "" {
+			continue
+		}
+		if err := s.goldenUsed(ctx, key.Project, g); err != nil {
+			return err
+		}
 	}
 	_, err := s.backend(registry.Instance).Create(s.system(ctx), &envv1alpha1.Instance{
 		Metadata: &metav1.ObjectMeta{Project: key.Project, Name: name, OwnerReferences: []*metav1.OwnerReference{ownedBy(registry.Box, box)}},
@@ -290,29 +332,25 @@ func (s *Server) makeBoxInstance(ctx context.Context, key controller.Key, box *e
 	if err != nil && connect.CodeOf(err) != connect.CodeAlreadyExists {
 		return err
 	}
-	for _, g := range []string{img.GetMetadata().GetName(), warm} {
-		if g == "" {
-			continue
-		}
-		if err := s.goldenUsed(ctx, key.Project, g); err != nil {
-			return err
-		}
-	}
 	st.Instance, st.WarmGolden, st.Alias = name, warm, key.Name
 	bs.cond(BoxMaterialized, false, "Creating", "")
 	bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", "its instance is being made")
 	return nil
 }
 
-// readyWarm is the repository's warm golden that is ready, "" if none.
-func (s *Server) readyWarm(ctx context.Context, project, repo string) (string, error) {
+// readyWarm is the repository's newest ready warm golden on target made on
+// the image golden parent, "" if none: a box of another image takes the
+// slow path, since a disk cloned from it would not match its image.
+func (s *Server) readyWarm(ctx context.Context, project, repo, target, parent string) (string, error) {
 	goldens, err := listTyped[*envv1alpha1.Golden](ctx, s, registry.Golden, project)
 	if err != nil {
 		return "", err
 	}
 	var best *envv1alpha1.Golden
 	for _, g := range goldens {
-		if g.GetMetadata().GetLabels()[warmLabel] != repo || goldenPhase(g) != envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY || g.GetMetadata().GetDeleteTime() != nil {
+		if g.GetMetadata().GetLabels()[warmLabel] != repo || goldenPhase(g) != envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY ||
+			g.GetMetadata().GetDeleteTime() != nil || dropped(g) ||
+			g.GetSpec().GetTarget() != target || g.GetSpec().GetParent() != parent {
 			continue
 		}
 		if best == nil || g.GetMetadata().GetCreateTime().AsTime().After(best.GetMetadata().GetCreateTime().AsTime()) {
@@ -328,7 +366,7 @@ func (s *Server) readyWarm(ctx context.Context, project, repo string) (string, e
 // materializeBox checks the box's repositories out in its running
 // instance, and on the slow path, a blank disk, installs the first one's
 // dependencies.
-func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *envv1alpha1.Box, in *envv1alpha1.Instance, p provider.Provider, bs boxState) error {
+func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *envv1alpha1.Box, in *envv1alpha1.Instance, p provider.Provider, bs *boxState) error {
 	job := "materialize/" + key.String()
 	jerr, running := s.jobs.lastError(job)
 	if jerr != nil && !running {
@@ -350,7 +388,7 @@ func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *en
 	target, warm := bs.st.GetTarget(), in.GetSpec().GetDiskGolden()
 	ref := provider.Instance{Project: key.Project, Name: in.GetMetadata().GetName()}
 	checkouts := box.GetSpec().GetCheckouts()
-	s.jobs.start(s.runCtx, job, s.boxCtrl, key, func(ctx context.Context) error {
+	s.startJob(target, job, s.boxCtrl, key, func(ctx context.Context) error {
 		if done, err := s.instanceMarked(ctx, key.Project, ref.Name, materializedAnnotation); err != nil || done {
 			return err
 		}
@@ -435,17 +473,18 @@ func (s *Server) setRunState(ctx context.Context, in *envv1alpha1.Instance, rs e
 // idle reports whether a box has gone unused for its target's
 // idle_stop_after, measured from its last use or from when it last became
 // ready. A box workstream keeps, or that runs background work, never is.
-func (s *Server) idle(key controller.Key, box *envv1alpha1.Box, target *targetsv1alpha1.Target) bool {
-	if box.GetSpec().GetKeep() || box.GetSpec().GetBackgroundWork() {
-		return false
+func (s *Server) idle(key controller.Key, box *envv1alpha1.Box, target *targetsv1alpha1.Target) (bool, uint64) {
+	touched, epoch, busy := s.useOf(key)
+	if busy || box.GetSpec().GetKeep() || box.GetSpec().GetBackgroundWork() {
+		return false, epoch
 	}
 	var last time.Time
 	if t := box.GetStatus().GetLastUseTime(); t != nil {
 		last = t.AsTime()
 	}
-	last = maxTime(last, s.lastTouch(key))
+	last = maxTime(last, touched)
 	if c := conditions.Find(box.GetStatus().GetConditions(), BoxReady); c.GetLastTransitionTime() != nil {
 		last = maxTime(last, c.GetLastTransitionTime().AsTime())
 	}
-	return !last.IsZero() && s.clock.Since(last) >= settingsOf(target).idleStopAfter
+	return !last.IsZero() && s.clock.Since(last) >= settingsOf(target).idleStopAfter, epoch
 }

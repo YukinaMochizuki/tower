@@ -65,6 +65,8 @@ type environment struct {
 	// secretEnv is a privileged box's Secret's values, which every command
 	// in it is given.
 	secretEnv map[string]string
+	// release ends the call's use of the environment.
+	release func()
 }
 
 func (e *environment) String() string {
@@ -119,6 +121,7 @@ func (h environmentService) open(ctx context.Context, env *envv1alpha1.Environme
 		return nil, err
 	}
 	if e.perr != nil {
+		e.release()
 		return nil, e.perr
 	}
 	return e, nil
@@ -126,8 +129,24 @@ func (h environmentService) open(ctx context.Context, env *envv1alpha1.Environme
 
 // find finds the environment, counts this call as its use and, for a box
 // tower stopped for idleness, starts it and waits until it is READY, within
-// ctx. An environment stopped at workstream's request is refused.
+// ctx. An environment stopped at workstream's request is refused. A box is
+// in use, never idle, until the caller calls release.
 func (h environmentService) find(ctx context.Context, env *envv1alpha1.Environment) (*environment, error) {
+	release := func() {}
+	if env.GetBox() != "" {
+		// Before Wake: a box in use is not stopped while it wakes.
+		release = h.s.beginUse(env.GetProject(), env.GetBox())
+	}
+	e, err := h.findIn(ctx, env)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	e.release = release
+	return e, nil
+}
+
+func (h environmentService) findIn(ctx context.Context, env *envv1alpha1.Environment) (*environment, error) {
 	s := h.s
 	e := &environment{key: resource.Key{Project: env.GetProject()}}
 	var target, instance string
@@ -266,6 +285,7 @@ func (h environmentService) Exec(ctx context.Context, req *connect.Request[envv1
 	if err != nil {
 		return err
 	}
+	defer e.release()
 	env := maps.Clone(m.GetEnv())
 	if env == nil {
 		env = map[string]string{}
@@ -361,6 +381,7 @@ func (h environmentService) ReadFile(ctx context.Context, req *connect.Request[e
 	if err != nil {
 		return err
 	}
+	defer e.release()
 	w := &window{skip: m.GetOffset(), left: limit, out: output{mu: &sync.Mutex{}, send: func(b []byte) error {
 		return stream.Send(&envv1alpha1.ReadFileResponse{Response: &envv1alpha1.ReadFileResponse_Data{Data: b}})
 	}}}
@@ -395,6 +416,7 @@ func (h environmentService) WriteFile(ctx context.Context, req *connect.Request[
 	if err != nil {
 		return nil, err
 	}
+	defer e.release()
 	if err := e.p.WriteFile(ctx, e.ref, m.GetPath(), mode, m.GetOffset(), bytes.NewReader(m.GetData())); err != nil {
 		return nil, providerError(e, err)
 	}
@@ -419,6 +441,7 @@ func (h environmentService) CopyFile(ctx context.Context, req *connect.Request[e
 	if err != nil {
 		return nil, err
 	}
+	defer from.release()
 	to, err := h.open(ctx, m.GetTo())
 	if err != nil {
 		return nil, err
@@ -471,6 +494,7 @@ func (h environmentService) FetchOrigin(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, err
 	}
+	defer e.release()
 	res := &envv1alpha1.FetchOriginResponse{}
 	target := e.target.GetMetadata().GetName()
 	for i, co := range e.box.GetSpec().GetCheckouts() {
@@ -519,6 +543,7 @@ func (h environmentService) Push(ctx context.Context, req *connect.Request[envv1
 	if err != nil {
 		return nil, err
 	}
+	defer e.release()
 	i := slices.IndexFunc(e.box.GetSpec().GetCheckouts(), func(co *envv1alpha1.Checkout) bool { return co.GetRepository() == m.GetRepository() })
 	if i < 0 {
 		return nil, invalid("%s has no checkout of repository %q", e, m.GetRepository())
@@ -574,6 +599,7 @@ func (h environmentService) IssueTicket(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, err
 	}
+	defer e.release()
 	if e.target.GetSpec().GetHangar() != nil {
 		return nil, connect.NewError(connect.CodeUnimplemented,
 			fmt.Errorf("%s runs on hangar target %q, which forwards no port yet: no direct stream to it can be ticketed", e, e.target.GetMetadata().GetName()))

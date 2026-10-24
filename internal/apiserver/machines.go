@@ -110,7 +110,10 @@ func (s *Server) machineSteps(ctx context.Context, key controller.Key, m *envv1a
 	}
 	switch goldenPhase(g) {
 	case envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED:
-		msg := conditions.Find(g.GetStatus().GetConditions(), GoldenReady).GetMessage()
+		msg, err := s.failedGoldenMessage(ctx, g)
+		if err != nil {
+			return err
+		}
 		s.machineCond(st, MachineGoldenBuilt, false, "BuildFailed", msg)
 		not(envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED, "GoldenBuildFailed", msg)
 		return nil
@@ -149,6 +152,10 @@ func (s *Server) machineSteps(ctx context.Context, key controller.Key, m *envv1a
 		desired = envv1alpha1.RunState_RUN_STATE_STOPPED
 	}
 	if !ok {
+		// Recorded before the instance names it: see makeBoxInstance.
+		if err := s.goldenUsed(ctx, key.Project, st.Golden); err != nil {
+			return err
+		}
 		_, err := s.backend(registry.Instance).Create(s.system(ctx), &envv1alpha1.Instance{
 			Metadata: &metav1.ObjectMeta{Project: key.Project, Name: name, OwnerReferences: []*metav1.OwnerReference{ownedBy(registry.Machine, m)}},
 			Spec: &envv1alpha1.InstanceSpec{
@@ -158,9 +165,6 @@ func (s *Server) machineSteps(ctx context.Context, key controller.Key, m *envv1a
 			},
 		})
 		if err != nil && connect.CodeOf(err) != connect.CodeAlreadyExists {
-			return err
-		}
-		if err := s.goldenUsed(ctx, key.Project, st.Golden); err != nil {
 			return err
 		}
 		st.Instance, st.Alias = name, alias
@@ -223,7 +227,7 @@ func (s *Server) configureMachine(ctx context.Context, key controller.Key, m *en
 	}
 	spec := m.GetSpec()
 	ref := provider.Instance{Project: key.Project, Name: in.GetMetadata().GetName()}
-	s.jobs.start(s.runCtx, job, s.machineCtrl, key, func(ctx context.Context) error {
+	s.startJob(st.Target, job, s.machineCtrl, key, func(ctx context.Context) error {
 		// A reconcile that read the instance before an earlier job marked
 		// it may start this one: the mark, read again, says it is done.
 		if done, err := s.instanceMarked(ctx, key.Project, ref.Name, configuredAnnotation); err != nil || done {

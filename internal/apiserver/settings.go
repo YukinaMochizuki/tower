@@ -26,6 +26,17 @@ const (
 	// DefaultWarmEstimate is what a warm golden not built yet is taken to
 	// hold, until its first one says.
 	DefaultWarmEstimate = "5Gi"
+	// DefaultWarmMinHold is how long a repository that took a warm golden
+	// keeps its place, whatever the ranking says, so use that shifts for a
+	// day does not rebuild goldens back and forth.
+	DefaultWarmMinHold = 24 * time.Hour
+	// WarmChallengeMargin is by how much a repository's score must beat a
+	// holder's to take its place: 0.2 is by 20%.
+	WarmChallengeMargin = 0.2
+	// DefaultReportInterval is how often a provider reports its target's
+	// status; one silent for ReportsMissed of them is not Reporting.
+	DefaultReportInterval = time.Minute
+	ReportsMissed         = 3
 	// DiskPressureMargin is how much more than the warm budget a target
 	// must have free not to be under DiskPressure.
 	DiskPressureMargin = "20Gi"
@@ -69,13 +80,14 @@ type settings struct {
 	warmWindow           time.Duration
 	warmMaxAge           time.Duration
 	warmMaxCommitsBehind int
+	warmMinHold          time.Duration
 }
 
 func settingsOf(t *targetsv1alpha1.Target) settings {
 	set := t.GetSpec().GetSettings()
 	s := settings{
 		idleStopAfter: DefaultIdleStopAfter, warmBudget: mustBytes(DefaultWarmBudget), warmWindow: DefaultWarmWindow,
-		warmMaxAge: DefaultWarmMaxAge, warmMaxCommitsBehind: DefaultWarmMaxCommitsBehind,
+		warmMaxAge: DefaultWarmMaxAge, warmMaxCommitsBehind: DefaultWarmMaxCommitsBehind, warmMinHold: DefaultWarmMinHold,
 	}
 	if d := set.GetIdleStopAfter(); d != nil && d.AsDuration() > 0 {
 		s.idleStopAfter = d.AsDuration()

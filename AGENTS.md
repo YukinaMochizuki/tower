@@ -8,9 +8,10 @@ rebuilt, what is cached and reclaimed. Its API is declarative, Kubernetes-style
 One person maintains it, and agents are first-class users of both the code and
 the API.
 
-Status: early. The engine, authentication and secrets exist; the kinds that
-carry environments are being designed. `docs/architecture.md` describes the
-target.
+Status: early. The engine, authentication, secrets, the environment kinds
+and their controllers, workstream's data plane (EnvironmentService) and the
+tunnel hostd opens exist, tested against fake providers; hostd itself and a
+CLI are being built. `docs/architecture.md` describes the target.
 
 ## Layout
 

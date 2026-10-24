@@ -410,11 +410,19 @@ func TestFetchOriginAndPush(t *testing.T) {
 	}
 
 	w.mustApply(registry.Secret, secret("web", "forge-write", map[string]string{"token": "tok-write"}))
-	repo, _ := w.getRepo("api")
-	repo = proto.Clone(repo).(*envv1alpha1.Repository)
-	repo.Spec.CredentialSecret = "forge-write"
-	repo.Status = nil
-	w.mustApply(registry.Repository, repo)
+	// Applied at the version read, which the repository's controller may
+	// move between.
+	testutil.Eventually(t, "the repository given a credential", func() (bool, string) {
+		repo, _ := w.getRepo("api")
+		repo = proto.Clone(repo).(*envv1alpha1.Repository)
+		repo.Spec.CredentialSecret = "forge-write"
+		repo.Status = nil
+		_, err := w.asSystem().generic.Apply(ctx, registry.Repository, repo)
+		if err != nil && connect.CodeOf(err) != connect.CodeAborted {
+			t.Fatal(err)
+		}
+		return err == nil, fmt.Sprint(err)
+	})
 	wantCode(t, push("c2"), connect.CodeAborted, "a push on a lease the branch has moved past")
 	if head := w.fake.RemoteHead(url); head != "c3" {
 		t.Errorf("a refused push moved the branch to %q", head)
@@ -481,7 +489,14 @@ func TestATicketVerifiesForItsPortAlone(t *testing.T) {
 	if _, err := ticket.Verify(signer.PublicKey(), m.GetTicket(), want, expires); !errors.Is(err, ticket.ErrExpired) {
 		t.Errorf("the ticket verified at its expiry: %v", err)
 	}
-	tampered := m.GetTicket()[:len(m.GetTicket())-2] + "AA"
+	// A byte of the signature changed: not its last character, whose low
+	// bits base64 ignores.
+	sig := strings.LastIndex(m.GetTicket(), ".") + 5
+	flipped := byte('A')
+	if m.GetTicket()[sig] == 'A' {
+		flipped = 'B'
+	}
+	tampered := m.GetTicket()[:sig] + string(flipped) + m.GetTicket()[sig+1:]
 	if _, err := ticket.Verify(signer.PublicKey(), tampered, want, w.clock.Now()); !errors.Is(err, ticket.ErrInvalid) {
 		t.Errorf("a tampered ticket verified: %v", err)
 	}

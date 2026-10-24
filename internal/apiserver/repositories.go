@@ -99,7 +99,7 @@ func (s *Server) fetchMirror(ctx context.Context, key controller.Key, repo *envv
 		return fmt.Errorf("repository %s: %w: %w", key, controller.ErrWaiting, err)
 	}
 	s.fetchDone(key)
-	s.jobs.start(s.runCtx, job, s.repositoryCtrl, key, func(ctx context.Context) error {
+	s.startJob(target, job, s.repositoryCtrl, key, func(ctx context.Context) error {
 		token := ""
 		if c := repo.GetSpec().GetCredentialSecret(); c != "" {
 			data, err := s.OpenSecret(s.system(ctx), resource.Key{Project: key.Project, Name: c})

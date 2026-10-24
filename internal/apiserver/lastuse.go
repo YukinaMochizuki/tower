@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
+	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/conditions"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/controller"
 	"github.com/YukinaMochizuki/tower/internal/store"
@@ -39,12 +42,17 @@ type useRecord struct {
 	Since   time.Time `json:"since,omitzero"`
 }
 
-// lastUses are boxes' uses through Touch since the last flush, and the
-// repositories boxes asked to fetch.
+// lastUses are boxes' uses through Touch since the last flush, the calls
+// into them under way, and the repositories boxes asked to fetch.
 type lastUses struct {
 	mu      sync.Mutex
 	touched map[controller.Key]time.Time
-	fetch   map[controller.Key]bool
+	// inFlight counts each box's calls under way, which keep it in use.
+	inFlight map[controller.Key]int
+	// epoch moves at each use of a box; an idle stop decided before it
+	// moved is not written (commitIdleStop).
+	epoch map[controller.Key]uint64
+	fetch map[controller.Key]bool
 }
 
 // Touch records that the box was used now, as the data plane does on every
@@ -54,17 +62,73 @@ type lastUses struct {
 func (s *Server) Touch(project, box string) {
 	s.uses.mu.Lock()
 	defer s.uses.mu.Unlock()
+	s.touchLocked(controller.Key{Project: project, Name: box})
+}
+
+func (s *Server) touchLocked(key controller.Key) {
 	if s.uses.touched == nil {
 		s.uses.touched = map[controller.Key]time.Time{}
 	}
-	s.uses.touched[controller.Key{Project: project, Name: box}] = s.clock.Now()
+	if s.uses.epoch == nil {
+		s.uses.epoch = map[controller.Key]uint64{}
+	}
+	s.uses.touched[key] = s.clock.Now()
+	s.uses.epoch[key]++
 }
 
-// lastTouch is the box's last use not flushed yet, zero if none.
-func (s *Server) lastTouch(key controller.Key) time.Time {
+// beginUse counts a call into the box under way: while one is, the box is
+// never idle. The returned func ends it, which is a use of the box.
+func (s *Server) beginUse(project, box string) (end func()) {
+	key := controller.Key{Project: project, Name: box}
+	s.uses.mu.Lock()
+	if s.uses.inFlight == nil {
+		s.uses.inFlight = map[controller.Key]int{}
+	}
+	s.uses.inFlight[key]++
+	s.touchLocked(key)
+	s.uses.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			s.uses.mu.Lock()
+			defer s.uses.mu.Unlock()
+			if s.uses.inFlight[key]--; s.uses.inFlight[key] <= 0 {
+				delete(s.uses.inFlight, key)
+			}
+			s.touchLocked(key)
+		})
+	}
+}
+
+// useOf is the box's use not flushed yet (zero if none), its use epoch,
+// and whether a call into it is under way.
+func (s *Server) useOf(key controller.Key) (last time.Time, epoch uint64, busy bool) {
 	s.uses.mu.Lock()
 	defer s.uses.mu.Unlock()
-	return s.uses.touched[key]
+	return s.uses.touched[key], s.uses.epoch[key], s.uses.inFlight[key] > 0
+}
+
+// commitIdleStop writes an idle stop decided at epoch, unless the box has
+// been used since or a call into it is under way: then it writes nothing
+// and reports false. A use waits while the stop is written, so it either
+// comes before, and stops it, or after, and finds the box stopped.
+func (s *Server) commitIdleStop(key controller.Key, epoch uint64, write func() error) (bool, error) {
+	s.uses.mu.Lock()
+	defer s.uses.mu.Unlock()
+	if s.uses.epoch[key] != epoch || s.uses.inFlight[key] > 0 {
+		return false, nil
+	}
+	return true, write()
+}
+
+// boxFailed is a FAILED box's refusal, saying why it failed; nil for any
+// other.
+func boxFailed(b *envv1alpha1.Box) error {
+	if b.GetStatus().GetPhase() != envv1alpha1.BoxPhase_BOX_PHASE_FAILED {
+		return nil
+	}
+	c := conditions.Find(b.GetStatus().GetConditions(), BoxReady)
+	return failedPrecondition("box %q failed: %s: %s", b.GetMetadata().GetName(), c.GetReason(), c.GetMessage())
 }
 
 // runLastUse flushes uses every LastUseFlushEvery until ctx is done, and
@@ -89,24 +153,23 @@ func (s *Server) runLastUse(ctx context.Context) error {
 // one idle for long enough is stopped, and its repository, whose use is
 // counted again.
 func (s *Server) flushUses(ctx context.Context) error {
+	// A use stays in memory until the box's status holds it, so idle()
+	// sees it in one or the other all along; one that failed to be written
+	// stays for the next flush.
 	s.uses.mu.Lock()
-	touched := s.uses.touched
-	s.uses.touched = nil
+	touched := maps.Clone(s.uses.touched)
 	s.uses.mu.Unlock()
 	var errs []error
 	for key, at := range touched {
 		if err := s.writeLastUse(ctx, key, at); err != nil {
 			errs = append(errs, err)
-			// Not lost: the next flush tries it again.
-			s.uses.mu.Lock()
-			if s.uses.touched == nil {
-				s.uses.touched = map[controller.Key]time.Time{}
-			}
-			if s.uses.touched[key].Before(at) {
-				s.uses.touched[key] = at
-			}
-			s.uses.mu.Unlock()
+			continue
 		}
+		s.uses.mu.Lock()
+		if s.uses.touched[key].Equal(at) {
+			delete(s.uses.touched, key)
+		}
+		s.uses.mu.Unlock()
 	}
 	boxes, err := listTyped[*envv1alpha1.Box](ctx, s, registry.Box, "")
 	if err != nil {
@@ -124,7 +187,31 @@ func (s *Server) flushUses(ctx context.Context) error {
 		}
 	}
 	errs = append(errs, s.pruneUseRecords(ctx))
+	errs = append(errs, s.recheckTimed(ctx))
 	return errors.Join(errs...)
+}
+
+// recheckTimed queues what waits on time alone, which no write wakes: a
+// failed golden waiting out its backoff, and a target whose provider may
+// have fallen silent.
+func (s *Server) recheckTimed(ctx context.Context) error {
+	goldens, err := listTyped[*envv1alpha1.Golden](ctx, s, registry.Golden, "")
+	if err != nil {
+		return err
+	}
+	for _, g := range goldens {
+		if goldenPhase(g) == envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED {
+			s.goldenCtrl.Enqueue(controller.Key{Project: g.GetMetadata().GetProject(), Name: g.GetMetadata().GetName()})
+		}
+	}
+	targets, err := listTyped[*targetsv1alpha1.Target](ctx, s, registry.Target, "")
+	if err != nil {
+		return err
+	}
+	for _, t := range targets {
+		s.targetCtrl.Enqueue(controller.Key{Name: t.GetMetadata().GetName()})
+	}
+	return nil
 }
 
 // writeLastUse moves the box's status.last_use_time to at, if later.
@@ -260,14 +347,18 @@ func (s *Server) pruneUseRecords(ctx context.Context) error {
 // Wake starts a box tower stopped for idleness and waits until it is
 // READY, as the data plane does on the box's next use; a box already
 // running is used at once. A box stopped at workstream's request stays
-// stopped: that is FailedPrecondition. It returns once the box is READY,
-// FAILED, or ctx is done.
+// stopped: that is FailedPrecondition, and so is a FAILED box, at once,
+// with why. It returns once the box is READY, FAILED, being deleted, or
+// ctx is done.
 func (s *Server) Wake(ctx context.Context, project, box string) error {
 	key := controller.Key{Project: project, Name: box}
 	since, err := s.store.Revision(ctx)
 	if err != nil {
 		return err
 	}
+	// Used before it is read: an idle stop not yet written then is not
+	// (commitIdleStop), and one written already is read below.
+	s.Touch(project, box)
 	b, ok, err := getTyped[*envv1alpha1.Box](ctx, s, registry.Box, resource.Key{Project: project, Name: box})
 	if err != nil {
 		return err
@@ -278,7 +369,9 @@ func (s *Server) Wake(ctx context.Context, project, box string) error {
 	if b.GetSpec().GetRunState() == envv1alpha1.RunState_RUN_STATE_STOPPED {
 		return failedPrecondition("box %q is stopped at workstream's request; set its run_state to wake it", box)
 	}
-	s.Touch(project, box)
+	if err := boxFailed(b); err != nil {
+		return err
+	}
 	if b.GetStatus().GetStoppedReason() == stoppedIdle {
 		st := proto.Clone(b.GetStatus()).(*envv1alpha1.BoxStatus)
 		st.StoppedReason, st.Phase = "", envv1alpha1.BoxPhase_BOX_PHASE_STARTING
@@ -302,11 +395,15 @@ func (s *Server) Wake(ctx context.Context, project, box string) error {
 		if err != nil {
 			return err
 		}
-		switch st := o.(*envv1alpha1.Box).GetStatus(); st.GetPhase() {
-		case envv1alpha1.BoxPhase_BOX_PHASE_READY:
+		b := o.(*envv1alpha1.Box)
+		if b.GetMetadata().GetDeleteTime() != nil {
+			return connect.NewError(connect.CodeNotFound, fmt.Errorf("box %q is being deleted", box))
+		}
+		if err := boxFailed(b); err != nil {
+			return err
+		}
+		if b.GetStatus().GetPhase() == envv1alpha1.BoxPhase_BOX_PHASE_READY {
 			return done
-		case envv1alpha1.BoxPhase_BOX_PHASE_FAILED:
-			return failedPrecondition("box %q failed as it woke", box)
 		}
 		return nil
 	})

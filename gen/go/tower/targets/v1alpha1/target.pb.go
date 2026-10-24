@@ -394,8 +394,9 @@ type TargetStatus struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	ObservedGeneration int64                  `protobuf:"varint,1,opt,name=observed_generation,json=observedGeneration,proto3" json:"observed_generation,omitempty"`
 	// Reachable: tower can call the provider. Reporting: the provider reported
-	// within its interval. DiskPressure: free disk is under what the warm
-	// budget and the instances need.
+	// within its interval, which tower turns false after three intervals of
+	// silence. DiskPressure: free disk is under the warm budget plus a fixed
+	// margin (20Gi) for the instances to grow into.
 	Conditions     []*v1.Condition        `protobuf:"bytes,2,rep,name=conditions,proto3" json:"conditions,omitempty"`
 	LastReportTime *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_report_time,json=lastReportTime,proto3" json:"last_report_time,omitempty"`
 	// The last error calling or hearing from the provider, if it has not

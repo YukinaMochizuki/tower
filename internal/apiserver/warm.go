@@ -7,12 +7,15 @@ import (
 	"slices"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/controller"
+	"github.com/YukinaMochizuki/tower/internal/store"
 )
 
 // warmCandidate is a repository of a project placed on the target, with
@@ -32,11 +35,39 @@ func (c warmCandidate) used() bool {
 	return u.GetBoxesOpened() > 0 || u.GetBoxSeconds() > 0
 }
 
-// newestReady is the repository's newest ready warm golden, nil if none.
+// dropped reports whether the warm controller let the golden go while
+// something still referenced it.
+func dropped(g *envv1alpha1.Golden) bool {
+	return g.GetMetadata().GetAnnotations()[warmDroppedAnnotation] != ""
+}
+
+// heldSince is when the repository took its place in the budget: its
+// oldest warm golden not dropped, zero if it holds none.
+func (c warmCandidate) heldSince() time.Time {
+	var since time.Time
+	for _, g := range c.goldens {
+		if dropped(g) {
+			continue
+		}
+		if t := g.GetMetadata().GetCreateTime().AsTime(); since.IsZero() || t.Before(since) {
+			since = t
+		}
+	}
+	return since
+}
+
+// score is what the repository ranks by: the seconds its boxes ran in its
+// window.
+func (c warmCandidate) score() float64 {
+	return float64(c.repo.GetStatus().GetUse().GetBoxSeconds())
+}
+
+// newestReady is the repository's newest ready warm golden not dropped,
+// nil if none.
 func (c warmCandidate) newestReady() *envv1alpha1.Golden {
 	var best *envv1alpha1.Golden
 	for _, g := range c.goldens {
-		if goldenPhase(g) == envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY &&
+		if goldenPhase(g) == envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY && !dropped(g) &&
 			(best == nil || g.GetMetadata().GetCreateTime().AsTime().After(best.GetMetadata().GetCreateTime().AsTime())) {
 			best = g
 		}
@@ -44,34 +75,43 @@ func (c warmCandidate) newestReady() *envv1alpha1.Golden {
 	return best
 }
 
-// size is what the repository's warm golden holds: its newest ready one's,
-// or the last one tower saw, or DefaultWarmEstimate before any was built.
-// The last size seen keeps one that fell out of the budget out, rather
-// than taken back in on an estimate and dropped again once built.
-func (s *Server) warmSize(c warmCandidate) uint64 {
-	key := controller.Key{Project: c.project, Name: c.name()}
-	s.warmSizesMu.Lock()
-	defer s.warmSizesMu.Unlock()
+// warmSize is what the repository's warm golden holds: its newest ready
+// one's, or the last one tower saw, kept as an internal record so a
+// restart forgets it not, or DefaultWarmEstimate before any was built. The
+// last size seen keeps one that fell out of the budget out, rather than
+// taken back in on an estimate and dropped again once built.
+func (s *Server) warmSize(ctx context.Context, c warmCandidate) (uint64, error) {
+	key := store.Key{Kind: warmSizeKind, Project: c.project, Name: c.name()}
 	if g := c.newestReady(); g != nil {
 		if b, err := quantity.Bytes(g.GetStatus().GetSize()); err == nil && b > 0 {
-			if s.warmSizes == nil {
-				s.warmSizes = map[controller.Key]uint64{}
-			}
-			s.warmSizes[key] = b
-			return b
+			return b, s.putRecord(ctx, key, warmSizeRecord{Bytes: b})
 		}
 	}
-	if b, ok := s.warmSizes[key]; ok {
-		return b
+	var r warmSizeRecord
+	if found, err := s.getRecord(ctx, key, &r); err != nil || found {
+		return r.Bytes, err
 	}
-	return mustBytes(DefaultWarmEstimate)
+	return mustBytes(DefaultWarmEstimate), nil
+}
+
+// goldenSize is what a golden holds on its target, 0 if it does not say.
+func goldenSize(g *envv1alpha1.Golden) uint64 {
+	b, err := quantity.Bytes(g.GetStatus().GetSize())
+	if err != nil {
+		return 0
+	}
+	return b
 }
 
 // reconcileWarm keeps the target's warm goldens: the repositories of the
 // projects placed on it, ranked by use, get one from the top down while
 // their sizes fit the target's warm_budget; one that falls out loses its,
 // one never used gets none, and one older than warm_max_age or more than
-// warm_max_commits_behind behind its branch is rebuilt.
+// warm_max_commits_behind behind its branch is rebuilt. A repository that
+// holds one keeps its place for WarmMinHold, and after that against a
+// challenger whose score beats its own by less than WarmChallengeMargin. A
+// golden let go while something references it is kept, and counted
+// against the budget, until nothing does.
 func (s *Server) reconcileWarm(ctx context.Context, key controller.Key) error {
 	t, live, err := s.liveTarget(ctx, key.Name)
 	if err != nil || !live {
@@ -82,38 +122,141 @@ func (s *Server) reconcileWarm(ctx context.Context, key controller.Key) error {
 	if err != nil {
 		return err
 	}
-	slices.SortFunc(candidates, func(a, b warmCandidate) int {
-		ua, ub := a.repo.GetStatus().GetUse(), b.repo.GetStatus().GetUse()
-		return cmp.Or(
-			cmp.Compare(ub.GetBoxSeconds(), ua.GetBoxSeconds()),
-			cmp.Compare(ub.GetBoxesOpened(), ua.GetBoxesOpened()),
-			ub.GetLastUseTime().AsTime().Compare(ua.GetLastUseTime().AsTime()),
-			cmp.Compare(a.project+"/"+a.name(), b.project+"/"+b.name()),
-		)
-	})
-	var held uint64
-	fits := true
-	var waiting error
+	rankWarm(candidates, s.clock.Now(), set.warmMinHold)
+	sizes := make([]uint64, len(candidates))
+	for i, c := range candidates {
+		if sizes[i], err = s.warmSize(ctx, c); err != nil {
+			return err
+		}
+	}
+	// What was let go but is still referenced holds disk all the same, and
+	// so will a golden of a repository that falls out while something
+	// references it: the budget is shared out once that is counted, so no
+	// repository is let in on room such a golden still holds.
+	var dropping uint64
 	for _, c := range candidates {
-		if size := s.warmSize(c); fits && c.used() && held+size <= set.warmBudget {
-			held += size
-			if err := s.keepWarm(ctx, t, set, c); err != nil {
-				if waiting == nil {
-					waiting = err
-				}
+		for _, g := range c.goldens {
+			if dropped(g) {
+				dropping += goldenSize(g)
+			}
+		}
+	}
+	kept := dropping
+	var in []bool
+	for range len(candidates) + 1 {
+		in = s.shareWarmBudget(candidates, sizes, kept, set.warmBudget)
+		more := dropping
+		for i, c := range candidates {
+			if in[i] {
+				continue
+			}
+			n, err := s.referencedSize(ctx, c.goldens)
+			if err != nil {
+				return err
+			}
+			more += n
+		}
+		if more == kept {
+			break
+		}
+		kept = more
+	}
+	var waiting error
+	for i, c := range candidates {
+		if in[i] {
+			if err := s.keepWarm(ctx, t, set, c); err != nil && waiting == nil {
+				waiting = err
 			}
 			continue
-		}
-		// The ranking is kept: a smaller repository further down does not
-		// take a place before a bigger one above it.
-		if c.used() {
-			fits = false
 		}
 		if err := s.dropWarm(ctx, c.goldens); err != nil {
 			return err
 		}
 	}
 	return waiting
+}
+
+// shareWarmBudget says which of the ranked candidates hold a warm golden:
+// from the top down while their sizes fit in what budget leaves past
+// held. The ranking is kept: a smaller repository further down does not
+// take a place before a bigger one above it.
+func (s *Server) shareWarmBudget(candidates []warmCandidate, sizes []uint64, held, budget uint64) []bool {
+	in := make([]bool, len(candidates))
+	fits := true
+	for i, c := range candidates {
+		if fits && c.used() && held+sizes[i] <= budget {
+			held += sizes[i]
+			in[i] = true
+			continue
+		}
+		if c.used() {
+			fits = false
+		}
+	}
+	return in
+}
+
+// referencedSize is what the ready warm goldens not yet dropped among
+// goldens hold that something references: what letting them go keeps.
+func (s *Server) referencedSize(ctx context.Context, goldens []*envv1alpha1.Golden) (uint64, error) {
+	var n uint64
+	for _, g := range goldens {
+		if dropped(g) || goldenPhase(g) != envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY {
+			continue
+		}
+		referenced, err := s.goldenReferenced(ctx, g)
+		if err != nil {
+			return 0, err
+		}
+		if referenced {
+			n += goldenSize(g)
+		}
+	}
+	return n, nil
+}
+
+// rankWarm orders the candidates for the budget. A holder within its
+// minimum hold ranks first, the longest held first, so one let in on an
+// estimate that proves too big is the one that goes again; after it, a
+// holder's score is raised by the margin a challenger must beat.
+func rankWarm(candidates []warmCandidate, now time.Time, minHold time.Duration) {
+	protected := func(c warmCandidate) bool {
+		since := c.heldSince()
+		return !since.IsZero() && now.Sub(since) < minHold
+	}
+	rank := func(c warmCandidate) float64 {
+		if !c.heldSince().IsZero() {
+			return c.score() * (1 + WarmChallengeMargin)
+		}
+		return c.score()
+	}
+	slices.SortStableFunc(candidates, func(a, b warmCandidate) int {
+		ua, ub := a.repo.GetStatus().GetUse(), b.repo.GetStatus().GetUse()
+		pa, pb := protected(a), protected(b)
+		older := 0
+		if pa && pb {
+			older = a.heldSince().Compare(b.heldSince())
+		}
+		return cmp.Or(
+			compareBool(pb, pa),
+			older,
+			cmp.Compare(rank(b), rank(a)),
+			cmp.Compare(ub.GetBoxesOpened(), ua.GetBoxesOpened()),
+			ub.GetLastUseTime().AsTime().Compare(ua.GetLastUseTime().AsTime()),
+			cmp.Compare(a.project+"/"+a.name(), b.project+"/"+b.name()),
+		)
+	})
+}
+
+// compareBool orders false before true.
+func compareBool(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return 1
+	}
+	return -1
 }
 
 func (s *Server) warmCandidates(ctx context.Context, t *targetsv1alpha1.Target) ([]warmCandidate, error) {
@@ -152,16 +295,48 @@ func (s *Server) warmCandidates(ctx context.Context, t *targetsv1alpha1.Target) 
 	return out, nil
 }
 
-// dropWarm deletes warm goldens; their artifacts go with them.
+// dropWarm lets warm goldens go: one nothing references is deleted, its
+// artifact with it; one something references is marked dropped and kept
+// until nothing does; one still building is left until it is built.
 func (s *Server) dropWarm(ctx context.Context, goldens []*envv1alpha1.Golden) error {
 	for _, g := range goldens {
 		meta := g.GetMetadata()
+		if phase := goldenPhase(g); phase != envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY && phase != envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED {
+			continue
+		}
+		referenced, err := s.goldenReferenced(ctx, g)
+		if err != nil {
+			return err
+		}
+		if referenced {
+			if dropped(g) {
+				continue
+			}
+			s.log.Info("letting a warm golden go once nothing references it", "project", meta.GetProject(), "name", meta.GetName(), "repository", meta.GetLabels()[warmLabel])
+			if err := s.annotateGolden(ctx, g, warmDroppedAnnotation, "true"); err != nil {
+				return err
+			}
+			continue
+		}
 		s.log.Info("dropping a warm golden", "project", meta.GetProject(), "name", meta.GetName(), "repository", meta.GetLabels()[warmLabel])
-		if _, err := s.backend(registry.Golden).Delete(s.system(ctx), resource.Key{Project: meta.GetProject(), Name: meta.GetName()}, nil); err != nil && !isNotFound(err) {
+		rv := meta.GetResourceVersion()
+		if _, err := s.backend(registry.Golden).Delete(s.system(ctx), resource.Key{Project: meta.GetProject(), Name: meta.GetName()}, &rv); err != nil && !isNotFound(err) {
 			return err
 		}
 	}
 	return nil
+}
+
+// annotateGolden sets one of tower's annotations on the golden as read,
+// conditional on it not having changed.
+func (s *Server) annotateGolden(ctx context.Context, g *envv1alpha1.Golden, k, v string) error {
+	g = proto.Clone(g).(*envv1alpha1.Golden)
+	if g.Metadata.Annotations == nil {
+		g.Metadata.Annotations = map[string]string{}
+	}
+	g.Metadata.Annotations[k] = v
+	_, err := s.backend(registry.Golden).Apply(s.system(ctx), g)
+	return err
 }
 
 // keepWarm gives the repository a warm golden of its branch's head, unless
@@ -192,11 +367,19 @@ func (s *Server) keepWarm(ctx context.Context, t *targetsv1alpha1.Target, set se
 		if err != nil {
 			return fmt.Errorf("warm goldens of %s: %w: %w", target, controller.ErrWaiting, err)
 		}
-		behind, err := p.CommitsBehind(ctx, mirror, ready.GetSpec().GetBoxWarm().GetCommit(), c.repo.GetSpec().GetDefaultBranch())
+		// Counted between the golden's commit and the head this reconcile
+		// builds, not the mirror's own head, which a fetch may have moved
+		// past the repository's status.
+		branch := c.repo.GetSpec().GetDefaultBranch()
+		fromReady, err := p.CommitsBehind(ctx, mirror, ready.GetSpec().GetBoxWarm().GetCommit(), branch)
 		if err != nil {
 			return fmt.Errorf("warm goldens of %s: %w: %w", target, controller.ErrWaiting, err)
 		}
-		stale = behind > set.warmMaxCommitsBehind
+		fromHead, err := p.CommitsBehind(ctx, mirror, head, branch)
+		if err != nil {
+			return fmt.Errorf("warm goldens of %s: %w: %w", target, controller.ErrWaiting, err)
+		}
+		stale = fromReady-fromHead > set.warmMaxCommitsBehind
 	}
 	want := ready
 	if stale {

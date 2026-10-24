@@ -190,42 +190,47 @@ func TestADroppedTunnelIsUnavailable(t *testing.T) {
 	}
 }
 
-// TestCallsAreCapped: a call over its caller's cap, or its project's, is
-// refused at once, and tower's own calls are not counted.
+// TestCallsAreCapped: a call over its environment's cap, or its target's,
+// is refused at once, whoever calls, and tower's own calls are not counted.
 func TestCallsAreCapped(t *testing.T) {
-	c := newCarried(t, &hostd.Calls{MaxPerCaller: 1, MaxPerProject: 2})
-	in, _ := c.Harness(c.client).Start(t, "capped", container())
+	c := newCarried(t, &hostd.Calls{MaxPerInstance: 1, MaxPerTarget: 2})
+	h := c.Harness(c.client)
+	one, _ := h.Start(t, "one", container())
+	two, _ := h.Start(t, "two", container())
+	three, _ := h.Start(t, "three", container())
 	as := func(id string) context.Context {
 		return auth.WithPrincipal(t.Context(), auth.Principal{Type: auth.ServiceToken, ID: id})
 	}
-	run := func(ctx context.Context, command string) error {
+	run := func(ctx context.Context, in provider.Instance, command string) error {
 		_, err := c.client.Exec(ctx, provider.ExecRequest{Instance: in, Command: []string{command}})
 		return err
 	}
-	// Two callers each hold a call open: the project is at its cap.
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, cancel := context.WithCancel(as("workstream"))
 	defer cancel()
 	done := make(chan struct{}, 2)
-	for _, who := range []string{"workstream", "other"} {
+	hold := func(in provider.Instance) {
 		go func() {
-			_ = run(auth.WithPrincipal(ctx, auth.Principal{Type: auth.ServiceToken, ID: who}), "sleep")
+			_ = run(ctx, in, "sleep")
 			done <- struct{}{}
 		}()
 	}
-	testutil.Eventually(t, "both commands running", func() bool { return len(c.Fake.Execs()) == 2 })
-	if err := run(as("workstream"), "true"); !errors.Is(err, hostd.ErrTooManyCalls) || !strings.Contains(err.Error(), "serviceToken:workstream") {
-		t.Errorf("a call over the caller's cap: %v, want ErrTooManyCalls naming the caller", err)
+	hold(one)
+	testutil.Eventually(t, "a command running in one", func() bool { return len(c.Fake.Execs()) == 1 })
+	if err := run(as("other"), one, "true"); !errors.Is(err, hostd.ErrTooManyCalls) || !strings.Contains(err.Error(), "web/one") {
+		t.Errorf("a call over the environment's cap, by another caller: %v, want ErrTooManyCalls naming it", err)
 	}
-	if err := run(as("third"), "true"); !errors.Is(err, hostd.ErrTooManyCalls) || !strings.Contains(err.Error(), "project") {
-		t.Errorf("a call over the project's cap: %v, want ErrTooManyCalls naming the project", err)
+	hold(two)
+	testutil.Eventually(t, "a command running in two", func() bool { return len(c.Fake.Execs()) == 2 })
+	if err := run(as("workstream"), three, "true"); !errors.Is(err, hostd.ErrTooManyCalls) || !strings.Contains(err.Error(), "target") {
+		t.Errorf("a call over the target's cap: %v, want ErrTooManyCalls naming the target", err)
 	}
-	if err := run(auth.WithPrincipal(t.Context(), auth.SystemPrincipal), "true"); err != nil {
+	if err := run(auth.WithPrincipal(t.Context(), auth.SystemPrincipal), one, "true"); err != nil {
 		t.Errorf("tower's own call, the caps full: %v", err)
 	}
 	cancel()
 	<-done
 	<-done
-	if err := run(as("workstream"), "true"); err != nil {
+	if err := run(as("workstream"), one, "true"); err != nil {
 		t.Errorf("a call once the first ended: %v", err)
 	}
 }

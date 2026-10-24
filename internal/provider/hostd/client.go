@@ -43,9 +43,9 @@ type call struct {
 	release func()
 }
 
-// begin begins a call by ctx's caller in project, empty for a call of no
-// project. With no tunnel, it is ErrUnavailable.
-func (c *Client) begin(ctx context.Context, project string) (*call, error) {
+// begin begins a call by ctx's caller about in, zero for a call about no
+// instance. With no tunnel, it is ErrUnavailable.
+func (c *Client) begin(ctx context.Context, in provider.Instance) (*call, error) {
 	t, err := c.Tunnels.Node(c.Target)
 	if errors.Is(err, tunnel.ErrNoTunnel) {
 		return nil, fmt.Errorf("target %s: hostd is not connected: %w", c.Target, provider.ErrUnavailable)
@@ -57,7 +57,7 @@ func (c *Client) begin(ctx context.Context, project string) (*call, error) {
 	if !ok {
 		p = auth.SystemPrincipal
 	}
-	release, err := c.Calls.take(p, project, c.Target)
+	release, err := c.Calls.take(p, in, c.Target)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func sendAll(r io.Reader, send func([]byte) error) error {
 }
 
 func (c *Client) Exec(ctx context.Context, req provider.ExecRequest) (int, error) {
-	k, err := c.begin(ctx, req.Instance.Project)
+	k, err := c.begin(ctx, req.Instance)
 	if err != nil {
 		return 0, err
 	}
@@ -161,7 +161,7 @@ func (c *Client) Exec(ctx context.Context, req provider.ExecRequest) (int, error
 }
 
 func (c *Client) ReadFile(ctx context.Context, in provider.Instance, path string, w io.Writer) error {
-	k, err := c.begin(ctx, in.Project)
+	k, err := c.begin(ctx, in)
 	if err != nil {
 		return err
 	}
@@ -185,7 +185,7 @@ func (c *Client) ReadFile(ctx context.Context, in provider.Instance, path string
 }
 
 func (c *Client) WriteFile(ctx context.Context, in provider.Instance, path string, mode fs.FileMode, offset int64, r io.Reader) error {
-	k, err := c.begin(ctx, in.Project)
+	k, err := c.begin(ctx, in)
 	if err != nil {
 		return err
 	}
@@ -208,7 +208,7 @@ func (c *Client) WriteFile(ctx context.Context, in provider.Instance, path strin
 }
 
 func (c *Client) Copy(ctx context.Context, from provider.Instance, fromPath string, to provider.Instance, toPath string) error {
-	k, err := c.begin(ctx, from.Project)
+	k, err := c.begin(ctx, from)
 	if err != nil {
 		return err
 	}
@@ -221,7 +221,7 @@ func (c *Client) Copy(ctx context.Context, from provider.Instance, fromPath stri
 }
 
 func (c *Client) BuildImage(ctx context.Context, req provider.BuildRequest) (string, error) {
-	k, err := c.begin(ctx, "")
+	k, err := c.begin(ctx, provider.Instance{})
 	if err != nil {
 		return "", err
 	}
@@ -245,7 +245,7 @@ func (c *Client) BuildImage(ctx context.Context, req provider.BuildRequest) (str
 }
 
 func (c *Client) Capture(ctx context.Context, in provider.Instance) (provider.Artifact, error) {
-	k, err := c.begin(ctx, in.Project)
+	k, err := c.begin(ctx, in)
 	if err != nil {
 		return provider.Artifact{}, err
 	}
@@ -258,7 +258,7 @@ func (c *Client) Capture(ctx context.Context, in provider.Instance) (provider.Ar
 }
 
 func (c *Client) DeleteArtifact(ctx context.Context, artifact string) error {
-	k, err := c.begin(ctx, "")
+	k, err := c.begin(ctx, provider.Instance{})
 	if err != nil {
 		return err
 	}
@@ -270,7 +270,7 @@ func (c *Client) DeleteArtifact(ctx context.Context, artifact string) error {
 }
 
 func (c *Client) Fetch(ctx context.Context, req provider.FetchRequest) (string, error) {
-	k, err := c.begin(ctx, "")
+	k, err := c.begin(ctx, provider.Instance{})
 	if err != nil {
 		return "", err
 	}
@@ -283,7 +283,7 @@ func (c *Client) Fetch(ctx context.Context, req provider.FetchRequest) (string, 
 }
 
 func (c *Client) Checkout(ctx context.Context, in provider.Instance, mirror, ref, dir string) (string, error) {
-	k, err := c.begin(ctx, in.Project)
+	k, err := c.begin(ctx, in)
 	if err != nil {
 		return "", err
 	}
@@ -296,7 +296,7 @@ func (c *Client) Checkout(ctx context.Context, in provider.Instance, mirror, ref
 }
 
 func (c *Client) UpdateOrigin(ctx context.Context, in provider.Instance, mirror, dir string) error {
-	k, err := c.begin(ctx, in.Project)
+	k, err := c.begin(ctx, in)
 	if err != nil {
 		return err
 	}
@@ -308,7 +308,7 @@ func (c *Client) UpdateOrigin(ctx context.Context, in provider.Instance, mirror,
 }
 
 func (c *Client) CommitsBehind(ctx context.Context, mirror, commit, branch string) (int, error) {
-	k, err := c.begin(ctx, "")
+	k, err := c.begin(ctx, provider.Instance{})
 	if err != nil {
 		return 0, err
 	}
@@ -321,7 +321,7 @@ func (c *Client) CommitsBehind(ctx context.Context, mirror, commit, branch strin
 }
 
 func (c *Client) Push(ctx context.Context, req provider.PushRequest) error {
-	k, err := c.begin(ctx, req.Instance.Project)
+	k, err := c.begin(ctx, req.Instance)
 	if err != nil {
 		return err
 	}
@@ -337,7 +337,7 @@ func (c *Client) Push(ctx context.Context, req provider.PushRequest) error {
 }
 
 func (c *Client) Ticket(ctx context.Context, in provider.Instance, port int32) (provider.Ticket, error) {
-	k, err := c.begin(ctx, in.Project)
+	k, err := c.begin(ctx, in)
 	if err != nil {
 		return provider.Ticket{}, err
 	}

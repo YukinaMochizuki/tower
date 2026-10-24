@@ -217,8 +217,9 @@ export type TargetStatus = Message<"tower.targets.v1alpha1.TargetStatus"> & {
 
   /**
    * Reachable: tower can call the provider. Reporting: the provider reported
-   * within its interval. DiskPressure: free disk is under what the warm
-   * budget and the instances need.
+   * within its interval, which tower turns false after three intervals of
+   * silence. DiskPressure: free disk is under the warm budget plus a fixed
+   * margin (20Gi) for the instances to grow into.
    *
    * @generated from field: repeated tower.meta.v1.Condition conditions = 2;
    */

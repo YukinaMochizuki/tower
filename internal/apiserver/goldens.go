@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
@@ -25,27 +26,43 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/controller"
 	"github.com/YukinaMochizuki/tower/internal/devcontainer"
 	"github.com/YukinaMochizuki/tower/internal/provider"
+	"github.com/YukinaMochizuki/tower/internal/store"
 )
 
 const (
 	// GoldenArtifactFinalizer keeps a deleted golden until the golden
 	// controller has deleted its artifact on the target.
 	GoldenArtifactFinalizer = registry.Domain + "/artifact"
-	// buildAnnotation holds, on a golden, what its build reads besides its
-	// inputs: the request a box image is resolved from, a warm checkout's
-	// mirror, a machine's blueprint. tower's own, and no secret.
-	buildAnnotation = registry.Domain + "/build"
 	// convergedAnnotation marks a builder instance whose golden phase has
 	// run, so it is captured next.
 	convergedAnnotation = registry.Domain + "/converged"
 	// warmLabel marks a warm golden the warm controller holds for a
 	// repository, by its name; pruning leaves it to that controller.
 	warmLabel = registry.Domain + "/warm-for"
+	// warmDroppedAnnotation marks a warm golden the warm controller let go
+	// while something still referenced it: no new box is cloned from it,
+	// and it is deleted once nothing references it.
+	warmDroppedAnnotation = registry.Domain + "/warm-dropped"
 	// GoldenReady says a golden can be made from, or why not.
 	GoldenReady = "Ready"
 )
 
-// buildSpec is what buildAnnotation holds.
+// GoldenRetryFirst and GoldenRetryMax bound how long tower waits before it
+// builds a failed golden again: the first wait, doubled after each failure
+// in a row of the same inputs, up to the most.
+const (
+	GoldenRetryFirst = 10 * time.Minute
+	GoldenRetryMax   = 6 * time.Hour
+)
+
+// errGoldenGoing waits for a golden being deleted to be gone before one of
+// the same name is made again.
+var errGoldenGoing = fmt.Errorf("a golden of the same inputs is being deleted: %w", controller.ErrWaiting)
+
+// buildSpec is what a golden's build reads besides its inputs: the request
+// a box image is resolved from, a warm checkout's mirror, a machine's
+// blueprint. tower's own, and no secret; it is kept as an internal record
+// (goldenBuildKind), so hostd, which reads goldens, sees only their hashes.
 type buildSpec struct {
 	// Image is the request a box image is resolved from.
 	Image *devcontainer.Request `json:"image,omitempty"`
@@ -65,34 +82,55 @@ func inputHash(parts ...string) string {
 // goldenName is the name of the golden of a kind and input hash.
 func goldenName(prefix, hash string) string { return prefix + "-" + hash[:16] }
 
+func goldenBuildKey(project, name string) store.Key {
+	return store.Key{Kind: goldenBuildKind, Project: project, Name: name}
+}
+
 // ensureGolden returns the golden of the name in project, making it with
 // spec and build if it is not there: one per target and input hash,
-// shared by everything of the same inputs.
+// shared by everything of the same inputs. One being deleted is not
+// there yet: errGoldenGoing.
 func (s *Server) ensureGolden(ctx context.Context, project, name string, spec *envv1alpha1.GoldenSpec, build buildSpec, labels map[string]string) (*envv1alpha1.Golden, error) {
-	g, ok, err := getTyped[*envv1alpha1.Golden](ctx, s, registry.Golden, resource.Key{Project: project, Name: name})
+	get := func() (*envv1alpha1.Golden, bool, error) {
+		g, ok, err := getTyped[*envv1alpha1.Golden](ctx, s, registry.Golden, resource.Key{Project: project, Name: name})
+		if err == nil && ok && g.GetMetadata().GetDeleteTime() != nil {
+			return nil, true, errGoldenGoing
+		}
+		return g, ok, err
+	}
+	g, ok, err := get()
 	if err != nil || ok {
 		return g, err
 	}
-	b, err := json.Marshal(build)
-	if err != nil {
+	// Written first: the golden controller reads it once the golden is.
+	if err := s.putRecord(ctx, goldenBuildKey(project, name), build); err != nil {
 		return nil, err
 	}
 	res, err := s.backend(registry.Golden).Create(s.system(ctx), &envv1alpha1.Golden{
 		Metadata: &metav1.ObjectMeta{
 			Project: project, Name: name, Labels: labels,
-			Annotations: map[string]string{buildAnnotation: string(b)},
-			Finalizers:  []string{GoldenArtifactFinalizer},
+			Finalizers: []string{GoldenArtifactFinalizer},
 		},
 		Spec: spec,
 	})
 	if connect.CodeOf(err) == connect.CodeAlreadyExists {
-		g, _, err = getTyped[*envv1alpha1.Golden](ctx, s, registry.Golden, resource.Key{Project: project, Name: name})
+		g, _, err = get()
 		return g, err
 	}
 	if err != nil {
 		return nil, err
 	}
 	return res.Object.(*envv1alpha1.Golden), nil
+}
+
+// liveGolden is the golden of the name, if it exists and is not being
+// deleted.
+func (s *Server) liveGolden(ctx context.Context, project, name string) (*envv1alpha1.Golden, bool, error) {
+	g, ok, err := getTyped[*envv1alpha1.Golden](ctx, s, registry.Golden, resource.Key{Project: project, Name: name})
+	if err != nil || !ok || g.GetMetadata().GetDeleteTime() != nil {
+		return nil, false, err
+	}
+	return g, true, nil
 }
 
 // goldenUsed records that an environment was made from the golden now,
@@ -130,7 +168,103 @@ func (s *Server) setGolden(ctx context.Context, g *envv1alpha1.Golden, phase env
 		ready.Status = metav1.ConditionStatus_CONDITION_STATUS_TRUE
 	}
 	st.Conditions = conditions.Set(slices.Clone(st.GetConditions()), ready, s.clock.Now())
-	return s.updateStatus(ctx, registry.Golden, g, st)
+	// The failure is counted before it is written, so whatever reads the
+	// golden failed finds when it is built again.
+	if phase == envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED && goldenPhase(g) != envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED {
+		if err := s.goldenFailed(ctx, g, msg); err != nil {
+			return err
+		}
+	}
+	if err := s.updateStatus(ctx, registry.Golden, g, st); err != nil {
+		return err
+	}
+	if phase == envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY {
+		return s.deleteRecord(ctx, goldenBackoffKey(g))
+	}
+	return nil
+}
+
+func goldenBackoffKey(g *envv1alpha1.Golden) store.Key {
+	return store.Key{Kind: goldenBackoffKind, Project: g.GetMetadata().GetProject(), Name: g.GetSpec().GetInputHash()}
+}
+
+// goldenFailed counts a failure of the golden's inputs, once per golden,
+// and says when a golden of them is built again.
+func (s *Server) goldenFailed(ctx context.Context, g *envv1alpha1.Golden, reason string) error {
+	var b goldenBackoff
+	if _, err := s.getRecord(ctx, goldenBackoffKey(g), &b); err != nil {
+		return err
+	}
+	if b.Golden == g.GetMetadata().GetUid() {
+		return nil
+	}
+	b.Golden = g.GetMetadata().GetUid()
+	wait := GoldenRetryFirst
+	for range b.Failures {
+		if wait *= 2; wait >= GoldenRetryMax {
+			wait = GoldenRetryMax
+			break
+		}
+	}
+	b.Failures++
+	b.RetryAt, b.Reason = s.clock.Now().Add(wait), reason
+	s.log.Warn("a golden failed", "project", g.GetMetadata().GetProject(), "name", g.GetMetadata().GetName(),
+		"failures", b.Failures, "retry_at", b.RetryAt, "reason", reason)
+	return s.putRecord(ctx, goldenBackoffKey(g), b)
+}
+
+// goldenRetryAt is when a failed golden is built again, zero if tower
+// knows of no failure of its inputs.
+func (s *Server) goldenRetryAt(ctx context.Context, g *envv1alpha1.Golden) (time.Time, error) {
+	var b goldenBackoff
+	if _, err := s.getRecord(ctx, goldenBackoffKey(g), &b); err != nil {
+		return time.Time{}, err
+	}
+	return b.RetryAt, nil
+}
+
+// failedGoldenMessage is what waits on a failed golden say: why it
+// failed, and when it is built again.
+func (s *Server) failedGoldenMessage(ctx context.Context, g *envv1alpha1.Golden) (string, error) {
+	msg := conditions.Find(g.GetStatus().GetConditions(), GoldenReady).GetMessage()
+	at, err := s.goldenRetryAt(ctx, g)
+	if err != nil {
+		return "", err
+	}
+	if !at.IsZero() {
+		msg += "; built again at " + at.UTC().Format(time.RFC3339)
+	}
+	return msg, nil
+}
+
+// retryGolden deletes a failed golden something still asks for once its
+// backoff has passed, so whatever asks makes it again, and reports
+// whether it was asked for.
+func (s *Server) retryGolden(ctx context.Context, g *envv1alpha1.Golden) (bool, error) {
+	meta := g.GetMetadata()
+	_, warm := meta.GetLabels()[warmLabel]
+	asked := warm && meta.GetAnnotations()[warmDroppedAnnotation] == ""
+	if !asked {
+		var err error
+		if asked, err = s.goldenReferenced(ctx, g); err != nil || !asked {
+			return false, err
+		}
+	}
+	// A failure is recorded before it is written (setGolden), so one with
+	// no record is built again at once.
+	at, err := s.goldenRetryAt(ctx, g)
+	if err != nil {
+		return true, err
+	}
+	if s.clock.Now().Before(at) {
+		return true, nil
+	}
+	rv := meta.GetResourceVersion()
+	_, err = s.backend(registry.Golden).Delete(s.system(ctx), resource.Key{Project: meta.GetProject(), Name: meta.GetName()}, &rv)
+	if err == nil {
+		s.log.Info("deleting a failed golden to build it again", "project", meta.GetProject(), "name", meta.GetName())
+	}
+	return true, err
 }
 
 // transient reports whether a provider's error passes by itself: the target
@@ -149,7 +283,12 @@ func (s *Server) reconcileGolden(ctx context.Context, key controller.Key) error 
 		return s.deleteGoldenArtifact(ctx, key, g, job)
 	}
 	switch goldenPhase(g) {
-	case envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY, envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED:
+	case envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED:
+		if asked, err := s.retryGolden(ctx, g); err != nil || asked {
+			return err
+		}
+		return s.pruneGolden(ctx, g)
+	case envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY:
 		return s.pruneGolden(ctx, g)
 	case envv1alpha1.GoldenPhase_GOLDEN_PHASE_UNSPECIFIED:
 		return s.setGolden(ctx, g, envv1alpha1.GoldenPhase_GOLDEN_PHASE_BUILDING, "Building", "", nil)
@@ -170,12 +309,14 @@ func (s *Server) reconcileGolden(ctx context.Context, key controller.Key) error 
 		return fmt.Errorf("golden %s: %w: %w", key, controller.ErrWaiting, err)
 	}
 	var build buildSpec
-	if err := json.Unmarshal([]byte(g.GetMetadata().GetAnnotations()[buildAnnotation]), &build); err != nil {
+	if found, err := s.getRecord(ctx, goldenBuildKey(key.Project, key.Name), &build); err != nil {
+		return err
+	} else if !found {
 		return s.setGolden(ctx, g, envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED, "BuildFailed", "what it is built from is not recorded", nil)
 	}
 	switch in := g.GetSpec().GetInputs().(type) {
 	case *envv1alpha1.GoldenSpec_BoxImage:
-		s.jobs.start(s.runCtx, job, s.goldenCtrl, key, func(ctx context.Context) error {
+		s.startJob(g.GetSpec().GetTarget(), job, s.goldenCtrl, key, func(ctx context.Context) error {
 			if cur, ok, err := getTyped[*envv1alpha1.Golden](ctx, s, registry.Golden, resource.Key{Project: key.Project, Name: key.Name}); err != nil || !ok || goldenPhase(cur) != envv1alpha1.GoldenPhase_GOLDEN_PHASE_BUILDING {
 				return err
 			}
@@ -282,7 +423,7 @@ func (s *Server) convergeGolden(ctx context.Context, p provider.Provider, g *env
 		}
 		return s.setGolden(ctx, g, envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED, "BuildFailed", msg, nil)
 	case phase == envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING && !converged:
-		s.jobs.start(s.runCtx, job, s.goldenCtrl, key, func(ctx context.Context) error {
+		s.startJob(g.GetSpec().GetTarget(), job, s.goldenCtrl, key, func(ctx context.Context) error {
 			if done, err := s.instanceMarked(ctx, project, name, convergedAnnotation); err != nil || done {
 				return err
 			}
@@ -298,7 +439,7 @@ func (s *Server) convergeGolden(ctx context.Context, p provider.Provider, g *env
 			return s.markConverged(ctx, project, name)
 		})
 	case phase == envv1alpha1.InstancePhase_INSTANCE_PHASE_STOPPED && converged:
-		s.jobs.start(s.runCtx, job, s.goldenCtrl, key, func(ctx context.Context) error {
+		s.startJob(g.GetSpec().GetTarget(), job, s.goldenCtrl, key, func(ctx context.Context) error {
 			if cur, ok, err := getTyped[*envv1alpha1.Golden](ctx, s, registry.Golden, resource.Key{Project: project, Name: g.GetMetadata().GetName()}); err != nil || !ok || goldenPhase(cur) != envv1alpha1.GoldenPhase_GOLDEN_PHASE_BUILDING {
 				return err
 			}
@@ -402,6 +543,9 @@ func (s *Server) deleteGoldenArtifact(ctx context.Context, key controller.Key, g
 	if !slices.Contains(g.GetMetadata().GetFinalizers(), GoldenArtifactFinalizer) {
 		return nil
 	}
+	if err := s.deleteRecord(ctx, goldenBuildKey(key.Project, key.Name)); err != nil {
+		return err
+	}
 	jerr, running := s.jobs.lastError(job)
 	if running {
 		return nil
@@ -418,8 +562,9 @@ func (s *Server) deleteGoldenArtifact(ctx context.Context, key controller.Key, g
 	if err != nil {
 		return fmt.Errorf("golden %s: %w: %w", key, controller.ErrWaiting, err)
 	}
-	s.jobs.start(s.runCtx, job, s.goldenCtrl, key, func(ctx context.Context) error {
-		// An image lives in the registry, which tower prunes itself.
+	s.startJob(g.GetSpec().GetTarget(), job, s.goldenCtrl, key, func(ctx context.Context) error {
+		// An image lives in the registry, which nothing prunes yet: tower
+		// does not delete images.
 		if _, isImage := g.GetSpec().GetInputs().(*envv1alpha1.GoldenSpec_BoxImage); !isImage {
 			if err := p.DeleteArtifact(ctx, art); err != nil {
 				return err

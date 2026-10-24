@@ -219,6 +219,9 @@ func (b *backend) List(ctx context.Context, opts resource.ListOptions) (resource
 		size = defaultPageSize
 	}
 	size = min(size, maxPageSize)
+	if authz.OwnTargetOnly(p) {
+		return b.listOwnTarget(ctx, p, opts.Project, sel, after, size)
+	}
 	objs, rev, err := b.s.store.List(ctx, store.ListOptions{Kind: b.r.Kind, Project: opts.Project, StartAfter: after, Limit: size})
 	if err != nil {
 		return resource.ListResult{}, apiError(err)
@@ -240,6 +243,44 @@ func (b *backend) List(ctx context.Context, opts resource.ListOptions) (resource
 		res.NextPageToken = encodePageToken(objs[len(objs)-1].Key)
 	}
 	return res, nil
+}
+
+// listOwnTarget lists for a caller that sees only its own target's
+// objects. It reads on past what it may not see until its page is full or
+// the kind ends, so a next page token names only an object it returned:
+// a token naming an object of another target would tell that the object
+// exists. The revision is the first read's, which the rest are at or
+// after.
+func (b *backend) listOwnTarget(ctx context.Context, p authz.Caller, project string, sel labels.Selector, after store.Key, size int) (resource.ListResult, error) {
+	var res resource.ListResult
+	for first := true; ; first = false {
+		objs, rev, err := b.s.store.List(ctx, store.ListOptions{Kind: b.r.Kind, Project: project, StartAfter: after, Limit: size})
+		if err != nil {
+			return resource.ListResult{}, apiError(err)
+		}
+		if first {
+			res.Revision = rev
+		}
+		for _, o := range objs {
+			after = o.Key
+			obj, err := b.decode(o)
+			if err != nil {
+				return resource.ListResult{}, apiError(err)
+			}
+			if !b.ownTarget(p, obj) || !sel.Matches(object.Meta(obj).GetLabels()) {
+				continue
+			}
+			b.answer(obj)
+			res.Items = append(res.Items, obj)
+			if len(res.Items) == size {
+				res.NextPageToken = encodePageToken(o.Key)
+				return res, nil
+			}
+		}
+		if len(objs) < size {
+			return res, nil
+		}
+	}
 }
 
 func encodePageToken(k store.Key) string {

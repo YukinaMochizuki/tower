@@ -540,25 +540,37 @@ func (f *Fake) Exec(ctx context.Context, req provider.ExecRequest) (int, error) 
 	}
 	f.execs = append(f.execs, Exec{Instance: req.Instance, Command: slices.Clone(req.Command), Env: maps.Clone(req.Env), ExitCode: -1})
 	i := len(f.execs) - 1
+	// What the command reads of the fake, taken now: it runs, writing to
+	// its caller and reading its stdin, without holding f.mu.
+	cmd := command{files: maps.Clone(local.files), failing: slices.Clone(f.failCommands), onExec: f.onExec}
+	f.mu.Unlock()
 	if len(req.Command) > 0 && req.Command[0] == "sleep" {
 		// Runs until it is killed, as a command does when its call ends.
-		f.mu.Unlock()
 		<-ctx.Done()
 		return 0, ctx.Err()
 	}
-	defer f.mu.Unlock()
-	code := f.run(local, req)
+	code := cmd.run(req)
+	f.mu.Lock()
 	f.execs[i].ExitCode = code
+	f.mu.Unlock()
 	return code, nil
+}
+
+// command is what a fake command reads of the fake: the instance's files
+// as they were when it started, the commands that fail, and OnExec.
+type command struct {
+	files   map[string][]byte
+	failing []string
+	onExec  func(provider.ExecRequest) (int, bool)
 }
 
 // run runs a command of the fake's small set: true, false, echo, env,
 // cat, exit, emit (each argument "out:text" or "err:text" writes a line of
 // text to stdout or stderr, in order) and sleep (until it is killed); any
-// other exits 0 unless FailCommands names it. The caller holds f.mu.
-func (f *Fake) run(local *instance, req provider.ExecRequest) int {
-	if f.onExec != nil {
-		if code, ok := f.onExec(req); ok {
+// other exits 0 unless FailCommands names it.
+func (c command) run(req provider.ExecRequest) int {
+	if c.onExec != nil {
+		if code, ok := c.onExec(req); ok {
 			return code
 		}
 	}
@@ -570,7 +582,7 @@ func (f *Fake) run(local *instance, req provider.ExecRequest) int {
 		out = io.Discard
 	}
 	name, args := req.Command[0], req.Command[1:]
-	if slices.Contains(f.failCommands, name) {
+	if slices.Contains(c.failing, name) {
 		return 1
 	}
 	switch name {
@@ -597,7 +609,7 @@ func (f *Fake) run(local *instance, req provider.ExecRequest) int {
 		}
 	case "cat":
 		for _, p := range args {
-			b, ok := local.files[path.Clean(p)]
+			b, ok := c.files[path.Clean(p)]
 			if !ok {
 				return 1
 			}

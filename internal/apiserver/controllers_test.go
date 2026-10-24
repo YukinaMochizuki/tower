@@ -524,9 +524,16 @@ func TestWarmGoldensFollowUse(t *testing.T) {
 		t.Errorf("a box cloned from a warm golden installed its dependencies again (%d, then %d)", before, n)
 	}
 
-	// d, used most now, takes a place, and b falls out.
+	// d, used most now, does not take b's place within b's minimum hold;
+	// once it has passed, it does, and b falls out.
 	open("d", 9)
 	w.advance(5 * time.Minute)
+	w.advance(time.Minute)
+	if got := w.warmOf(); len(got["b"]) != 1 || len(got["d"]) != 0 {
+		t.Errorf("within b's minimum hold: warm goldens %v, want b's kept and none for d", got)
+	}
+	w.advance(apiserver.DefaultWarmMinHold)
+	w.advance(time.Minute)
 	testutil.Eventually(t, "d warm, b out", func() (bool, string) {
 		got := w.warmOf()
 		var uses []string

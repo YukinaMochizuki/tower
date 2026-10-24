@@ -67,6 +67,10 @@ func (s *Server) newControllers() []*controller.Controller {
 		controller.Watch{Kind: registry.Repository.Kind, Map: s.targetOfProject, SkipResync: true},
 		controller.Watch{Kind: registry.Golden.Kind, Map: goldenTarget, SkipResync: true},
 		controller.Watch{Kind: registry.Placement.Kind, Map: placementTarget, SkipResync: true},
+		// What references a golden let go going lets it be deleted.
+		controller.Watch{Kind: registry.Instance.Kind, Map: instanceTarget, SkipResync: true},
+		controller.Watch{Kind: registry.Box.Kind, Map: boxTarget, SkipResync: true},
+		controller.Watch{Kind: registry.Machine.Kind, Map: machineTarget, SkipResync: true},
 	)
 	s.targetCtrl = c("target", s.reconcileTargetStatus,
 		controller.Watch{Kind: registry.Target.Kind, Map: controller.Self},
@@ -371,6 +375,22 @@ func instanceTarget(_ context.Context, o store.Object) []controller.Key {
 		return nil
 	}
 	return []controller.Key{{Name: in.GetSpec().GetTarget()}}
+}
+
+func boxTarget(_ context.Context, o store.Object) []controller.Key {
+	var b envv1alpha1.Box
+	if proto.Unmarshal(o.Data, &b) != nil || b.GetStatus().GetTarget() == "" {
+		return nil
+	}
+	return []controller.Key{{Name: b.GetStatus().GetTarget()}}
+}
+
+func machineTarget(_ context.Context, o store.Object) []controller.Key {
+	var m envv1alpha1.Machine
+	if proto.Unmarshal(o.Data, &m) != nil || m.GetStatus().GetTarget() == "" {
+		return nil
+	}
+	return []controller.Key{{Name: m.GetStatus().GetTarget()}}
 }
 
 // isNotFound reports whether err says an object is not there.

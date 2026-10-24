@@ -94,8 +94,9 @@ func (s *Server) tunnelChanged(target string) {
 	}
 }
 
-// reachable sets a hostd target's Reachable and last_error in st by its
-// tunnel: open, dropped, or never opened since tower started.
+// reachable sets a hostd target's Reachable in st by its tunnel: open,
+// dropped, or never opened since tower started; and last_error, while it
+// is not open.
 func (s *Server) reachable(target string, st *targetsv1alpha1.TargetStatus) {
 	c := &metav1.Condition{Type: TargetReachable, Status: metav1.ConditionStatus_CONDITION_STATUS_TRUE, Reason: "Connected",
 		Message: "hostd's tunnel is open"}
@@ -109,9 +110,8 @@ func (s *Server) reachable(target string, st *targetsv1alpha1.TargetStatus) {
 			c.Reason, c.Message = "Dropped", "hostd's tunnel dropped at "+at.UTC().Format(time.RFC3339)+" and has not opened again"
 		}
 	}
-	if c.Status == metav1.ConditionStatus_CONDITION_STATUS_TRUE {
-		st.LastError = ""
-	} else {
+	// Connected, last_error is the jobs' (lastJobError).
+	if c.Status != metav1.ConditionStatus_CONDITION_STATUS_TRUE {
 		st.LastError = c.Message
 	}
 	st.Conditions = conditions.Set(slices.Clone(st.GetConditions()), c, s.clock.Now())

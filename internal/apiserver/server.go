@@ -10,7 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -71,7 +71,7 @@ type Config struct {
 	TunnelLiveness tunnel.Liveness
 	// HostdCalls caps the calls open to hostd hosts; zero is hostd's
 	// defaults.
-	HostdCalls struct{ PerCaller, PerProject, PerTarget int }
+	HostdCalls struct{ PerInstance, PerTarget int }
 	// Tickets signs the tickets of direct streams; nil issues none, and
 	// IssueTicket fails.
 	Tickets *ticket.Signer
@@ -112,12 +112,14 @@ type Server struct {
 	placementCtrl, repositoryCtrl, boxCtrl        *controller.Controller
 	machineCtrl, goldenCtrl, warmCtrl, targetCtrl *controller.Controller
 	jobs                                          jobs
-	// uses are boxes' uses through Touch, not yet written to them.
+	// jobErrs are the jobs' last failures by target, for last_error.
+	jobErrs jobErrors
+	// uses are boxes' uses through Touch, not yet written to them, and the
+	// calls into them under way.
 	uses lastUses
-	// warmSizes is the last size of each repository's warm golden seen, by
-	// its key; see warmSize.
-	warmSizesMu sync.Mutex
-	warmSizes   map[controller.Key]uint64
+	// beforeIdleStop, if set, runs between a box's idle stop being decided
+	// and its being written, for tests.
+	beforeIdleStop atomic.Pointer[func(controller.Key)]
 	// runCtx is Run's, which jobs run under.
 	runCtx context.Context
 	// tunnels are the tunnels hostd hosts opened, one per target, and
@@ -171,7 +173,7 @@ func New(cfg Config) *Server {
 		s.sessions = s.newSessions(cfg.Credentials)
 	}
 	s.tunnels = &tunnel.Hub{Liveness: cfg.TunnelLiveness, Log: cfg.Logger, Changed: s.tunnelChanged}
-	s.hostdCalls = &hostd.Calls{MaxPerCaller: cfg.HostdCalls.PerCaller, MaxPerProject: cfg.HostdCalls.PerProject, MaxPerTarget: cfg.HostdCalls.PerTarget}
+	s.hostdCalls = &hostd.Calls{MaxPerInstance: cfg.HostdCalls.PerInstance, MaxPerTarget: cfg.HostdCalls.PerTarget}
 	for _, r := range registry.All {
 		s.backends[r.Kind] = &backend{s: s, r: r, hooks: hooksFor(r)}
 	}

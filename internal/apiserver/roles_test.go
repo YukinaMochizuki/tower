@@ -2,6 +2,7 @@ package apiserver_test
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"slices"
@@ -361,4 +362,50 @@ func TestARoleCountsAtOnce(t *testing.T) {
 		ServiceToken: serviceToken(workstream, iamv1alpha1.Role_ROLE_ADMIN, ""),
 	})))
 	must[iamv1alpha1.GetServiceTokenResponse](t)(w.tokens.GetServiceToken(ctx, getToken(admin)))
+}
+
+// TestAHostdListLearnsNothingOfOtherTargets: paging one object at a time,
+// a hostd token is shown its own target's objects alone, and no page token
+// names an object it was not shown, as one naming another target's object
+// would tell that it exists.
+func TestAHostdListLearnsNothingOfOtherTargets(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	e.fixtures()
+	// Around "in", t1's, sort instances of t2 alone.
+	for _, name := range []string{"ia", "io"} {
+		in := sample(registry.Instance, name).(*envv1alpha1.Instance)
+		in.Spec.Target = "t2"
+		if _, err := e.asSystem().generic.Apply(ctx, registry.Instance, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	secret := must[iamv1alpha1.CreateServiceTokenResponse](t)(e.local().issuer.CreateServiceToken(ctx, createToken("agent", iamv1alpha1.Role_ROLE_HOSTD, "t1"))).GetSecret()
+	c := e.withToken(secret)
+	for _, r := range []registry.Resource{registry.Instance, registry.Golden} {
+		var shown []string
+		token := ""
+		for range 10 {
+			res, err := c.generic.List(ctx, r, client.ListOptions{Project: "web", PageSize: 1, PageToken: token})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, o := range res.Items {
+				shown = append(shown, object.Meta(o).GetName())
+			}
+			if token = res.NextPageToken; token == "" {
+				break
+			}
+			raw, err := base64.RawURLEncoding.DecodeString(token)
+			if err != nil {
+				t.Fatalf("page token %q: %v", token, err)
+			}
+			if _, name, _ := strings.Cut(string(raw), "/"); !slices.Contains(shown, name) {
+				t.Errorf("listing %s, a page token names %q, which the caller was not shown (shown %v)", r.Plural, name, shown)
+			}
+		}
+		if !slices.Equal(shown, []string{fixtureOf[r.Kind]}) {
+			t.Errorf("listing %s page by page showed %v, want only %s", r.Plural, shown, fixtureOf[r.Kind])
+		}
+	}
 }
