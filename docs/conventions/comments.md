@@ -48,5 +48,5 @@ The default is no comment. Good names and small functions come first.
 - **Why the system is shaped this way** goes in `docs/decisions/`.
 - **How to do something** goes in `docs/runbook/`.
 
-Reviewers check every new or changed comment against this file; see
-`docs/checklists/review.md`.
+Reviewers check every new or changed comment against this file; see hangar's
+`docs/checklists/review.md`, which tower's reviews follow.
