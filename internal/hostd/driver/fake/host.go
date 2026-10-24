@@ -91,10 +91,11 @@ type disk struct {
 }
 
 type golden struct {
-	Kind    driver.DiskKind
-	Files   map[string][]byte
-	Labels  driver.Labels
-	Created time.Time
+	Kind     driver.DiskKind
+	Files    map[string][]byte
+	Labels   driver.Labels
+	Created  time.Time
+	Deferred bool
 }
 
 type network struct {

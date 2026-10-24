@@ -116,11 +116,34 @@ func testGoldensOutliveTheirDisk(t *testing.T, h Harness) {
 	if !found {
 		t.Error("the golden is not listed")
 	}
-	is(t, "destroying a golden with a clone", s.DestroyGolden(ctx, gname), driver.ErrBusy)
+	mustNot(t, "destroying a golden with a clone", s.DestroyGolden(ctx, gname))
+	if got := readFile(t, c.Driver, reader, c.Workspace+"/warm.txt"); got != "installed" {
+		t.Errorf("a clone of a golden destroyed holds %q", got)
+	}
+	if !goldenListed(t, h, gname, func(g driver.Golden) bool { return g.Deferred }) {
+		t.Error("a golden destroyed with a clone is not listed deferred")
+	}
+	_, err = s.EnsureDisk(ctx, driver.DiskSpec{Name: name(t, "late"), Kind: driver.Dataset, From: gname, Labels: labels(t)})
+	is(t, "a clone of a golden destroyed", err, driver.ErrNotFound)
 	mustNot(t, "removing the reader", c.Driver.Remove(ctx, reader))
 	mustNot(t, "destroying the clone", s.DestroyDisk(ctx, clone.Name))
-	mustNot(t, "destroying the golden", s.DestroyGolden(ctx, gname))
+	if goldenListed(t, h, gname, nil) {
+		t.Error("a golden destroyed is still listed once its last clone went")
+	}
 	mustNot(t, "destroying a golden that is not there", s.DestroyGolden(ctx, gname))
+}
+
+// goldenListed reports whether the golden is listed, and holds ok.
+func goldenListed(t *testing.T, h Harness, name string, ok func(driver.Golden) bool) bool {
+	t.Helper()
+	goldens, err := h.Drivers.Storage.Goldens(t.Context())
+	mustNot(t, "listing goldens", err)
+	for _, g := range goldens {
+		if g.Name == name {
+			return ok == nil || ok(g)
+		}
+	}
+	return false
 }
 
 func testDiskOfAGuestIsBusy(t *testing.T, h Harness) {

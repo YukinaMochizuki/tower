@@ -33,8 +33,8 @@ const (
 var (
 	// ErrNotFound means what was named is not on the host.
 	ErrNotFound = errors.New("driver: not on the host")
-	// ErrBusy means it is in use: a golden disks are cloned from, a
-	// network guests are on.
+	// ErrBusy means it is in use: a disk a guest is made on, a network
+	// guests are on.
 	ErrBusy = errors.New("driver: in use")
 	// ErrNoSpace means the host has no room for it.
 	ErrNoSpace = errors.New("driver: no space left on the host")
@@ -119,9 +119,11 @@ type Golden struct {
 	// Size is what it holds, in bytes.
 	Size uint64
 	// Clones are the disks cloned from it.
-	Clones  int
-	Labels  Labels
-	Created time.Time
+	Clones int
+	// Deferred says it is destroyed once its clones go.
+	Deferred bool
+	Labels   Labels
+	Created  time.Time
 }
 
 // Pool is the ZFS pool, as the host reports it.
@@ -138,7 +140,7 @@ type Storage interface {
 	Version(ctx context.Context) (string, error)
 	// EnsureDisk makes the disk once, and returns it as it is: a disk of
 	// the name made otherwise (another kind or golden) is ErrConflict; a
-	// golden that is not there, ErrNotFound.
+	// golden that is not there, or deferred, ErrNotFound.
 	EnsureDisk(ctx context.Context, spec DiskSpec) (Disk, error)
 	Disks(ctx context.Context) ([]Disk, error)
 	// DestroyDisk destroys a disk; one a guest is made on is ErrBusy.
@@ -147,7 +149,9 @@ type Storage interface {
 	// holds what the disk held and outlives it.
 	Capture(ctx context.Context, disk, golden string, labels Labels) (Golden, error)
 	Goldens(ctx context.Context) ([]Golden, error)
-	// DestroyGolden destroys a golden; one with clones is ErrBusy.
+	// DestroyGolden destroys a golden, or one with clones once its last
+	// clone goes, as zfs destroy -d does: it is listed Deferred until
+	// then, and no disk is cloned from it.
 	DestroyGolden(ctx context.Context, name string) error
 	Pool(ctx context.Context) (Pool, error)
 }
@@ -161,7 +165,7 @@ type GuestSpec struct {
 	// there.
 	Network, Alias string
 	// CPUs and Memory bound it.
-	CPUs   float64
+	CPUs   int
 	Memory uint64
 	Labels Labels
 }

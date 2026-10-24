@@ -27,7 +27,7 @@ func (s storage) EnsureDisk(_ context.Context, spec driver.DiskSpec) (driver.Dis
 		d.Spec.Labels = maps.Clone(spec.Labels)
 		if spec.From != "" {
 			g := s.h.st.Goldens[spec.From]
-			if g == nil {
+			if g == nil || g.Deferred {
 				return fmt.Errorf("golden %s: %w", spec.From, driver.ErrNotFound)
 			}
 			if g.Kind != spec.Kind {
@@ -70,7 +70,14 @@ func (s storage) DestroyDisk(_ context.Context, name string) error {
 				return fmt.Errorf("disk %s is %s's: %w", name, k, driver.ErrBusy)
 			}
 		}
+		d := s.h.st.Disks[name]
 		delete(s.h.st.Disks, name)
+		// A golden destroyed with clones goes with its last.
+		if d != nil && d.Spec.From != "" {
+			if g := s.h.st.Goldens[d.Spec.From]; g != nil && g.Deferred && s.h.goldenOf(d.Spec.From, g).Clones == 0 {
+				delete(s.h.st.Goldens, d.Spec.From)
+			}
+		}
 		return nil
 	})
 }
@@ -105,7 +112,10 @@ func (h *Host) goldenOf(name string, g *golden) driver.Golden {
 			clones++
 		}
 	}
-	return driver.Golden{Name: name, Kind: g.Kind, Size: Overhead + uint64(filesSize(g.Files)), Clones: clones, Labels: maps.Clone(g.Labels), Created: g.Created}
+	return driver.Golden{
+		Name: name, Kind: g.Kind, Size: Overhead + uint64(filesSize(g.Files)), Clones: clones, Deferred: g.Deferred,
+		Labels: maps.Clone(g.Labels), Created: g.Created,
+	}
 }
 
 func (s storage) Goldens(context.Context) ([]driver.Golden, error) {
@@ -125,8 +135,9 @@ func (s storage) DestroyGolden(_ context.Context, name string) error {
 		if g == nil {
 			return nil
 		}
-		if n := s.h.goldenOf(name, g).Clones; n > 0 {
-			return fmt.Errorf("golden %s has %d clones: %w", name, n, driver.ErrBusy)
+		if s.h.goldenOf(name, g).Clones > 0 {
+			g.Deferred = true
+			return nil
 		}
 		delete(s.h.st.Goldens, name)
 		return nil
