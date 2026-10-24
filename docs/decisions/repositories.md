@@ -1,0 +1,41 @@
+# tower reads repositories itself, and pushes branches
+
+Status: accepted, 2026-10.
+
+## Context
+
+Until now workstream copied a repository into a box from its own clone cache,
+and the box never reached a forge; a separate, short-lived publish box pushed
+a branch, because the commits lived in the work box. With boxes on other
+hosts, there is no local copy to make. To decide when a golden is rebuilt,
+tower must itself read a repository's devcontainer, lockfiles and tool
+versions at a given ref.
+
+## Decision
+
+- **tower holds its own forge credentials and keeps a git mirror on each
+  target.** It resolves devcontainers, builds images, and may bake a recent
+  checkout with its dependencies installed into a golden, so a new box only
+  fetches what changed.
+- **workstream applies a `Repository` per product repository** (its URL and
+  which credential reads it), so tower knows them before any box asks and can
+  pre-warm.
+- **Repositories hosted by workstream itself** are served to tower over the
+  tailnet, to tower's identity alone; to tower they are one more git source.
+- **A box's `origin/*` comes from tower's mirror,** and refreshing it is
+  tower's operation. workstream keeps its own clone cache for its own reading;
+  the two may briefly disagree.
+- **tower pushes branches.** A push follows the commits, which now live on the
+  target. tower fetches them from the box into its mirror and pushes from
+  there; a token never enters a work box. A human's approval stays in
+  workstream: workstream calls tower's push only after it. Push takes only
+  workstream's role, names its branch, and forces only with a lease. Pull
+  requests (opening, editing, merging, reading checks) stay workstream's.
+- tower's write token is the narrowest the forge allows (on GitHub, a
+  fine-grained token with contents:write), not workstream's own.
+
+## Consequences
+
+- tower holds write credentials, and needs the same care as the workstream
+  host.
+- workstream needs a small git service for the repositories it hosts.
