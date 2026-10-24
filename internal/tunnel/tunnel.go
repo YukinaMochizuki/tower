@@ -1,11 +1,13 @@
 // Package tunnel carries calls from the apiserver to a node agent over a
-// connection the agent opens. The agent dials the apiserver's node socket
-// and upgrades an HTTP/1.1 request to a tunnel; the roles then reverse, and
-// the agent serves HTTP/2 on the connection, the apiserver being the
+// connection the agent opens; in tower the node is a target's host and
+// its agent hostd. The agent dials the apiserver and upgrades an HTTP/1.1
+// request, carrying its credentials, to a tunnel; the roles then reverse,
+// and the agent serves HTTP/2 on the connection, the apiserver being the
 // client. A node so never listens, and a tunnel is as much the node's as
-// any call the socket authenticates. This package is the transport alone:
-// who may open a tunnel is the apiserver's to decide, and what is served
-// on it the agent's. See docs/decisions/node-tunnel.md.
+// any call its credentials authenticate. This package is the transport
+// alone: who may open a tunnel is the apiserver's to decide, and what is
+// served on it the agent's. Copied from hangar; see hangar:
+// docs/decisions/node-tunnel.md.
 package tunnel
 
 import (
@@ -17,6 +19,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -26,9 +29,9 @@ import (
 
 const (
 	// Path is the request that opens a tunnel.
-	Path = "/hangar.node.v1.Tunnel/Open"
+	Path = "/tower.hostd.v1.Tunnel/Open"
 	// Protocol is the tunnel's Upgrade token.
-	Protocol = "hangar-node-tunnel/1"
+	Protocol = "tower-hostd-tunnel/1"
 )
 
 // Liveness is how a tunnel's two ends tell it is dead: each pings the
@@ -56,8 +59,11 @@ const handshakeTimeout = 10 * time.Second
 // serves Handler on it: it dials again whenever the tunnel drops, waiting
 // longer after each failure in a row.
 type Agent struct {
-	// Dial connects to the apiserver's node socket.
-	Dial    func(ctx context.Context) (net.Conn, error)
+	// Dial connects to the apiserver.
+	Dial func(ctx context.Context) (net.Conn, error)
+	// Header is sent with each request opening a tunnel, such as the
+	// agent's credentials.
+	Header  http.Header
 	Handler http.Handler
 	// Liveness zero means DefaultLiveness.
 	Liveness Liveness
@@ -185,7 +191,7 @@ func (a *Agent) serve(ctx context.Context, handler http.Handler, calls *calls) (
 	if err != nil {
 		return false, err
 	}
-	conn, err = Open(ctx, conn)
+	conn, err = Open(ctx, conn, a.Header)
 	if err != nil {
 		return false, err
 	}
@@ -214,10 +220,10 @@ func (a *Agent) serve(ctx context.Context, handler http.Handler, calls *calls) (
 	return true, errors.New("the connection ended")
 }
 
-// Open upgrades conn, a connection to the apiserver's node socket, to a
-// tunnel, and returns the connection to serve HTTP/2 on. It closes conn
-// if it fails.
-func Open(ctx context.Context, conn net.Conn) (net.Conn, error) {
+// Open upgrades conn, a connection to the apiserver, to a tunnel with a
+// request carrying header, and returns the connection to serve HTTP/2 on.
+// It closes conn if it fails.
+func Open(ctx context.Context, conn net.Conn, header http.Header) (net.Conn, error) {
 	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Unix(1, 0)) })
 	defer stop()
 	fail := func(err error) (net.Conn, error) {
@@ -228,7 +234,16 @@ func Open(ctx context.Context, conn net.Conn) (net.Conn, error) {
 		return nil, fmt.Errorf("opening a tunnel: %w", err)
 	}
 	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
-	if _, err := io.WriteString(conn, "GET "+Path+" HTTP/1.1\r\nHost: hangar\r\nConnection: Upgrade\r\nUpgrade: "+Protocol+"\r\n\r\n"); err != nil {
+	req := &http.Request{
+		Method: http.MethodGet, URL: &url.URL{Path: Path}, Host: "tower",
+		Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1, Header: header.Clone(),
+	}
+	if req.Header == nil {
+		req.Header = http.Header{}
+	}
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", Protocol)
+	if err := req.Write(conn); err != nil {
 		return fail(err)
 	}
 	br := bufio.NewReader(conn)
@@ -266,6 +281,9 @@ type Hub struct {
 	// Liveness zero means DefaultLiveness.
 	Liveness Liveness
 	Log      *slog.Logger
+	// Changed, if set, is told of the node of each tunnel opened or
+	// dropped, after Node says so.
+	Changed func(node string)
 
 	mu      sync.Mutex
 	tunnels map[string]*Tunnel
@@ -323,50 +341,51 @@ func (c *closeConn) Close() error {
 }
 
 // Accept upgrades a request opening a tunnel, as Agent sends one, to
-// node's tunnel, replacing any it had. The caller has authenticated the
-// request as coming from node; nothing in it says which node it is.
-func (h *Hub) Accept(w http.ResponseWriter, r *http.Request, node string) {
+// node's tunnel, replacing any it had, and returns it, or nil when none
+// opened. The caller has authenticated the request as coming from node;
+// nothing in it says which node it is.
+func (h *Hub) Accept(w http.ResponseWriter, r *http.Request, node string) *Tunnel {
 	if r.ProtoMajor != 1 || !strings.EqualFold(r.Header.Get("Upgrade"), Protocol) || !headerHas(r.Header, "Connection", "upgrade") {
 		w.Header().Set("Upgrade", Protocol)
 		http.Error(w, "a tunnel is opened by an HTTP/1.1 upgrade to "+Protocol, http.StatusUpgradeRequired)
-		return
+		return nil
 	}
 	h.mu.Lock()
 	closed := h.closed
 	h.mu.Unlock()
 	if closed {
 		http.Error(w, "the apiserver is stopping", http.StatusServiceUnavailable)
-		return
+		return nil
 	}
 	raw, brw, err := http.NewResponseController(w).Hijack()
 	if err != nil {
 		http.Error(w, "the connection cannot be taken over", http.StatusInternalServerError)
-		return
+		return nil
 	}
 	conn := &closeConn{Conn: raw, done: make(chan struct{})}
 	// The agent sends nothing before the switch is answered.
 	if brw.Reader.Buffered() > 0 {
 		_ = conn.Close()
-		return
+		return nil
 	}
 	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
 	if _, err := io.WriteString(conn, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: "+Protocol+"\r\n\r\n"); err != nil {
 		_ = conn.Close()
-		return
+		return nil
 	}
 	_ = conn.SetDeadline(time.Time{})
 	cc, err := h.clientConn(r.Context(), conn)
 	if err != nil {
 		_ = conn.Close()
 		h.log().Error("opening a tunnel", "node", node, "error", err)
-		return
+		return nil
 	}
 	t := &Tunnel{node: node, cc: cc, conn: conn, client: &http.Client{Transport: cc}}
 	h.mu.Lock()
 	if h.closed {
 		h.mu.Unlock()
 		t.Close()
-		return
+		return nil
 	}
 	if h.tunnels == nil {
 		h.tunnels = map[string]*Tunnel{}
@@ -378,16 +397,28 @@ func (h *Hub) Accept(w http.ResponseWriter, r *http.Request, node string) {
 		old.Close()
 	}
 	h.log().Info("node tunnel opened", "node", node, "replaced", old != nil)
+	h.changed(node)
 	go func() {
 		<-t.Done()
 		_ = cc.Close()
 		h.mu.Lock()
-		if h.tunnels[node] == t {
+		current := h.tunnels[node] == t
+		if current {
 			delete(h.tunnels, node)
 		}
 		h.mu.Unlock()
 		h.log().Info("node tunnel dropped", "node", node)
+		if current {
+			h.changed(node)
+		}
 	}()
+	return t
+}
+
+func (h *Hub) changed(node string) {
+	if h.Changed != nil {
+		h.Changed(node)
+	}
 }
 
 // clientConn makes the apiserver's end of a tunnel on conn, with

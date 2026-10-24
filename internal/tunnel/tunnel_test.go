@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -34,6 +35,18 @@ type apiserver struct {
 	hub *tunnel.Hub
 	// dial connects to its socket.
 	dial func(ctx context.Context) (net.Conn, error)
+
+	mu sync.Mutex
+	// authorization is what the last request opening a tunnel carried.
+	authorization string
+	// changes are the nodes the hub told of, in order.
+	changes []string
+}
+
+func (a *apiserver) seen() (authorization string, changes []string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.authorization, slices.Clone(a.changes)
 }
 
 func newAPIServer(t *testing.T) *apiserver {
@@ -63,9 +76,19 @@ func newPipeAPIServer(t *testing.T) *apiserver {
 
 func serveAPIServer(t *testing.T, ln net.Listener, dial func(context.Context) (net.Conn, error)) *apiserver {
 	t.Helper()
-	a := &apiserver{hub: &tunnel.Hub{Liveness: fast}, dial: dial}
+	a := &apiserver{dial: dial}
+	a.hub = &tunnel.Hub{Liveness: fast, Changed: func(node string) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		a.changes = append(a.changes, node)
+	}}
 	mux := http.NewServeMux()
-	mux.HandleFunc(tunnel.Path, func(w http.ResponseWriter, r *http.Request) { a.hub.Accept(w, r, "n1") })
+	mux.HandleFunc(tunnel.Path, func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		a.authorization = r.Header.Get("Authorization")
+		a.mu.Unlock()
+		a.hub.Accept(w, r, "n1")
+	})
 	p := &http.Protocols{}
 	p.SetHTTP1(true)
 	p.SetUnencryptedHTTP2(true)
@@ -186,7 +209,7 @@ func startAgentLive(t *testing.T, a *apiserver, handler http.Handler, dial func(
 	go func() {
 		defer close(done)
 		(&tunnel.Agent{
-			Dial: dial, Handler: handler, Liveness: live,
+			Dial: dial, Handler: handler, Liveness: live, Header: http.Header{"Authorization": {"Bearer twr_test"}},
 			MinBackoff: 10 * time.Millisecond, MaxBackoff: 50 * time.Millisecond,
 			Opened: func() { ag.opened.Add(1) },
 			Closed: func() { ag.closed.Add(1) },
@@ -253,6 +276,9 @@ func TestARoundTrip(t *testing.T) {
 			t.Errorf("the tunnel is node %q's", tun.Node())
 		}
 		hello(t, tun)
+		if auth, _ := a.seen(); auth != "Bearer twr_test" {
+			t.Errorf("the request opening the tunnel carried Authorization %q, not the agent's header", auth)
+		}
 		// Idle beyond its liveness, the tunnel stays up: pings keep it.
 		time.Sleep(5 * (fast.Idle + fast.Timeout)) //nolint:forbidigo // virtual time
 		synctest.Wait()
@@ -578,7 +604,7 @@ func TestANewerTunnelReplacesTheOlder(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		c, err = tunnel.Open(t.Context(), c)
+		c, err = tunnel.Open(t.Context(), c, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -610,6 +636,32 @@ func TestANewerTunnelReplacesTheOlder(t *testing.T) {
 	}
 	second, _ := a.hub.Node("n1")
 	hello(t, second)
+	// The older dropping is no change: the node is still connected.
+	if _, changes := a.seen(); len(changes) != 2 {
+		t.Errorf("the hub told of %v, want the two opens alone", changes)
+	}
+}
+
+// TestTheHubTellsOfOpensAndDrops: Changed hears of a tunnel opening and
+// dropping, each once Node says so.
+func TestTheHubTellsOfOpensAndDrops(t *testing.T) {
+	noLeaks(t)
+	a := newAPIServer(t)
+	var connected []bool
+	a.hub.Changed = func(node string) {
+		_, err := a.hub.Node(node)
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		connected = append(connected, err == nil)
+	}
+	ag := startAgent(t, a, &node{}, a.dial)
+	tunnelOf(t, a)
+	ag.stop()
+	testutil.EventuallyWithin(t, 5*time.Second, "an open, then a drop", func() (bool, string) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return slices.Equal(connected, []bool{true, false}), fmt.Sprint(connected)
+	})
 }
 
 // TestOnlyAnUpgradeOpensATunnel: a plain request, or one over HTTP/2,
@@ -658,7 +710,7 @@ func TestAStoppedHubRefusesTunnels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tunnel.Open(t.Context(), c); err == nil || !strings.Contains(err.Error(), "503") {
+	if _, err := tunnel.Open(t.Context(), c, nil); err == nil || !strings.Contains(err.Error(), "503") {
 		t.Errorf("opening a tunnel to a stopped hub: %v", err)
 	}
 }
