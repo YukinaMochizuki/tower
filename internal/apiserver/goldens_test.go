@@ -355,3 +355,25 @@ func TestAMirrorAheadOfItsRepositoryIsNotStale(t *testing.T) {
 		t.Errorf("a warm golden fresh against its repository's status was rebuilt: %v", made)
 	}
 }
+
+// TestABuildTheTargetDidNotAnswerIsTriedAgain: a golden's build that
+// failed because its target did not answer, as a hostd not yet connected
+// does not, is tried again once it answers, and the box comes up.
+func TestABuildTheTargetDidNotAnswerIsTriedAgain(t *testing.T) {
+	w := newWorld(t)
+	w.fake.SetUnavailable(true)
+	b := box("dev")
+	b.Spec.Image = "ghcr.io/acme/dev:1"
+	w.mustApply(registry.Box, b)
+	testutil.Eventually(t, "the build tried and refused", func() (bool, string) {
+		o, err := w.get(registry.Target, "", "t1")
+		if err != nil {
+			return false, err.Error()
+		}
+		last := o.(*targetsv1alpha1.Target).GetStatus().GetLastError()
+		return strings.Contains(last, "golden/"), last
+	})
+	w.fake.SetUnavailable(false)
+	w.advance(controllerMaxWait)
+	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_READY)
+}

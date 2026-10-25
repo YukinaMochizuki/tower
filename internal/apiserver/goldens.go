@@ -298,10 +298,12 @@ func (s *Server) reconcileGolden(ctx context.Context, key controller.Key) error 
 		return nil
 	}
 	if jerr != nil {
+		// Said once: a transient failure is tried again when the key comes
+		// back, as a target that did not answer may answer then.
+		s.jobs.forget(job)
 		if transient(jerr) {
 			return fmt.Errorf("building golden %s: %w: %w", key, controller.ErrWaiting, jerr)
 		}
-		s.jobs.forget(job)
 		return s.setGolden(ctx, g, envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED, "BuildFailed", jerr.Error(), nil)
 	}
 	p, err := s.providerFor(g.GetSpec().GetTarget())
