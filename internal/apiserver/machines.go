@@ -29,9 +29,8 @@ const (
 	// configuredAnnotation marks an instance whose configure phase has run.
 	configuredAnnotation = registry.Domain + "/configured"
 	// readyAnnotation is the run of an instance (runOf) its blueprint's
-	// ready check passed in, or readyFailed and the run it failed in.
+	// ready check passed in.
 	readyAnnotation = registry.Domain + "/ready"
-	readyFailed     = "failed "
 
 	// readyCheckEvery is how long a ready check waits between tries, and
 	// defaultReadyTimeout how long it tries for unless its blueprint says:
@@ -219,36 +218,36 @@ func (s *Server) machineSteps(ctx context.Context, key controller.Key, m *envv1a
 	return nil
 }
 
+// machineStep is one of the machine's instance steps, in its instance's
+// run.
+func machineStep(key controller.Key, m *envv1alpha1.Machine, in *envv1alpha1.Instance, name string) stepRef {
+	return newStepRef("machine", key.Project, key.Name, name, in.GetMetadata().GetUid()+"/"+runOf(in), m.GetMetadata().GetGeneration())
+}
+
 // checkReady runs the blueprint's ready check in the machine's instance,
 // every readyCheckEvery until it passes or its timeout runs out, then marks
 // the instance with the run it passed in: after the next start of the
-// instance it is checked again. A check that never passes fails the
-// machine with the end of its last output, which can quote nothing secret:
-// the check is run without the machine's secrets.
+// instance it is checked again. A check that never passes fails as any
+// instance step does (steps.go), with the end of its last output, which
+// can quote nothing secret: the check is run without the machine's
+// secrets.
 func (s *Server) checkReady(ctx context.Context, key controller.Key, m *envv1alpha1.Machine, in *envv1alpha1.Instance, p provider.Provider, st *envv1alpha1.MachineStatus, not func(envv1alpha1.MachinePhase, string, string)) error {
 	run := runOf(in)
 	job := "ready/" + key.String()
-	jerr, running := s.jobs.lastError(job)
-	if jerr != nil && !running {
-		s.jobs.forget(job)
-		if transient(jerr) {
-			not(envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING, "WaitingForReady", jerr.Error())
-			return fmt.Errorf("machine %s: %w: %w", key, controller.ErrWaiting, jerr)
-		}
-		not(envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED, "ReadyCheckFailed", jerr.Error())
-		return nil
-	}
-	if !running && in.GetMetadata().GetAnnotations()[readyAnnotation] == readyFailed+run {
-		// It stays failed, with the reason it failed with, until the
-		// machine starts again.
-		st.Phase = envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED
-		if c := conditions.Find(st.GetConditions(), MachineReady); c.GetReason() != "ReadyCheckFailed" {
-			not(envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED, "ReadyCheckFailed", "its ready check did not pass")
-		}
+	step := machineStep(key, m, in, "ready")
+	g, err := s.stepGate(ctx, job, step)
+	switch {
+	case err != nil:
+		return err
+	case g.Waiting != nil:
+		not(envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING, "WaitingForReady", g.Waiting.Error())
+		return fmt.Errorf("machine %s: %w: %w", key, controller.ErrWaiting, g.Waiting)
+	case g.Failed != "":
+		not(envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED, "ReadyCheckFailed", g.Failed)
 		return nil
 	}
 	not(envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING, "WaitingForReady", "its ready check has not passed yet")
-	if running {
+	if g.Running {
 		return nil
 	}
 	check := m.GetSpec().GetBlueprint().GetReadyCheck()
@@ -266,15 +265,15 @@ func (s *Server) checkReady(ctx context.Context, key controller.Key, m *envv1alp
 				return err
 			}
 			if code == 0 {
-				return s.annotateInstance(ctx, key.Project, ref.Name, readyAnnotation, run)
+				if err := s.annotateInstance(ctx, key.Project, ref.Name, readyAnnotation, run); err != nil {
+					return err
+				}
+				return s.stepPassed(ctx, step)
 			}
 			if !s.clock.Now().Before(deadline) {
 				tail := strings.TrimSpace(out.String())
 				if len(tail) > 512 {
 					tail = tail[len(tail)-512:]
-				}
-				if err := s.annotateInstance(ctx, key.Project, ref.Name, readyAnnotation, readyFailed+run); err != nil {
-					return err
 				}
 				return fmt.Errorf("its ready check did not pass in %s; it last exited %d: %s: %w", timeout, code, tail, provider.ErrFailed)
 			}
@@ -296,20 +295,22 @@ func (s *Server) checkReady(ctx context.Context, key controller.Key, m *envv1alp
 // enter no object, no event and no log.
 func (s *Server) configureMachine(ctx context.Context, key controller.Key, m *envv1alpha1.Machine, in *envv1alpha1.Instance, p provider.Provider, st *envv1alpha1.MachineStatus, not func(envv1alpha1.MachinePhase, string, string)) error {
 	job := "configure/" + key.String()
-	jerr, running := s.jobs.lastError(job)
-	if jerr != nil && !running {
-		s.jobs.forget(job)
-		if transient(jerr) {
-			not(envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING, "Configuring", jerr.Error())
-			return fmt.Errorf("machine %s: %w: %w", key, controller.ErrWaiting, jerr)
-		}
-		s.machineCond(st, MachineConfigured, false, "ConfigureFailed", jerr.Error())
-		not(envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED, "ConfigureFailed", jerr.Error())
+	step := machineStep(key, m, in, "configure")
+	g, err := s.stepGate(ctx, job, step)
+	switch {
+	case err != nil:
+		return err
+	case g.Waiting != nil:
+		not(envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING, "Configuring", g.Waiting.Error())
+		return fmt.Errorf("machine %s: %w: %w", key, controller.ErrWaiting, g.Waiting)
+	case g.Failed != "":
+		s.machineCond(st, MachineConfigured, false, "ConfigureFailed", g.Failed)
+		not(envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED, "ConfigureFailed", g.Failed)
 		return nil
 	}
 	s.machineCond(st, MachineConfigured, false, "Configuring", "")
 	not(envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING, "Configuring", "its configure phase runs")
-	if running {
+	if g.Running {
 		return nil
 	}
 	spec := m.GetSpec()
@@ -349,7 +350,10 @@ func (s *Server) configureMachine(ctx context.Context, key controller.Key, m *en
 			"ansible-playbook", "--connection=local", "--inventory=localhost,", "--tags=configure", "--extra-vars=@vars.json", "blueprint.yml"); err != nil {
 			return err
 		}
-		return s.annotateInstance(ctx, key.Project, ref.Name, configuredAnnotation, "true")
+		if err := s.annotateInstance(ctx, key.Project, ref.Name, configuredAnnotation, "true"); err != nil {
+			return err
+		}
+		return s.stepPassed(ctx, step)
 	})
 	return nil
 }

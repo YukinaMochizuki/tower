@@ -14,6 +14,7 @@ the change.
 | `traffic.md` | Traffic inside a target stays there; small data workstream consumes passes through tower; long-lived streams go to the target on a ticket |
 | `images.md` | One registry beside tower; images are built on the target when tower decides |
 | `hostd-storage.md` | hostd hosts run on ZFS: goldens are snapshots, environments clones |
+| `failures.md` | A failed golden or instance step waits out a backoff (10 min doubling to 6 h) kept across restarts, its object FAILED saying why and when it runs again |
 | `devcontainers.md` | A box's devcontainer is read from the target's mirror as workstream reads it, built on the target; each box runs its setup steps; one tower cannot resolve fails the box |
 | `box-addons.md` | A box's add-ons are workstream's Features, copied at a recorded commit and built as a layer on the resolved image as workstream builds it |
 | `machine-blueprints.md` | A machine's golden is its playbook but the tasks tagged configure, which each machine runs; every VM has the hostname `machine` |

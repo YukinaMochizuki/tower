@@ -415,7 +415,8 @@ func TestAMachineIsReadyOnceItsReadyCheckPasses(t *testing.T) {
 }
 
 // TestAMachineWhoseReadyCheckNeverPassesFails: a ready check that has not
-// passed by its timeout fails the machine with the end of its output.
+// passed by its timeout fails the machine with the end of its output, as
+// any instance step fails: it runs again once its backoff passes.
 func TestAMachineWhoseReadyCheckNeverPassesFails(t *testing.T) {
 	w := newWorld(t)
 	check := &readyCheck{command: "true-never"}
@@ -431,15 +432,17 @@ func TestAMachineWhoseReadyCheckNeverPassesFails(t *testing.T) {
 	if n := check.tries.Load(); n < 2 || n > 7 {
 		t.Errorf("the ready check was tried %d times in 30 seconds, 5 seconds apart", n)
 	}
-	// It stays failed, and is not tried again, until the machine starts
-	// again.
+	// It stays failed, and is not tried again, until its backoff passes.
 	tries := check.tries.Load()
 	w.advance(time.Minute)
 	again := w.machine("k3s").GetStatus()
 	if again.GetPhase() != envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED || condition(again.GetConditions(), apiserver.MachineReady).GetMessage() != msg ||
-		check.tries.Load() != tries {
+		!strings.Contains(msg, "; tried again at ") || check.tries.Load() != tries {
 		t.Errorf("a minute after its ready check failed, tried %d times more: %v", check.tries.Load()-tries, again)
 	}
+	check.pass.Store(true)
+	w.advance(apiserver.StepRetryFirst)
+	w.waitMachineTicking("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_READY)
 }
 
 // TestAMachinesSecretsReachOnlyItsCommands: a machine's secret values

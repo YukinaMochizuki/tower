@@ -37,9 +37,10 @@ hostname the same from its golden to every clone of it.
   workstream's `readyCheck`, a shell command, run as `sh -c` in the VM
   every 5 seconds until it exits 0, for 200 seconds unless the blueprint
   says otherwise (workstream tries 40 times, 5 seconds apart). One that
-  never passes fails the machine with the end of its output; it is run
-  without the machine's secrets, so that output can be shown. It runs
-  again after each start of the machine. A blueprint without one is READY
+  never passes fails the machine with the end of its output, and runs
+  again once its backoff passes (`failures.md`); it is run without the
+  machine's secrets, so that output can be shown. It runs again after each
+  start of the machine. A blueprint without one is READY
   once configured.
 
 Not a hostname per blueprint: a golden is shared by every machine of its

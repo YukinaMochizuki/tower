@@ -413,21 +413,23 @@ func (s *Server) readyWarm(ctx context.Context, project, repo, target, parent st
 // dependencies.
 func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *envv1alpha1.Box, in *envv1alpha1.Instance, p provider.Provider, bs *boxState) error {
 	job := "materialize/" + key.String()
-	jerr, running := s.jobs.lastError(job)
-	if jerr != nil && !running {
-		s.jobs.forget(job)
-		if transient(jerr) {
-			bs.cond(BoxMaterialized, false, "Waiting", jerr.Error())
-			bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", jerr.Error())
-			return fmt.Errorf("box %s: %w: %w", key, controller.ErrWaiting, jerr)
-		}
-		bs.cond(BoxMaterialized, false, "CheckoutFailed", jerr.Error())
-		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_FAILED, "CheckoutFailed", jerr.Error())
+	step := boxStep(key, box, in, "materialize")
+	g, err := s.stepGate(ctx, job, step)
+	switch {
+	case err != nil:
+		return err
+	case g.Waiting != nil:
+		bs.cond(BoxMaterialized, false, "Waiting", g.Waiting.Error())
+		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", g.Waiting.Error())
+		return fmt.Errorf("box %s: %w: %w", key, controller.ErrWaiting, g.Waiting)
+	case g.Failed != "":
+		bs.cond(BoxMaterialized, false, "CheckoutFailed", g.Failed)
+		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_FAILED, "CheckoutFailed", g.Failed)
 		return nil
 	}
 	bs.cond(BoxMaterialized, false, "CheckingOut", "")
 	bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", "its repositories are being checked out")
-	if running {
+	if g.Running {
 		return nil
 	}
 	target, warm := bs.st.GetTarget(), in.GetSpec().GetDiskGolden()
@@ -478,9 +480,17 @@ func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *en
 				return err
 			}
 		}
-		return s.annotateInstance(ctx, key.Project, ref.Name, materializedAnnotation, "true")
+		if err := s.annotateInstance(ctx, key.Project, ref.Name, materializedAnnotation, "true"); err != nil {
+			return err
+		}
+		return s.stepPassed(ctx, step)
 	})
 	return nil
+}
+
+// boxStep is one of the box's instance steps, in its instance's run.
+func boxStep(key controller.Key, box *envv1alpha1.Box, in *envv1alpha1.Instance, name string) stepRef {
+	return newStepRef("box", key.Project, key.Name, name, in.GetMetadata().GetUid()+"/"+runOf(in), box.GetMetadata().GetGeneration())
 }
 
 // fallbackImage is what a box of a repository without a devcontainer is
@@ -578,18 +588,20 @@ func runOf(in *envv1alpha1.Instance) string {
 // The values are opened for the job alone and go nowhere but the files.
 func (s *Server) writeSecretFiles(ctx context.Context, key controller.Key, box *envv1alpha1.Box, in *envv1alpha1.Instance, p provider.Provider, bs *boxState) error {
 	job := "secretfiles/" + key.String()
-	jerr, running := s.jobs.lastError(job)
-	if jerr != nil && !running {
-		s.jobs.forget(job)
-		if transient(jerr) {
-			bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", jerr.Error())
-			return fmt.Errorf("box %s: %w: %w", key, controller.ErrWaiting, jerr)
-		}
-		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_FAILED, "SecretFilesFailed", jerr.Error())
+	step := boxStep(key, box, in, "secretfiles")
+	g, err := s.stepGate(ctx, job, step)
+	switch {
+	case err != nil:
+		return err
+	case g.Waiting != nil:
+		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", g.Waiting.Error())
+		return fmt.Errorf("box %s: %w: %w", key, controller.ErrWaiting, g.Waiting)
+	case g.Failed != "":
+		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_FAILED, "SecretFilesFailed", g.Failed)
 		return nil
 	}
 	bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", "its secret files are being written")
-	if running {
+	if g.Running {
 		return nil
 	}
 	ref := provider.Instance{Project: key.Project, Name: in.GetMetadata().GetName()}
@@ -608,7 +620,10 @@ func (s *Server) writeSecretFiles(ctx context.Context, key controller.Key, box *
 				return fmt.Errorf("writing the secret file %s: %w", f.GetPath(), err)
 			}
 		}
-		return s.annotateInstance(ctx, key.Project, ref.Name, secretFilesAnnotation, run)
+		if err := s.annotateInstance(ctx, key.Project, ref.Name, secretFilesAnnotation, run); err != nil {
+			return err
+		}
+		return s.stepPassed(ctx, step)
 	})
 	return nil
 }

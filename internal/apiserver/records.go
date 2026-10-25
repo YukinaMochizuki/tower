@@ -23,6 +23,9 @@ const (
 	// warmSizeKind holds, per repository, the size of the last warm
 	// golden tower saw of it (warmSizeRecord).
 	warmSizeKind = "WarmSize"
+	// stepBackoffKind holds, per box or machine and instance step, how the
+	// step failed and when it runs again (stepBackoff).
+	stepBackoffKind = "StepBackoff"
 )
 
 // getRecord reads the record of key into v, reporting whether there is
