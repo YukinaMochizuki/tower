@@ -265,6 +265,22 @@ func (f *Fake) EndProcess(in provider.Instance, id string, code int) error {
 	return err
 }
 
+// SetStreams sets how many direct streams are open to an instance, as
+// clients connecting and leaving on their tickets do.
+func (f *Fake) SetStreams(in provider.Instance, n int) error {
+	f.mu.Lock()
+	local := f.instances[in]
+	if local != nil {
+		local.streams = n
+	}
+	f.mu.Unlock()
+	if local == nil {
+		return fmt.Errorf("instance %s/%s: %w", in.Project, in.Name, provider.ErrNotFound)
+	}
+	f.enqueue(in)
+	return nil
+}
+
 // Following counts the attaches waiting for a process to write or end.
 func (f *Fake) Following() int { return int(f.following.Load()) }
 

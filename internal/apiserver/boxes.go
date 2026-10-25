@@ -198,7 +198,7 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 	}
 	st.Instance, st.Alias = name, key.Name
 
-	s.processesSeen(key, in.GetStatus().GetProcessesRunning())
+	s.activitySeen(key, in.GetStatus().GetProcessesRunning()+in.GetStatus().GetStreamsOpen())
 
 	// Whether it runs.
 	desired, reason := envv1alpha1.RunState_RUN_STATE_RUNNING, ""
@@ -475,10 +475,10 @@ func (s *Server) setRunState(ctx context.Context, in *envv1alpha1.Instance, rs e
 // idle reports whether a box has gone unused for its target's
 // idle_stop_after, measured from its last use or from when it last became
 // ready. A box workstream keeps, one a call is under way in, and one whose
-// instance reports a process running, never is.
+// instance reports a process running or a direct stream open, never is.
 func (s *Server) idle(key controller.Key, box *envv1alpha1.Box, in *envv1alpha1.Instance, target *targetsv1alpha1.Target) (bool, uint64) {
 	touched, epoch, busy := s.useOf(key)
-	if busy || box.GetSpec().GetKeep() || in.GetStatus().GetProcessesRunning() > 0 {
+	if busy || box.GetSpec().GetKeep() || in.GetStatus().GetProcessesRunning() > 0 || in.GetStatus().GetStreamsOpen() > 0 {
 		return false, epoch
 	}
 	var last time.Time

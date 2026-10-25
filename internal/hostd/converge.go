@@ -18,6 +18,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/client"
 	"github.com/YukinaMochizuki/tower/internal/controller"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
+	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/store"
 )
 
@@ -233,9 +234,10 @@ func (h *Host) report(ctx context.Context, in *envv1alpha1.Instance, o observed)
 	}
 	st.ObservedGeneration = in.GetMetadata().GetGeneration()
 	st.Phase = o.phase
-	st.Address, st.UsedDisk, st.StartTime, st.ProcessesRunning = "", "", nil, 0
+	st.Address, st.UsedDisk, st.StartTime, st.ProcessesRunning, st.StreamsOpen = "", "", nil, 0, 0
 	if o.guest != nil && o.guest.Running {
 		st.Address, st.StartTime, st.ProcessesRunning = o.guest.Address, timestamppb.New(o.guest.StartedAt), o.processes
+		st.StreamsOpen = h.streamsOpen(provider.Instance{Project: in.GetMetadata().GetProject(), Name: in.GetMetadata().GetName()})
 	}
 	if o.disk != nil {
 		st.UsedDisk = quantity.FormatDisk(o.disk.Used)

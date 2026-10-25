@@ -343,8 +343,12 @@ type InstanceStatus struct {
 	// How many processes started in it (StartProcess) are running. tower
 	// never stops for idleness a box whose instance runs one.
 	ProcessesRunning int32 `protobuf:"varint,7,opt,name=processes_running,json=processesRunning,proto3" json:"processes_running,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// How many direct streams to it are open (docs/decisions/traffic.md).
+	// tower never stops for idleness a box whose instance has one open, and
+	// counts the last one's end as a use.
+	StreamsOpen   int32 `protobuf:"varint,8,opt,name=streams_open,json=streamsOpen,proto3" json:"streams_open,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InstanceStatus) Reset() {
@@ -422,6 +426,13 @@ func (x *InstanceStatus) GetStartTime() *timestamppb.Timestamp {
 func (x *InstanceStatus) GetProcessesRunning() int32 {
 	if x != nil {
 		return x.ProcessesRunning
+	}
+	return 0
+}
+
+func (x *InstanceStatus) GetStreamsOpen() int32 {
+	if x != nil {
+		return x.StreamsOpen
 	}
 	return 0
 }
@@ -1124,7 +1135,7 @@ const file_tower_environments_v1alpha1_instance_proto_rawDesc = "" +
 	"\x05alias\x18\x06 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\x05alias\x12D\n" +
 	"\tresources\x18\a \x01(\v2&.tower.environments.v1alpha1.ResourcesR\tresources\x12B\n" +
 	"\trun_state\x18\b \x01(\x0e2%.tower.environments.v1alpha1.RunStateR\brunState\x12!\n" +
-	"\fexpose_ports\x18\t \x03(\x05R\vexposePorts\"\xdc\x02\n" +
+	"\fexpose_ports\x18\t \x03(\x05R\vexposePorts\"\xff\x02\n" +
 	"\x0eInstanceStatus\x12/\n" +
 	"\x13observed_generation\x18\x01 \x01(\x03R\x12observedGeneration\x128\n" +
 	"\n" +
@@ -1135,7 +1146,8 @@ const file_tower_environments_v1alpha1_instance_proto_rawDesc = "" +
 	"\tused_disk\x18\x05 \x01(\tR\busedDisk\x129\n" +
 	"\n" +
 	"start_time\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x12+\n" +
-	"\x11processes_running\x18\a \x01(\x05R\x10processesRunning\"B\n" +
+	"\x11processes_running\x18\a \x01(\x05R\x10processesRunning\x12!\n" +
+	"\fstreams_open\x18\b \x01(\x05R\vstreamsOpen\"B\n" +
 	"\x12GetInstanceRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"X\n" +

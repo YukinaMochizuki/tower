@@ -117,6 +117,8 @@ type instance struct {
 	// processes are its processes, oldest first.
 	processes []*process
 	processN  int
+	// streams are the direct streams open to it (SetStreams).
+	streams int
 }
 
 type artifact struct {
@@ -315,8 +317,9 @@ func (f *Fake) report(ctx context.Context, c *client.Client, in *envv1alpha1.Ins
 			st.StartTime = nil
 		}
 		st.ProcessesRunning = int32(local.processesRunning())
+		st.StreamsOpen = int32(local.streams)
 	} else {
-		st.Address, st.UsedDisk, st.StartTime, st.ProcessesRunning = "", "", nil, 0
+		st.Address, st.UsedDisk, st.StartTime, st.ProcessesRunning, st.StreamsOpen = "", "", nil, 0, 0
 	}
 	f.mu.Unlock()
 	ready := &metav1.Condition{Type: InstanceReady, Status: metav1.ConditionStatus_CONDITION_STATUS_FALSE, Reason: reason, Message: msg, ObservedGeneration: st.ObservedGeneration}

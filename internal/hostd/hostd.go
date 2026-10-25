@@ -78,7 +78,8 @@ type Host struct {
 	mu   sync.Mutex
 	ctrl *controller.Controller
 	// limits are SetProcessLimits'; nil is provider's defaults.
-	limits atomic.Pointer[processLimits]
+	limits  atomic.Pointer[processLimits]
+	streams streamCount
 }
 
 var _ provider.Provider = (*Host)(nil)

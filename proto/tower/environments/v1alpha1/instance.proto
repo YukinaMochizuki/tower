@@ -76,6 +76,10 @@ message InstanceStatus {
   // How many processes started in it (StartProcess) are running. tower
   // never stops for idleness a box whose instance runs one.
   int32 processes_running = 7;
+  // How many direct streams to it are open (docs/decisions/traffic.md).
+  // tower never stops for idleness a box whose instance has one open, and
+  // counts the last one's end as a use.
+  int32 streams_open = 8;
 }
 
 // InstanceService manages instances.

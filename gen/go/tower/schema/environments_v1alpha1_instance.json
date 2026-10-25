@@ -94,6 +94,11 @@
           "format": "date-time",
           "type": "string"
         },
+        "streamsOpen": {
+          "description": "How many direct streams to it are open (docs/decisions/traffic.md). tower never stops for idleness a box whose instance has one open, and counts the last one's end as a use.",
+          "format": "int32",
+          "type": "integer"
+        },
         "usedDisk": {
           "description": "What its disk holds beyond the golden it was cloned from.",
           "type": "string"

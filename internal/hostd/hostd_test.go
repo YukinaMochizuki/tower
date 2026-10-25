@@ -460,6 +460,43 @@ func TestDirectStreams(t *testing.T) {
 	}
 }
 
+// TestOpenStreamsAreReported: streams_open counts the direct streams open
+// to an instance, as they open and close.
+func TestOpenStreamsAreReported(t *testing.T) {
+	w := hostdtest.New(t, hostdtest.Options{})
+	w.Apply(t, "st", container(""))
+	w.WaitPhase(t, "st", envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING)
+	ref := provider.Instance{Project: apiservertest.Project, Name: "st"}
+	where, err := w.Host.Ticket(t.Context(), ref, 8080)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := w.Signer.Issue(ticket.Claims{Target: target, Project: ref.Project, Instance: ref.Name, Port: 8080, Expires: time.Now().Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reported := func(n int32) {
+		t.Helper()
+		testutil.Eventually(t, fmt.Sprintf("%d streams reported open", n), func() (bool, string) {
+			st := w.Instance(t, "st").GetStatus()
+			return st.GetStreamsOpen() == n, st.String()
+		})
+	}
+	var conns []io.Closer
+	for range 2 {
+		conn, err := hostd.DialStream(t.Context(), where.URL, tk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		conns = append(conns, conn)
+	}
+	reported(2)
+	for _, c := range conns {
+		_ = c.Close()
+	}
+	reported(0)
+}
+
 // TestExecEndsWithTheCall: a command runs for as long as its call.
 func TestExecEndsWithTheCall(t *testing.T) {
 	w := hostdtest.New(t, hostdtest.Options{})

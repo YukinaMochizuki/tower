@@ -83,6 +83,37 @@ func TestARunningProcessKeepsABox(t *testing.T) {
 	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_STOPPED)
 }
 
+// TestAnOpenStreamKeepsABox: a box whose instance has a direct stream open,
+// an editor connected on a ticket, is never stopped for idleness, and the
+// last stream's end is a use of it.
+func TestAnOpenStreamKeepsABox(t *testing.T) {
+	w := newWorld(t, idleAfter(time.Hour))
+	w.readyBox("dev")
+	in := provider.Instance{Project: "web", Name: w.box("dev").GetStatus().GetInstance()}
+	streams := func() int32 {
+		got, _ := w.instance(in.Name)
+		return got.GetStatus().GetStreamsOpen()
+	}
+	if err := w.fake.SetStreams(in, 1); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Eventually(t, "the stream reported open", func() bool { return streams() == 1 })
+	w.advance(3 * time.Hour)
+	if p := w.box("dev").GetStatus().GetPhase(); p != envv1alpha1.BoxPhase_BOX_PHASE_READY {
+		t.Errorf("a box with a stream open is %v after three hours", p)
+	}
+	if err := w.fake.SetStreams(in, 0); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Eventually(t, "the stream reported closed", func() bool { return streams() == 0 })
+	w.advance(59 * time.Minute)
+	if p := w.box("dev").GetStatus().GetPhase(); p != envv1alpha1.BoxPhase_BOX_PHASE_READY {
+		t.Errorf("a box whose stream closed 59 minutes ago is %v", p)
+	}
+	w.advance(2 * time.Minute)
+	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_STOPPED)
+}
+
 // TestARequestedStopEndsProcesses: stopping a box at workstream's request
 // ends its processes.
 func TestARequestedStopEndsProcesses(t *testing.T) {

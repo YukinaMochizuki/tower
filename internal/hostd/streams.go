@@ -89,7 +89,39 @@ func (h *Host) serveStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.log.Info("a direct stream opened", "project", want.Project, "instance", want.Instance, "port", want.Port)
+	ref := provider.Instance{Project: want.Project, Name: want.Instance}
+	h.countStream(ref, 1)
+	defer h.countStream(ref, -1)
 	pipe(conn, buf.Reader, upstream)
+}
+
+// streamCount is the direct streams open to each instance: connections
+// this hostd holds, which end with it.
+type streamCount struct {
+	mu   sync.Mutex
+	open map[provider.Instance]int
+}
+
+// countStream counts a stream to the instance opening (1) or ending (-1),
+// and reads the instance again to report it.
+func (h *Host) countStream(ref provider.Instance, d int) {
+	h.streams.mu.Lock()
+	if h.streams.open == nil {
+		h.streams.open = map[provider.Instance]int{}
+	}
+	h.streams.open[ref] += d
+	if h.streams.open[ref] <= 0 {
+		delete(h.streams.open, ref)
+	}
+	h.streams.mu.Unlock()
+	h.changed(ref)
+}
+
+// streamsOpen is how many direct streams to the instance are open.
+func (h *Host) streamsOpen(ref provider.Instance) int32 {
+	h.streams.mu.Lock()
+	defer h.streams.mu.Unlock()
+	return int32(h.streams.open[ref])
 }
 
 // pipe copies both ways until either side ends; in holds what the
