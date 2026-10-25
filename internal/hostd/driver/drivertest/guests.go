@@ -26,6 +26,13 @@ type GuestKind struct {
 	Workspace string
 }
 
+// ContainersOf is the harness's container driver as a guest kind, for a
+// harness that runs the suites one at a time.
+func ContainersOf(h Harness) GuestKind { return h.containers() }
+
+// VMsOf is the harness's VM driver as a guest kind.
+func VMsOf(h Harness) GuestKind { return h.vms() }
+
 func (h Harness) containers() GuestKind {
 	c := h.Drivers.Containers
 	return GuestKind{
