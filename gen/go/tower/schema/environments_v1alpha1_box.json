@@ -18,6 +18,10 @@
           },
           "type": "array"
         },
+        "fallbackImage": {
+          "description": "The image the box is made of when its first checkout has no devcontainer at its ref, and only then, with its add-ons layered on: workstream sends the repository's boxImage or its own default, as its setup \"auto\" falls back to them. Empty is tower's --default-box-image; a box with neither fails. Not with image or image_build.",
+          "type": "string"
+        },
         "image": {
           "description": "An explicit base image, which skips the first checkout's devcontainer. At most one of image and image_build is set.",
           "type": "string"

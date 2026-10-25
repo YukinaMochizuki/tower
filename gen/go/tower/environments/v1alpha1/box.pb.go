@@ -211,7 +211,13 @@ type BoxSpec struct {
 	// An image built for the box from a Dockerfile, with its add-ons layered
 	// on, as a container blueprint is, which skips the first checkout's
 	// devcontainer. At most one of image and image_build is set.
-	ImageBuild    *ImageBuild `protobuf:"bytes,12,opt,name=image_build,json=imageBuild,proto3" json:"image_build,omitempty"`
+	ImageBuild *ImageBuild `protobuf:"bytes,12,opt,name=image_build,json=imageBuild,proto3" json:"image_build,omitempty"`
+	// The image the box is made of when its first checkout has no
+	// devcontainer at its ref, and only then, with its add-ons layered on:
+	// workstream sends the repository's boxImage or its own default, as its
+	// setup "auto" falls back to them. Empty is tower's --default-box-image;
+	// a box with neither fails. Not with image or image_build.
+	FallbackImage string `protobuf:"bytes,13,opt,name=fallback_image,json=fallbackImage,proto3" json:"fallback_image,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -314,6 +320,13 @@ func (x *BoxSpec) GetImageBuild() *ImageBuild {
 		return x.ImageBuild
 	}
 	return nil
+}
+
+func (x *BoxSpec) GetFallbackImage() string {
+	if x != nil {
+		return x.FallbackImage
+	}
+	return ""
 }
 
 // SecretFile is one value of a Secret written into a box as a file. The
@@ -1315,7 +1328,7 @@ const file_tower_environments_v1alpha1_box_proto_rawDesc = "" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x128\n" +
 	"\x04spec\x18\x04 \x01(\v2$.tower.environments.v1alpha1.BoxSpecR\x04spec\x12>\n" +
 	"\x06status\x18\x05 \x01(\v2&.tower.environments.v1alpha1.BoxStatusR\x06status:\x16\x8a\xb5\x18\x12\n" +
-	"\x03Box\x12\x05boxes\x1a\x02bx \x01\"\x8f\x05\n" +
+	"\x03Box\x12\x05boxes\x1a\x02bx \x01\"\xbe\x05\n" +
 	"\aBoxSpec\x12&\n" +
 	"\n" +
 	"workstream\x18\x01 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\n" +
@@ -1330,7 +1343,8 @@ const file_tower_environments_v1alpha1_box_proto_rawDesc = "" +
 	" \x03(\v2&.tower.environments.v1alpha1.SecretRefB\x06\x8a\xb5\x18\x02\b\x01R\x11privilegedSecrets\x12R\n" +
 	"\fsecret_files\x18\v \x03(\v2'.tower.environments.v1alpha1.SecretFileB\x06\x8a\xb5\x18\x02\b\x01R\vsecretFiles\x12P\n" +
 	"\vimage_build\x18\f \x01(\v2'.tower.environments.v1alpha1.ImageBuildB\x06\x8a\xb5\x18\x02\b\x01R\n" +
-	"imageBuildJ\x04\b\a\x10\bJ\x04\b\x05\x10\x06R\x0fbackground_workR\x11privileged_secret\"^\n" +
+	"imageBuild\x12-\n" +
+	"\x0efallback_image\x18\r \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\rfallbackImageJ\x04\b\a\x10\bJ\x04\b\x05\x10\x06R\x0fbackground_workR\x11privileged_secret\"^\n" +
 	"\n" +
 	"SecretFile\x12\x16\n" +
 	"\x06secret\x18\x01 \x01(\tR\x06secret\x12\x10\n" +

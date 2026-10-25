@@ -71,6 +71,12 @@ message BoxSpec {
   // on, as a container blueprint is, which skips the first checkout's
   // devcontainer. At most one of image and image_build is set.
   ImageBuild image_build = 12 [(tower.meta.v1.field).immutable = true];
+  // The image the box is made of when its first checkout has no
+  // devcontainer at its ref, and only then, with its add-ons layered on:
+  // workstream sends the repository's boxImage or its own default, as its
+  // setup "auto" falls back to them. Empty is tower's --default-box-image;
+  // a box with neither fails. Not with image or image_build.
+  string fallback_image = 13 [(tower.meta.v1.field).immutable = true];
 }
 
 // SecretFile is one value of a Secret written into a box as a file. The
