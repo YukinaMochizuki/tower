@@ -13,6 +13,7 @@
 package docker
 
 import (
+	"archive/tar"
 	"bufio"
 	"context"
 	"encoding/json"
@@ -334,19 +335,30 @@ func (d *Driver) Start(ctx context.Context, name string) error {
 	if _, err := d.cli.ContainerStart(ctx, name, client.ContainerStartOptions{}); err != nil {
 		return fmt.Errorf("starting container %s: %w: %w", name, err, driver.ErrStartFailed)
 	}
-	return d.giveWorkspace(c, s)
+	return d.giveWorkspace(ctx, c, s)
 }
 
 // giveWorkspace gives an empty workspace owned by root to the user the
-// image runs as, by number, so a container that is not root's can write
-// its own /workspace.
-func (d *Driver) giveWorkspace(c container.InspectResponse, s spec) error {
+// image runs as, so a container that is not root's can write its own
+// /workspace: a devcontainer's remoteUser, say. A user named, not
+// numbered, is looked up in the container's own /etc/passwd and
+// /etc/group, which the host's do not speak for.
+func (d *Driver) giveWorkspace(ctx context.Context, c container.InspectResponse, s spec) error {
 	user := ""
 	if c.Config != nil {
 		user = c.Config.User
 	}
+	if user == "" {
+		return nil
+	}
 	uid, gid, ok := numericUser(user)
-	if !ok || uid == 0 {
+	if !ok {
+		var err error
+		if uid, gid, err = d.namedUser(ctx, c.ID, user); err != nil {
+			return err
+		}
+	}
+	if uid == 0 {
 		return nil
 	}
 	st, err := os.Stat(s.Disk)
@@ -363,8 +375,7 @@ func (d *Driver) giveWorkspace(c container.InspectResponse, s spec) error {
 	return os.Chown(s.Disk, uid, gid)
 }
 
-// numericUser reads a user given as uid or uid:gid; a name is not known
-// to the host.
+// numericUser reads a user given as uid or uid:gid.
 func numericUser(user string) (int, int, bool) {
 	u, g, hasGroup := strings.Cut(user, ":")
 	uid, err := strconv.Atoi(u)
@@ -378,6 +389,75 @@ func numericUser(user string) (int, int, bool) {
 		}
 	}
 	return uid, gid, true
+}
+
+// namedUser looks a user, name[:group], up in the container's files: its
+// uid and primary gid in /etc/passwd, a group named in /etc/group. One it
+// does not name is no error here: the container fails to run as it.
+func (d *Driver) namedUser(ctx context.Context, id, user string) (int, int, error) {
+	name, group, hasGroup := strings.Cut(user, ":")
+	passwd, err := d.containerFile(ctx, id, "/etc/passwd")
+	if err != nil {
+		return 0, 0, err
+	}
+	uid, gid, ok := lookupEntry(passwd, name, 2, 3)
+	if !ok {
+		if n, err := strconv.Atoi(name); err == nil {
+			uid, gid, ok = n, n, true
+		}
+	}
+	if !ok {
+		return 0, 0, nil
+	}
+	if hasGroup {
+		if n, err := strconv.Atoi(group); err == nil {
+			gid = n
+		} else {
+			groups, err := d.containerFile(ctx, id, "/etc/group")
+			if err != nil {
+				return 0, 0, err
+			}
+			if g, _, found := lookupEntry(groups, group, 2, 2); found {
+				gid = g
+			}
+		}
+	}
+	return uid, gid, nil
+}
+
+// lookupEntry finds name in a colon-separated file (/etc/passwd,
+// /etc/group) and reads two of its fields as numbers.
+func lookupEntry(content []byte, name string, first, second int) (int, int, bool) {
+	for _, line := range strings.Split(string(content), "\n") {
+		f := strings.Split(line, ":")
+		if len(f) <= max(first, second) || f[0] != name {
+			continue
+		}
+		a, err1 := strconv.Atoi(f[first])
+		b, err2 := strconv.Atoi(f[second])
+		if err1 == nil && err2 == nil {
+			return a, b, true
+		}
+	}
+	return 0, 0, false
+}
+
+// containerFile reads a file of a container, started or not, from Docker;
+// one not there is empty.
+func (d *Driver) containerFile(ctx context.Context, id, p string) ([]byte, error) {
+	res, err := d.cli.CopyFromContainer(ctx, id, client.CopyFromContainerOptions{SourcePath: p})
+	if cerrdefs.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = res.Content.Close() }()
+	tr := tar.NewReader(res.Content)
+	if _, err := tr.Next(); err != nil {
+		return nil, fmt.Errorf("reading %s of container %s: %w", p, id, err)
+	}
+	return io.ReadAll(io.LimitReader(tr, 4<<20))
 }
 
 func (d *Driver) Stop(ctx context.Context, name string) error {
