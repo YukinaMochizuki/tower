@@ -1,0 +1,10 @@
+#!/bin/sh
+# emit ARG...: each "out:text" or "err:text" writes a line of text to stdout
+# or stderr, in order, as the fake guests' emit does
+# (internal/hostd/driver/fake/shell.go).
+for a in "$@"; do
+	case "$a" in
+	err:*) printf '%s\n' "${a#err:}" >&2 ;;
+	*) printf '%s\n' "${a#out:}" ;;
+	esac
+done

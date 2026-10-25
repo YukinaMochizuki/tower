@@ -1,0 +1,21 @@
+[Unit]
+Description=zot, tower's registry
+Documentation=https://zotregistry.dev
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+User=zot
+Group=zot
+ExecStart=/usr/local/bin/zot serve /etc/zot/config.json
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/zot
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

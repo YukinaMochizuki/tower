@@ -1,0 +1,6 @@
+#!/bin/sh
+# tick: writes a line every tenth of a second until it is signalled.
+while :; do
+	echo tick
+	sleep 0.1
+done

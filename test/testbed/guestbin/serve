@@ -1,0 +1,4 @@
+#!/bin/sh
+# serve ARG...: writes its arguments as a line, then waits to be signalled.
+echo "$*"
+exec sleep 2147483647

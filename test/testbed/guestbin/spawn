@@ -1,0 +1,5 @@
+#!/bin/sh
+# spawn: starts a child, dtchild, and waits; a signal to its group ends
+# both, which children counts.
+dtchild &
+wait

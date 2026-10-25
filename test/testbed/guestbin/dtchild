@@ -1,0 +1,4 @@
+#!/bin/sh
+# dtchild: spawn's child, which children counts by its name.
+sleep 2147483647 &
+wait
