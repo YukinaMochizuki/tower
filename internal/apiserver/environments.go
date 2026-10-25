@@ -367,6 +367,14 @@ func validateMachine(ctx context.Context, s *Server, _ authz.Caller, old, obj pr
 			return invalid("spec.blueprint.expose_ports: %d is not a port", port)
 		}
 	}
+	if rc := bp.GetReadyCheck(); rc != nil {
+		if strings.TrimSpace(rc.GetCommand()) == "" {
+			return invalid("spec.blueprint.ready_check.command is required")
+		}
+		if t := rc.GetTimeout(); t != nil && (!t.IsValid() || t.AsDuration() <= 0) {
+			return invalid("spec.blueprint.ready_check.timeout must be positive")
+		}
+	}
 	var names []string
 	for i, ref := range spec.GetSecrets() {
 		at := fmt.Sprintf("spec.secrets[%d]", i)

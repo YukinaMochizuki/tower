@@ -31,6 +31,16 @@ hostname the same from its golden to every clone of it.
   is reached by its alias on its workstream's network, which is its own.
 - The base image carries ansible (`deploy/hostd/base-image.sh`), so the
   golden phase can run at all.
+- **A machine is READY when its blueprint's ready check passes**, not when
+  its configure phase ends: a service it starts can take minutes more
+  (k3s reports its node Ready well after the playbook). The check is
+  workstream's `readyCheck`, a shell command, run as `sh -c` in the VM
+  every 5 seconds until it exits 0, for 200 seconds unless the blueprint
+  says otherwise (workstream tries 40 times, 5 seconds apart). One that
+  never passes fails the machine with the end of its output; it is run
+  without the machine's secrets, so that output can be shown. It runs
+  again after each start of the machine. A blueprint without one is READY
+  once configured.
 
 Not a hostname per blueprint: a golden is shared by every machine of its
 blueprint, golden vars and base image, whatever their aliases, and nothing
@@ -40,5 +50,7 @@ else names it to hostd.
 
 - A blueprint that needs a VM to know its own name reads its alias, not
   its hostname.
+- workstream runs a ready check over ssh as its VM user (`ubuntu`), tower
+  as root: a check reading `~` reads root's home under tower.
 - Several VMs of one cluster (k3s agents joining a server) would share a
   hostname, and need their node names set otherwise.

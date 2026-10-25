@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
@@ -26,6 +28,17 @@ const (
 	MachineReady       = "Ready"
 	// configuredAnnotation marks an instance whose configure phase has run.
 	configuredAnnotation = registry.Domain + "/configured"
+	// readyAnnotation is the run of an instance (runOf) its blueprint's
+	// ready check passed in, or readyFailed and the run it failed in.
+	readyAnnotation = registry.Domain + "/ready"
+	readyFailed     = "failed "
+
+	// readyCheckEvery is how long a ready check waits between tries, and
+	// defaultReadyTimeout how long it tries for unless its blueprint says:
+	// workstream's, which tries 40 times, 5 seconds apart
+	// (workstream: src/machine/drivers/ansible-qemu.ts).
+	readyCheckEvery     = 5 * time.Second
+	defaultReadyTimeout = 40 * readyCheckEvery
 )
 
 // machineInputs are the inputs of a machine's golden, and its hash.
@@ -198,8 +211,80 @@ func (s *Server) machineSteps(ctx context.Context, key controller.Key, m *envv1a
 		return s.configureMachine(ctx, key, m, in, p, st, not)
 	}
 	s.machineCond(st, MachineConfigured, true, "Configured", "")
+	if m.GetSpec().GetBlueprint().GetReadyCheck() != nil && in.GetMetadata().GetAnnotations()[readyAnnotation] != runOf(in) {
+		return s.checkReady(ctx, key, m, in, p, st, not)
+	}
 	st.Phase = envv1alpha1.MachinePhase_MACHINE_PHASE_READY
 	s.machineCond(st, MachineReady, true, "Ready", "")
+	return nil
+}
+
+// checkReady runs the blueprint's ready check in the machine's instance,
+// every readyCheckEvery until it passes or its timeout runs out, then marks
+// the instance with the run it passed in: after the next start of the
+// instance it is checked again. A check that never passes fails the
+// machine with the end of its last output, which can quote nothing secret:
+// the check is run without the machine's secrets.
+func (s *Server) checkReady(ctx context.Context, key controller.Key, m *envv1alpha1.Machine, in *envv1alpha1.Instance, p provider.Provider, st *envv1alpha1.MachineStatus, not func(envv1alpha1.MachinePhase, string, string)) error {
+	run := runOf(in)
+	job := "ready/" + key.String()
+	jerr, running := s.jobs.lastError(job)
+	if jerr != nil && !running {
+		s.jobs.forget(job)
+		if transient(jerr) {
+			not(envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING, "WaitingForReady", jerr.Error())
+			return fmt.Errorf("machine %s: %w: %w", key, controller.ErrWaiting, jerr)
+		}
+		not(envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED, "ReadyCheckFailed", jerr.Error())
+		return nil
+	}
+	if !running && in.GetMetadata().GetAnnotations()[readyAnnotation] == readyFailed+run {
+		// It stays failed, with the reason it failed with, until the
+		// machine starts again.
+		st.Phase = envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED
+		if c := conditions.Find(st.GetConditions(), MachineReady); c.GetReason() != "ReadyCheckFailed" {
+			not(envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED, "ReadyCheckFailed", "its ready check did not pass")
+		}
+		return nil
+	}
+	not(envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING, "WaitingForReady", "its ready check has not passed yet")
+	if running {
+		return nil
+	}
+	check := m.GetSpec().GetBlueprint().GetReadyCheck()
+	timeout := defaultReadyTimeout
+	if check.GetTimeout() != nil {
+		timeout = check.GetTimeout().AsDuration()
+	}
+	ref := provider.Instance{Project: key.Project, Name: in.GetMetadata().GetName()}
+	s.startJob(st.Target, job, s.machineCtrl, key, func(ctx context.Context) error {
+		deadline := s.clock.Now().Add(timeout)
+		for {
+			var out bytes.Buffer
+			code, err := p.Exec(ctx, provider.ExecRequest{Instance: ref, Command: []string{"sh", "-c", check.GetCommand()}, Stdout: &out, Stderr: &out})
+			if err != nil {
+				return err
+			}
+			if code == 0 {
+				return s.annotateInstance(ctx, key.Project, ref.Name, readyAnnotation, run)
+			}
+			if !s.clock.Now().Before(deadline) {
+				tail := strings.TrimSpace(out.String())
+				if len(tail) > 512 {
+					tail = tail[len(tail)-512:]
+				}
+				if err := s.annotateInstance(ctx, key.Project, ref.Name, readyAnnotation, readyFailed+run); err != nil {
+					return err
+				}
+				return fmt.Errorf("its ready check did not pass in %s; it last exited %d: %s: %w", timeout, code, tail, provider.ErrFailed)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-s.clock.After(readyCheckEvery):
+			}
+		}
+	})
 	return nil
 }
 

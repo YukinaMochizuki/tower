@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -317,6 +319,126 @@ func TestAMachineComesUpAndIsNeverIdle(t *testing.T) {
 	w.mustApply(registry.Machine, machine("k3s-2"))
 	if second := w.waitMachine("k3s-2", envv1alpha1.MachinePhase_MACHINE_PHASE_READY); second.GetStatus().GetGolden() != st.GetGolden() {
 		t.Errorf("two machines of one blueprint have goldens %q and %q", st.GetGolden(), second.GetStatus().GetGolden())
+	}
+}
+
+// readyCheck answers a machine's ready check in the fake: it passes once
+// pass is set, and prints why not until then.
+type readyCheck struct {
+	command string
+	pass    atomic.Bool
+	tries   atomic.Int32
+	env     atomic.Bool
+}
+
+func (r *readyCheck) on(f *fake.Fake) {
+	f.OnExec(func(req provider.ExecRequest) (int, bool) {
+		if !slices.Equal(req.Command, []string{"sh", "-c", r.command}) {
+			return 0, false
+		}
+		r.tries.Add(1)
+		if len(req.Env) > 0 {
+			r.env.Store(true)
+		}
+		if r.pass.Load() {
+			return 0, true
+		}
+		_, _ = io.WriteString(req.Stdout, "node k3s NotReady\n")
+		return 1, true
+	})
+}
+
+// waitMachineTicking waits for the machine to be in phase as the clock
+// moves on by the ready check's interval at each look.
+func (w *world) waitMachineTicking(name string, phase envv1alpha1.MachinePhase) *envv1alpha1.Machine {
+	w.t.Helper()
+	var m *envv1alpha1.Machine
+	testutil.Eventually(w.t, fmt.Sprintf("machine %s %v", name, phase), func() (bool, string) {
+		if m = w.machine(name); m.GetStatus().GetPhase() == phase {
+			return true, ""
+		}
+		w.clock.Advance(5 * time.Second)
+		return false, m.GetStatus().String()
+	})
+	return m
+}
+
+// TestAMachineIsReadyOnceItsReadyCheckPasses: a configured machine stays
+// CONFIGURING while its blueprint's ready check fails, tried every 5
+// seconds in it without its secrets, and is READY once it passes; after
+// the machine starts again it is checked again.
+func TestAMachineIsReadyOnceItsReadyCheckPasses(t *testing.T) {
+	w := newWorld(t)
+	check := &readyCheck{command: "k3s kubectl get nodes 2>/dev/null | grep -q ' Ready '"}
+	check.on(w.fake)
+	w.mustApply(registry.Secret, secret("web", "k3s", map[string]string{"TOKEN": "t"}))
+	m := machine("k3s")
+	m.Spec.Blueprint.ReadyCheck = &envv1alpha1.ReadyCheck{Command: check.command}
+	m.Spec.Secrets = []*envv1alpha1.SecretRef{{Secret: "k3s", Key: "TOKEN", As: "K3S_TOKEN"}}
+	w.mustApply(registry.Machine, m)
+	testutil.Eventually(t, "the ready check tried three times", func() (bool, string) {
+		if check.tries.Load() >= 3 {
+			return true, ""
+		}
+		w.clock.Advance(5 * time.Second)
+		return false, w.machine("k3s").GetStatus().String()
+	})
+	st := w.machine("k3s").GetStatus()
+	if st.GetPhase() != envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING ||
+		condition(st.GetConditions(), apiserver.MachineConfigured).GetStatus() != metav1.ConditionStatus_CONDITION_STATUS_TRUE ||
+		condition(st.GetConditions(), apiserver.MachineReady).GetReason() != "WaitingForReady" {
+		t.Fatalf("a configured machine whose ready check fails: %v", st)
+	}
+	check.pass.Store(true)
+	w.waitMachineTicking("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_READY)
+	if check.env.Load() {
+		t.Error("the ready check was given an environment")
+	}
+
+	// Started again, it is checked again.
+	check.pass.Store(false)
+	tries := check.tries.Load()
+	stop := w.machine("k3s")
+	stop.Spec.RunState = envv1alpha1.RunState_RUN_STATE_STOPPED
+	w.mustApply(registry.Machine, stop)
+	w.waitMachine("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_STOPPED)
+	w.advance(time.Minute)
+	start := w.machine("k3s")
+	start.Spec.RunState = envv1alpha1.RunState_RUN_STATE_RUNNING
+	w.mustApply(registry.Machine, start)
+	w.waitMachine("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING)
+	testutil.Eventually(t, "the ready check tried again", func() (bool, string) {
+		return check.tries.Load() > tries, ""
+	})
+	check.pass.Store(true)
+	w.waitMachineTicking("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_READY)
+}
+
+// TestAMachineWhoseReadyCheckNeverPassesFails: a ready check that has not
+// passed by its timeout fails the machine with the end of its output.
+func TestAMachineWhoseReadyCheckNeverPassesFails(t *testing.T) {
+	w := newWorld(t)
+	check := &readyCheck{command: "true-never"}
+	check.on(w.fake)
+	m := machine("k3s")
+	m.Spec.Blueprint.ReadyCheck = &envv1alpha1.ReadyCheck{Command: check.command, Timeout: durationpb.New(30 * time.Second)}
+	w.mustApply(registry.Machine, m)
+	failed := w.waitMachineTicking("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED)
+	msg := condition(failed.GetStatus().GetConditions(), apiserver.MachineReady).GetMessage()
+	if !strings.Contains(msg, "did not pass in 30s") || !strings.Contains(msg, "node k3s NotReady") {
+		t.Errorf("a machine whose ready check never passed failed with %q", msg)
+	}
+	if n := check.tries.Load(); n < 2 || n > 7 {
+		t.Errorf("the ready check was tried %d times in 30 seconds, 5 seconds apart", n)
+	}
+	// It stays failed, and is not tried again, until the machine starts
+	// again.
+	tries := check.tries.Load()
+	w.advance(time.Minute)
+	again := w.machine("k3s").GetStatus()
+	if again.GetPhase() != envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED || condition(again.GetConditions(), apiserver.MachineReady).GetMessage() != msg ||
+		check.tries.Load() != tries {
+		t.Errorf("a minute after its ready check failed, tried %d times more: %v", check.tries.Load()-tries, again)
 	}
 }
 

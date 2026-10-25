@@ -290,6 +290,12 @@ func TestAMachineNamesItsSecrets(t *testing.T) {
 		"a disk that is no quantity": {func(s *envv1alpha1.MachineSpec) {
 			s.Resources = &envv1alpha1.Resources{Disk: "big"}
 		}, connect.CodeInvalidArgument},
+		"a ready check with no command": {func(s *envv1alpha1.MachineSpec) {
+			s.Blueprint.ReadyCheck = &envv1alpha1.ReadyCheck{Command: " "}
+		}, connect.CodeInvalidArgument},
+		"a ready check that times out at once": {func(s *envv1alpha1.MachineSpec) {
+			s.Blueprint.ReadyCheck = &envv1alpha1.ReadyCheck{Command: "true", Timeout: durationpb.New(0)}
+		}, connect.CodeInvalidArgument},
 	} {
 		m := machine("m")
 		tc.mutate(m.Spec)
