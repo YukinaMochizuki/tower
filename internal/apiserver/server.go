@@ -109,8 +109,10 @@ type Server struct {
 	tokenSecrets keyLocks
 	// tokenUses queues service tokens' uses to record in their status.
 	tokenUses chan tokenUse
-	// gc is how far garbage collection has come.
-	gc gcProgress
+	// gc is how far garbage collection has come, and ownerIdx the index of
+	// owner references it keeps.
+	gc       gcProgress
+	ownerIdx ownerIndex
 	// The policy controllers, and the slow work they start.
 	controllers                                   []*controller.Controller
 	placementCtrl, repositoryCtrl, boxCtrl        *controller.Controller
