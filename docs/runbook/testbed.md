@@ -71,4 +71,12 @@ outright, which the next run sweeps.
 - Tokens: no mirror, checkout, guest or host file holds a repository's
   token or a process's environment.
 - The k3s blueprint, untagged, converges with the golden phase
-  `--skip-tags=configure` (`docs/decisions/machine-blueprints.md`).
+  `--skip-tags=configure` (`docs/decisions/machine-blueprints.md`), and its
+  machine is READY once workstream's ready check sees its node Ready.
+- Boxes of public repositories' devcontainers
+  (`docs/decisions/devcontainers.md`): one built from its Dockerfile on the
+  host, from the mirror; one whose `remoteUser` runs it and owns
+  `/workspace`, with the browser add-on built on it; one whose
+  `postCreateCommand` installed its dependencies; and one of a repository
+  without a devcontainer, which fails. Their images are pulled from
+  mcr.microsoft.com: the first run takes some minutes more.
