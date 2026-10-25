@@ -213,7 +213,8 @@ type BoxSpec struct {
 	// devcontainer. At most one of image and image_build is set.
 	ImageBuild *ImageBuild `protobuf:"bytes,12,opt,name=image_build,json=imageBuild,proto3" json:"image_build,omitempty"`
 	// The image the box is made of when its first checkout has no
-	// devcontainer at its ref, and only then, with its add-ons layered on:
+	// devcontainer at its ref, or one tower cannot make a box of (its
+	// DevcontainerFellBack condition says why), with its add-ons layered on:
 	// workstream sends the repository's boxImage or its own default, as its
 	// setup "auto" falls back to them. Empty is tower's --default-box-image;
 	// a box with neither fails. Not with image or image_build.
@@ -518,9 +519,10 @@ func (x *Checkout) GetRef() string {
 type BoxStatus struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	ObservedGeneration int64                  `protobuf:"varint,1,opt,name=observed_generation,json=observedGeneration,proto3" json:"observed_generation,omitempty"`
-	// Ready, with ImageBuilt and Materialized on the way to it, and SetUp,
+	// Ready, with ImageBuilt and Materialized on the way to it; SetUp,
 	// which says whether its devcontainer's setup steps passed: one that did
-	// not leaves the box READY.
+	// not leaves the box READY; and DevcontainerFellBack, true when its image
+	// is the one to fall back to, saying why.
 	Conditions []*v1.Condition `protobuf:"bytes,2,rep,name=conditions,proto3" json:"conditions,omitempty"`
 	Phase      BoxPhase        `protobuf:"varint,3,opt,name=phase,proto3,enum=tower.environments.v1alpha1.BoxPhase" json:"phase,omitempty"`
 	// Why a STOPPED box stopped: "Requested" (run_state) or "Idle".

@@ -155,7 +155,8 @@ export type BoxSpec = Message<"tower.environments.v1alpha1.BoxSpec"> & {
 
   /**
    * The image the box is made of when its first checkout has no
-   * devcontainer at its ref, and only then, with its add-ons layered on:
+   * devcontainer at its ref, or one tower cannot make a box of (its
+   * DevcontainerFellBack condition says why), with its add-ons layered on:
    * workstream sends the repository's boxImage or its own default, as its
    * setup "auto" falls back to them. Empty is tower's --default-box-image;
    * a box with neither fails. Not with image or image_build.
@@ -282,9 +283,10 @@ export type BoxStatus = Message<"tower.environments.v1alpha1.BoxStatus"> & {
   observedGeneration: bigint;
 
   /**
-   * Ready, with ImageBuilt and Materialized on the way to it, and SetUp,
+   * Ready, with ImageBuilt and Materialized on the way to it; SetUp,
    * which says whether its devcontainer's setup steps passed: one that did
-   * not leaves the box READY.
+   * not leaves the box READY; and DevcontainerFellBack, true when its image
+   * is the one to fall back to, saying why.
    *
    * @generated from field: repeated tower.meta.v1.Condition conditions = 2;
    */
