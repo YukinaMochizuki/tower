@@ -253,9 +253,80 @@ type ContainerSpec struct {
 // Containers runs containers: Docker on a real host.
 type Containers interface {
 	Guests
+	Processes
 	// Create makes a container, stopped, once: one of the name made
 	// otherwise is ErrConflict.
 	Create(ctx context.Context, spec ContainerSpec) error
+}
+
+// ProcessSpec is a process started in a guest apart from any call.
+type ProcessSpec struct {
+	Name string
+	// Command is the program and its arguments, run without a shell.
+	Command []string
+	// Env is added to the guest's environment for this process alone, and
+	// never kept.
+	Env map[string]string
+	Dir string
+	// LogCap bounds what its log holds, its oldest output dropped first;
+	// Keep is how many finished processes its guest keeps from now on,
+	// its oldest going first.
+	LogCap int64
+	Keep   int
+}
+
+// ProcessExit is how a process ended: Code, 128 plus the signal's number
+// for one a signal ended, and Signal, 0 if it exited.
+type ProcessExit struct {
+	Code, Signal int
+}
+
+// ProcessInfo is a process of a guest as the host keeps it.
+type ProcessInfo struct {
+	ID, Name string
+	Command  []string
+	Started  time.Time
+	// Exit is nil while it runs.
+	Exit *ProcessExit
+}
+
+// LogChunk is what a process wrote, at its offset in its log, stdout and
+// stderr counted together.
+type LogChunk struct {
+	Stderr bool
+	Offset int64
+	Data   []byte
+}
+
+// LogEnd is where a read of a process's log ended: the oldest offset it
+// holds, the offset to read on from, and how the process ended, nil while
+// it runs.
+type LogEnd struct {
+	HeldFrom, Next int64
+	Exit           *ProcessExit
+}
+
+// Processes runs processes in a guest apart from any call, each in a
+// process group of its own. The driver keeps on the host, apart from
+// hostd, each one's log and how it ended (a real host in hostd's state
+// directory, written by a supervisor that outlives hostd), so a later
+// hostd reads them back. A guest stopping ends its processes; one removed
+// takes them with it.
+type Processes interface {
+	// StartProcess starts a process in a running guest and returns its id,
+	// unique in the guest.
+	StartProcess(ctx context.Context, guest string, spec ProcessSpec) (string, error)
+	// ListProcesses lists a guest's processes, running or not, oldest
+	// first.
+	ListProcesses(ctx context.Context, guest string) ([]ProcessInfo, error)
+	// ReadProcessLog gives out a process's log from offset from (from the
+	// oldest it holds, if from is older), then, with follow, what it
+	// writes until it ends or ctx is done. A process not there is
+	// ErrNotFound.
+	ReadProcessLog(ctx context.Context, guest, id string, from int64, follow bool, out func(LogChunk) error) (LogEnd, error)
+	// SignalProcess sends sig to a process's group; one that has ended is
+	// no error.
+	SignalProcess(ctx context.Context, guest, id string, sig int) error
 }
 
 // VMSpec is a VM to make.

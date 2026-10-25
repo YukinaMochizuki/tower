@@ -19,6 +19,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -76,6 +77,8 @@ type Host struct {
 	// a sweep never removes what a reconcile is making.
 	mu   sync.Mutex
 	ctrl *controller.Controller
+	// limits are SetProcessLimits'; nil is provider's defaults.
+	limits atomic.Pointer[processLimits]
 }
 
 var _ provider.Provider = (*Host)(nil)

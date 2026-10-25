@@ -21,6 +21,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/jonboulle/clockwork"
@@ -65,6 +66,8 @@ type Host struct {
 	health     string
 	onExec     func(guest string, spec driver.ExecSpec) (int, bool)
 	execs      []Exec
+	// changed wakes the reads following a process, by guest and id.
+	changed map[string]chan struct{}
 }
 
 // state is what the host holds, as its state file keeps it.
@@ -112,6 +115,11 @@ type guest struct {
 	Created   time.Time
 	// Files are a container's outside /workspace, which its disk holds.
 	Files map[string][]byte
+	// Procs are its processes, oldest first; ProcN numbers them, and Keep
+	// is how many finished ones it keeps.
+	Procs []*proc
+	ProcN int
+	Keep  int
 }
 
 // repo is a remote repository or a mirror of it: its commits on its one
@@ -135,6 +143,8 @@ type Exec struct {
 	Command  []string
 	Env      map[string]string
 	ExitCode int
+	// Process says it was started as a process, apart from any call.
+	Process bool
 }
 
 // New makes a fake host, reading its state file if there is one.
@@ -254,6 +264,7 @@ func (h *Host) Lose(kind, name string) {
 	_ = h.change("", func() error {
 		if g := h.st.Guests[kind+"/"+name]; g != nil {
 			delete(h.st.Disks, diskName(g.Spec.Disk))
+			guests{h, kind}.endProcs(g, syscall.SIGKILL)
 		}
 		delete(h.st.Guests, kind+"/"+name)
 		return nil

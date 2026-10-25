@@ -3,6 +3,7 @@ package fake_test
 import (
 	"bytes"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -85,6 +86,50 @@ func TestTheHostOutlivesItsProcess(t *testing.T) {
 	}
 	if len(st.Containers) != 1 || len(st.Disks) != 1 || st.Empty() {
 		t.Errorf("the state read: %+v", st)
+	}
+}
+
+// TestProcessesOutliveTheirProcess: a host made again from its state file
+// lists a process still running and ends it when signalled; the file never
+// holds a process's environment.
+func TestProcessesOutliveTheirProcess(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "host.json")
+	d := newHost(t, path).Drivers()
+	ctx := t.Context()
+	disk, err := d.Storage.EnsureDisk(ctx, driver.DiskSpec{Name: "d1", Kind: driver.Dataset})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Images.Pull(ctx, image); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Containers.Create(ctx, driver.ContainerSpec{GuestSpec: driver.GuestSpec{Name: "c1", Disk: disk.Path}, Image: image}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Containers.Start(ctx, "c1"); err != nil {
+		t.Fatal(err)
+	}
+	id, err := d.Containers.StartProcess(ctx, "c1", driver.ProcessSpec{
+		Command: []string{"sleep"}, Env: map[string]string{"TOKEN": "s3cr3t-value"}, LogCap: 1 << 10, Keep: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(path); err != nil || bytes.Contains(b, []byte("s3cr3t-value")) {
+		t.Errorf("the state file holds a process's environment: %v", err)
+	}
+
+	again := newHost(t, path).Drivers()
+	list, err := again.Containers.ListProcesses(ctx, "c1")
+	if err != nil || len(list) != 1 || list[0].ID != id || list[0].Exit != nil {
+		t.Fatalf("the process after the host was made again: %+v, %v", list, err)
+	}
+	if err := again.Containers.SignalProcess(ctx, "c1", id, 9); err != nil {
+		t.Fatal(err)
+	}
+	end, err := again.Containers.ReadProcessLog(ctx, "c1", id, 0, true, func(driver.LogChunk) error { return nil })
+	if err != nil || end.Exit == nil || end.Exit.Code != 137 {
+		t.Errorf("the process killed: %+v, %v", end, err)
 	}
 }
 

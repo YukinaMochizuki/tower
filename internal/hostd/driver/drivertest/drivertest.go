@@ -23,7 +23,8 @@ type Harness struct {
 	Drivers driver.Drivers
 	// Image is a reference by digest the registry holds, whose containers
 	// run the commands the suites name (true, false, exit, echo, env, cat,
-	// emit, sh -c, sleep; see the fake's) and echo what they read on
+	// emit, sh -c, sleep, and as a process serve; see the fake's) and echo
+	// what they read on
 	// EchoPort; MissingImage, one the registry lacks.
 	Image, MissingImage string
 	// BaseImage is what a VM boots, whose guest does the same.
@@ -38,6 +39,7 @@ type Harness struct {
 func Run(t *testing.T, h Harness) {
 	t.Run("Storage", func(t *testing.T) { RunStorage(t, h) })
 	t.Run("Containers", func(t *testing.T) { RunGuests(t, h, h.containers()) })
+	t.Run("ContainerProcesses", func(t *testing.T) { RunProcesses(t, h) })
 	t.Run("VMs", func(t *testing.T) { RunGuests(t, h, h.vms()) })
 	t.Run("Images", func(t *testing.T) { RunImages(t, h) })
 	t.Run("Git", func(t *testing.T) { RunGit(t, h) })

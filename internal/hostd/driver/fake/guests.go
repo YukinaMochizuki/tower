@@ -13,6 +13,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
 )
@@ -165,6 +166,8 @@ func (g guests) Stop(_ context.Context, name string) error {
 		if err != nil {
 			return err
 		}
+		// Its processes end with it, as a container's do on docker stop.
+		g.endProcs(gu, syscall.SIGTERM)
 		gu.Running, gu.Address = false, ""
 		return nil
 	})
@@ -172,6 +175,9 @@ func (g guests) Stop(_ context.Context, name string) error {
 
 func (g guests) Remove(_ context.Context, name string) error {
 	return g.h.change(g.op("Remove"), func() error {
+		if gu := g.h.st.Guests[g.key(name)]; gu != nil {
+			g.endProcs(gu, syscall.SIGKILL)
+		}
 		delete(g.h.st.Guests, g.key(name))
 		return nil
 	})

@@ -209,6 +209,8 @@ func (w *World) Apply(t *testing.T, name string, spec *envv1alpha1.InstanceSpec)
 func (w *World) Harness(p provider.Provider) providertest.Harness {
 	return providertest.Harness{
 		Provider: p, Target: Target, Image: Image, BaseImage: "ubuntu-24.04",
+		// hostd starts its processes with them: through a tunnel too.
+		ProcessLimits: func(logCap int64, finished int) { w.Host.SetProcessLimits(logCap, finished) },
 		Start: func(t *testing.T, name string, spec *envv1alpha1.InstanceSpec) (provider.Instance, *envv1alpha1.InstanceStatus) {
 			t.Helper()
 			w.Apply(t, name, spec)

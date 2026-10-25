@@ -90,6 +90,8 @@ type observed struct {
 	reason, msg string
 	guest       *driver.Guest
 	disk        *driver.Disk
+	// processes are the container's running processes.
+	processes int32
 }
 
 func failed(reason string, err error) observed {
@@ -197,6 +199,11 @@ func (h *Host) converge(ctx context.Context, in *envv1alpha1.Instance) (observed
 	o := observed{phase: envv1alpha1.InstancePhase_INSTANCE_PHASE_STOPPED, reason: "Stopped", guest: &got, disk: disk}
 	if got.Running {
 		o.phase, o.reason = envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING, "Running"
+		if !vm {
+			if o.processes, err = h.processesRunning(ctx, name); err != nil {
+				return observed{}, err
+			}
+		}
 	}
 	return o, nil
 }
@@ -223,9 +230,9 @@ func (h *Host) report(ctx context.Context, in *envv1alpha1.Instance, o observed)
 	}
 	st.ObservedGeneration = in.GetMetadata().GetGeneration()
 	st.Phase = o.phase
-	st.Address, st.UsedDisk, st.StartTime = "", "", nil
+	st.Address, st.UsedDisk, st.StartTime, st.ProcessesRunning = "", "", nil, 0
 	if o.guest != nil && o.guest.Running {
-		st.Address, st.StartTime = o.guest.Address, timestamppb.New(o.guest.StartedAt)
+		st.Address, st.StartTime, st.ProcessesRunning = o.guest.Address, timestamppb.New(o.guest.StartedAt), o.processes
 	}
 	if o.disk != nil {
 		st.UsedDisk = quantity.FormatDisk(o.disk.Used)
