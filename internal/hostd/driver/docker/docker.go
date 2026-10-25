@@ -146,6 +146,11 @@ func hostdLabels(labels map[string]string) driver.Labels {
 	return out
 }
 
+// BoxPidsLimit is the most processes and threads a container runs at once.
+const BoxPidsLimit = 8192
+
+func ptr[T any](v T) *T { return &v }
+
 func (d *Driver) processesDir(name string) string {
 	return filepath.Join(d.cfg.StateDir, "processes", name)
 }
@@ -223,10 +228,13 @@ func (d *Driver) Create(ctx context.Context, cs driver.ContainerSpec) error {
 		// at each start. Its user is any the image runs as, so the
 		// directory is everyone's, as /tmp is; the box is its boundary.
 		Tmpfs: map[string]string{driver.SecretsDir: "mode=1777,size=16m,noexec,nosuid,nodev"},
-		// No raw sockets: no spoofing on the workstream's network.
+		// No raw sockets (no spoofing on the workstream's network), no
+		// privilege gained through setuid (sudo elevates nothing in a box),
+		// and a bound on its processes.
 		CapDrop:       []string{"NET_RAW"},
+		SecurityOpt:   []string{"no-new-privileges"},
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
-		Resources:     container.Resources{NanoCPUs: int64(cs.CPUs) * 1e9, Memory: int64(cs.Memory)},
+		Resources:     container.Resources{NanoCPUs: int64(cs.CPUs) * 1e9, Memory: int64(cs.Memory), PidsLimit: ptr(int64(BoxPidsLimit))},
 		NetworkMode:   container.NetworkMode(netName),
 	}
 	endpoint := &network.EndpointSettings{}

@@ -47,6 +47,10 @@ const (
 	apiFile    = "api.sock"
 )
 
+// apiDir holds Cloud Hypervisor's API socket, in the container: its own,
+// the VM user's, as Dir is root's alone.
+const apiDir = "/run/vm"
+
 // Spec is what the launcher runs, written into Dir by the driver.
 type Spec struct {
 	Name      string `json:"name"`
@@ -62,6 +66,10 @@ type Spec struct {
 	// StopGrace is how long the guest has to power off once its power
 	// button is pressed.
 	StopGrace time.Duration `json:"stopGrace"`
+	// VMUser is the uid, and the gid, Cloud Hypervisor runs as: the VM's
+	// own, no other VM's nor any of the host's users'. Zero runs it as
+	// root, as a spec written before it was had.
+	VMUser uint32 `json:"vmUser,omitempty"`
 }
 
 // Exit is the exit record: how the launcher's last run ended.
@@ -129,6 +137,13 @@ func run(ctx context.Context, log *slog.Logger) (int, error) {
 	_, _ = fmt.Fprintf(clog, "\n--- tower: %s boots at %s ---\n", s.Name, time.Now().UTC().Format(time.RFC3339))
 
 	api := filepath.Join(Dir, apiFile)
+	var cred *syscall.Credential
+	if s.VMUser != 0 {
+		if cred, err = forVMUser(s.VMUser); err != nil {
+			return ExitFailed, err
+		}
+		api = filepath.Join(apiDir, apiFile)
+	}
 	cmd := exec.Command(CloudHypervisor, chArgs(s, Firmware, Disk, api)...)
 	outR, outW, err := os.Pipe()
 	if err != nil {
@@ -143,9 +158,19 @@ func run(ctx context.Context, log *slog.Logger) (int, error) {
 	defer func() { _ = inW.Close() }()
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = inR, outW, outW
 	cmd.ExtraFiles = []*os.File{tap} // fd 3
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL, Credential: cred}
 	if err := cmd.Start(); err != nil {
 		return ExitFailed, fmt.Errorf("starting Cloud Hypervisor: %w", err)
+	}
+	if s.VMUser != 0 {
+		// What the launcher needs of root from here on: to reach the VM
+		// user's API socket and to signal it. Its network is made, its
+		// sockets bound.
+		if err := dropCaps(launcherKeeps); err != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return ExitFailed, fmt.Errorf("giving up root's capabilities: %w", err)
+		}
 	}
 	_ = inR.Close()
 	_ = outW.Close()
@@ -176,6 +201,40 @@ func run(ctx context.Context, log *slog.Logger) (int, error) {
 		return ee.ExitCode(), fmt.Errorf("cloud-hypervisor exited: %w", werr)
 	}
 	return ExitFailed, werr
+}
+
+// forVMUser readies what Cloud Hypervisor reaches for the VM's user, uid
+// and gid id, and returns the credential it runs with: its disk's node in
+// the container root's and the user's group's, the API socket's directory
+// the user's, and KVM's group among its groups.
+func forVMUser(id uint32) (*syscall.Credential, error) {
+	if err := os.Chown(Disk, 0, int(id)); err != nil {
+		return nil, fmt.Errorf("giving the VM user its disk: %w", err)
+	}
+	if err := os.Chmod(Disk, 0o660); err != nil {
+		return nil, err
+	}
+	// Its parent is made first, open to all: MkdirAll would make it 0700,
+	// root's alone, as the container's image has no /run.
+	if err := os.MkdirAll(filepath.Dir(apiDir), 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.Mkdir(apiDir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return nil, err
+	}
+	if err := os.Chown(apiDir, int(id), int(id)); err != nil {
+		return nil, err
+	}
+	_ = os.Remove(filepath.Join(apiDir, apiFile))
+	var st syscall.Stat_t
+	if err := syscall.Stat("/dev/kvm", &st); err != nil {
+		return nil, err
+	}
+	groups := []uint32{}
+	if st.Gid != 0 {
+		groups = append(groups, st.Gid)
+	}
+	return &syscall.Credential{Uid: id, Gid: id, Groups: groups}, nil
 }
 
 // stopGuest presses the VM's power button and waits its grace for Cloud

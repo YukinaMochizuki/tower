@@ -92,6 +92,9 @@ type Config struct {
 	// ReadyTimeout bounds how long an operation in a VM just started waits
 	// for its ssh; zero means DefaultReadyTimeout.
 	ReadyTimeout time.Duration
+	// VMUsers are the ids each VM's Cloud Hypervisor runs as, one each;
+	// zero means DefaultVMUsers. No user or group of the host may have one.
+	VMUsers UserRange
 }
 
 // Driver is the VM driver. It is safe for concurrent use.
@@ -111,6 +114,12 @@ type Driver struct {
 
 var _ driver.VMs = (*Driver)(nil)
 
+// vmPidsLimit is the most processes and threads a VM's container runs:
+// its launcher and Cloud Hypervisor's threads, one a vCPU and its own.
+const vmPidsLimit = 1024
+
+func ptr[T any](v T) *T { return &v }
+
 // vmImage is the image every VM's container runs: empty, its launcher
 // bound in.
 const vmImage = "tower-vm:empty"
@@ -123,6 +132,15 @@ func New(ctx context.Context, cfg Config) (*Driver, error) {
 	}
 	if cfg.ReadyTimeout == 0 {
 		cfg.ReadyTimeout = DefaultReadyTimeout
+	}
+	if cfg.VMUsers == (UserRange{}) {
+		cfg.VMUsers = DefaultVMUsers
+	}
+	if err := cfg.VMUsers.check(); err != nil {
+		return nil, err
+	}
+	if err := cfg.VMUsers.checkFree("/etc"); err != nil {
+		return nil, err
 	}
 	for _, p := range []string{cfg.GuestBinary, cfg.CloudHypervisor} {
 		if err := checkStatic(p); err != nil {
@@ -286,12 +304,20 @@ func (d *Driver) createContainer(ctx context.Context, name string, s spec, label
 			{Type: mount.TypeBind, Source: d.cfg.CloudHypervisor, Target: launcher.CloudHypervisor, ReadOnly: true},
 			{Type: mount.TypeBind, Source: d.cfg.Firmware, Target: launcher.Firmware, ReadOnly: true},
 		},
-		CapAdd:        []string{"NET_ADMIN"},
+		// What its launcher needs as it makes the VM's network and starts
+		// Cloud Hypervisor as the VM's user, and nothing else; once that
+		// runs, the launcher keeps DAC_OVERRIDE and KILL alone
+		// (launcher.dropCaps). Docker's default set is dropped.
+		CapDrop: []string{"ALL"},
+		CapAdd: []string{"NET_ADMIN", "NET_RAW", "NET_BIND_SERVICE", "CHOWN", "FOWNER", "DAC_OVERRIDE",
+			"SETUID", "SETGID", "SETPCAP", "KILL"},
+		SecurityOpt:   []string{"no-new-privileges"},
 		Sysctls:       map[string]string{"net.ipv4.ip_forward": "1"},
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
 		NetworkMode:   container.NetworkMode(netName),
 		Resources: container.Resources{
-			Memory: int64(memory) + memoryOverhead,
+			PidsLimit: ptr(int64(vmPidsLimit)),
+			Memory:    int64(memory) + memoryOverhead,
 			Devices: []container.DeviceMapping{
 				{PathOnHost: "/dev/kvm", PathInContainer: "/dev/kvm", CgroupPermissions: "rwm"},
 				{PathOnHost: "/dev/net/tun", PathInContainer: "/dev/net/tun", CgroupPermissions: "rwm"},
@@ -471,9 +497,16 @@ func (d *Driver) prepareBoot(ctx context.Context, name string, c container.Inspe
 	if err != nil {
 		return err
 	}
+	d.mu.Lock()
+	user, err := d.vmUser(name)
+	d.mu.Unlock()
+	if err != nil {
+		return err
+	}
 	ls := launcher.Spec{
 		Name: name, CPUs: max(s.CPUs, 1), MemoryMiB: int64(memory >> 20), MAC: macOf(name),
 		InstanceID: name, Hostname: Hostname, UserData: d.userData(hostKey, hostPub), StopGrace: d.cfg.StopGrace,
+		VMUser: user,
 	}
 	b, err := json.Marshal(ls)
 	if err != nil {
