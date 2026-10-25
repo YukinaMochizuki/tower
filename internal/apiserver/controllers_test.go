@@ -294,13 +294,15 @@ func TestAMachineComesUpAndIsNeverIdle(t *testing.T) {
 		!slices.Equal(in.GetSpec().GetExposePorts(), []int32{6443}) {
 		t.Errorf("golden %v, instance %v", g.GetStatus(), in.GetSpec())
 	}
+	// The golden phase is every task but those tagged configure, which the
+	// machine runs alone, as workstream's untagged blueprints are written.
 	var tags []string
 	for _, e := range w.fake.Execs() {
 		if e.Command[0] == "ansible-playbook" {
 			tags = append(tags, e.Command[3])
 		}
 	}
-	if !slices.Equal(tags, []string{"--tags=golden", "--tags=configure"}) {
+	if !slices.Equal(tags, []string{"--skip-tags=configure", "--tags=configure"}) {
 		t.Errorf("the blueprint's phases ran as %v", tags)
 	}
 	// The builder went once its golden was captured.

@@ -204,7 +204,9 @@ func (s *Server) machineSteps(ctx context.Context, key controller.Key, m *envv1a
 }
 
 // configureMachine runs the blueprint's configure phase in the machine's
-// own instance, with its own vars and secrets. The secrets' values are
+// own instance, with its own vars and secrets: the playbook's tasks tagged
+// configure, which its golden phase skipped (convergeMachine); a playbook
+// with none runs nothing here. The secrets' values are
 // opened for the one command and given as its environment alone: they
 // enter no object, no event and no log.
 func (s *Server) configureMachine(ctx context.Context, key controller.Key, m *envv1alpha1.Machine, in *envv1alpha1.Instance, p provider.Provider, st *envv1alpha1.MachineStatus, not func(envv1alpha1.MachinePhase, string, string)) error {

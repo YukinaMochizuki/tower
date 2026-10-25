@@ -477,7 +477,12 @@ func (s *Server) convergeWarm(ctx context.Context, p provider.Provider, ref prov
 }
 
 // convergeMachine runs a blueprint's golden phase in the builder, with its
-// golden vars, which are part of what the golden is.
+// golden vars, which are part of what the golden is: every task of the
+// playbook but those tagged configure, which run in each machine
+// (configureMachine). This is how workstream's blueprints are written:
+// their tasks are untagged, and a task that needs a machine's own vars or
+// secrets is tagged configure (workstream: src/machine/drivers/
+// ansible-qemu.ts).
 func (s *Server) convergeMachine(ctx context.Context, p provider.Provider, ref provider.Instance, build buildSpec) error {
 	if err := p.WriteFile(ctx, ref, "/opt/tower/blueprint.yml", 0o600, 0, strings.NewReader(build.Blueprint)); err != nil {
 		return err
@@ -490,7 +495,7 @@ func (s *Server) convergeMachine(ctx context.Context, p provider.Provider, ref p
 		return err
 	}
 	return s.mustRun(ctx, p, ref, nil, "/opt/tower",
-		"ansible-playbook", "--connection=local", "--inventory=localhost,", "--tags=golden", "--extra-vars=@golden-vars.json", "blueprint.yml")
+		"ansible-playbook", "--connection=local", "--inventory=localhost,", "--skip-tags=configure", "--extra-vars=@golden-vars.json", "blueprint.yml")
 }
 
 // mustRun runs a command, a non-zero exit being a failure of the work,
