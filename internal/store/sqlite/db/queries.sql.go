@@ -21,7 +21,7 @@ type ConsumeCredentialParams struct {
 }
 
 func (q *Queries) ConsumeCredential(ctx context.Context, arg ConsumeCredentialParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, consumeCredential, arg.UsedAt, arg.Hash)
+	result, err := q.exec(ctx, q.consumeCredentialStmt, consumeCredential, arg.UsedAt, arg.Hash)
 	if err != nil {
 		return 0, err
 	}
@@ -40,7 +40,7 @@ type CountAuthRequestsParams struct {
 }
 
 func (q *Queries) CountAuthRequests(ctx context.Context, arg CountAuthRequestsParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countAuthRequests, arg.Prefix, arg.Now)
+	row := q.queryRow(ctx, q.countAuthRequestsStmt, countAuthRequests, arg.Prefix, arg.Now)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -52,7 +52,7 @@ WHERE key = ?
 `
 
 func (q *Queries) DeleteAuthRequest(ctx context.Context, key string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteAuthRequest, key)
+	result, err := q.exec(ctx, q.deleteAuthRequestStmt, deleteAuthRequest, key)
 	if err != nil {
 		return 0, err
 	}
@@ -65,7 +65,7 @@ WHERE family = ?
 `
 
 func (q *Queries) DeleteCredentialFamily(ctx context.Context, family string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteCredentialFamily, family)
+	result, err := q.exec(ctx, q.deleteCredentialFamilyStmt, deleteCredentialFamily, family)
 	if err != nil {
 		return 0, err
 	}
@@ -78,7 +78,7 @@ WHERE revision <= ?
 `
 
 func (q *Queries) DeleteEventsThrough(ctx context.Context, revision int64) error {
-	_, err := q.db.ExecContext(ctx, deleteEventsThrough, revision)
+	_, err := q.exec(ctx, q.deleteEventsThroughStmt, deleteEventsThrough, revision)
 	return err
 }
 
@@ -88,7 +88,7 @@ WHERE expires_at <= ?
 `
 
 func (q *Queries) DeleteExpiredAuthRequests(ctx context.Context, expiresAt int64) error {
-	_, err := q.db.ExecContext(ctx, deleteExpiredAuthRequests, expiresAt)
+	_, err := q.exec(ctx, q.deleteExpiredAuthRequestsStmt, deleteExpiredAuthRequests, expiresAt)
 	return err
 }
 
@@ -99,7 +99,7 @@ WHERE expires_at <= ?1
 `
 
 func (q *Queries) DeleteExpiredCredentials(ctx context.Context, now int64) error {
-	_, err := q.db.ExecContext(ctx, deleteExpiredCredentials, now)
+	_, err := q.exec(ctx, q.deleteExpiredCredentialsStmt, deleteExpiredCredentials, now)
 	return err
 }
 
@@ -109,7 +109,7 @@ WHERE expires_at <= ?
 `
 
 func (q *Queries) DeleteExpiredRevokedFamilies(ctx context.Context, expiresAt int64) error {
-	_, err := q.db.ExecContext(ctx, deleteExpiredRevokedFamilies, expiresAt)
+	_, err := q.exec(ctx, q.deleteExpiredRevokedFamiliesStmt, deleteExpiredRevokedFamilies, expiresAt)
 	return err
 }
 
@@ -125,7 +125,7 @@ type DeleteObjectParams struct {
 }
 
 func (q *Queries) DeleteObject(ctx context.Context, arg DeleteObjectParams) error {
-	_, err := q.db.ExecContext(ctx, deleteObject, arg.Kind, arg.Project, arg.Name)
+	_, err := q.exec(ctx, q.deleteObjectStmt, deleteObject, arg.Kind, arg.Project, arg.Name)
 	return err
 }
 
@@ -142,7 +142,7 @@ type FamiliesOfRow struct {
 }
 
 func (q *Queries) FamiliesOf(ctx context.Context, principal string) ([]FamiliesOfRow, error) {
-	rows, err := q.db.QueryContext(ctx, familiesOf, principal)
+	rows, err := q.query(ctx, q.familiesOfStmt, familiesOf, principal)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +171,7 @@ WHERE family = ?
 `
 
 func (q *Queries) FamilyExpiry(ctx context.Context, family string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, familyExpiry, family)
+	row := q.queryRow(ctx, q.familyExpiryStmt, familyExpiry, family)
 	var expires_at int64
 	err := row.Scan(&expires_at)
 	return expires_at, err
@@ -192,7 +192,7 @@ type FamilyHoldsParams struct {
 }
 
 func (q *Queries) FamilyHolds(ctx context.Context, arg FamilyHoldsParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, familyHolds, arg.Family, arg.Type, arg.Now)
+	row := q.queryRow(ctx, q.familyHoldsStmt, familyHolds, arg.Family, arg.Type, arg.Now)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -204,7 +204,7 @@ WHERE family = ?
 `
 
 func (q *Queries) FamilyRevoked(ctx context.Context, family string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, familyRevoked, family)
+	row := q.queryRow(ctx, q.familyRevokedStmt, familyRevoked, family)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -217,7 +217,7 @@ WHERE key = ?
 `
 
 func (q *Queries) GetAuthRequest(ctx context.Context, key string) (AuthRequest, error) {
-	row := q.db.QueryRowContext(ctx, getAuthRequest, key)
+	row := q.queryRow(ctx, q.getAuthRequestStmt, getAuthRequest, key)
 	var i AuthRequest
 	err := row.Scan(&i.Key, &i.Data, &i.ExpiresAt)
 	return i, err
@@ -230,7 +230,7 @@ WHERE hash = ?
 `
 
 func (q *Queries) GetCredential(ctx context.Context, hash string) (Credential, error) {
-	row := q.db.QueryRowContext(ctx, getCredential, hash)
+	row := q.queryRow(ctx, q.getCredentialStmt, getCredential, hash)
 	var i Credential
 	err := row.Scan(
 		&i.Hash,
@@ -252,7 +252,7 @@ SELECT value FROM meta WHERE key = ?
 `
 
 func (q *Queries) GetMeta(ctx context.Context, key string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getMeta, key)
+	row := q.queryRow(ctx, q.getMetaStmt, getMeta, key)
 	var value int64
 	err := row.Scan(&value)
 	return value, err
@@ -271,7 +271,7 @@ type GetObjectParams struct {
 }
 
 func (q *Queries) GetObject(ctx context.Context, arg GetObjectParams) (Object, error) {
-	row := q.db.QueryRowContext(ctx, getObject, arg.Kind, arg.Project, arg.Name)
+	row := q.queryRow(ctx, q.getObjectStmt, getObject, arg.Kind, arg.Project, arg.Name)
 	var i Object
 	err := row.Scan(
 		&i.Kind,
@@ -295,7 +295,7 @@ type InsertAuthRequestParams struct {
 }
 
 func (q *Queries) InsertAuthRequest(ctx context.Context, arg InsertAuthRequestParams) error {
-	_, err := q.db.ExecContext(ctx, insertAuthRequest, arg.Key, arg.Data, arg.ExpiresAt)
+	_, err := q.exec(ctx, q.insertAuthRequestStmt, insertAuthRequest, arg.Key, arg.Data, arg.ExpiresAt)
 	return err
 }
 
@@ -318,7 +318,7 @@ type InsertCredentialParams struct {
 }
 
 func (q *Queries) InsertCredential(ctx context.Context, arg InsertCredentialParams) error {
-	_, err := q.db.ExecContext(ctx, insertCredential,
+	_, err := q.exec(ctx, q.insertCredentialStmt, insertCredential,
 		arg.Hash,
 		arg.Type,
 		arg.Family,
@@ -348,7 +348,7 @@ type InsertEventParams struct {
 }
 
 func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) error {
-	_, err := q.db.ExecContext(ctx, insertEvent,
+	_, err := q.exec(ctx, q.insertEventStmt, insertEvent,
 		arg.Revision,
 		arg.Type,
 		arg.Kind,
@@ -373,7 +373,7 @@ type InsertObjectParams struct {
 }
 
 func (q *Queries) InsertObject(ctx context.Context, arg InsertObjectParams) error {
-	_, err := q.db.ExecContext(ctx, insertObject,
+	_, err := q.exec(ctx, q.insertObjectStmt, insertObject,
 		arg.Kind,
 		arg.Project,
 		arg.Name,
@@ -403,7 +403,7 @@ type ListEventsParams struct {
 }
 
 func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event, error) {
-	rows, err := q.db.QueryContext(ctx, listEvents,
+	rows, err := q.query(ctx, q.listEventsStmt, listEvents,
 		arg.After,
 		arg.Through,
 		arg.Kind,
@@ -458,7 +458,7 @@ type ListObjectsParams struct {
 }
 
 func (q *Queries) ListObjects(ctx context.Context, arg ListObjectsParams) ([]Object, error) {
-	rows, err := q.db.QueryContext(ctx, listObjects,
+	rows, err := q.query(ctx, q.listObjectsStmt, listObjects,
 		arg.Kind,
 		arg.Project,
 		arg.AfterProject,
@@ -504,7 +504,7 @@ type RevokeFamilyParams struct {
 }
 
 func (q *Queries) RevokeFamily(ctx context.Context, arg RevokeFamilyParams) error {
-	_, err := q.db.ExecContext(ctx, revokeFamily, arg.Family, arg.ExpiresAt)
+	_, err := q.exec(ctx, q.revokeFamilyStmt, revokeFamily, arg.Family, arg.ExpiresAt)
 	return err
 }
 
@@ -518,7 +518,7 @@ type SetMetaParams struct {
 }
 
 func (q *Queries) SetMeta(ctx context.Context, arg SetMetaParams) error {
-	_, err := q.db.ExecContext(ctx, setMeta, arg.Value, arg.Key)
+	_, err := q.exec(ctx, q.setMetaStmt, setMeta, arg.Value, arg.Key)
 	return err
 }
 
@@ -535,7 +535,7 @@ type SwapAuthRequestParams struct {
 }
 
 func (q *Queries) SwapAuthRequest(ctx context.Context, arg SwapAuthRequestParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, swapAuthRequest, arg.Data, arg.Key, arg.Old)
+	result, err := q.exec(ctx, q.swapAuthRequestStmt, swapAuthRequest, arg.Data, arg.Key, arg.Old)
 	if err != nil {
 		return 0, err
 	}
@@ -555,7 +555,7 @@ type TouchCredentialParams struct {
 }
 
 func (q *Queries) TouchCredential(ctx context.Context, arg TouchCredentialParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, touchCredential, arg.LastUsedAt, arg.IdleUntil, arg.Hash)
+	result, err := q.exec(ctx, q.touchCredentialStmt, touchCredential, arg.LastUsedAt, arg.IdleUntil, arg.Hash)
 	if err != nil {
 		return 0, err
 	}
@@ -577,7 +577,7 @@ type UpdateObjectParams struct {
 }
 
 func (q *Queries) UpdateObject(ctx context.Context, arg UpdateObjectParams) error {
-	_, err := q.db.ExecContext(ctx, updateObject,
+	_, err := q.exec(ctx, q.updateObjectStmt, updateObject,
 		arg.Revision,
 		arg.Data,
 		arg.Kind,

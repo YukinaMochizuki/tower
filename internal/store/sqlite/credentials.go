@@ -275,7 +275,7 @@ func (s *Store) credTx(ctx context.Context, fn func(q *db.Queries) error) error 
 		return s.closedOr(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := fn(s.q.WithTx(tx)); err != nil {
+	if err := fn(s.wq.WithTx(tx)); err != nil {
 		return s.closedOr(err)
 	}
 	return s.closedOr(tx.Commit())
