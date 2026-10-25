@@ -30,6 +30,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/auth"
 	"github.com/YukinaMochizuki/tower/internal/client"
 	"github.com/YukinaMochizuki/tower/internal/controller/controllertest"
+	"github.com/YukinaMochizuki/tower/internal/devcontainer"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/secrets"
 	"github.com/YukinaMochizuki/tower/internal/store/sqlite"
@@ -86,7 +87,7 @@ func newEnv(t *testing.T, opts ...envOption) *env {
 		t.Fatal(err)
 	}
 	clock := clockwork.NewFakeClock()
-	cfg := apiserver.Config{Store: st, Clock: clock, Secrets: keys, Credentials: st,
+	cfg := apiserver.Config{Store: st, Clock: clock, Secrets: keys, Credentials: st, Resolver: devcontainer.Fake{},
 		// No target has a provider unless a test gives it one, or asks for
 		// tower's own with nil.
 		Providers: func(string) (provider.Provider, error) { return nil, errNoProviderHere }}

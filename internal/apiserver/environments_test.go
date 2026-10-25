@@ -166,6 +166,12 @@ func TestABoxNamesWhatItIsMadeOf(t *testing.T) {
 		"a repository that is not there": {box("b", "ghost"), connect.CodeFailedPrecondition},
 		"a repository twice":             {box("b", "repo", "repo"), connect.CodeInvalidArgument},
 		"no checkout and no image":       {box("b"), connect.CodeInvalidArgument},
+		"an add-on tower lacks": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.Addons = []string{"browser", "gpu"}
+		}, connect.CodeInvalidArgument),
+		"an add-on twice": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.Addons = []string{"desktop", "desktop"}
+		}, connect.CodeInvalidArgument),
 		"no workstream": {func() *envv1alpha1.Box {
 			b := box("b", "repo")
 			b.Spec.Workstream = ""

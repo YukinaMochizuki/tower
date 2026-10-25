@@ -78,7 +78,8 @@ type Config struct {
 	// TicketTTL is how long a ticket lasts; zero is DefaultTicketTTL.
 	TicketTTL time.Duration
 	// Resolver says what boxes' images and warm checkouts are made of; nil
-	// is devcontainer.Fake.
+	// is devcontainer.Real, which reads a repository's devcontainer as
+	// workstream does. Tests give devcontainer.Fake.
 	Resolver devcontainer.Resolver
 	// GoldenPruneAfter is how long a golden nothing was made from, and
 	// nothing references, is kept; zero is DefaultGoldenPruneAfter.
@@ -153,7 +154,7 @@ func New(cfg Config) *Server {
 		cfg.SweepInterval = 5 * time.Minute
 	}
 	if cfg.Resolver == nil {
-		cfg.Resolver = devcontainer.Fake{}
+		cfg.Resolver = devcontainer.Real{}
 	}
 	if cfg.GoldenPruneAfter == 0 {
 		cfg.GoldenPruneAfter = DefaultGoldenPruneAfter

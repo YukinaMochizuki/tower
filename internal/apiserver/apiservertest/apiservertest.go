@@ -26,6 +26,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/auth"
 	"github.com/YukinaMochizuki/tower/internal/client"
 	"github.com/YukinaMochizuki/tower/internal/controller/controllertest"
+	"github.com/YukinaMochizuki/tower/internal/devcontainer"
 	"github.com/YukinaMochizuki/tower/internal/secrets"
 	"github.com/YukinaMochizuki/tower/internal/store"
 	"github.com/YukinaMochizuki/tower/internal/store/sqlite"
@@ -86,7 +87,7 @@ func Start(t *testing.T, configure func(*apiserver.Config)) *Env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := apiserver.Config{Store: st, Credentials: st, Secrets: keys, BookmarkInterval: 10 * time.Millisecond}
+	cfg := apiserver.Config{Store: st, Credentials: st, Secrets: keys, BookmarkInterval: 10 * time.Millisecond, Resolver: devcontainer.Fake{}}
 	if configure != nil {
 		configure(&cfg)
 	}

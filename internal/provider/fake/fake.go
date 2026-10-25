@@ -936,6 +936,14 @@ func (f *Fake) resolveLocked(ref string) provider.ImageConfig {
 	if cfg, ok := f.imageConfigs[ref]; ok {
 		return cfg
 	}
+	// A name by the digest its tag resolved to is that image.
+	if name, digest, ok := strings.Cut(ref, "@"); ok {
+		for tagged, cfg := range f.imageConfigs {
+			if cfg.Digest == digest && strings.HasPrefix(name, tagged) {
+				return cfg
+			}
+		}
+	}
 	if f.images[ref] {
 		_, digest, _ := strings.Cut(ref, "@")
 		return provider.ImageConfig{Digest: digest, User: f.users[ref]}

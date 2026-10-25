@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"slices"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -25,8 +26,11 @@ import (
 
 // A box's conditions, all the box controller's.
 const (
-	BoxImageBuilt    = "ImageBuilt"
-	BoxMaterialized  = "Materialized"
+	BoxImageBuilt   = "ImageBuilt"
+	BoxMaterialized = "Materialized"
+	// BoxSetUp says whether its devcontainer's setup steps all passed; one
+	// that did not leaves the box READY, with a warning here.
+	BoxSetUp         = "SetUp"
 	BoxReady         = "Ready"
 	stoppedIdle      = "Idle"
 	stoppedRequested = "Requested"
@@ -36,6 +40,9 @@ const (
 	// secretFilesAnnotation is the start of an instance's run its box's
 	// secret files were written in (runOf).
 	secretFilesAnnotation = registry.Domain + "/secret-files"
+	// setupAnnotation is the warnings of its devcontainer's setup steps
+	// that did not pass, if any.
+	setupAnnotation = registry.Domain + "/setup-warnings"
 )
 
 // errMirrorNotFetched waits for a repository's mirror on the target.
@@ -140,7 +147,15 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 
 	// Its image.
 	if st.ImageGolden == "" {
-		name, reason, err := s.boxImageGolden(ctx, key.Project, st.Target, spec)
+		name, reason, err := s.boxImageGolden(ctx, p, key.Project, st.Target, spec)
+		if errors.Is(err, devcontainer.ErrUnresolvable) {
+			// Resolved again at its next reconcile, as the repository may
+			// have changed.
+			msg := unresolvableMessage(err)
+			bs.cond(BoxImageBuilt, false, "Unresolvable", msg)
+			bs.not(envv1alpha1.BoxPhase_BOX_PHASE_FAILED, "DevcontainerUnresolvable", msg)
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -260,6 +275,11 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		return s.materializeBox(ctx, key, box, in, p, bs)
 	}
 	bs.cond(BoxMaterialized, true, "Materialized", "")
+	if w := in.GetMetadata().GetAnnotations()[setupAnnotation]; w != "" {
+		bs.cond(BoxSetUp, false, "SetupFailed", w)
+	} else {
+		bs.cond(BoxSetUp, true, "SetUp", "")
+	}
 	if st.Phase != envv1alpha1.BoxPhase_BOX_PHASE_READY {
 		repo := ""
 		if cs := spec.GetCheckouts(); len(cs) > 0 {
@@ -277,7 +297,7 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 // boxImageGolden resolves the box's image and makes its Golden, shared by
 // every box of the same inputs, returning its name; "" with a reason while
 // what it is resolved from is not there yet.
-func (s *Server) boxImageGolden(ctx context.Context, project, target string, spec *envv1alpha1.BoxSpec) (string, string, error) {
+func (s *Server) boxImageGolden(ctx context.Context, p provider.Provider, project, target string, spec *envv1alpha1.BoxSpec) (string, string, error) {
 	req := devcontainer.Request{Target: target, Image: spec.GetImage(), Addons: spec.GetAddons()}
 	if b := spec.GetImageBuild(); b != nil {
 		req.Build = &devcontainer.Build{Dockerfile: b.GetDockerfile(), Files: b.GetFiles()}
@@ -301,7 +321,7 @@ func (s *Server) boxImageGolden(ctx context.Context, project, target string, spe
 			req.Commit = first.GetRef()
 		}
 	}
-	img, err := s.cfg.Resolver.Image(ctx, req)
+	img, err := s.cfg.Resolver.Image(ctx, p, req)
 	if err != nil {
 		return "", "", err
 	}
@@ -443,17 +463,95 @@ func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *en
 			}
 		}
 		if warm == "" && len(checkouts) > 0 {
-			w, err := s.cfg.Resolver.Warm(ctx, target, mirrorName(key.Project, checkouts[0].GetRepository()), first)
+			w, err := s.cfg.Resolver.Warm(ctx, p, mirrorName(key.Project, checkouts[0].GetRepository()), first)
 			if err != nil {
 				return err
 			}
-			if err := s.mustRun(ctx, p, ref, nil, "/workspace", w.Install...); err != nil {
+			if len(w.Install) > 0 {
+				if err := s.mustRun(ctx, p, ref, nil, "/workspace", w.Install...); err != nil {
+					return err
+				}
+			}
+		}
+		if len(checkouts) > 0 {
+			if err := s.setUpBox(ctx, p, key, box, ref, mirrorName(key.Project, checkouts[0].GetRepository()), first); err != nil {
 				return err
 			}
 		}
 		return s.annotateInstance(ctx, key.Project, ref.Name, materializedAnnotation, "true")
 	})
 	return nil
+}
+
+// setupStepTimeout is how long one of a devcontainer's setup steps may
+// run: workstream's default for a box operation
+// (WORKSTREAM_BOX_OP_TIMEOUT_MS).
+const setupStepTimeout = 3 * time.Minute
+
+// unresolvableMessage is an ErrUnresolvable's reason, for people.
+func unresolvableMessage(err error) string {
+	return strings.TrimSuffix(err.Error(), ": "+devcontainer.ErrUnresolvable.Error())
+}
+
+// setUpBox runs the box's devcontainer setup steps in its instance once its
+// repositories are checked out, as workstream does: in /workspace, as the
+// image's user, with the box's privileged secrets as any command of it
+// has them. A step that fails or runs out of time does not fail the box,
+// which workstream keeps too: it is recorded on the instance
+// (setupAnnotation), quoting the end of its output unless it was given
+// secrets, and the box reports it in its SetUp condition.
+func (s *Server) setUpBox(ctx context.Context, p provider.Provider, key controller.Key, box *envv1alpha1.Box, ref provider.Instance, mirror, commit string) error {
+	spec := box.GetSpec()
+	req := devcontainer.Request{Target: box.GetStatus().GetTarget(), Mirror: mirror, Commit: commit, Image: spec.GetImage()}
+	if spec.GetImageBuild() != nil {
+		req.Build = &devcontainer.Build{}
+	}
+	var warnings []string
+	steps, err := s.cfg.Resolver.Setup(ctx, p, req)
+	switch {
+	case errors.Is(err, devcontainer.ErrUnresolvable):
+		warnings = append(warnings, "setup: "+unresolvableMessage(err))
+	case err != nil:
+		return err
+	}
+	var env map[string]string
+	if refs := spec.GetPrivilegedSecrets(); len(refs) > 0 && len(steps) > 0 {
+		values, err := openSecretValues(ctx, s, key.Project, refs)
+		if err != nil {
+			return fmt.Errorf("%w: %w", err, provider.ErrFailed)
+		}
+		env = map[string]string{}
+		for i, r := range refs {
+			env[r.GetAs()] = string(values[i])
+		}
+	}
+	for _, step := range steps {
+		var out bytes.Buffer
+		stepCtx, cancel := context.WithTimeout(ctx, setupStepTimeout)
+		code, err := p.Exec(stepCtx, provider.ExecRequest{Instance: ref, Command: step.Command, Env: env, Dir: "/workspace", Stdout: &out, Stderr: &out})
+		timedOut := stepCtx.Err() != nil && ctx.Err() == nil
+		cancel()
+		switch {
+		case timedOut:
+			warnings = append(warnings, fmt.Sprintf("%s: did not end in %s", step.Name, setupStepTimeout))
+		case transient(err) || ctx.Err() != nil:
+			return err
+		case err != nil:
+			warnings = append(warnings, fmt.Sprintf("%s: %v", step.Name, err))
+		case code != 0 && len(env) > 0:
+			warnings = append(warnings, fmt.Sprintf("%s: exit %d", step.Name, code))
+		case code != 0:
+			tail := strings.TrimSpace(out.String())
+			if len(tail) > 300 {
+				tail = tail[len(tail)-300:]
+			}
+			warnings = append(warnings, fmt.Sprintf("%s: exit %d: %s", step.Name, code, tail))
+		}
+	}
+	if len(warnings) == 0 {
+		return nil
+	}
+	return s.annotateInstance(ctx, key.Project, ref.Name, setupAnnotation, strings.Join(warnings, "; "))
 }
 
 // runOf names the run of a running instance: when it started, as its

@@ -3,6 +3,7 @@ package apiserver
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/controller"
+	"github.com/YukinaMochizuki/tower/internal/devcontainer"
 	"github.com/YukinaMochizuki/tower/internal/store"
 )
 
@@ -383,11 +385,19 @@ func (s *Server) keepWarm(ctx context.Context, t *targetsv1alpha1.Target, set se
 	}
 	want := ready
 	if stale {
-		parent, _, err := s.boxImageGolden(ctx, c.project, target, &envv1alpha1.BoxSpec{Checkouts: []*envv1alpha1.Checkout{{Repository: c.name()}}})
+		p, err := s.providerFor(target)
+		if err != nil {
+			return fmt.Errorf("warm goldens of %s: %w: %w", target, controller.ErrWaiting, err)
+		}
+		parent, _, err := s.boxImageGolden(ctx, p, c.project, target, &envv1alpha1.BoxSpec{Checkouts: []*envv1alpha1.Checkout{{Repository: c.name()}}})
+		if errors.Is(err, devcontainer.ErrUnresolvable) {
+			// Its boxes fail, saying why; it has no warm golden.
+			return nil
+		}
 		if err != nil || parent == "" {
 			return err
 		}
-		w, err := s.cfg.Resolver.Warm(ctx, target, mirror, head)
+		w, err := s.cfg.Resolver.Warm(ctx, p, mirror, head)
 		if err != nil {
 			return err
 		}

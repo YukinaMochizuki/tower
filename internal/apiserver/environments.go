@@ -21,6 +21,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/auth"
 	"github.com/YukinaMochizuki/tower/internal/authz"
+	"github.com/YukinaMochizuki/tower/internal/devcontainer"
 	"github.com/YukinaMochizuki/tower/internal/store"
 )
 
@@ -253,9 +254,12 @@ func validateBox(ctx context.Context, s *Server, _ authz.Caller, old, obj proto.
 			return invalid("spec.checkouts[%d].repository: %v", i, err)
 		}
 	}
-	for _, a := range spec.GetAddons() {
-		if err := ValidName(a); err != nil {
-			return invalid("spec.addons: %v", err)
+	for i, a := range spec.GetAddons() {
+		if !slices.Contains(devcontainer.Addons(), a) {
+			return invalid("spec.addons: tower has no add-on %q; it has %s", a, strings.Join(devcontainer.Addons(), ", "))
+		}
+		if slices.Contains(spec.GetAddons()[:i], a) {
+			return invalid("spec.addons: %q is asked for twice", a)
 		}
 	}
 	var names []string
