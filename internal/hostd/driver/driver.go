@@ -354,10 +354,34 @@ type Images interface {
 	// Pull brings an image, a reference by digest, onto the host; one the
 	// registry lacks is ErrNotFound.
 	Pull(ctx context.Context, ref string) error
-	// Build builds a context, a tar with its Dockerfile, pushes the image
-	// to repository in the registry and returns its reference by digest.
-	// The same context builds the same digest.
-	Build(ctx context.Context, repository string, buildContext io.Reader) (string, error)
+	// Build builds a context, pushes the image to its repository in the
+	// registry and returns its reference by digest. The same context builds
+	// the same digest. A Dir or Dockerfile outside the tar fails as a
+	// context that does not build does.
+	Build(ctx context.Context, spec BuildSpec) (string, error)
+	// Resolve reads what a reference names from its registry without
+	// pulling it: its digest and the user it runs as. One the registry
+	// lacks is ErrNotFound.
+	Resolve(ctx context.Context, ref string) (ImageConfig, error)
+}
+
+// BuildSpec is an image to build.
+type BuildSpec struct {
+	// Repository is where in the registry it goes.
+	Repository string
+	// Context is a tar holding the context and its Dockerfile.
+	Context io.Reader
+	// Dir is the context's directory in the tar, "" its root; Dockerfile
+	// the Dockerfile's path in the tar, "" for Dir/Dockerfile.
+	Dir, Dockerfile string
+}
+
+// ImageConfig is what an image says of itself.
+type ImageConfig struct {
+	// Digest is its manifest's.
+	Digest string
+	// User is the user it runs as, "" for root.
+	User string
 }
 
 // FetchSpec brings a branch of a repository into a mirror.
@@ -399,4 +423,22 @@ type Git interface {
 	Push(ctx context.Context, spec PushSpec, gitDir io.Reader) error
 	// CommitsBehind counts the commits on the mirror's branch since commit.
 	CommitsBehind(ctx context.Context, mirror, commit, branch string) (int, error)
+	// Archive writes a tar of the mirror's work tree at ref (empty is its
+	// branch), without .git, and returns the commit it is.
+	Archive(ctx context.Context, mirror, ref string, w io.Writer) (string, error)
+	// Read reads paths of the mirror's work tree at ref (empty is its
+	// branch): the commit, and the entry of each path that is there, by
+	// path, with the content of each file of at most maxContent bytes; 0
+	// reads no content.
+	Read(ctx context.Context, mirror, ref string, paths []string, maxContent int64) (string, map[string]MirrorEntry, error)
+}
+
+// MirrorEntry is a path of a mirror's work tree.
+type MirrorEntry struct {
+	// Object is its git object id; a directory's is its tree's.
+	Object string
+	Dir    bool
+	Size   int64
+	// Content is a file's, when read.
+	Content []byte
 }

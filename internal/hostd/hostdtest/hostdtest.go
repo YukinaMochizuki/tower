@@ -107,7 +107,9 @@ func (w *World) start(t *testing.T, opts Options) {
 	if w.Fake, err = fake.New(fake.Options{Path: opts.StatePath, Images: append([]string{Image}, opts.Images...)}); err != nil {
 		t.Fatal(err)
 	}
-	w.Fake.SetRemote(Remote, "main", map[string]string{"go.mod": "module x\n"}, "c1", "c2", "c3")
+	w.Fake.SetRemote(Remote, "main", map[string]string{
+		"go.mod": "module x\n", "docker/Dockerfile": "FROM registry.tower.internal/base@sha256:00\nCOPY go.mod /go.mod\n",
+	}, "c1", "c2", "c3")
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -264,6 +266,6 @@ func (w *World) Harness(p provider.Provider) providertest.Harness {
 			}
 			return key.Name
 		},
-		Remote: Remote, Branch: "main", RemoteHead: "c3",
+		Remote: Remote, Branch: "main", RemoteHead: "c3", RemoteDockerfile: "docker/Dockerfile",
 	}
 }

@@ -53,7 +53,9 @@ func New(t *testing.T, configure func(*apiserver.Config)) World {
 	}
 	hostd := env.AsToken("hostd-"+Target, iamv1alpha1.Role_ROLE_HOSTD, Target)
 	f := fake.New(Target, clockwork.NewRealClock())
-	f.SetRemote(Remote, "main", map[string]string{"go.mod": "module x\n"}, "c1", "c2", "c3")
+	f.SetRemote(Remote, "main", map[string]string{
+		"go.mod": "module x\n", "docker/Dockerfile": "FROM registry.tower.internal/base@sha256:00\nCOPY go.mod /go.mod\n",
+	}, "c1", "c2", "c3")
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- f.Run(ctx, hostd) }()
@@ -133,6 +135,6 @@ func (w World) Harness(p provider.Provider) providertest.Harness {
 			return key.Name
 		},
 		ProcessLimits: w.Fake.SetProcessLimits,
-		Remote:        Remote, Branch: "main", RemoteHead: "c3",
+		Remote:        Remote, Branch: "main", RemoteHead: "c3", RemoteDockerfile: "docker/Dockerfile",
 	}
 }

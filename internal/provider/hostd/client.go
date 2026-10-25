@@ -229,8 +229,11 @@ func (c *Client) BuildImage(ctx context.Context, req provider.BuildRequest) (str
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	stream := k.host.BuildImage(ctx)
-	start := &hostdv1.BuildImageStart{Repository: req.Repository}
-	if stream.Send(&hostdv1.BuildImageRequest{Request: &hostdv1.BuildImageRequest_Start{Start: start}}) == nil {
+	start := &hostdv1.BuildImageStart{Repository: req.Repository, Dir: req.Dir, Dockerfile: req.Dockerfile}
+	if m := req.Mirror; m != nil {
+		start.Mirror = &hostdv1.MirrorSource{Mirror: m.Mirror, Ref: m.Ref}
+	}
+	if stream.Send(&hostdv1.BuildImageRequest{Request: &hostdv1.BuildImageRequest_Start{Start: start}}) == nil && req.Mirror == nil {
 		if err := sendAll(req.Context, func(b []byte) error {
 			return stream.Send(&hostdv1.BuildImageRequest{Request: &hostdv1.BuildImageRequest_Context{Context: b}})
 		}); err != nil {
@@ -318,6 +321,38 @@ func (c *Client) CommitsBehind(ctx context.Context, mirror, commit, branch strin
 		return 0, k.failed(ctx, err)
 	}
 	return int(res.Msg.GetCommits()), nil
+}
+
+func (c *Client) ReadMirror(ctx context.Context, req provider.MirrorReadRequest) (provider.MirrorRead, error) {
+	k, err := c.begin(ctx, provider.Instance{})
+	if err != nil {
+		return provider.MirrorRead{}, err
+	}
+	defer k.release()
+	res, err := k.host.ReadMirror(ctx, connect.NewRequest(&hostdv1.ReadMirrorRequest{
+		Source: &hostdv1.MirrorSource{Mirror: req.Mirror, Ref: req.Ref}, Paths: req.Paths, Content: req.Content,
+	}))
+	if err != nil {
+		return provider.MirrorRead{}, k.failed(ctx, err)
+	}
+	out := provider.MirrorRead{Commit: res.Msg.GetCommit(), Entries: map[string]provider.MirrorEntry{}}
+	for p, e := range res.Msg.GetEntries() {
+		out.Entries[p] = provider.MirrorEntry{Object: e.GetObject(), Dir: e.GetDir(), Size: e.GetSize(), Content: e.GetContent()}
+	}
+	return out, nil
+}
+
+func (c *Client) ResolveImage(ctx context.Context, ref string) (provider.ImageConfig, error) {
+	k, err := c.begin(ctx, provider.Instance{})
+	if err != nil {
+		return provider.ImageConfig{}, err
+	}
+	defer k.release()
+	res, err := k.host.ResolveImage(ctx, connect.NewRequest(&hostdv1.ResolveImageRequest{Ref: ref}))
+	if err != nil {
+		return provider.ImageConfig{}, k.failed(ctx, err)
+	}
+	return provider.ImageConfig{Digest: res.Msg.GetDigest(), User: res.Msg.GetUser()}, nil
 }
 
 func (c *Client) Push(ctx context.Context, req provider.PushRequest) error {

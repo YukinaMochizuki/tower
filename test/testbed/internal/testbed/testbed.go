@@ -219,7 +219,7 @@ func DrivertestImage(ctx context.Context, im driver.Images) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return im.Build(ctx, "testbed/drivertest", bytes.NewReader(ctxTar))
+	return im.Build(ctx, driver.BuildSpec{Repository: "testbed/drivertest", Context: bytes.NewReader(ctxTar)})
 }
 
 // ContextTar is a tar of what dir holds, its names relative to dir: a

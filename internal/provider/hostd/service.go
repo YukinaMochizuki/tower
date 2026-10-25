@@ -168,13 +168,18 @@ func (s service) BuildImage(ctx context.Context, stream *connect.ClientStream[ho
 	if start == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("a build's first request says where its image goes"))
 	}
-	r := &received{next: func() ([]byte, error) {
-		if !stream.Receive() {
-			return nil, receiveError(stream.Err())
-		}
-		return stream.Msg().GetContext(), nil
-	}}
-	image, err := s.p.BuildImage(ctx, provider.BuildRequest{Context: r, Repository: start.GetRepository()})
+	req := provider.BuildRequest{Repository: start.GetRepository(), Dir: start.GetDir(), Dockerfile: start.GetDockerfile()}
+	if m := start.GetMirror(); m != nil {
+		req.Mirror = &provider.MirrorSource{Mirror: m.GetMirror(), Ref: m.GetRef()}
+	} else {
+		req.Context = &received{next: func() ([]byte, error) {
+			if !stream.Receive() {
+				return nil, receiveError(stream.Err())
+			}
+			return stream.Msg().GetContext(), nil
+		}}
+	}
+	image, err := s.p.BuildImage(ctx, req)
 	if err != nil {
 		return nil, toConnect(err)
 	}
@@ -229,6 +234,29 @@ func (s service) CommitsBehind(ctx context.Context, req *connect.Request[hostdv1
 		return nil, toConnect(err)
 	}
 	return connect.NewResponse(&hostdv1.CommitsBehindResponse{Commits: int32(n)}), nil
+}
+
+func (s service) ResolveImage(ctx context.Context, req *connect.Request[hostdv1.ResolveImageRequest]) (*connect.Response[hostdv1.ResolveImageResponse], error) {
+	cfg, err := s.p.ResolveImage(ctx, req.Msg.GetRef())
+	if err != nil {
+		return nil, toConnect(err)
+	}
+	return connect.NewResponse(&hostdv1.ResolveImageResponse{Digest: cfg.Digest, User: cfg.User}), nil
+}
+
+func (s service) ReadMirror(ctx context.Context, req *connect.Request[hostdv1.ReadMirrorRequest]) (*connect.Response[hostdv1.ReadMirrorResponse], error) {
+	m := req.Msg
+	read, err := s.p.ReadMirror(ctx, provider.MirrorReadRequest{
+		MirrorSource: provider.MirrorSource{Mirror: m.GetSource().GetMirror(), Ref: m.GetSource().GetRef()}, Paths: m.GetPaths(), Content: m.GetContent(),
+	})
+	if err != nil {
+		return nil, toConnect(err)
+	}
+	res := &hostdv1.ReadMirrorResponse{Commit: read.Commit, Entries: map[string]*hostdv1.MirrorEntry{}}
+	for p, e := range read.Entries {
+		res.Entries[p] = &hostdv1.MirrorEntry{Object: e.Object, Dir: e.Dir, Size: e.Size, Content: e.Content}
+	}
+	return connect.NewResponse(res), nil
 }
 
 func (s service) Push(ctx context.Context, req *connect.Request[hostdv1.PushRequest]) (*connect.Response[hostdv1.PushResponse], error) {

@@ -9,6 +9,8 @@
 package fake
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -76,9 +78,16 @@ type Fake struct {
 	images    map[string]bool
 	// contexts are the images' build contexts.
 	contexts map[string][]byte
-	mirrors  map[string]*repo
-	remotes  map[string]*repo
-	execs    []Exec
+	// users are the users built images run as; builds, every build.
+	users  map[string]string
+	builds []Build
+	// imageConfigs and missingImages answer ResolveImage for images the
+	// test named.
+	imageConfigs  map[string]provider.ImageConfig
+	missingImages map[string]bool
+	mirrors       map[string]*repo
+	remotes       map[string]*repo
+	execs         []Exec
 	// seen are the instances of the target it has reconciled, realized or
 	// not, which a fault cleared reconciles again.
 	seen      map[provider.Instance]bool
@@ -162,6 +171,7 @@ func New(target string, clock clockwork.Clock) *Fake {
 	return &Fake{
 		Target: target, clock: clock, log: slog.New(slog.DiscardHandler),
 		instances: map[provider.Instance]*instance{}, artifacts: map[string]*artifact{}, images: map[string]bool{}, contexts: map[string][]byte{},
+		users: map[string]string{}, imageConfigs: map[string]provider.ImageConfig{}, missingImages: map[string]bool{},
 		mirrors: map[string]*repo{}, remotes: map[string]*repo{}, seen: map[provider.Instance]bool{},
 		bootFailures: map[string]string{}, vanished: map[string]bool{}, diskTotal: DefaultDiskTotal,
 		processLogCap: provider.DefaultProcessLogCap, finishedProcesses: provider.DefaultFinishedProcesses,
@@ -748,10 +758,110 @@ func under(name, root string) (string, bool) {
 	return rest, ok
 }
 
+// Build is a build the fake was asked for, and the image it made.
+type Build struct {
+	Repository      string
+	Mirror          *provider.MirrorSource
+	Dir, Dockerfile string
+	Image           string
+}
+
+// Builds are the builds asked for so far, in order.
+func (f *Fake) Builds() []Build {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.builds)
+}
+
+// SetImage says what ResolveImage answers for ref.
+func (f *Fake) SetImage(ref string, cfg provider.ImageConfig) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.imageConfigs[ref] = cfg
+}
+
+// SetMissingImage makes ref one the registry lacks.
+func (f *Fake) SetMissingImage(ref string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.missingImages[ref] = true
+}
+
+// inTree is a path of a work tree or a tar, "" its root; one leaving it is
+// none.
+func inTree(p string) (string, error) {
+	c := path.Clean(p)
+	switch {
+	case c == ".":
+		return "", nil
+	case path.IsAbs(c) || c == ".." || strings.HasPrefix(c, "../"):
+		return "", fmt.Errorf("%q leaves the work tree: %w", p, provider.ErrFailed)
+	}
+	return c, nil
+}
+
+// mirrorAt is a mirror at ref, as Checkout resolves it, and the commit.
+// The caller holds f.mu.
+func (f *Fake) mirrorAt(mirror, ref string) (*repo, string, error) {
+	m := f.mirrors[mirror]
+	if m == nil {
+		return nil, "", fmt.Errorf("mirror %s: %w", mirror, provider.ErrNotFound)
+	}
+	if ref == "" || ref == m.branch {
+		return m, m.head(), nil
+	}
+	if !slices.Contains(m.commits, ref) {
+		return nil, "", fmt.Errorf("ref %q in mirror %s: %w", ref, mirror, provider.ErrNotFound)
+	}
+	return m, ref, nil
+}
+
+// tarOf is files as a tar, in name order.
+func tarOf(files map[string][]byte) []byte {
+	var b bytes.Buffer
+	tw := tar.NewWriter(&b)
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		_ = tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(files[name])), Typeflag: tar.TypeReg})
+		_, _ = tw.Write(files[name])
+	}
+	_ = tw.Close()
+	return b.Bytes()
+}
+
+// filesOf reads a tar's regular files by their cleaned names.
+func filesOf(b []byte) (map[string][]byte, error) {
+	out := map[string][]byte{}
+	tr := tar.NewReader(bytes.NewReader(b))
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return out, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		data, err := io.ReadAll(tr)
+		if err != nil {
+			return nil, err
+		}
+		out[strings.TrimPrefix(path.Clean("/"+hdr.Name), "/")] = data
+	}
+}
+
+// BuildImage builds a context sent or a mirror's files, its Dockerfile
+// one that starts with FROM, naming the image by the hash of the context
+// and where in it the build is. The image runs as its last USER, else as
+// what it is FROM.
 func (f *Fake) BuildImage(ctx context.Context, req provider.BuildRequest) (string, error) {
-	b, err := io.ReadAll(req.Context)
-	if err != nil {
-		return "", err
+	var b []byte
+	if req.Context != nil {
+		var err error
+		if b, err = io.ReadAll(req.Context); err != nil {
+			return "", err
+		}
 	}
 	f.mu.Lock()
 	hold := f.holdBuilds
@@ -771,14 +881,135 @@ func (f *Fake) BuildImage(ctx context.Context, req provider.BuildRequest) (strin
 	if f.buildErr != nil {
 		return "", f.buildErr
 	}
-	sum := sha256.Sum256(b)
-	image := "registry.tower.internal/" + req.Repository + "@sha256:" + hex.EncodeToString(sum[:])
-	if !f.images[image] && f.free() < ImageSize {
+	// A build needs room to unpack its context before anything else.
+	if f.free() < ImageSize {
 		return "", provider.ErrNoSpace
+	}
+	if m := req.Mirror; m != nil {
+		repo, _, err := f.mirrorAt(m.Mirror, m.Ref)
+		if err != nil {
+			return "", err
+		}
+		b = tarOf(repo.files)
+	}
+	files, err := filesOf(b)
+	if err != nil {
+		return "", fmt.Errorf("the build context: %w: %w", err, provider.ErrFailed)
+	}
+	dir, err := inTree(req.Dir)
+	if err != nil {
+		return "", err
+	}
+	if dir != "" && !slices.ContainsFunc(slices.Collect(maps.Keys(files)), func(f string) bool { return strings.HasPrefix(f, dir+"/") }) {
+		return "", fmt.Errorf("building %s: the context holds no directory %s: %w", req.Repository, dir, provider.ErrFailed)
+	}
+	name := req.Dockerfile
+	if name == "" {
+		name = path.Join(dir, "Dockerfile")
+	}
+	if name, err = inTree(name); err != nil {
+		return "", err
+	}
+	lines := strings.Split(strings.TrimSpace(string(files[name])), "\n")
+	from, ok := strings.CutPrefix(lines[0], "FROM ")
+	if !ok {
+		return "", fmt.Errorf("building %s: %s does not start with FROM: %w", req.Repository, name, provider.ErrFailed)
+	}
+	sum := sha256.Sum256(append(slices.Clone(b), []byte("\x00"+dir+"\x00"+name)...))
+	image := "registry.tower.internal/" + req.Repository + "@sha256:" + hex.EncodeToString(sum[:])
+	user := f.resolveLocked(strings.TrimSpace(from)).User
+	for _, l := range lines {
+		if u, ok := strings.CutPrefix(strings.TrimSpace(l), "USER "); ok {
+			user = strings.TrimSpace(u)
+		}
 	}
 	f.images[image] = true
 	f.contexts[image] = b
+	f.users[image] = user
+	f.builds = append(f.builds, Build{Repository: req.Repository, Mirror: req.Mirror, Dir: req.Dir, Dockerfile: req.Dockerfile, Image: image})
 	return image, nil
+}
+
+// resolveLocked is what an image is: as the test set it, as built, or a
+// digest of its name, running as root. The caller holds f.mu.
+func (f *Fake) resolveLocked(ref string) provider.ImageConfig {
+	if cfg, ok := f.imageConfigs[ref]; ok {
+		return cfg
+	}
+	if f.images[ref] {
+		_, digest, _ := strings.Cut(ref, "@")
+		return provider.ImageConfig{Digest: digest, User: f.users[ref]}
+	}
+	if _, digest, ok := strings.Cut(ref, "@"); ok {
+		return provider.ImageConfig{Digest: digest}
+	}
+	sum := sha256.Sum256([]byte(ref))
+	return provider.ImageConfig{Digest: "sha256:" + hex.EncodeToString(sum[:])}
+}
+
+func (f *Fake) ResolveImage(_ context.Context, ref string) (provider.ImageConfig, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.answering(); err != nil {
+		return provider.ImageConfig{}, err
+	}
+	if f.missingImages[ref] {
+		return provider.ImageConfig{}, fmt.Errorf("image %s: %w", ref, provider.ErrNotFound)
+	}
+	return f.resolveLocked(ref), nil
+}
+
+// object is a fake git object id: a file's is the hash of its content, a
+// directory's the hash of what is under it.
+func object(parts ...[]byte) string {
+	h := sha256.New()
+	for _, p := range parts {
+		_, _ = fmt.Fprintf(h, "%d:", len(p))
+		_, _ = h.Write(p)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:40]
+}
+
+// ReadMirror reads a mirror's files, which every commit of it holds.
+func (f *Fake) ReadMirror(_ context.Context, req provider.MirrorReadRequest) (provider.MirrorRead, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.answering(); err != nil {
+		return provider.MirrorRead{}, err
+	}
+	m, commit, err := f.mirrorAt(req.Mirror, req.Ref)
+	if err != nil {
+		return provider.MirrorRead{}, err
+	}
+	out := provider.MirrorRead{Commit: commit, Entries: map[string]provider.MirrorEntry{}}
+	for _, p := range req.Paths {
+		clean, err := inTree(p)
+		if err != nil {
+			return provider.MirrorRead{}, err
+		}
+		if data, ok := m.files[clean]; ok && clean != "" {
+			e := provider.MirrorEntry{Object: object(data), Size: int64(len(data))}
+			if req.Content && len(data) <= provider.MaxMirrorContent {
+				e.Content = slices.Clone(data)
+			}
+			out.Entries[p] = e
+			continue
+		}
+		prefix := clean + "/"
+		if clean == "" {
+			prefix = ""
+		}
+		var parts [][]byte
+		for _, name := range slices.Sorted(maps.Keys(m.files)) {
+			if rest, ok := strings.CutPrefix(name, prefix); ok {
+				parts = append(parts, []byte(rest), m.files[name])
+			}
+		}
+		if len(parts) > 0 {
+			out.Entries[p] = provider.MirrorEntry{Object: object(parts...), Dir: true}
+		}
+	}
+	return out, nil
 }
 
 func (f *Fake) Capture(_ context.Context, in provider.Instance) (provider.Artifact, error) {

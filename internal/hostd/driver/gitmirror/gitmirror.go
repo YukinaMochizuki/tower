@@ -427,6 +427,100 @@ func (d *Driver) CommitsBehind(ctx context.Context, mirror, commit, branch strin
 	return strconv.Atoi(strings.TrimSpace(out))
 }
 
+func (d *Driver) Archive(ctx context.Context, mirror, ref string, w io.Writer) (string, error) {
+	r, err := d.mustRepo(ctx, mirror)
+	if err != nil {
+		return "", err
+	}
+	// The commit's objects stay as they are while a fetch moves its refs.
+	unlock := d.locks.Lock(mirror)
+	commit, err := commitOf(ctx, r, ref)
+	unlock()
+	if err != nil {
+		return "", err
+	}
+	var errOut bytes.Buffer
+	cmd := exec.CommandContext(ctx, "git", "-C", r, "archive", "--format=tar", commit)
+	cmd.Env = []string{"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "HOME=/nonexistent", "PATH=" + os.Getenv("PATH"), "LC_ALL=C"}
+	cmd.Stdout, cmd.Stderr = w, &errOut
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("git archive: %w: %s", err, strings.TrimSpace(errOut.String()))
+	}
+	return commit, nil
+}
+
+// treePath is a path of a work tree as git names it, "" for its root; one
+// leaving the tree is no path.
+func treePath(p string) (string, error) {
+	c := path.Clean(p)
+	switch {
+	case c == ".":
+		return "", nil
+	case path.IsAbs(c) || c == ".." || strings.HasPrefix(c, "../"):
+		return "", fmt.Errorf("%q leaves the work tree", p)
+	}
+	return c, nil
+}
+
+func (d *Driver) Read(ctx context.Context, mirror, ref string, paths []string, maxContent int64) (string, map[string]driver.MirrorEntry, error) {
+	r, err := d.mustRepo(ctx, mirror)
+	if err != nil {
+		return "", nil, err
+	}
+	unlock := d.locks.Lock(mirror)
+	commit, err := commitOf(ctx, r, ref)
+	unlock()
+	if err != nil {
+		return "", nil, err
+	}
+	// One batch-check of <commit>:<path> lines says what each path is: its
+	// object, its type and its size; a path not there is missing.
+	var query strings.Builder
+	for _, p := range paths {
+		tp, err := treePath(p)
+		if err != nil {
+			return "", nil, err
+		}
+		if strings.ContainsAny(tp, "\n\x00") {
+			return "", nil, fmt.Errorf("%q cannot name a path", p)
+		}
+		fmt.Fprintf(&query, "%s:%s\n", commit, tp)
+	}
+	checked, err := gitIn(ctx, r, nil, strings.NewReader(query.String()), "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)")
+	if err != nil {
+		return "", nil, err
+	}
+	lines := strings.Split(strings.TrimSuffix(checked, "\n"), "\n")
+	if len(paths) == 0 {
+		lines = nil
+	}
+	if len(lines) != len(paths) {
+		return "", nil, fmt.Errorf("git cat-file answered %d paths of %d", len(lines), len(paths))
+	}
+	out := map[string]driver.MirrorEntry{}
+	for i, line := range lines {
+		f := strings.Fields(line)
+		if len(f) != 3 || f[1] == "missing" || (f[1] != "blob" && f[1] != "tree") {
+			continue // not there, or a submodule, which no work tree here holds
+		}
+		e := driver.MirrorEntry{Object: f[0], Dir: f[1] == "tree"}
+		if !e.Dir {
+			if e.Size, err = strconv.ParseInt(f[2], 10, 64); err != nil {
+				return "", nil, fmt.Errorf("git cat-file gave %q a size of %q", paths[i], f[2])
+			}
+			if maxContent > 0 && e.Size <= maxContent {
+				blob, err := git(ctx, r, nil, "cat-file", "blob", e.Object)
+				if err != nil {
+					return "", nil, err
+				}
+				e.Content = []byte(blob)
+			}
+		}
+		out[paths[i]] = e
+	}
+	return commit, out, nil
+}
+
 // git runs git in dir, if any, with env added to a clean environment of
 // its own: no global or system config.
 func git(ctx context.Context, dir string, env []string, args ...string) (string, error) {

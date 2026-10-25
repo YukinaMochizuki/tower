@@ -53,10 +53,24 @@ func (i images) Pull(ctx context.Context, ref string) error {
 	})
 }
 
+// inTar is a path of a build's tar, "" its root; one leaving it is none.
+func inTar(p string) (string, error) {
+	c := path.Clean(p)
+	switch {
+	case c == ".":
+		return "", nil
+	case path.IsAbs(c) || c == ".." || strings.HasPrefix(c, "../"):
+		return "", fmt.Errorf("%q leaves the build context", p)
+	}
+	return c, nil
+}
+
 // Build reads the context's Dockerfile, which must start with FROM, and
-// names the image by the hash of the whole context.
-func (i images) Build(_ context.Context, repository string, buildContext io.Reader) (string, error) {
-	b, err := io.ReadAll(buildContext)
+// names the image by the hash of the whole context and where in it the
+// build is. The image runs as the user its last USER names, else as what
+// it is FROM runs as.
+func (i images) Build(_ context.Context, spec driver.BuildSpec) (string, error) {
+	b, err := io.ReadAll(spec.Context)
 	if err != nil {
 		return "", err
 	}
@@ -64,15 +78,31 @@ func (i images) Build(_ context.Context, repository string, buildContext io.Read
 	if err != nil {
 		return "", fmt.Errorf("the build context: %w", err)
 	}
-	dockerfile, ok := files["Dockerfile"]
-	if !ok {
-		return "", errors.New("the build context holds no Dockerfile")
+	dir, err := inTar(spec.Dir)
+	if err != nil {
+		return "", err
 	}
-	if !strings.HasPrefix(strings.TrimSpace(string(dockerfile)), "FROM ") {
+	if dir != "" && !slices.ContainsFunc(slices.Collect(maps.Keys(files)), func(f string) bool { return strings.HasPrefix(f, dir+"/") }) {
+		return "", fmt.Errorf("the build context holds no directory %s", dir)
+	}
+	name := spec.Dockerfile
+	if name == "" {
+		name = path.Join(dir, "Dockerfile")
+	}
+	if name, err = inTar(name); err != nil {
+		return "", err
+	}
+	dockerfile, ok := files[name]
+	if !ok {
+		return "", fmt.Errorf("the build context holds no %s", name)
+	}
+	lines := strings.Split(strings.TrimSpace(string(dockerfile)), "\n")
+	from, ok := strings.CutPrefix(lines[0], "FROM ")
+	if !ok {
 		return "", errors.New("step 1: the Dockerfile does not start with FROM")
 	}
-	sum := sha256.Sum256(b)
-	ref := Registry + "/" + repository + "@sha256:" + hex.EncodeToString(sum[:])
+	sum := sha256.Sum256(append(b, []byte("\x00"+dir+"\x00"+name)...))
+	ref := Registry + "/" + spec.Repository + "@sha256:" + hex.EncodeToString(sum[:])
 	err = i.h.change("images.Build", func() error {
 		if !i.h.st.Registry[ref] {
 			if err := i.h.room(ImageSize); err != nil {
@@ -80,9 +110,39 @@ func (i images) Build(_ context.Context, repository string, buildContext io.Read
 			}
 		}
 		i.h.st.Registry[ref] = true
+		user := i.h.st.Users[strings.TrimSpace(from)]
+		for _, l := range lines {
+			if u, ok := strings.CutPrefix(strings.TrimSpace(l), "USER "); ok {
+				user = strings.TrimSpace(u)
+			}
+		}
+		if i.h.st.Users == nil {
+			i.h.st.Users = map[string]string{}
+		}
+		i.h.st.Users[ref] = user
 		return nil
 	})
 	return ref, err
+}
+
+// Resolve answers for what the registry holds: a reference by digest, its
+// digest, a tag the hash of its name.
+func (i images) Resolve(_ context.Context, ref string) (driver.ImageConfig, error) {
+	var cfg driver.ImageConfig
+	err := i.h.read("images.Resolve", func() error {
+		if !i.h.st.Registry[ref] {
+			return fmt.Errorf("image %s: %w", ref, driver.ErrNotFound)
+		}
+		cfg.User = i.h.st.Users[ref]
+		if _, digest, ok := strings.Cut(ref, "@"); ok {
+			cfg.Digest = digest
+			return nil
+		}
+		sum := sha256.Sum256([]byte(ref))
+		cfg.Digest = "sha256:" + hex.EncodeToString(sum[:])
+		return nil
+	})
+	return cfg, err
 }
 
 // untar reads a tar's regular files by their cleaned names.

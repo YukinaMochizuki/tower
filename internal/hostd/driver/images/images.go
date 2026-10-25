@@ -7,16 +7,21 @@
 package images
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
+	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/docker/cli/cli/config/types"
 	"github.com/moby/buildkit/client"
+	"github.com/moby/buildkit/client/llb/sourceresolver"
 	"github.com/moby/buildkit/exporter/containerimage/exptypes"
+	gateway "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/auth/authprovider"
 	"github.com/moby/moby/api/pkg/authconfig"
@@ -133,23 +138,82 @@ func (d *Driver) auth(_ context.Context, host string, _ []string, _ authprovider
 	return types.AuthConfig{Username: d.cfg.Username, Password: d.cfg.Password, ServerAddress: host}, nil
 }
 
+// inContext is a path of a build's tar, "" its root; one leaving it is
+// none.
+func inContext(p string) (string, error) {
+	c := path.Clean(p)
+	switch {
+	case c == ".":
+		return "", nil
+	case path.IsAbs(c) || c == ".." || strings.HasPrefix(c, "../"):
+		return "", fmt.Errorf("%q leaves the build context", p)
+	}
+	return c, nil
+}
+
+// within is the directory rel names in root, its symlinks followed, which
+// must be a directory and stay in root.
+func within(root, rel string) (string, error) {
+	base, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Join(base, filepath.FromSlash(rel)))
+	if err != nil {
+		return "", errors.New("not in the build context")
+	}
+	if resolved != base && !strings.HasPrefix(resolved, base+string(filepath.Separator)) {
+		return "", errors.New("leads out of the build context")
+	}
+	if st, err := os.Stat(resolved); err != nil || !st.IsDir() {
+		return "", errors.New("is no directory of the build context")
+	}
+	return resolved, nil
+}
+
 // Build builds a context with its Dockerfile and pushes the image to
 // Registry/repository, returning its reference by digest. Timestamps are
 // the epoch (SOURCE_DATE_EPOCH=0, rewritten in the layers), so the same
-// context builds the same digest.
-func (d *Driver) Build(ctx context.Context, repository string, buildContext io.Reader) (string, error) {
+// context builds the same digest. The context is the tar's Dir; the
+// Dockerfile, anywhere in the tar, is given to BuildKit apart from it, as
+// docker build -f does.
+func (d *Driver) Build(ctx context.Context, spec driver.BuildSpec) (string, error) {
+	repository := spec.Repository
 	if repository == "" || strings.ContainsAny(repository, "@: ") {
 		return "", fmt.Errorf("%q is no repository", repository)
+	}
+	sub, err := inContext(spec.Dir)
+	if err != nil {
+		return "", err
+	}
+	dockerfile := spec.Dockerfile
+	if dockerfile == "" {
+		dockerfile = path.Join(sub, "Dockerfile")
+	}
+	if dockerfile, err = inContext(dockerfile); err != nil || dockerfile == "" {
+		return "", fmt.Errorf("the Dockerfile: %w", cmp.Or(err, errors.New("names no file")))
 	}
 	dir, err := os.MkdirTemp(d.cfg.ScratchDir, "build-")
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	if err := tarx.Extract(buildContext, dir); err != nil {
+	if err := tarx.Extract(spec.Context, dir); err != nil {
 		return "", fmt.Errorf("unpacking the build context: %w", err)
 	}
-	fs, err := fsutil.NewFS(dir)
+	contextDir, err := within(dir, sub)
+	if err != nil {
+		return "", fmt.Errorf("the build context's directory %q: %w", spec.Dir, err)
+	}
+	dockerfileDir, err := within(dir, path.Dir(dockerfile))
+	if err != nil {
+		return "", fmt.Errorf("the Dockerfile %q: %w", dockerfile, err)
+	}
+	fs, err := fsutil.NewFS(contextDir)
+	if err != nil {
+		return "", err
+	}
+	dfs, err := fsutil.NewFS(dockerfileDir)
 	if err != nil {
 		return "", err
 	}
@@ -161,8 +225,8 @@ func (d *Driver) Build(ctx context.Context, repository string, buildContext io.R
 	name := d.cfg.Registry + "/" + repository
 	resp, err := c.Solve(ctx, nil, client.SolveOpt{
 		Frontend:      "dockerfile.v0",
-		FrontendAttrs: map[string]string{"build-arg:SOURCE_DATE_EPOCH": "0"},
-		LocalMounts:   map[string]fsutil.FS{"context": fs, "dockerfile": fs},
+		FrontendAttrs: map[string]string{"build-arg:SOURCE_DATE_EPOCH": "0", "filename": path.Base(dockerfile)},
+		LocalMounts:   map[string]fsutil.FS{"context": fs, "dockerfile": dfs},
 		Exports: []client.ExportEntry{{Type: client.ExporterImage, Attrs: map[string]string{
 			"name": name, "push": "true", "rewrite-timestamp": "true",
 		}}},
@@ -179,4 +243,38 @@ func (d *Driver) Build(ctx context.Context, repository string, buildContext io.R
 		return "", fmt.Errorf("building %s: BuildKit named no digest", repository)
 	}
 	return name + "@" + digest, nil
+}
+
+// Resolve asks BuildKit to resolve ref in its registry, with the
+// registry's credentials for tower's, reading its manifest and config but
+// none of its layers.
+func (d *Driver) Resolve(ctx context.Context, ref string) (driver.ImageConfig, error) {
+	c, err := client.New(ctx, d.cfg.BuildKit)
+	if err != nil {
+		return driver.ImageConfig{}, err
+	}
+	defer func() { _ = c.Close() }()
+	var out driver.ImageConfig
+	_, err = c.Build(ctx, client.SolveOpt{
+		Session: []session.Attachable{authprovider.NewDockerAuthProvider(authprovider.DockerAuthProviderConfig{AuthConfigProvider: d.auth})},
+	}, "tower-hostd", func(ctx context.Context, gw gateway.Client) (*gateway.Result, error) {
+		_, dgst, config, err := gw.ResolveImageConfig(ctx, ref, sourceresolver.Opt{
+			ImageOpt: &sourceresolver.ResolveImageOpt{ResolveMode: "pull"},
+		})
+		if err != nil {
+			return nil, err
+		}
+		var img struct {
+			Config struct{ User string }
+		}
+		if err := json.Unmarshal(config, &img); err != nil {
+			return nil, fmt.Errorf("the config of %s: %w", ref, err)
+		}
+		out = driver.ImageConfig{Digest: dgst.String(), User: img.Config.User}
+		return gateway.NewResult(), nil
+	}, nil)
+	if err != nil {
+		return driver.ImageConfig{}, pullError(ref, err)
+	}
+	return out, nil
 }

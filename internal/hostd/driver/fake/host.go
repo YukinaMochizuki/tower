@@ -82,9 +82,11 @@ type state struct {
 	Networks map[string]*network
 	Guests   map[string]*guest
 	Registry map[string]bool
-	Pulled   map[string]bool
-	Mirrors  map[string]*repo
-	Remotes  map[string]*repo
+	// Users are the users images of the registry run as, "" for root.
+	Users   map[string]string `json:",omitempty"`
+	Pulled  map[string]bool
+	Mirrors map[string]*repo
+	Remotes map[string]*repo
 	// Addresses counts the addresses given out.
 	Addresses int
 }
@@ -305,6 +307,18 @@ func (h *Host) OnExec(fn func(guest string, spec driver.ExecSpec) (int, bool)) {
 // AddImage puts a reference in the registry.
 func (h *Host) AddImage(ref string) {
 	_ = h.change("", func() error { h.st.Registry[ref] = true; return nil })
+}
+
+// SetImageUser puts a reference in the registry, running as user.
+func (h *Host) SetImageUser(ref, user string) {
+	_ = h.change("", func() error {
+		h.st.Registry[ref] = true
+		if h.st.Users == nil {
+			h.st.Users = map[string]string{}
+		}
+		h.st.Users[ref] = user
+		return nil
+	})
 }
 
 // SetRemote makes a repository at url with commits on branch, oldest

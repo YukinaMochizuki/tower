@@ -43,6 +43,10 @@ type Harness struct {
 	// Remote is a repository the provider can fetch and push to, on
 	// Branch; RemoteHead is the commit Branch is at.
 	Remote, Branch, RemoteHead string
+	// RemoteDockerfile is the path of a Dockerfile at the remote's head
+	// that builds from Image with the repository's root as its context;
+	// empty skips building from a mirror.
+	RemoteDockerfile string
 }
 
 // Run runs the suite.
@@ -58,6 +62,8 @@ func Run(t *testing.T, h Harness) {
 		{"Copy", testCopy},
 		{"WhatIsNotThere", testWhatIsNotThere},
 		{"BuildImage", testBuildImage},
+		{"ResolveImage", testResolveImage},
+		{"ReadAndBuildAMirror", testReadAndBuildAMirror},
 		{"CaptureAndClone", testCaptureAndClone},
 		{"MirrorAndCheckout", testMirrorAndCheckout},
 		{"PushNeedsItsLease", testPushNeedsItsLease},
@@ -260,6 +266,76 @@ func testBuildImage(t *testing.T, h Harness) {
 	}
 	if one == other {
 		t.Errorf("two contexts built one image %q", one)
+	}
+}
+
+func testResolveImage(t *testing.T, h Harness) {
+	ctx := t.Context()
+	cfg, err := h.Provider.ResolveImage(ctx, h.Image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, digest, ok := strings.Cut(h.Image, "@"); ok && cfg.Digest != digest {
+		t.Errorf("%s resolved to digest %q", h.Image, cfg.Digest)
+	}
+	// What tower builds, it resolves, with the user it runs as.
+	image, err := h.Provider.BuildImage(ctx, provider.BuildRequest{Context: buildContext(t, "FROM "+h.Image+"\nUSER 4242\n"), Repository: "conformance/images"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = h.Provider.ResolveImage(ctx, image)
+	if _, digest, _ := strings.Cut(image, "@"); err != nil || cfg.Digest != digest || cfg.User != "4242" {
+		t.Errorf("%s resolved to %+v, %v; want its digest and user 4242", image, cfg, err)
+	}
+}
+
+func testReadAndBuildAMirror(t *testing.T, h Harness) {
+	ctx := t.Context()
+	const mirror = "conformance/read"
+	head, err := h.Provider.Fetch(ctx, provider.FetchRequest{Mirror: mirror, URL: h.Remote, Branch: h.Branch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := provider.MirrorSource{Mirror: mirror}
+	read, err := h.Provider.ReadMirror(ctx, provider.MirrorReadRequest{MirrorSource: source, Paths: []string{"", "no/such/file"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root, ok := read.Entries[""]; read.Commit != head || !ok || !root.Dir || root.Object == "" {
+		t.Errorf("read the root at %q as %+v", read.Commit, read.Entries)
+	}
+	if _, ok := read.Entries["no/such/file"]; ok {
+		t.Error("a path not there was read")
+	}
+	if _, err := h.Provider.ReadMirror(ctx, provider.MirrorReadRequest{MirrorSource: provider.MirrorSource{Mirror: "conformance/never-fetched"}, Paths: []string{""}}); !errors.Is(err, provider.ErrNotFound) {
+		t.Errorf("reading a mirror never fetched: %v, want ErrNotFound", err)
+	}
+	if _, err := h.Provider.ReadMirror(ctx, provider.MirrorReadRequest{MirrorSource: provider.MirrorSource{Mirror: mirror, Ref: "no-such-ref"}, Paths: []string{""}}); !errors.Is(err, provider.ErrNotFound) {
+		t.Errorf("reading a ref the mirror lacks: %v, want ErrNotFound", err)
+	}
+	if _, err := h.Provider.BuildImage(ctx, provider.BuildRequest{Mirror: &provider.MirrorSource{Mirror: "conformance/never-fetched"}, Repository: "conformance/images"}); !errors.Is(err, provider.ErrNotFound) {
+		t.Errorf("building a mirror never fetched: %v, want ErrNotFound", err)
+	}
+	if _, err := h.Provider.BuildImage(ctx, provider.BuildRequest{Mirror: &source, Dockerfile: "no/such/Dockerfile", Repository: "conformance/images"}); !errors.Is(err, provider.ErrFailed) {
+		t.Errorf("building a mirror with no such Dockerfile: %v, want ErrFailed", err)
+	}
+	if h.RemoteDockerfile == "" {
+		return
+	}
+	read, err = h.Provider.ReadMirror(ctx, provider.MirrorReadRequest{MirrorSource: source, Paths: []string{h.RemoteDockerfile}, Content: true})
+	if e := read.Entries[h.RemoteDockerfile]; err != nil || e.Dir || !strings.HasPrefix(string(e.Content), "FROM ") || e.Size != int64(len(e.Content)) {
+		t.Errorf("read %s as %+v, %v", h.RemoteDockerfile, e, err)
+	}
+	build := func() string {
+		t.Helper()
+		image, err := h.Provider.BuildImage(ctx, provider.BuildRequest{Mirror: &source, Dockerfile: h.RemoteDockerfile, Repository: "conformance/images"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return image
+	}
+	if one, again := build(), build(); !strings.Contains(one, "@sha256:") || one != again {
+		t.Errorf("a mirror's work tree built %q, then %q", one, again)
 	}
 }
 

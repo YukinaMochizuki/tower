@@ -71,6 +71,56 @@ func RunGit(t *testing.T, h Harness) {
 		}
 		is(t, "the origin of a mirror never fetched", g.Origin(ctx, "drivertest/never-fetched", io.Discard), driver.ErrNotFound)
 	})
+	t.Run("ArchiveAndRead", func(t *testing.T) {
+		var archive bytes.Buffer
+		commit, err := g.Archive(ctx, mirror, "", &archive)
+		mustNot(t, "archiving", err)
+		if commit != head {
+			t.Errorf("archived %q, want %q", commit, head)
+		}
+		tree := files(t, archive.Bytes())
+		var file string
+		for name := range tree {
+			if strings.HasPrefix(name, ".git/") || name == ".git" {
+				t.Errorf("the archive holds %s", name)
+			}
+			if file == "" || name < file {
+				file = name
+			}
+		}
+		if file == "" {
+			t.Fatal("the archive holds no file")
+		}
+		if bytes.Contains(archive.Bytes(), []byte(token)) {
+			t.Error("the archive holds the repository's token")
+		}
+		commit, read, err := g.Read(ctx, mirror, head, []string{file, "", "./" + file, "no/such/path"}, 1<<20)
+		mustNot(t, "reading", err)
+		f, root := read[file], read[""]
+		if commit != head || f.Dir || f.Object == "" || string(f.Content) != tree[file] || f.Size != int64(len(tree[file])) {
+			t.Errorf("read %s at %q as %+v, want its content %q", file, commit, f, tree[file])
+		}
+		if !root.Dir || root.Object == "" || root.Object == f.Object || read["./"+file].Object != f.Object {
+			t.Errorf("read the root as %+v and ./%s as %+v", root, file, read["./"+file])
+		}
+		if _, ok := read["no/such/path"]; ok {
+			t.Error("a path not there was read")
+		}
+		_, sized, err := g.Read(ctx, mirror, "", []string{file}, 0)
+		mustNot(t, "reading without content", err)
+		if e := sized[file]; e.Content != nil || e.Object != f.Object {
+			t.Errorf("read without content as %+v", e)
+		}
+		if _, _, err := g.Read(ctx, mirror, "", []string{"../outside"}, 0); err == nil {
+			t.Error("a path out of the work tree was read")
+		}
+		_, _, err = g.Read(ctx, mirror, "no-such-ref", []string{file}, 0)
+		is(t, "reading a ref the mirror lacks", err, driver.ErrNotFound)
+		_, _, err = g.Read(ctx, "drivertest/never-fetched", "", []string{file}, 0)
+		is(t, "reading a mirror never fetched", err, driver.ErrNotFound)
+		_, err = g.Archive(ctx, "drivertest/never-fetched", "", io.Discard)
+		is(t, "archiving a mirror never fetched", err, driver.ErrNotFound)
+	})
 	t.Run("PushNeedsItsLease", func(t *testing.T) {
 		gitDir := func() io.Reader {
 			// The checkout's .git, as CopyOut of it writes it.
