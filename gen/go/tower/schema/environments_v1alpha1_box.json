@@ -5,14 +5,14 @@
       "description": "BoxSpec is what workstream wants. What the box is made of cannot change: a different recipe is a different box.",
       "properties": {
         "addons": {
-          "description": "Add-ons layered onto the image, such as \"browser\" or \"desktop\".",
+          "description": "Add-ons layered onto the image, in this order: \"browser\" or \"desktop\", workstream's (docs/decisions/box-addons.md).",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "checkouts": {
-          "description": "The repositories to check out: the first at /workspace, each other at /repos/<repository>. Empty is an empty box, which needs image.",
+          "description": "The repositories to check out: the first at /workspace, each other at /repos/<repository>. Empty is an empty box, which needs image. The first's devcontainer is the box's image unless image or image_build is set, read as workstream reads it (docs/decisions/devcontainers.md).",
           "items": {
             "$ref": "#/$defs/tower.environments.v1alpha1.Checkout"
           },
@@ -71,7 +71,7 @@
           "type": "string"
         },
         "conditions": {
-          "description": "Ready, with ImageBuilt and Materialized on the way to it.",
+          "description": "Ready, with ImageBuilt and Materialized on the way to it, and SetUp, which says whether its devcontainer's setup steps passed: one that did not leaves the box READY.",
           "items": {
             "$ref": "#/$defs/tower.meta.v1.Condition"
           },

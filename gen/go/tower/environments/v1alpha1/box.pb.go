@@ -183,9 +183,12 @@ type BoxSpec struct {
 	// machines share a network and reach each other by alias.
 	Workstream string `protobuf:"bytes,1,opt,name=workstream,proto3" json:"workstream,omitempty"`
 	// The repositories to check out: the first at /workspace, each other at
-	// /repos/<repository>. Empty is an empty box, which needs image.
+	// /repos/<repository>. Empty is an empty box, which needs image. The
+	// first's devcontainer is the box's image unless image or image_build
+	// is set, read as workstream reads it (docs/decisions/devcontainers.md).
 	Checkouts []*Checkout `protobuf:"bytes,2,rep,name=checkouts,proto3" json:"checkouts,omitempty"`
-	// Add-ons layered onto the image, such as "browser" or "desktop".
+	// Add-ons layered onto the image, in this order: "browser" or
+	// "desktop", workstream's (docs/decisions/box-addons.md).
 	Addons []string `protobuf:"bytes,3,rep,name=addons,proto3" json:"addons,omitempty"`
 	// An explicit base image, which skips the first checkout's devcontainer.
 	// At most one of image and image_build is set.
@@ -501,7 +504,9 @@ func (x *Checkout) GetRef() string {
 type BoxStatus struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	ObservedGeneration int64                  `protobuf:"varint,1,opt,name=observed_generation,json=observedGeneration,proto3" json:"observed_generation,omitempty"`
-	// Ready, with ImageBuilt and Materialized on the way to it.
+	// Ready, with ImageBuilt and Materialized on the way to it, and SetUp,
+	// which says whether its devcontainer's setup steps passed: one that did
+	// not leaves the box READY.
 	Conditions []*v1.Condition `protobuf:"bytes,2,rep,name=conditions,proto3" json:"conditions,omitempty"`
 	Phase      BoxPhase        `protobuf:"varint,3,opt,name=phase,proto3,enum=tower.environments.v1alpha1.BoxPhase" json:"phase,omitempty"`
 	// Why a STOPPED box stopped: "Requested" (run_state) or "Idle".

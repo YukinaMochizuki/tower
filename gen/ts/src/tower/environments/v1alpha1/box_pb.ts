@@ -81,14 +81,17 @@ export type BoxSpec = Message<"tower.environments.v1alpha1.BoxSpec"> & {
 
   /**
    * The repositories to check out: the first at /workspace, each other at
-   * /repos/<repository>. Empty is an empty box, which needs image.
+   * /repos/<repository>. Empty is an empty box, which needs image. The
+   * first's devcontainer is the box's image unless image or image_build
+   * is set, read as workstream reads it (docs/decisions/devcontainers.md).
    *
    * @generated from field: repeated tower.environments.v1alpha1.Checkout checkouts = 2;
    */
   checkouts: Checkout[];
 
   /**
-   * Add-ons layered onto the image, such as "browser" or "desktop".
+   * Add-ons layered onto the image, in this order: "browser" or
+   * "desktop", workstream's (docs/decisions/box-addons.md).
    *
    * @generated from field: repeated string addons = 3;
    */
@@ -267,7 +270,9 @@ export type BoxStatus = Message<"tower.environments.v1alpha1.BoxStatus"> & {
   observedGeneration: bigint;
 
   /**
-   * Ready, with ImageBuilt and Materialized on the way to it.
+   * Ready, with ImageBuilt and Materialized on the way to it, and SetUp,
+   * which says whether its devcontainer's setup steps passed: one that did
+   * not leaves the box READY.
    *
    * @generated from field: repeated tower.meta.v1.Condition conditions = 2;
    */
