@@ -1,0 +1,21 @@
+{
+  "id": "desktop",
+  "version": "1.0.0",
+  "name": "Virtual desktop (noVNC)",
+  "description": "An X desktop on :99 (Xvfb + fluxbox), served to a browser by noVNC. Start it with `ws-desktop`.",
+  "options": {
+    "resolution": {
+      "type": "string",
+      "default": "1440x900x24",
+      "description": "The Xvfb screen, WIDTHxHEIGHTxDEPTH."
+    },
+    "port": {
+      "type": "string",
+      "default": "6080",
+      "description": "The port noVNC serves on inside the box."
+    }
+  },
+  "containerEnv": {
+    "DISPLAY": ":99"
+  }
+}

@@ -14,6 +14,7 @@ the change.
 | `traffic.md` | Traffic inside a target stays there; small data workstream consumes passes through tower; long-lived streams go to the target on a ticket |
 | `images.md` | One registry beside tower; images are built on the target when tower decides |
 | `hostd-storage.md` | hostd hosts run on ZFS: goldens are snapshots, environments clones |
+| `box-addons.md` | A box's add-ons are workstream's Features, copied at a recorded commit and built as a layer on the resolved image as workstream builds it |
 | `machine-blueprints.md` | A machine's golden is its playbook but the tasks tagged configure, which each machine runs; every VM has the hostname `machine` |
 | `repositories.md` | tower mirrors repositories with its own credentials and pushes branches after workstream's approval; pull requests stay workstream's |
 | `secrets.md` | Every product secret is tower's, sealed at rest; a secret reaches only the environment that uses it; privileged boxes run through tower |

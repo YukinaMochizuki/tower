@@ -1,0 +1,21 @@
+{
+  "id": "browser",
+  "version": "1.0.0",
+  "name": "Headless Chromium",
+  "description": "Chromium from Playwright's build, with its system libraries and CJK/emoji fonts, on PATH as `chromium`.",
+  "options": {
+    "playwrightVersion": {
+      "type": "string",
+      "default": "1.63.0",
+      "description": "The Playwright release whose Chromium build (and dependency list) is installed."
+    },
+    "nodeVersion": {
+      "type": "string",
+      "default": "24.21.0",
+      "description": "The Node.js used ONLY to run the Playwright installer; removed afterwards."
+    }
+  },
+  "containerEnv": {
+    "CHROME_PATH": "/usr/local/bin/chromium"
+  }
+}
