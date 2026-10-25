@@ -29,8 +29,9 @@ func (h *Host) getTarget(ctx context.Context) (*targetsv1alpha1.Target, error) {
 }
 
 // Report writes what hostd says of its host into the Target's status:
-// capacity, facts, last_report_time and Reporting, leaving what tower
-// owns there as it is (internal/apiserver/targetstatus.go).
+// capacity, facts, the disk its images hold (usage.images),
+// last_report_time and Reporting, leaving what tower owns there as it is
+// (internal/apiserver/targetstatus.go).
 func (h *Host) Report(ctx context.Context) error {
 	pool, err := h.d.Storage.Pool(ctx)
 	if err != nil {
@@ -59,6 +60,10 @@ func (h *Host) Report(ctx context.Context) error {
 		}
 		facts = append(facts, &targetsv1alpha1.Fact{Name: v.name, Value: s})
 	}
+	imagesHeld, err := h.d.Images.DiskUsage(ctx)
+	if err != nil {
+		return err
+	}
 	capacity := &targetsv1alpha1.Capacity{
 		DiskTotal: quantity.FormatDisk(pool.Size), DiskFree: quantity.FormatDisk(pool.Free),
 		MemoryTotal: quantity.FormatMemory(info.MemoryTotal), MemoryFree: quantity.FormatMemory(info.MemoryFree), Cpus: int32(info.CPUs),
@@ -73,6 +78,10 @@ func (h *Host) Report(ctx context.Context) error {
 			st = &targetsv1alpha1.TargetStatus{}
 		}
 		st.Capacity, st.Facts, st.LastReportTime = capacity, facts, timestamppb.New(h.clock.Now())
+		if st.Usage == nil {
+			st.Usage = &targetsv1alpha1.Usage{}
+		}
+		st.Usage.Images = quantity.FormatDisk(imagesHeld)
 		st.Conditions = conditions.Set(slices.Clone(st.GetConditions()), &metav1.Condition{
 			Type: TargetReporting, Status: metav1.ConditionStatus_CONDITION_STATUS_TRUE, Reason: "Reported",
 			Message: "hostd " + Version + " reported",

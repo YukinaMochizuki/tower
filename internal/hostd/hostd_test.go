@@ -332,6 +332,52 @@ func TestAFailedListStopsTheSweep(t *testing.T) {
 	})
 }
 
+// TestAnImageNothingNamesIsSwept: an image of tower's registry no
+// Instance or Golden of the target names goes once it has gone unnamed for
+// the grace; one an instance names stays; what the images hold is
+// reported in the target's usage.
+func TestAnImageNothingNamesIsSwept(t *testing.T) {
+	w := hostdtest.New(t, hostdtest.Options{Host: func(c *hostd.Config) { c.SweepGrace = 50 * time.Millisecond }})
+	w.Apply(t, "kept", container("net-a"))
+	w.WaitPhase(t, "kept", envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING)
+	const stale = fake.Registry + "/web/box@sha256:5a"
+	w.Fake.AddImage(stale)
+	d := w.Fake.Drivers()
+	if err := d.Images.Pull(t.Context(), stale); err != nil {
+		t.Fatal(err)
+	}
+	listed := func(ref string) bool {
+		list, _ := d.Images.List(t.Context())
+		return slices.ContainsFunc(list, func(i driver.HostImage) bool { return slices.Contains(i.Refs, ref) })
+	}
+	// Seen unnamed, then kept for the grace.
+	if err := w.Host.Sweep(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if !listed(stale) {
+		t.Fatal("an image was swept before its grace")
+	}
+	testutil.Eventually(t, "the image nothing names swept", func() (bool, string) {
+		if err := w.Host.Sweep(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		return !listed(stale), ""
+	})
+	if !listed(hostdtest.Image) {
+		t.Error("the image an instance names was swept")
+	}
+	if err := w.Host.Report(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	o, err := w.Env.AsSystem().Get(t.Context(), registry.Target, client.Key{Name: target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := o.(*targetsv1alpha1.Target).GetStatus().GetUsage().GetImages(); got == "" || got == "0" {
+		t.Errorf("the target's images hold %q", got)
+	}
+}
+
 // TestWhatTheHostDoesIsReported: a guest that does not start, a full pool
 // and a golden not ready are reported; a guest the host lost is GONE.
 func TestWhatTheHostDoesIsReported(t *testing.T) {

@@ -81,6 +81,9 @@ type Host struct {
 	limits  atomic.Pointer[processLimits]
 	streams streamCount
 	pulls   *pulls
+	// unnamedImages are the images of the host no Instance or Golden
+	// named at a sweep, by ID, since when (sweepImages). Under mu.
+	unnamedImages map[string]time.Time
 }
 
 var _ provider.Provider = (*Host)(nil)
@@ -90,7 +93,7 @@ func New(cfg Config) *Host {
 	cfg.ReportEvery = cmp.Or(cfg.ReportEvery, DefaultReportEvery)
 	cfg.SweepEvery = cmp.Or(cfg.SweepEvery, DefaultSweepEvery)
 	cfg.SweepGrace = cmp.Or(cfg.SweepGrace, DefaultSweepGrace)
-	h := &Host{cfg: cfg, d: cfg.Drivers, c: cfg.Client, clock: cfg.Clock, log: cfg.Log}
+	h := &Host{cfg: cfg, d: cfg.Drivers, c: cfg.Client, clock: cfg.Clock, log: cfg.Log, unnamedImages: map[string]time.Time{}}
 	if h.clock == nil {
 		h.clock = clockwork.NewRealClock()
 	}

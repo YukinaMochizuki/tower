@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/docker/cli/cli/config/types"
@@ -111,6 +112,50 @@ func (d *Driver) Pull(ctx context.Context, ref string) error {
 		_ = resp.Close()
 	}
 	return pullError(ref, err)
+}
+
+// List lists the images Docker holds that every reference of names tower's
+// registry: what hostd pulled. Another's, as the VMs' empty image or one
+// pulled by hand, is not listed.
+func (d *Driver) List(ctx context.Context) ([]driver.HostImage, error) {
+	res, err := d.cfg.Docker.ImageList(ctx, dockerclient.ImageListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	var out []driver.HostImage
+	for _, im := range res.Items {
+		refs := append(slices.Clone(im.RepoDigests), im.RepoTags...)
+		ours := len(refs) > 0
+		for _, r := range refs {
+			ours = ours && registryOf(r) == d.cfg.Registry
+		}
+		if ours {
+			out = append(out, driver.HostImage{ID: im.ID, Refs: im.RepoDigests})
+		}
+	}
+	return out, nil
+}
+
+// Remove removes a reference without forcing it: Docker refuses one a
+// container is made of.
+func (d *Driver) Remove(ctx context.Context, ref string) error {
+	_, err := d.cfg.Docker.ImageRemove(ctx, ref, dockerclient.ImageRemoveOptions{PruneChildren: true})
+	switch {
+	case err == nil || cerrdefs.IsNotFound(err):
+		return nil
+	case cerrdefs.IsConflict(err):
+		return fmt.Errorf("image %s: %w: %w", ref, err, driver.ErrBusy)
+	}
+	return err
+}
+
+// DiskUsage is what Docker says its images hold.
+func (d *Driver) DiskUsage(ctx context.Context) (uint64, error) {
+	res, err := d.cfg.Docker.DiskUsage(ctx, dockerclient.DiskUsageOptions{Images: true})
+	if err != nil {
+		return 0, err
+	}
+	return uint64(max(res.Images.TotalSize, 0)), nil
 }
 
 // pullError is a pull's error as the driver's: what the registry lacks is

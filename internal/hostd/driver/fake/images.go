@@ -125,6 +125,42 @@ func (i images) Build(_ context.Context, spec driver.BuildSpec) (string, error) 
 	return ref, err
 }
 
+// List lists what was pulled, an image a reference.
+func (i images) List(context.Context) ([]driver.HostImage, error) {
+	var out []driver.HostImage
+	err := i.h.read("images.List", func() error {
+		for _, ref := range slices.Sorted(maps.Keys(i.h.st.Pulled)) {
+			sum := sha256.Sum256([]byte(ref))
+			out = append(out, driver.HostImage{ID: "sha256:" + hex.EncodeToString(sum[:]), Refs: []string{ref}})
+		}
+		return nil
+	})
+	return out, err
+}
+
+// Remove forgets a pull, but of an image a container is made of.
+func (i images) Remove(_ context.Context, ref string) error {
+	return i.h.change("images.Remove", func() error {
+		for name, g := range i.h.st.Guests {
+			if strings.HasPrefix(name, "container/") && g.Image == ref {
+				return fmt.Errorf("image %s: container %s is made of it: %w", ref, g.Spec.Name, driver.ErrBusy)
+			}
+		}
+		delete(i.h.st.Pulled, ref)
+		return nil
+	})
+}
+
+// DiskUsage is ImageSize an image pulled.
+func (i images) DiskUsage(context.Context) (uint64, error) {
+	var n uint64
+	err := i.h.read("images.DiskUsage", func() error {
+		n = uint64(len(i.h.st.Pulled)) * ImageSize
+		return nil
+	})
+	return n, err
+}
+
 // Resolve answers for what tower's registry holds, and for any image of
 // another registry, as a public one holds them: a reference by digest, its
 // digest, a tag the hash of its name.

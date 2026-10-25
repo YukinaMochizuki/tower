@@ -371,6 +371,22 @@ type Images interface {
 	// pulling it: its digest and the user it runs as. One the registry
 	// lacks is ErrNotFound.
 	Resolve(ctx context.Context, ref string) (ImageConfig, error)
+	// List lists the images the host holds from tower's registry, and no
+	// other.
+	List(ctx context.Context) ([]HostImage, error)
+	// Remove removes a reference of an image the host holds, the image
+	// going with its last; one a container is made of, running or not, is
+	// ErrBusy, and one gone no error.
+	Remove(ctx context.Context, ref string) error
+	// DiskUsage is what the host's images hold on its disk, in bytes.
+	DiskUsage(ctx context.Context) (uint64, error)
+}
+
+// HostImage is an image the host holds.
+type HostImage struct {
+	ID string
+	// Refs are the references by digest it was pulled as.
+	Refs []string
 }
 
 // BuildSpec is an image to build.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
@@ -15,7 +16,11 @@ import (
 // Sweep removes from the host what this hostd made that no Instance or
 // Golden of its target accounts for any more and is older than the grace,
 // as a delete missed while hostd was down or disconnected leaves: guests,
-// their disks, goldens, then networks no guest is on. A list it could not
+// their disks, goldens, then networks no guest is on; and the images of
+// tower's registry it pulled that no Instance or Golden of its target
+// names, once they have gone unnamed for the grace (an image's own time is
+// its build's, the epoch: hostd counts from when it first saw it unnamed,
+// afresh after a restart). An image a container is made of stays. A list it could not
 // read, from the API or from a driver, stops it: a failed list must never
 // read as nothing being wanted. What another hostd made, or anything not
 // made by one, it never touches.
@@ -35,6 +40,7 @@ func (h *Host) Sweep(ctx context.Context) error {
 		in := m.(*envv1alpha1.Instance)
 		if in.GetSpec().GetTarget() == h.cfg.Target {
 			uids[in.GetMetadata().GetUid()] = true
+			artifacts[in.GetSpec().GetImage()] = true
 		}
 	}
 	for _, m := range goldens {
@@ -71,6 +77,10 @@ func (h *Host) Sweep(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listing goldens on the host: %w", err)
 	}
+	images, err := h.d.Images.List(ctx)
+	if err != nil {
+		return fmt.Errorf("listing images: %w", err)
+	}
 
 	var errs []error
 	for i, g := range kinds {
@@ -94,6 +104,7 @@ func (h *Host) Sweep(ctx context.Context) error {
 		h.log.Info("sweeping a golden no Golden names", "golden", g.Name, "clones", g.Clones)
 		errs = append(errs, h.d.Storage.DestroyGolden(ctx, g.Name))
 	}
+	errs = append(errs, h.sweepImages(ctx, images, artifacts))
 	for i, g := range kinds {
 		for _, n := range networks[i] {
 			// One a guest is still on is busy, and stays.
@@ -102,6 +113,51 @@ func (h *Host) Sweep(ctx context.Context) error {
 					errs = append(errs, err)
 				}
 			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// sweepImages removes the images no Instance or Golden names, once they
+// have gone unnamed for the grace. The caller holds h.mu.
+func (h *Host) sweepImages(ctx context.Context, images []driver.HostImage, named map[string]bool) error {
+	now := h.clock.Now()
+	seen := map[string]bool{}
+	var errs []error
+	for _, im := range images {
+		seen[im.ID] = true
+		if slices.ContainsFunc(im.Refs, func(r string) bool { return named[r] }) {
+			delete(h.unnamedImages, im.ID)
+			continue
+		}
+		since, ok := h.unnamedImages[im.ID]
+		if !ok {
+			h.unnamedImages[im.ID] = now
+			continue
+		}
+		if now.Sub(since) < h.cfg.SweepGrace {
+			continue
+		}
+		h.log.Info("sweeping an image nothing names", "image", im.ID, "refs", im.Refs)
+		removed := true
+		for _, r := range im.Refs {
+			if err := h.d.Images.Remove(ctx, r); errors.Is(err, driver.ErrBusy) {
+				removed = false
+			} else if err != nil {
+				errs = append(errs, err)
+				removed = false
+			}
+		}
+		if removed {
+			delete(h.unnamedImages, im.ID)
+			for _, r := range im.Refs {
+				h.pulls.forget(r)
+			}
+		}
+	}
+	for id := range h.unnamedImages {
+		if !seen[id] {
+			delete(h.unnamedImages, id)
 		}
 	}
 	return errors.Join(errs...)

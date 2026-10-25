@@ -2,6 +2,7 @@ package drivertest
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
@@ -67,6 +68,48 @@ func RunImages(t *testing.T, h Harness) {
 			if _, err := build(t, spec, files); err == nil {
 				t.Errorf("%s built", what)
 			}
+		}
+	})
+	t.Run("ListAndRemove", func(t *testing.T) {
+		pulled := func(name string) string {
+			t.Helper()
+			ref, err := build(t, driver.BuildSpec{}, map[string]string{"Dockerfile": "FROM " + h.Image + "\nLABEL drivertest=" + name + "\n"})
+			mustNot(t, "building "+name, err)
+			mustNot(t, "pulling "+name, im.Pull(ctx, ref))
+			return ref
+		}
+		listed := func(ref string) bool {
+			t.Helper()
+			list, err := im.List(ctx)
+			mustNot(t, "listing images", err)
+			for _, i := range list {
+				if slices.Contains(i.Refs, ref) {
+					return true
+				}
+			}
+			return false
+		}
+		loose, used := pulled("loose"), pulled("used")
+		if !listed(loose) || !listed(used) {
+			t.Fatalf("images pulled are not listed")
+		}
+		if n, err := im.DiskUsage(ctx); err != nil || n == 0 {
+			t.Errorf("the images hold %d bytes, %v", n, err)
+		}
+		mustNot(t, "removing an image", im.Remove(ctx, loose))
+		if listed(loose) {
+			t.Error("an image removed is listed")
+		}
+		mustNot(t, "removing it again", im.Remove(ctx, loose))
+		// One a container is made of stays.
+		c := h.containers()
+		c.Create = func(t *testing.T, spec driver.GuestSpec) error {
+			return h.Drivers.Containers.Create(t.Context(), driver.ContainerSpec{GuestSpec: spec, Image: used})
+		}
+		_ = c.guestWithDisk(t, h, "image-user")
+		is(t, "removing an image a container is made of", im.Remove(ctx, used), driver.ErrBusy)
+		if !listed(used) {
+			t.Error("an image a container is made of went")
 		}
 	})
 	t.Run("Resolve", func(t *testing.T) {
