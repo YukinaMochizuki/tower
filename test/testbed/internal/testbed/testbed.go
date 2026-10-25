@@ -21,7 +21,10 @@ import (
 	"strings"
 
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
+	"github.com/YukinaMochizuki/tower/internal/hostd/driver/chvm"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver/docker"
+	"github.com/YukinaMochizuki/tower/internal/hostd/driver/gitmirror"
+	"github.com/YukinaMochizuki/tower/internal/hostd/driver/hostinfo"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver/images"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver/zfsstore"
 )
@@ -94,24 +97,17 @@ func New(name string) (Env, error) {
 	return e, nil
 }
 
-// Sweep removes the package's containers, networks, dataset and
-// directory, whatever a run killed outright left.
+// Sweep removes every container, VM and network hostd's drivers made on
+// the testbed, which runs one package at a time, and the package's
+// dataset and directory: whatever a run killed outright left.
 func (e Env) Sweep() error {
-	label := "tower.hangarlab.cloud/instance"
-	// drivertest's labels name the test; every one of them starts dt-.
 	out, _ := exec.Command("docker", "ps", "-aq", "--filter", "label="+docker.LabelDriver).Output()
 	for _, id := range strings.Fields(string(out)) {
-		l, _ := exec.Command("docker", "inspect", "--format", "{{index .Config.Labels \""+label+"\"}}", id).Output()
-		if strings.HasPrefix(strings.TrimSpace(string(l)), "dt-") || strings.HasPrefix(strings.TrimSpace(string(l)), e.Name) {
-			_ = exec.Command("docker", "rm", "-f", id).Run()
-		}
+		_ = exec.Command("docker", "rm", "-f", id).Run()
 	}
 	out, _ = exec.Command("docker", "network", "ls", "-q", "--filter", "label="+docker.LabelDriver+"=network").Output()
 	for _, id := range strings.Fields(string(out)) {
-		n, _ := exec.Command("docker", "network", "inspect", "--format", "{{.Name}}", id).Output()
-		if strings.HasPrefix(strings.TrimSpace(string(n)), "dt-") {
-			_ = exec.Command("docker", "network", "rm", id).Run()
-		}
+		_ = exec.Command("docker", "network", "rm", id).Run()
 	}
 	if exec.Command("zfs", "list", e.Dataset).Run() == nil {
 		if out, err := exec.Command("zfs", "destroy", "-R", e.Dataset).CombinedOutput(); err != nil {
@@ -146,8 +142,61 @@ func (e Env) Drivers(ctx context.Context) (driver.Drivers, error) {
 	if err != nil {
 		return driver.Drivers{}, err
 	}
-	return driver.Drivers{Storage: storage, Containers: containers, Images: imgs}, nil
+	vms, err := chvm.New(ctx, chvm.Config{
+		Docker: cli, StateDir: e.StateDir(), GuestBinary: e.GuestBinary(),
+		CloudHypervisor: CloudHypervisor, Firmware: Firmware, BaseImages: BaseImages,
+	})
+	if err != nil {
+		return driver.Drivers{}, err
+	}
+	git, err := gitmirror.New(ctx, gitmirror.Config{
+		Dataset: e.Dataset + "/mirrors", MountRoot: filepath.Join(e.Dir, "mirrors"), ScratchDir: filepath.Join(e.StateDir(), "scratch", "git"),
+	})
+	if err != nil {
+		return driver.Drivers{}, err
+	}
+	return driver.Drivers{Storage: storage, Containers: containers, VMs: vms, Images: imgs, Git: git, Host: hostinfo.Host{}}, nil
 }
+
+// Remote makes, once, a repository with a commit on main in the place,
+// the git suite's remote, and returns its URL and where main is.
+func (e Env) Remote() (url, head string, err error) {
+	dir := filepath.Join(e.Dir, "remote.git")
+	work := filepath.Join(e.Dir, "remote-work")
+	if _, err := os.Stat(dir); err == nil {
+		out, err := exec.Command("git", "-C", dir, "rev-parse", "main").Output()
+		return "file://" + dir, strings.TrimSpace(string(out)), err
+	}
+	steps := [][]string{
+		{"git", "init", "--quiet", "--bare", "--initial-branch=main", dir},
+		{"git", "init", "--quiet", "--initial-branch=main", work},
+		{"sh", "-c", "echo 'module drivertest' > go.mod && echo hello > README"},
+		{"git", "add", "."},
+		{"git", "-c", "user.name=testbed", "-c", "user.email=testbed@tower.invalid", "commit", "--quiet", "-m", "the first commit"},
+		{"git", "push", "--quiet", dir, "main"},
+	}
+	for i, s := range steps {
+		cmd := exec.Command(s[0], s[1:]...)
+		if i >= 2 {
+			cmd.Dir = work
+		}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return "", "", fmt.Errorf("%v: %w: %s", s, err, out)
+		}
+	}
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "main").Output()
+	if err != nil {
+		return "", "", err
+	}
+	return "file://" + dir, strings.TrimSpace(string(out)), nil
+}
+
+// What test/testbed/setup.sh installs for the VMs.
+const (
+	CloudHypervisor = "/usr/local/bin/cloud-hypervisor"
+	Firmware        = "/usr/local/share/tower/CLOUDHV.fd"
+	BaseImages      = "/var/lib/tower-hostd/base-images"
+)
 
 // DrivertestImage builds the image drivertest's guests run, with
 // test/testbed/guestbin on its PATH and an echo on EchoPort, pushes it to

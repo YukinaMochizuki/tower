@@ -79,8 +79,11 @@ TOWER_ZOT_ADDRESS=127.0.0.1 TOWER_ZOT_PORT=5000 TOWER_ZOT_HTPASSWD=/etc/tower/zo
 # The base images.
 "$repo/deploy/hostd/base-image.sh" ubuntu-24.04
 make_drivertest() {
-	local out=$base_images/drivertest.raw work mnt loop
-	[ -e "$out" ] && return 0
+	local out=$base_images/drivertest.raw work mnt loop sum
+	# Made again when guestbin changes, which it carries.
+	sum=$(cat "$repo"/test/testbed/guestbin/* | sha256sum | cut -d' ' -f1)
+	[ -e "$out" ] && [ "$(cat "$out.guestbin" 2>/dev/null)" = "$sum" ] && return 0
+	rm -f "$out"
 	work=$(mktemp -d "$base_images/.making-drivertest.XXXXXX")
 	mnt=$work/root
 	curl -fsSL --retry 3 -o "$work/image" "$TOWER_ALPINE_URL"
@@ -99,9 +102,12 @@ nc -lk -p 7777 -e /bin/cat >/dev/null 2>&1 &
 EOF
 	chmod 0755 "$mnt/etc/local.d/drivertest-echo.start"
 	ln -sf /etc/init.d/local "$mnt/etc/runlevels/default/local"
+	# Booted at once: its menu would wait ten seconds at every boot.
+	sed -i 's/set timeout=[0-9]*/set timeout=0/' "$mnt/boot/grub/grub.cfg"
 	umount "$mnt"
 	losetup -d "$loop"
 	mv "$work/image.raw" "$out"
+	echo "$sum" >"$out.guestbin"
 	rm -rf "$work"
 	echo "made $out"
 }

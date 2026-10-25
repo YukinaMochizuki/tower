@@ -50,8 +50,12 @@ func harness(t *testing.T) drivertest.Harness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	remote, head, err := env.Remote()
+	if err != nil {
+		t.Fatal(err)
+	}
 	return drivertest.Harness{
-		Drivers: d, Image: image,
+		Drivers: d, Image: image, Remote: remote, Branch: "main", RemoteHead: head,
 		MissingImage: reg.Addr + "/testbed/never-pushed@sha256:0000000000000000000000000000000000000000000000000000000000000000",
 		BaseImage:    "drivertest", EchoPort: testbed.EchoPort,
 		Reopen: func(t *testing.T) driver.Drivers {
@@ -75,3 +79,12 @@ func TestContainers(t *testing.T) {
 }
 
 func TestContainerProcesses(t *testing.T) { drivertest.RunProcesses(t, harness(t)) }
+
+func TestVMs(t *testing.T) {
+	h := harness(t)
+	drivertest.RunGuests(t, h, drivertest.VMsOf(h))
+}
+
+func TestVMProcesses(t *testing.T) { drivertest.RunVMProcesses(t, harness(t)) }
+
+func TestGit(t *testing.T) { drivertest.RunGit(t, harness(t)) }
