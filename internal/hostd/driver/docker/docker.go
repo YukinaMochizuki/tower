@@ -335,15 +335,16 @@ func (d *Driver) Start(ctx context.Context, name string) error {
 	if _, err := d.cli.ContainerStart(ctx, name, client.ContainerStartOptions{}); err != nil {
 		return fmt.Errorf("starting container %s: %w: %w", name, err, driver.ErrStartFailed)
 	}
-	return d.giveWorkspace(ctx, c, s)
+	return d.giveUser(ctx, c, s, d.processesDir(name))
 }
 
-// giveWorkspace gives an empty workspace owned by root to the user the
-// image runs as, so a container that is not root's can write its own
-// /workspace: a devcontainer's remoteUser, say. A user named, not
+// giveUser gives the user the image runs as its processes' directory and
+// an empty workspace, both root's as hostd made them, so a container that
+// is not root's (a devcontainer's remoteUser, say) can run processes and
+// write its own /workspace. A user named, not
 // numbered, is looked up in the container's own /etc/passwd and
 // /etc/group, which the host's do not speak for.
-func (d *Driver) giveWorkspace(ctx context.Context, c container.InspectResponse, s spec) error {
+func (d *Driver) giveUser(ctx context.Context, c container.InspectResponse, s spec, procs string) error {
 	user := ""
 	if c.Config != nil {
 		user = c.Config.User
@@ -361,18 +362,31 @@ func (d *Driver) giveWorkspace(ctx context.Context, c container.InspectResponse,
 	if uid == 0 {
 		return nil
 	}
-	st, err := os.Stat(s.Disk)
-	if err != nil {
+	// Its processes' directory, where its supervisor, running as it, makes
+	// one for each; hostd reads what it holds as a guest's (proclog).
+	if err := chownRoots(procs, uid, gid); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(s.Disk)
 	if err != nil || len(entries) > 0 {
 		return err
 	}
+	return chownRoots(s.Disk, uid, gid)
+}
+
+// chownRoots gives dir to uid:gid if root owns it, as hostd made it.
+func chownRoots(dir string, uid, gid int) error {
+	st, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !st.IsDir() {
+		return fmt.Errorf("%s is no directory", dir)
+	}
 	if sys, ok := st.Sys().(interface{ Uid() uint32 }); ok && sys.Uid() != 0 {
 		return nil
 	}
-	return os.Chown(s.Disk, uid, gid)
+	return os.Lchown(dir, uid, gid)
 }
 
 // numericUser reads a user given as uid or uid:gid.

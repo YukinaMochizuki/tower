@@ -35,6 +35,7 @@ func RunGuestProcesses(t *testing.T, h Harness, k GuestKind) {
 		{"SignalReachesTheGroup", testProcGroup},
 		{"ReadBackAfterReopen", testProcReopen},
 		{"NoEnvironmentKept", testNoEnvKept},
+		{"OfAGuestRunningAsAnotherUser", testProcOtherUser},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) { tt.fn(t, h, k) })
@@ -88,6 +89,39 @@ func waitExit(t *testing.T, p driver.Processes, guest, id string) driver.LogEnd 
 	end, err := p.ReadProcessLog(ctx, guest, id, 0, true, func(driver.LogChunk) error { return nil })
 	mustNot(t, "following a process", err)
 	return end
+}
+
+// testProcOtherUser: a container whose image runs as a user other than
+// root, named in its own /etc/passwd as a devcontainer's remoteUser is,
+// runs processes as it does commands. A VM's run as root.
+func testProcOtherUser(t *testing.T, h Harness, k GuestKind) {
+	if k.DiskKind != driver.Dataset {
+		t.Skip("a VM's processes run as root")
+	}
+	var ctxTar bytes.Buffer
+	_, err := ctxTar.ReadFrom(tarOf(t, map[string]string{
+		"Dockerfile": "FROM " + h.Image + "\nRUN adduser -D -u 4242 visitor\nUSER visitor\n",
+	}))
+	mustNot(t, "making a context", err)
+	image, err := h.Drivers.Images.Build(t.Context(), driver.BuildSpec{Repository: "drivertest/" + name(t, ""), Context: &ctxTar})
+	mustNot(t, "building an image of another user", err)
+	mustNot(t, "pulling it", h.Drivers.Images.Pull(t.Context(), image))
+	other := k
+	other.Create = func(t *testing.T, spec driver.GuestSpec) error {
+		return h.Drivers.Containers.Create(t.Context(), driver.ContainerSpec{GuestSpec: spec, Image: image})
+	}
+	c := processes(t, k)
+	g := other.guestWithDisk(t, h, "visitor")
+	id := startProc(t, c, g, spec("emit", "out:as visitor"))
+	if end := waitExit(t, c, g, id); end.Exit == nil || end.Exit.Code != 0 {
+		t.Errorf("the process ended %+v", end.Exit)
+	}
+	if text, _, _ := readLog(t, c, g, id, 0); text != "as visitor\n" {
+		t.Errorf("the log: %q", text)
+	}
+	if list, err := c.ListProcesses(t.Context(), g); err != nil || len(list) != 1 {
+		t.Errorf("listed %+v, %v", list, err)
+	}
 }
 
 func testProcOutput(t *testing.T, h Harness, k GuestKind) {

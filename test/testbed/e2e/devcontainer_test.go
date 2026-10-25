@@ -121,6 +121,10 @@ spec: {workstream: ws1, checkouts: [{repository: ` + r.name + `, ref: ` + r.comm
 	run("starter", `id -un; stat -c %U /workspace; touch /workspace/written && echo writable; echo "$CHROME_PATH"; chromium --version; command -v dockerd || echo no-dockerd`,
 		// Playwright's build of Chromium calls itself Chrome for Testing.
 		"node\nnode\nwritable\n/usr/local/bin/chromium\n", "Chrome for Testing", "no-dockerd")
+	// A process runs in it as its remoteUser, apart from the call.
+	if out, code, err := runProcess(ctx, w.envs, boxEnv("starter"), "id -un"); err != nil || code != 0 || strings.TrimSpace(out) != "node" {
+		t.Errorf("a process in the box of a remoteUser wrote %q, exited %d, %v", out, code, err)
+	}
 	// Its postCreateCommand installed its dependencies.
 	run("node", "test -d /workspace/node_modules && echo installed", "installed")
 	// A repository without a devcontainer, of the image to fall back to.

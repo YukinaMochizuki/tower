@@ -368,6 +368,39 @@ func execIn(ctx context.Context, envs environmentsv1alpha1connect.EnvironmentSer
 	return out.String(), 0, errors.New("the exec ended with no exit")
 }
 
+// runProcess starts a process of a shell line in the environment, apart
+// from the call, follows its log until it ends, and returns what it wrote
+// and its exit code.
+func runProcess(ctx context.Context, envs environmentsv1alpha1connect.EnvironmentServiceClient, e *envv1alpha1.Environment, shell string) (string, int32, error) {
+	started, err := envs.StartProcess(ctx, connect.NewRequest(&envv1alpha1.StartProcessRequest{
+		Environment: e, Name: "e2e", Command: &envv1alpha1.StartProcessRequest_Shell{Shell: shell},
+	}))
+	if err != nil {
+		return "", 0, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	stream, err := envs.AttachProcess(ctx, connect.NewRequest(&envv1alpha1.AttachProcessRequest{Environment: e, Process: started.Msg.GetProcess(), Follow: true}))
+	if err != nil {
+		return "", 0, err
+	}
+	defer func() { _ = stream.Close() }()
+	var out strings.Builder
+	var end *envv1alpha1.ProcessEnd
+	for stream.Receive() {
+		if o := stream.Msg().GetOutput(); o != nil {
+			out.Write(o.GetData())
+		}
+		if e := stream.Msg().GetEnd(); e != nil {
+			end = e
+		}
+	}
+	if end.GetExit() == nil {
+		return out.String(), 0, fmt.Errorf("the process did not end: %w", stream.Err())
+	}
+	return out.String(), end.GetExit().GetCode(), stream.Err()
+}
+
 func boxEnv(name string) *envv1alpha1.Environment {
 	return &envv1alpha1.Environment{Project: "web", Kind: &envv1alpha1.Environment_Box{Box: name}}
 }
@@ -534,32 +567,8 @@ func TestAK3sMachine(t *testing.T) {
 		t.Errorf("the machine reaching the box b1:8080: %q, exit %d, %v", out, code, err)
 	}
 	// A process runs in the machine, apart from the call.
-	started, err := w.envs.StartProcess(ctx, connect.NewRequest(&envv1alpha1.StartProcessRequest{
-		Environment: machineEnv("k3s"), Name: "readyz",
-		Command: &envv1alpha1.StartProcessRequest_Shell{Shell: "k3s kubectl get --raw /readyz"},
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	attachCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	stream, err := w.envs.AttachProcess(attachCtx, connect.NewRequest(&envv1alpha1.AttachProcessRequest{Environment: machineEnv("k3s"), Process: started.Msg.GetProcess(), Follow: true}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out strings.Builder
-	var end *envv1alpha1.ProcessEnd
-	for stream.Receive() {
-		if o := stream.Msg().GetOutput(); o != nil {
-			out.Write(o.GetData())
-		}
-		if e := stream.Msg().GetEnd(); e != nil {
-			end = e
-		}
-	}
-	_ = stream.Close()
-	if strings.TrimSpace(out.String()) != "ok" || end.GetExit().GetCode() != 0 {
-		t.Errorf("the process in the machine wrote %q, ended %v, %v", out.String(), end, stream.Err())
+	if out, code, err := runProcess(ctx, w.envs, machineEnv("k3s"), "k3s kubectl get --raw /readyz"); err != nil || strings.TrimSpace(out) != "ok" || code != 0 {
+		t.Errorf("the process in the machine wrote %q, exited %d, %v", out, code, err)
 	}
 
 	w.admin.must("", "delete", "project", "web")
