@@ -585,7 +585,10 @@ type Usage struct {
 	Mirrors   string `protobuf:"bytes,3,opt,name=mirrors,proto3" json:"mirrors,omitempty"`
 	Caches    string `protobuf:"bytes,4,opt,name=caches,proto3" json:"caches,omitempty"`
 	// Everything else the provider counts on its disk.
-	Other         string `protobuf:"bytes,5,opt,name=other,proto3" json:"other,omitempty"`
+	Other string `protobuf:"bytes,5,opt,name=other,proto3" json:"other,omitempty"`
+	// The images the host holds, pulled from tower's registry, as its
+	// provider reports them; hostd removes those nothing names.
+	Images        string `protobuf:"bytes,6,opt,name=images,proto3" json:"images,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -651,6 +654,13 @@ func (x *Usage) GetCaches() string {
 func (x *Usage) GetOther() string {
 	if x != nil {
 		return x.Other
+	}
+	return ""
+}
+
+func (x *Usage) GetImages() string {
+	if x != nil {
+		return x.Images
 	}
 	return ""
 }
@@ -1448,13 +1458,14 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\fmemory_total\x18\x03 \x01(\tR\vmemoryTotal\x12\x1f\n" +
 	"\vmemory_free\x18\x04 \x01(\tR\n" +
 	"memoryFree\x12\x12\n" +
-	"\x04cpus\x18\x05 \x01(\x05R\x04cpus\"\x87\x01\n" +
+	"\x04cpus\x18\x05 \x01(\x05R\x04cpus\"\x9f\x01\n" +
 	"\x05Usage\x12\x18\n" +
 	"\agoldens\x18\x01 \x01(\tR\agoldens\x12\x1c\n" +
 	"\tinstances\x18\x02 \x01(\tR\tinstances\x12\x18\n" +
 	"\amirrors\x18\x03 \x01(\tR\amirrors\x12\x16\n" +
 	"\x06caches\x18\x04 \x01(\tR\x06caches\x12\x14\n" +
-	"\x05other\x18\x05 \x01(\tR\x05other\"\xad\x01\n" +
+	"\x05other\x18\x05 \x01(\tR\x05other\x12\x16\n" +
+	"\x06images\x18\x06 \x01(\tR\x06images\"\xad\x01\n" +
 	"\x06Counts\x12K\n" +
 	"\tinstances\x18\x01 \x03(\v2-.tower.targets.v1alpha1.Counts.InstancesEntryR\tinstances\x12\x18\n" +
 	"\agoldens\x18\x02 \x01(\x05R\agoldens\x1a<\n" +

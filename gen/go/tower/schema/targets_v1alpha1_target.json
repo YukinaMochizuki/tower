@@ -336,6 +336,10 @@
         "goldens": {
           "type": "string"
         },
+        "images": {
+          "description": "The images the host holds, pulled from tower's registry, as its provider reports them; hostd removes those nothing names.",
+          "type": "string"
+        },
         "instances": {
           "description": "What instances hold beyond the goldens they were cloned from.",
           "type": "string"

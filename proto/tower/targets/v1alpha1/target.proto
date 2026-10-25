@@ -110,6 +110,9 @@ message Usage {
   string caches = 4;
   // Everything else the provider counts on its disk.
   string other = 5;
+  // The images the host holds, pulled from tower's registry, as its
+  // provider reports them; hostd removes those nothing names.
+  string images = 6;
 }
 
 // Counts are the target's objects as tower holds them.
