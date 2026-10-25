@@ -216,23 +216,31 @@ func TestProcessesThroughTower(t *testing.T) {
 	w.nowhere(canary, &logs)
 }
 
-// TestProcessesAreABoxs: in a machine, every process call is
-// Unimplemented, saying so.
-func TestProcessesAreABoxs(t *testing.T) {
+// TestProcessesInAMachine: a machine runs processes as a box does, given
+// the environment of their own, apart from any call.
+func TestProcessesInAMachine(t *testing.T) {
 	w := newWorld(t)
 	w.mustApply(registry.Machine, machine("k3s"))
 	w.waitMachine("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_READY)
 	envs := w.as(workstream).envs
 	ctx := t.Context()
-	_, err := envs.StartProcess(ctx, connect.NewRequest(&envv1alpha1.StartProcessRequest{Environment: machineEnv("k3s"), Command: &envv1alpha1.StartProcessRequest_Shell{Shell: "true"}}))
-	wantCode(t, err, connect.CodeUnimplemented, "StartProcess in a machine")
-	if !strings.Contains(messageOfErr(err), "machine") {
-		t.Errorf("the refusal does not say why: %v", err)
+	id := startProcess(t, envs, &envv1alpha1.StartProcessRequest{
+		Environment: machineEnv("k3s"), Command: &envv1alpha1.StartProcessRequest_Argv{Argv: &envv1alpha1.Argv{Args: []string{"emit", "out:served"}}},
+		Env: map[string]string{"PORT": "6443"}, Name: "serve",
+	})
+	execs := w.fake.Execs()
+	if last := execs[len(execs)-1]; !last.Process || last.Env["PORT"] != "6443" || last.Instance.Name != w.machine("k3s").GetStatus().GetInstance() {
+		t.Errorf("the process was given %+v", last)
 	}
-	_, _, err = attachProcess(ctx, envs, &envv1alpha1.AttachProcessRequest{Environment: machineEnv("k3s"), Process: "p1"})
-	wantCode(t, err, connect.CodeUnimplemented, "AttachProcess in a machine")
-	_, err = envs.SignalProcess(ctx, connect.NewRequest(&envv1alpha1.SignalProcessRequest{Environment: machineEnv("k3s"), Process: "p1", Signal: envv1alpha1.Signal_SIGNAL_TERM}))
-	wantCode(t, err, connect.CodeUnimplemented, "SignalProcess in a machine")
-	_, err = envs.ListProcesses(ctx, connect.NewRequest(&envv1alpha1.ListProcessesRequest{Environment: machineEnv("k3s")}))
-	wantCode(t, err, connect.CodeUnimplemented, "ListProcesses in a machine")
+	out, end, err := attachProcess(ctx, envs, &envv1alpha1.AttachProcessRequest{Environment: machineEnv("k3s"), Process: id, Follow: true})
+	if err != nil || out != "served\n" || end.GetExit() == nil {
+		t.Errorf("attached %q, ended %v, %v", out, end, err)
+	}
+	list, err := envs.ListProcesses(ctx, connect.NewRequest(&envv1alpha1.ListProcessesRequest{Environment: machineEnv("k3s")}))
+	if err != nil || len(list.Msg.GetProcesses()) != 1 || list.Msg.GetProcesses()[0].GetName() != "serve" {
+		t.Errorf("listed %v, %v", list.Msg.GetProcesses(), err)
+	}
+	if _, err := envs.SignalProcess(ctx, connect.NewRequest(&envv1alpha1.SignalProcessRequest{Environment: machineEnv("k3s"), Process: id, Signal: envv1alpha1.Signal_SIGNAL_TERM})); err != nil {
+		t.Errorf("signalling a process that ended: %v", err)
+	}
 }
