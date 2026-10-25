@@ -52,8 +52,18 @@ A `ServiceToken` is a client's credential with one role
 (`docs/decisions/authentication.md`). A `Secret` holds a project's
 credentials, write-only and sealed at rest (`docs/decisions/secrets.md`).
 
-The kinds that carry environments (targets, boxes, machines, goldens,
-repositories) are being designed.
+A `Target` is a place environments run, a hangar project or a hostd host,
+and reports that place's state; a `Placement`, an administrator's, says which
+Target a project's environments run on (`docs/decisions/placement.md`). A
+`Repository` is a project's git repository, mirrored on its target. A `Box`
+is a working copy and a `Machine` a converged VM: what workstream asks for.
+tower's controllers make them out of `Golden`s, shared images and disks per
+target and inputs, and `Instance`s, the containers and VMs a provider makes
+real. hostd sees only the Instances and Goldens of its own target.
+
+Commands, files, background processes and pushes are RPCs on a box or a
+machine (`EnvironmentService`); tower relays them to the target over the
+tunnel the target's hostd opens (`docs/decisions/traffic.md`).
 
 ## Data flow
 

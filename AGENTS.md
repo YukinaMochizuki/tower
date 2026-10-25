@@ -9,9 +9,10 @@ One person maintains it, and agents are first-class users of both the code and
 the API.
 
 Status: early. The engine, authentication, secrets, the environment kinds
-and their controllers, workstream's data plane (EnvironmentService) and the
-tunnel hostd opens exist, tested against fake providers; hostd itself and a
-CLI are being built. `docs/architecture.md` describes the target.
+and their controllers, workstream's data plane (EnvironmentService), the
+tunnel, hostd and the CLI exist. hostd's drivers are fakes so far, and there
+is no hangar provider yet; `make e2e` runs the whole of it on a fake host
+(`docs/runbook/demo.md`). `docs/architecture.md` describes the target.
 
 ## Layout
 
