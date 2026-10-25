@@ -14,11 +14,17 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
 )
 
-// RunProcesses runs the suite of a container driver's processes.
-func RunProcesses(t *testing.T, h Harness) {
+// RunProcesses runs the suite of the container driver's processes.
+func RunProcesses(t *testing.T, h Harness) { RunGuestProcesses(t, h, h.containers()) }
+
+// RunVMProcesses runs the suite of the VM driver's processes.
+func RunVMProcesses(t *testing.T, h Harness) { RunGuestProcesses(t, h, h.vms()) }
+
+// RunGuestProcesses runs the suite of a guest driver's processes.
+func RunGuestProcesses(t *testing.T, h Harness, k GuestKind) {
 	tests := []struct {
 		name string
-		fn   func(*testing.T, Harness)
+		fn   func(*testing.T, Harness, GuestKind)
 	}{
 		{"OutputAndExit", testProcOutput},
 		{"FollowUntilSignalled", testProcFollow},
@@ -31,8 +37,18 @@ func RunProcesses(t *testing.T, h Harness) {
 		{"NoEnvironmentKept", testNoEnvKept},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) { tt.fn(t, h) })
+		t.Run(tt.name, func(t *testing.T) { tt.fn(t, h, k) })
 	}
+}
+
+// processes is the guest kind's driver as the driver of its processes.
+func processes(t *testing.T, k GuestKind) driver.Processes {
+	t.Helper()
+	p, ok := k.Driver.(driver.Processes)
+	if !ok {
+		t.Fatalf("%T runs no processes", k.Driver)
+	}
+	return p
 }
 
 // defaults are a process's limits where a test does not try them.
@@ -74,9 +90,9 @@ func waitExit(t *testing.T, p driver.Processes, guest, id string) driver.LogEnd 
 	return end
 }
 
-func testProcOutput(t *testing.T, h Harness) {
-	c := h.Drivers.Containers
-	g := h.containers().guestWithDisk(t, h, "out")
+func testProcOutput(t *testing.T, h Harness, k GuestKind) {
+	c := processes(t, k)
+	g := k.guestWithDisk(t, h, "out")
 	s := spec("emit", "out:one", "err:two", "out:three")
 	s.Name = "emitter"
 	id := startProc(t, c, g, s)
@@ -109,9 +125,9 @@ func testProcOutput(t *testing.T, h Harness) {
 	is(t, "a process not there", err, driver.ErrNotFound)
 }
 
-func testProcFollow(t *testing.T, h Harness) {
-	c := h.Drivers.Containers
-	g := h.containers().guestWithDisk(t, h, "follow")
+func testProcFollow(t *testing.T, h Harness, k GuestKind) {
+	c := processes(t, k)
+	g := k.guestWithDisk(t, h, "follow")
 	id := startProc(t, c, g, spec("serve", "listening"))
 	if list, _ := c.ListProcesses(t.Context(), g); len(list) != 1 || list[0].Exit != nil {
 		t.Errorf("a running process listed %+v", list)
@@ -154,9 +170,9 @@ func testProcFollow(t *testing.T, h Harness) {
 	is(t, "a process in a guest not there", err, driver.ErrNotFound)
 }
 
-func testProcEnv(t *testing.T, h Harness) {
-	c := h.Drivers.Containers
-	g := h.containers().guestWithDisk(t, h, "env")
+func testProcEnv(t *testing.T, h Harness, k GuestKind) {
+	c := processes(t, k)
+	g := k.guestWithDisk(t, h, "env")
 	s := spec("env")
 	s.Env = map[string]string{"DRIVERTEST_PROC": "given"}
 	id := startProc(t, c, g, s)
@@ -171,9 +187,9 @@ func testProcEnv(t *testing.T, h Harness) {
 	}
 }
 
-func testProcLimits(t *testing.T, h Harness) {
-	c := h.Drivers.Containers
-	g := h.containers().guestWithDisk(t, h, "limits")
+func testProcLimits(t *testing.T, h Harness, k GuestKind) {
+	c := processes(t, k)
+	g := k.guestWithDisk(t, h, "limits")
 	s := spec("emit", "out:0123456789", "out:abcdefghij", "out:ABCDEFGHIJ")
 	s.LogCap, s.Keep = 16, 2
 	id := startProc(t, c, g, s)
@@ -211,9 +227,9 @@ func logNext(t *testing.T, p driver.Processes, guest, id string) int64 {
 	return end.Next
 }
 
-func testProcOutlivesItsCall(t *testing.T, h Harness) {
-	c := h.Drivers.Containers
-	g := h.containers().guestWithDisk(t, h, "outlive")
+func testProcOutlivesItsCall(t *testing.T, h Harness, k GuestKind) {
+	c := processes(t, k)
+	g := k.guestWithDisk(t, h, "outlive")
 	ctx, cancel := context.WithCancel(t.Context())
 	id, err := c.StartProcess(ctx, g, spec("tick"))
 	cancel()
@@ -232,31 +248,40 @@ func testProcOutlivesItsCall(t *testing.T, h Harness) {
 	mustNot(t, "signalling", c.SignalProcess(t.Context(), g, id, 9))
 }
 
-func testProcGroup(t *testing.T, h Harness) {
-	c := h.Drivers.Containers
-	g := h.containers().guestWithDisk(t, h, "group")
+func testProcGroup(t *testing.T, h Harness, k GuestKind) {
+	c := processes(t, k)
+	g := k.guestWithDisk(t, h, "group")
 	id := startProc(t, c, g, spec("spawn"))
-	if _, out := run(t, c, g, nil, "children"); out != "1\n" {
+	if _, out := run(t, k.Driver, g, nil, "children"); out != "1\n" {
 		t.Fatalf("a process that spawned a child: %q children alive", out)
 	}
 	mustNot(t, "signalling", c.SignalProcess(t.Context(), g, id, 15))
 	waitExit(t, c, g, id)
-	if _, out := run(t, c, g, nil, "children"); out != "0\n" {
+	if _, out := run(t, k.Driver, g, nil, "children"); out != "0\n" {
 		t.Errorf("a signal to the process left %q children alive; it reaches its group", out)
 	}
 }
 
-func testProcReopen(t *testing.T, h Harness) {
+// reopened is the guest kind's driver of a hostd opened again.
+func reopened(t *testing.T, h Harness, k GuestKind) driver.Processes {
+	d := h.Reopen(t)
+	if k.DiskKind == driver.Volume {
+		return d.VMs
+	}
+	return d.Containers
+}
+
+func testProcReopen(t *testing.T, h Harness, k GuestKind) {
 	if h.Reopen == nil {
 		t.Skip("the harness cannot open the drivers again")
 	}
-	c := h.Drivers.Containers
-	g := h.containers().guestWithDisk(t, h, "reopen")
+	c := processes(t, k)
+	g := k.guestWithDisk(t, h, "reopen")
 	done := startProc(t, c, g, spec("echo", "kept"))
 	waitExit(t, c, g, done)
 	running := startProc(t, c, g, spec("sleep", "3600"))
 
-	again := h.Reopen(t).Containers
+	again := reopened(t, h, k)
 	list, err := again.ListProcesses(t.Context(), g)
 	mustNot(t, "listing after a reopen", err)
 	if len(list) != 2 || list[0].ID != done || list[0].Exit == nil || list[1].ID != running || list[1].Exit != nil {
@@ -271,18 +296,24 @@ func testProcReopen(t *testing.T, h Harness) {
 	}
 }
 
-func testNoEnvKept(t *testing.T, h Harness) {
+func testNoEnvKept(t *testing.T, h Harness, k GuestKind) {
 	if h.HostFiles == "" {
 		t.Skip("the harness says not where the host keeps its files")
 	}
-	c := h.Drivers.Containers
-	g := h.containers().guestWithDisk(t, h, "noenv")
+	c := processes(t, k)
+	g := k.guestWithDisk(t, h, "noenv")
 	secret := "drivertest-value-" + name(t, "")
 	s := spec("sleep", "3600")
 	s.Env = map[string]string{"DRIVERTEST_SECRET": secret}
 	id := startProc(t, c, g, s)
-	run(t, c, g, map[string]string{"DRIVERTEST_SECRET": secret}, "true")
+	run(t, k.Driver, g, map[string]string{"DRIVERTEST_SECRET": secret}, "true")
 	notOnHost(t, h, secret)
+	// Nor in what the guest keeps of its processes, where it keeps them.
+	for _, dir := range k.Keeps {
+		if _, out := run(t, k.Driver, g, nil, "grep", "-rl", secret, dir); out != "" {
+			t.Errorf("the guest's %s holds what must never be kept: %s", dir, out)
+		}
+	}
 	mustNot(t, "signalling", c.SignalProcess(t.Context(), g, id, 15))
 }
 
@@ -291,7 +322,8 @@ func testNoEnvKept(t *testing.T, h Harness) {
 func notOnHost(t *testing.T, h Harness, s string) {
 	t.Helper()
 	err := filepath.WalkDir(h.HostFiles, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil || !d.Type().IsRegular() {
+			// Sockets and links hold nothing kept.
 			return err
 		}
 		b, err := os.ReadFile(path)
@@ -306,18 +338,24 @@ func notOnHost(t *testing.T, h Harness, s string) {
 	mustNot(t, "searching the host's files", err)
 }
 
-func testProcStop(t *testing.T, h Harness) {
-	c := h.Drivers.Containers
-	g := h.containers().guestWithDisk(t, h, "stop")
+// testProcStop: a guest stopping ends its processes. A container's are
+// read from the host while it is stopped; a VM's are the guest's own, read
+// once it runs again.
+func testProcStop(t *testing.T, h Harness, k GuestKind) {
+	c := processes(t, k)
+	g := k.guestWithDisk(t, h, "stop")
 	id := startProc(t, c, g, spec("sleep", "3600"))
-	mustNot(t, "stopping the guest", c.Stop(t.Context(), g))
+	mustNot(t, "stopping the guest", k.Driver.Stop(t.Context(), g))
+	_, err := c.StartProcess(t.Context(), g, spec("true"))
+	if !errors.Is(err, driver.ErrNotRunning) {
+		t.Errorf("a process in a stopped guest: %v, want ErrNotRunning", err)
+	}
+	if k.DiskKind == driver.Volume {
+		mustNot(t, "starting the guest again", k.Driver.Start(t.Context(), g))
+	}
 	list, err := c.ListProcesses(t.Context(), g)
 	mustNot(t, "listing processes", err)
 	if len(list) != 1 || list[0].ID != id || list[0].Exit == nil {
-		t.Errorf("after its guest stopped, its process: %+v", list)
-	}
-	_, err = c.StartProcess(t.Context(), g, spec("true"))
-	if !errors.Is(err, driver.ErrNotRunning) {
-		t.Errorf("a process in a stopped guest: %v, want ErrNotRunning", err)
+		t.Errorf("after its guest stopped, its process: %+v; want it ended", list)
 	}
 }

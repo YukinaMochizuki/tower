@@ -50,6 +50,7 @@ func Run(t *testing.T, h Harness) {
 	t.Run("Containers", func(t *testing.T) { RunGuests(t, h, h.containers()) })
 	t.Run("ContainerProcesses", func(t *testing.T) { RunProcesses(t, h) })
 	t.Run("VMs", func(t *testing.T) { RunGuests(t, h, h.vms()) })
+	t.Run("VMProcesses", func(t *testing.T) { RunVMProcesses(t, h) })
 	t.Run("Images", func(t *testing.T) { RunImages(t, h) })
 	t.Run("Git", func(t *testing.T) { RunGit(t, h) })
 }

@@ -3,10 +3,9 @@ package hostd_test
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
-
-	"connectrpc.com/connect"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apiserver/apiservertest"
@@ -85,18 +84,33 @@ func TestARestartedHostdFindsItsProcesses(t *testing.T) {
 	}
 }
 
-// TestAVMRunsNoProcesses: processes in a VM are Unimplemented.
-func TestAVMRunsNoProcesses(t *testing.T) {
+// TestAVMRunsProcesses: a VM's processes run through the VM driver, as a
+// container's through the container driver, and are listed and read back.
+func TestAVMRunsProcesses(t *testing.T) {
 	w := hostdtest.New(t, hostdtest.Options{})
 	w.Apply(t, "vm", &envv1alpha1.InstanceSpec{Target: target, Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_VM, Image: "ubuntu-24.04"})
 	w.WaitPhase(t, "vm", envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING)
 	ref := provider.Instance{Project: apiservertest.Project, Name: "vm"}
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	if _, err := w.Host.StartProcess(ctx, provider.ProcessRequest{Instance: ref, Command: []string{"true"}}); connect.CodeOf(err) != connect.CodeUnimplemented {
-		t.Errorf("a process in a VM: %v, want Unimplemented", err)
+	id, err := w.Host.StartProcess(ctx, provider.ProcessRequest{Instance: ref, Command: []string{"emit", "out:in-the-vm"}, Name: "job"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := w.Host.ListProcesses(ctx, ref); connect.CodeOf(err) != connect.CodeUnimplemented {
-		t.Errorf("a VM's processes: %v, want Unimplemented", err)
+	var out strings.Builder
+	end, err := w.Host.AttachProcess(ctx, ref, id, 0, true, func(c provider.OutputChunk) error {
+		out.Write(c.Data)
+		return nil
+	})
+	if err != nil || out.String() != "in-the-vm\n" || end.Exit == nil || end.Exit.Code != 0 {
+		t.Errorf("attached %q, ended %+v, %v", out.String(), end, err)
+	}
+	list, err := w.Host.ListProcesses(ctx, ref)
+	if err != nil || len(list) != 1 || list[0].ID != id || list[0].Name != "job" {
+		t.Errorf("listed %+v, %v", list, err)
+	}
+	// None of it went through the container driver.
+	if _, err := w.Fake.Drivers().Containers.ListProcesses(ctx, "tower-"+w.Instance(t, "vm").GetMetadata().GetUid()); err == nil {
+		t.Error("the VM's processes are a container's too")
 	}
 }

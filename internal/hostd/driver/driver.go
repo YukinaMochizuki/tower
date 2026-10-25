@@ -1,6 +1,6 @@
 // Package driver is what hostd asks of its host, behind five drivers:
-// storage (ZFS), containers (Docker), VMs (QEMU), images (tower's registry
-// and a builder) and git (the mirrors). A driver does what it is told and
+// storage (ZFS), containers (Docker), VMs (Cloud Hypervisor), images
+// (tower's registry and BuildKit) and git (the mirrors). A driver does what it is told and
 // lists what is there; it keeps no record beyond the host itself, and it
 // decides nothing (docs/decisions/layers.md). Everything hostd makes
 // carries the labels below, which a driver keeps with it and lists back,
@@ -307,11 +307,13 @@ type LogEnd struct {
 }
 
 // Processes runs processes in a guest apart from any call, each in a
-// process group of its own. The driver keeps on the host, apart from
-// hostd, each one's log and how it ended (a real host in hostd's state
-// directory, written by a supervisor that outlives hostd), so a later
-// hostd reads them back. A guest stopping ends its processes; one removed
-// takes them with it.
+// process group of its own. The driver keeps apart from hostd each one's
+// log and how it ended, written by a supervisor in the guest that
+// outlives the call and hostd, so a later hostd reads them back: a
+// container's in hostd's state directory, read while it is stopped too; a
+// VM's in the guest itself, read while it runs. A guest stopping ends its
+// processes, which read as ended, by its stop's signal or killed
+// (SIGKILL); one removed takes them with it.
 type Processes interface {
 	// StartProcess starts a process in a running guest and returns its id,
 	// unique in the guest.
@@ -337,9 +339,10 @@ type VMSpec struct {
 	BaseImage string
 }
 
-// VMs runs VMs: QEMU on a real host, reached over ssh.
+// VMs runs VMs: Cloud Hypervisor on a real host, reached over ssh.
 type VMs interface {
 	Guests
+	Processes
 	// Create makes a VM, stopped, once: one of the name made otherwise is
 	// ErrConflict.
 	Create(ctx context.Context, spec VMSpec) error

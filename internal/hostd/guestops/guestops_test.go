@@ -284,7 +284,7 @@ func follow(t *testing.T, o guestops.Ops, id string) (string, driver.LogEnd) {
 func TestProcesses(t *testing.T) {
 	o := ops(t)
 	ctx, cancel := context.WithCancel(t.Context())
-	id, err := o.StartProcess(ctx, driver.ProcessSpec{Name: "build", Command: []string{"sh", "-c", "echo one; echo two >&2; sleep 0.2; echo $SECRET_ONE"}, Env: map[string]string{"SECRET_ONE": "canary-proc-Aa11"}, LogCap: 1 << 20, Keep: 100})
+	id, err := o.StartProcess(ctx, driver.ProcessSpec{Name: "build", Command: []string{"sh", "-c", "echo one; sleep 0.05; echo two >&2; sleep 0.2; echo $SECRET_ONE"}, Env: map[string]string{"SECRET_ONE": "canary-proc-Aa11"}, LogCap: 1 << 20, Keep: 100})
 	cancel()
 	if err != nil {
 		t.Fatal(err)

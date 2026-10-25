@@ -24,6 +24,9 @@ type GuestKind struct {
 	Create func(t *testing.T, spec driver.GuestSpec) error
 	// Workspace is a directory of the guest its disk holds.
 	Workspace string
+	// Keeps are directories of the guest where it keeps what it is told,
+	// searched for what must never be kept.
+	Keeps []string
 }
 
 // ContainersOf is the harness's container driver as a guest kind, for a
@@ -47,7 +50,7 @@ func (h Harness) containers() GuestKind {
 func (h Harness) vms() GuestKind {
 	v := h.Drivers.VMs
 	return GuestKind{
-		Driver: v, DiskKind: driver.Volume, Workspace: "/home/tower",
+		Driver: v, DiskKind: driver.Volume, Workspace: "/home/tower", Keeps: []string{"/var/lib/tower"},
 		Create: func(t *testing.T, spec driver.GuestSpec) error {
 			return v.Create(t.Context(), driver.VMSpec{GuestSpec: spec, BaseImage: h.BaseImage})
 		},
