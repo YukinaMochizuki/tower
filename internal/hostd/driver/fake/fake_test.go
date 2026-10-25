@@ -42,9 +42,15 @@ func TestConformance(t *testing.T) {
 	}
 }
 
-// TestConformanceKeptInAFile: the same, on a host kept in its state file.
+// TestConformanceKeptInAFile: the same, on a host kept in its state file,
+// which the suite opens again and searches.
 func TestConformanceKeptInAFile(t *testing.T) {
-	drivertest.Run(t, harness(t, newHost(t, filepath.Join(t.TempDir(), "host.json"))))
+	dir := t.TempDir()
+	path := filepath.Join(dir, "host.json")
+	h := harness(t, newHost(t, path))
+	h.HostFiles = dir
+	h.Reopen = func(t *testing.T) driver.Drivers { return newHost(t, path).Drivers() }
+	drivertest.Run(t, h)
 }
 
 // TestTheHostOutlivesItsProcess: a host made again from its state file

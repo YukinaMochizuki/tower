@@ -2,7 +2,9 @@
 // driver, run against the fake host in CI and against a host's real
 // drivers on a testbed. Everything a suite makes is named for its test
 // and carries the suite's labels, and is removed when the test ends, so
-// the suites run on a host that holds other things.
+// the suites run on a host that holds other things; but for the mirrors
+// the git suite fetches and the images the image suite builds, which no
+// driver removes.
 package drivertest
 
 import (
@@ -14,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
 )
@@ -23,9 +26,9 @@ type Harness struct {
 	Drivers driver.Drivers
 	// Image is a reference by digest the registry holds, whose containers
 	// run the commands the suites name (true, false, exit, echo, env, cat,
-	// emit, sh -c, sleep, and as a process serve; see the fake's) and echo
-	// what they read on
-	// EchoPort; MissingImage, one the registry lacks.
+	// emit, sh -c, sleep, children, and as a process serve, tick and
+	// spawn; see the fake's) and echo what they read on EchoPort;
+	// MissingImage, one the registry lacks.
 	Image, MissingImage string
 	// BaseImage is what a VM boots, whose guest does the same.
 	BaseImage string
@@ -33,6 +36,12 @@ type Harness struct {
 	// Remote is a repository the git driver may fetch and push to, on
 	// Branch; RemoteHead, if set, is the commit Branch is at.
 	Remote, Branch, RemoteHead string
+	// Reopen, if set, opens the drivers again over the same host, as a
+	// restarted hostd does; HostFiles is a directory where the host keeps
+	// what its drivers write (hostd's state directory), searched for what
+	// must never be kept. The cases needing them are skipped without.
+	Reopen    func(t *testing.T) driver.Drivers
+	HostFiles string
 }
 
 // Run runs every driver's suite.
@@ -111,3 +120,12 @@ func tarOf(t *testing.T, files map[string]string) io.Reader {
 }
 
 func describe(d driver.Disk) string { return fmt.Sprintf("%+v", d) }
+
+// recent fails the test unless created is set and within the last hour,
+// as the sweep's grace counts from it.
+func recent(t *testing.T, what string, created time.Time) {
+	t.Helper()
+	if created.IsZero() || time.Since(created) > time.Hour || time.Until(created) > time.Minute {
+		t.Errorf("%s was made at %v; want when it was made, which the sweep's grace counts from", what, created)
+	}
+}

@@ -1,8 +1,12 @@
 package drivertest
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +25,10 @@ func RunProcesses(t *testing.T, h Harness) {
 		{"EnvironmentIsTheProcesss", testProcEnv},
 		{"LimitsOfLogAndKept", testProcLimits},
 		{"StoppingEndsThem", testProcStop},
+		{"OutliveTheirCall", testProcOutlivesItsCall},
+		{"SignalReachesTheGroup", testProcGroup},
+		{"ReadBackAfterReopen", testProcReopen},
+		{"NoEnvironmentKept", testNoEnvKept},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) { tt.fn(t, h) })
@@ -194,6 +202,108 @@ func testProcLimits(t *testing.T, h Harness) {
 	if finished != 2 || len(list) != 3 || list[0].ID != running {
 		t.Errorf("with 2 finished kept and one running, listed %+v", list)
 	}
+}
+
+// logNext is where a process's log ends now.
+func logNext(t *testing.T, p driver.Processes, guest, id string) int64 {
+	t.Helper()
+	_, _, end := readLog(t, p, guest, id, 0)
+	return end.Next
+}
+
+func testProcOutlivesItsCall(t *testing.T, h Harness) {
+	c := h.Drivers.Containers
+	g := h.containers().guestWithDisk(t, h, "outlive")
+	ctx, cancel := context.WithCancel(t.Context())
+	id, err := c.StartProcess(ctx, g, spec("tick"))
+	cancel()
+	mustNot(t, "starting tick", err)
+	first := logNext(t, c, g, id)
+	deadline := time.Now().Add(30 * time.Second)
+	for logNext(t, c, g, id) <= first {
+		if time.Now().After(deadline) {
+			t.Fatal("a process whose starting call ended writes nothing more")
+		}
+		<-time.After(5 * time.Millisecond)
+	}
+	if list, _ := c.ListProcesses(t.Context(), g); len(list) != 1 || list[0].Exit != nil {
+		t.Errorf("a process whose starting call ended: %+v, want it running", list)
+	}
+	mustNot(t, "signalling", c.SignalProcess(t.Context(), g, id, 9))
+}
+
+func testProcGroup(t *testing.T, h Harness) {
+	c := h.Drivers.Containers
+	g := h.containers().guestWithDisk(t, h, "group")
+	id := startProc(t, c, g, spec("spawn"))
+	if _, out := run(t, c, g, nil, "children"); out != "1\n" {
+		t.Fatalf("a process that spawned a child: %q children alive", out)
+	}
+	mustNot(t, "signalling", c.SignalProcess(t.Context(), g, id, 15))
+	waitExit(t, c, g, id)
+	if _, out := run(t, c, g, nil, "children"); out != "0\n" {
+		t.Errorf("a signal to the process left %q children alive; it reaches its group", out)
+	}
+}
+
+func testProcReopen(t *testing.T, h Harness) {
+	if h.Reopen == nil {
+		t.Skip("the harness cannot open the drivers again")
+	}
+	c := h.Drivers.Containers
+	g := h.containers().guestWithDisk(t, h, "reopen")
+	done := startProc(t, c, g, spec("echo", "kept"))
+	waitExit(t, c, g, done)
+	running := startProc(t, c, g, spec("sleep", "3600"))
+
+	again := h.Reopen(t).Containers
+	list, err := again.ListProcesses(t.Context(), g)
+	mustNot(t, "listing after a reopen", err)
+	if len(list) != 2 || list[0].ID != done || list[0].Exit == nil || list[1].ID != running || list[1].Exit != nil {
+		t.Fatalf("after a reopen, listed %+v", list)
+	}
+	if text, _, _ := readLog(t, again, g, done, 0); text != "kept\n" {
+		t.Errorf("a log read after a reopen: %q", text)
+	}
+	mustNot(t, "signalling after a reopen", again.SignalProcess(t.Context(), g, running, 15))
+	if end := waitExit(t, again, g, running); end.Exit == nil || end.Exit.Signal != 15 {
+		t.Errorf("a process signalled after a reopen ended %+v", end.Exit)
+	}
+}
+
+func testNoEnvKept(t *testing.T, h Harness) {
+	if h.HostFiles == "" {
+		t.Skip("the harness says not where the host keeps its files")
+	}
+	c := h.Drivers.Containers
+	g := h.containers().guestWithDisk(t, h, "noenv")
+	secret := "drivertest-value-" + name(t, "")
+	s := spec("sleep", "3600")
+	s.Env = map[string]string{"DRIVERTEST_SECRET": secret}
+	id := startProc(t, c, g, s)
+	run(t, c, g, map[string]string{"DRIVERTEST_SECRET": secret}, "true")
+	notOnHost(t, h, secret)
+	mustNot(t, "signalling", c.SignalProcess(t.Context(), g, id, 15))
+}
+
+// notOnHost fails the test if any file where the host keeps its files
+// holds s.
+func notOnHost(t *testing.T, h Harness, s string) {
+	t.Helper()
+	err := filepath.WalkDir(h.HostFiles, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if bytes.Contains(b, []byte(s)) {
+			t.Errorf("%s holds what must never be kept", path)
+		}
+		return nil
+	})
+	mustNot(t, "searching the host's files", err)
 }
 
 func testProcStop(t *testing.T, h Harness) {

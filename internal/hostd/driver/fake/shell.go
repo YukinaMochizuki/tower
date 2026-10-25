@@ -19,6 +19,7 @@ import (
 //   - emit ARG...: each "out:text" or "err:text" writes a line of text to
 //     stdout or stderr, in order
 //   - sh -c LINE: LINE split on spaces, run as a command
+//   - children: how many children of the guest's processes are alive
 //   - sleep (in Exec): until it is killed
 //
 // Any other command exits 0, so a guest takes any install step. The caller
@@ -91,6 +92,12 @@ func (s shell) run(command []string) int {
 			}
 			_, _ = stdout.Write(b)
 		}
+	case "children":
+		n := 0
+		for _, p := range s.gu.Procs {
+			n += p.Children
+		}
+		_, _ = fmt.Fprintln(stdout, n)
 	case "sh":
 		if len(args) == 2 && args[0] == "-c" {
 			return s.run(strings.Fields(args[1]))

@@ -444,7 +444,13 @@ func TestDirectStreams(t *testing.T) {
 	other.Instance = "other"
 	refused["another instance's"] = issue(other)
 	tk := issue(claims)
-	refused["tampered with"] = tk[:len(tk)-2] + "AA"
+	// A character inside the signature: the last one's low bits base64
+	// ignores.
+	i, swap := len(tk)-10, byte('A')
+	if tk[i] == swap {
+		swap = 'B'
+	}
+	refused["tampered with"] = tk[:i] + string(swap) + tk[i+1:]
 	for what, tk := range refused {
 		_, err := hostd.DialStream(t.Context(), where.URL, tk)
 		var se *hostd.StreamError

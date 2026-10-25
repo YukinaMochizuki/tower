@@ -109,6 +109,7 @@ func testLifecycle(t *testing.T, h Harness, k GuestKind) {
 	if got.Running || got.Name != n || !maps.Equal(got.Labels, spec.Labels) || got.Disk != d.Path {
 		t.Errorf("a guest made: %+v; want it stopped, with its spec", got)
 	}
+	recent(t, "a guest", got.Created)
 	_, err = g.Exec(ctx, n, driver.ExecSpec{Command: []string{"true"}})
 	is(t, "a command in a stopped guest", err, driver.ErrNotRunning)
 
@@ -151,9 +152,11 @@ func testNetworks(t *testing.T, h Harness, k GuestKind) {
 	mustNot(t, "making the network again", g.EnsureNetwork(ctx, net, labels(t)))
 	networks, err := g.Networks(ctx)
 	mustNot(t, "listing networks", err)
-	if !slices.ContainsFunc(networks, func(n driver.Network) bool { return n.Name == net && maps.Equal(n.Labels, labels(t)) }) {
-		t.Errorf("the network is not listed with its labels: %+v", networks)
+	i := slices.IndexFunc(networks, func(n driver.Network) bool { return n.Name == net && maps.Equal(n.Labels, labels(t)) })
+	if i < 0 {
+		t.Fatalf("the network is not listed with its labels: %+v", networks)
 	}
+	recent(t, "a network", networks[i].Created)
 	d := disk(t, h, driver.DiskSpec{Name: name(t, "disk"), Kind: k.DiskKind, Size: 1 << 30, Labels: labels(t)})
 	n := name(t, "on")
 	mustNot(t, "making a guest on it", k.Create(t, driver.GuestSpec{Name: n, Disk: d.Path, Network: net, Alias: "web", CPUs: 1, Memory: 1 << 30, Labels: labels(t)}))

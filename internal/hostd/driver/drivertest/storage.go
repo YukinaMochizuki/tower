@@ -1,6 +1,7 @@
 package drivertest
 
 import (
+	"context"
 	"maps"
 	"strings"
 	"testing"
@@ -31,7 +32,8 @@ func disk(t *testing.T, h Harness, spec driver.DiskSpec) driver.Disk {
 	s := h.Drivers.Storage
 	d, err := s.EnsureDisk(t.Context(), spec)
 	mustNot(t, "making disk "+spec.Name, err)
-	t.Cleanup(func() { _ = s.DestroyDisk(t.Context(), spec.Name) })
+	// A test's context is done by the time its cleanups run.
+	t.Cleanup(func() { _ = s.DestroyDisk(context.WithoutCancel(t.Context()), spec.Name) })
 	return d
 }
 
@@ -54,6 +56,7 @@ func testDisksAreMadeOnce(t *testing.T, h Harness) {
 	if d.Path == "" || d.Name != spec.Name || d.Kind != driver.Dataset {
 		t.Errorf("disk made: %s", describe(d))
 	}
+	recent(t, "a disk", d.Created)
 	again, err := s.EnsureDisk(ctx, spec)
 	if err != nil || again.Path != d.Path {
 		t.Errorf("making the disk again: %s, %v; want it as it is", describe(again), err)
@@ -85,10 +88,11 @@ func testGoldensOutliveTheirDisk(t *testing.T, h Harness) {
 	gname := name(t, "golden")
 	golden, err := s.Capture(ctx, src.Name, gname, labels(t))
 	mustNot(t, "capturing", err)
-	t.Cleanup(func() { _ = s.DestroyGolden(t.Context(), gname) })
+	t.Cleanup(func() { _ = s.DestroyGolden(context.WithoutCancel(t.Context()), gname) })
 	if golden.Name != gname || golden.Size == 0 || golden.Kind != driver.Dataset || !maps.Equal(golden.Labels, labels(t)) {
 		t.Errorf("golden: %+v", golden)
 	}
+	recent(t, "a golden", golden.Created)
 	if again, err := s.Capture(ctx, src.Name, gname, labels(t)); err != nil || again.Name != gname {
 		t.Errorf("capturing again: %+v, %v; want the golden as it is", again, err)
 	}

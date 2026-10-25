@@ -16,8 +16,12 @@ import (
 // proc is a process of a fake guest as the host keeps it, in the state
 // file: never its environment. Its command runs when it starts and ends
 // it at once, but sleep, which runs until it is signalled or its guest
-// stops, and serve ARGS..., which writes its arguments as a line and then
-// runs as sleep does.
+// stops; serve ARGS..., which writes its arguments as a line and then
+// runs as sleep does; tick, which writes a line every few milliseconds
+// (while this Host, not one made again from its file, runs); and spawn,
+// which starts a child in its group and runs as sleep does: a signal ends
+// the child with it, and the guest's children command counts the children
+// alive.
 type proc struct {
 	ID, Name string
 	Command  []string
@@ -27,6 +31,8 @@ type proc struct {
 	Log            []logChunk
 	HeldFrom, Next int64
 	LogCap         int64
+	// Children are the children alive in its group.
+	Children int
 }
 
 type logChunk struct {
@@ -77,6 +83,7 @@ func (h *Host) notifyLocked(key string) {
 func (g guests) endProcs(gu *guest, sig syscall.Signal) {
 	// endProc prunes gu.Procs as it goes.
 	for _, p := range slices.Clone(gu.Procs) {
+		p.Children = 0
 		g.endProc(gu, p, &driver.ProcessExit{Code: 128 + int(sig), Signal: int(sig)})
 	}
 }
@@ -106,6 +113,7 @@ func (g guests) endProc(gu *guest, p *proc, exit *driver.ProcessExit) {
 
 func (g guests) StartProcess(_ context.Context, name string, spec driver.ProcessSpec) (string, error) {
 	var id string
+	ticks := false
 	err := g.h.change(g.op("StartProcess"), func() error {
 		gu, d, err := g.running(name)
 		if err != nil {
@@ -127,6 +135,14 @@ func (g guests) StartProcess(_ context.Context, name string, spec driver.Process
 			p.write(false, []byte(strings.Join(spec.Command[1:], " ")+"\n"))
 			return nil
 		}
+		if len(spec.Command) > 0 && spec.Command[0] == "tick" {
+			ticks = true
+			return nil
+		}
+		if len(spec.Command) > 0 && spec.Command[0] == "spawn" {
+			p.Children = 1
+			return nil
+		}
 		var out output
 		code := shell{g: g, gu: gu, d: d, env: spec.Env, dir: spec.Dir, out: &out}.run(spec.Command)
 		for _, c := range out.chunks {
@@ -135,7 +151,33 @@ func (g guests) StartProcess(_ context.Context, name string, spec driver.Process
 		g.endProc(gu, p, &driver.ProcessExit{Code: code})
 		return nil
 	})
+	if err == nil && ticks {
+		go g.tick(name, id)
+	}
 	return id, err
+}
+
+// tick writes a line to a tick process until it ends.
+func (g guests) tick(name, id string) {
+	t := g.h.clock.NewTicker(5 * time.Millisecond)
+	defer t.Stop()
+	for n := 1; ; n++ {
+		<-t.Chan()
+		done := true
+		_ = g.h.change("", func() error {
+			_, p, err := g.proc(name, id)
+			if err != nil || p.Exit != nil {
+				return err
+			}
+			done = false
+			p.write(false, []byte("tick "+strconv.Itoa(n)+"\n"))
+			g.h.notifyLocked(g.key(name) + "/" + id)
+			return nil
+		})
+		if done {
+			return
+		}
+	}
 }
 
 func (g guests) ListProcesses(_ context.Context, name string) ([]driver.ProcessInfo, error) {
@@ -222,6 +264,10 @@ func (g guests) SignalProcess(_ context.Context, name, id string, sig int) error
 		gu, p, err := g.proc(name, id)
 		if err != nil {
 			return err
+		}
+		if p.Exit == nil {
+			// The signal reaches its whole group.
+			p.Children = 0
 		}
 		g.endProc(gu, p, &driver.ProcessExit{Code: 128 + sig, Signal: sig})
 		return nil
