@@ -57,6 +57,21 @@ func TestSecretFilesAreWrittenAtEachStart(t *testing.T) {
 	if m, ok := w.fake.Mode(ref, keyPath); !ok || m != 0o640 {
 		t.Errorf("%s was written with mode %o, %v; want 0640", keyPath, m, ok)
 	}
+	// Each a link to its value in memory, which no other file holds.
+	links := w.fake.Links(ref)
+	for _, p := range []string{hostsPath, keyPath} {
+		if !strings.HasPrefix(links[p], provider.SecretsDir+"/") {
+			t.Errorf("%s links to %q, not into %s", p, links[p], provider.SecretsDir)
+		}
+	}
+	for name, content := range w.fake.Files(ref) {
+		if _, linked := links[name]; linked || strings.HasPrefix(name, provider.SecretsDir+"/") {
+			continue
+		}
+		if strings.Contains(content, hosts) || strings.Contains(content, key) {
+			t.Errorf("%s holds a secret file's value", name)
+		}
+	}
 	envs := w.as(workstream).envs
 	if _, err := exec(t.Context(), envs, &envv1alpha1.ExecRequest{Environment: boxEnv("dev"), Command: argv("true")}); err != nil {
 		t.Fatal(err)

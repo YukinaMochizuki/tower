@@ -148,9 +148,11 @@ tower get target host-c     # Reachable and Reporting, its pool and drivers amon
 | VMs | a Docker container each (`tower.hangarlab.cloud/driver=vm`), its console log in `/var/lib/tower-hostd/vms/<name>` |
 | hostd's ssh key for VMs | `/var/lib/tower-hostd/vm-ssh` |
 
-Nothing of a Secret's value is written on the host: it reaches a guest as
-the environment of one command or process, or as a box's secret file
-inside the guest, and git's tokens as the environment of one git command.
+Nothing of a Secret's value is written on the host's disks: it reaches a
+guest as the environment of one command or process, or as a box's secret
+file, which is held in memory, on a tmpfs every box container has at
+`/run/tower/secrets`, its path in the box a link to it; and git's tokens as
+the environment of one git command. A machine takes no secret files.
 
 ### Known limitations
 

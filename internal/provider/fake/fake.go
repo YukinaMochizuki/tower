@@ -132,6 +132,37 @@ type instance struct {
 	processN  int
 	// streams are the direct streams open to it (SetStreams).
 	streams int
+	// links are its symbolic links, by path, to what they name.
+	links map[string]string
+}
+
+// resolve is the file a path of the instance names: what a link there
+// names, or the path.
+func (in *instance) resolve(p string) string {
+	p = path.Clean(p)
+	if t, ok := in.links[p]; ok {
+		return t
+	}
+	return p
+}
+
+// linkCommand reads a command that links a path to a file, as tower
+// links a box's secret file to its value in memory.
+func linkCommand(cmd []string) (target, at string, ok bool) {
+	if len(cmd) != 6 || cmd[0] != "sh" || cmd[1] != "-c" || !strings.Contains(cmd[2], "ln -sfn") {
+		return "", "", false
+	}
+	return path.Clean(cmd[4]), path.Clean(cmd[5]), true
+}
+
+// Links are an instance's symbolic links, by path.
+func (f *Fake) Links(ref provider.Instance) map[string]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if local := f.instances[ref]; local != nil {
+		return maps.Clone(local.links)
+	}
+	return nil
 }
 
 type artifact struct {
@@ -299,6 +330,13 @@ func (f *Fake) realize(in *envv1alpha1.Instance, base *artifact) (envv1alpha1.In
 	}
 	if in.GetSpec().GetRunState() == envv1alpha1.RunState_RUN_STATE_STOPPED {
 		local.running = false
+		// What it holds in memory goes as it stops.
+		for name := range local.files {
+			if strings.HasPrefix(name, provider.SecretsDir+"/") {
+				delete(local.files, name)
+				delete(local.modes, name)
+			}
+		}
 		// Stopping an instance ends its processes.
 		for _, p := range local.processes {
 			p.end(provider.Killed(provider.SignalKill))
@@ -513,6 +551,12 @@ func (f *Fake) Files(ref provider.Instance) map[string]string {
 	for name, b := range local.files {
 		out[name] = string(b)
 	}
+	// A link reads as the file it names.
+	for at, target := range local.links {
+		if b, ok := local.files[target]; ok {
+			out[at] = string(b)
+		}
+	}
 	return out
 }
 
@@ -525,7 +569,7 @@ func (f *Fake) Mode(ref provider.Instance, p string) (fs.FileMode, bool) {
 	if local == nil {
 		return 0, false
 	}
-	m, ok := local.modes[path.Clean(p)]
+	m, ok := local.modes[local.resolve(p)]
 	return m, ok
 }
 
@@ -597,7 +641,21 @@ func (f *Fake) Exec(ctx context.Context, req provider.ExecRequest) (int, error) 
 	i := len(f.execs) - 1
 	// What the command reads of the fake, taken now: it runs, writing to
 	// its caller and reading its stdin, without holding f.mu.
+	if target, at, ok := linkCommand(req.Command); ok {
+		if local.links == nil {
+			local.links = map[string]string{}
+		}
+		local.links[at] = target
+		f.execs[i].ExitCode = 0
+		f.mu.Unlock()
+		return 0, nil
+	}
 	cmd := command{files: maps.Clone(local.files), failing: slices.Clone(f.failCommands), onExec: f.onExec}
+	for at, target := range local.links {
+		if b, ok := local.files[target]; ok {
+			cmd.files[at] = b
+		}
+	}
 	f.mu.Unlock()
 	if len(req.Command) > 0 && req.Command[0] == "sleep" {
 		// Runs until it is killed, as a command does when its call ends.
@@ -685,7 +743,7 @@ func (f *Fake) ReadFile(_ context.Context, in provider.Instance, p string, w io.
 	var b []byte
 	if err == nil {
 		var ok bool
-		if b, ok = local.files[path.Clean(p)]; !ok {
+		if b, ok = local.files[local.resolve(p)]; !ok {
 			err = fmt.Errorf("%s: %w", p, fs.ErrNotExist)
 		}
 	}
@@ -708,7 +766,7 @@ func (f *Fake) WriteFile(_ context.Context, in provider.Instance, p string, mode
 	if err != nil {
 		return err
 	}
-	p = path.Clean(p)
+	p = local.resolve(p)
 	if offset != 0 {
 		if have := int64(len(local.files[p])); have != offset {
 			return fmt.Errorf("%s holds %d bytes; a chunk at %d does not start where it ends: %w", p, have, offset, provider.ErrFailed)

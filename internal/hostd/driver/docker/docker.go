@@ -214,6 +214,11 @@ func (d *Driver) Create(ctx context.Context, cs driver.ContainerSpec) error {
 			{Type: mount.TypeBind, Source: d.cfg.GuestBinary, Target: GuestBinary, ReadOnly: true},
 			{Type: mount.TypeBind, Source: procs, Target: ProcessesDir},
 		},
+		// What tower writes into a box that no disk may hold, its secret
+		// files, in memory: emptied as the container stops, written again
+		// at each start. Its user is any the image runs as, so the
+		// directory is everyone's, as /tmp is; the box is its boundary.
+		Tmpfs:         map[string]string{driver.SecretsDir: "mode=1777,size=16m,noexec,nosuid,nodev"},
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
 		Resources:     container.Resources{NanoCPUs: int64(cs.CPUs) * 1e9, Memory: int64(cs.Memory)},
 		NetworkMode:   container.NetworkMode(netName),

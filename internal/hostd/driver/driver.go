@@ -243,6 +243,11 @@ type Guests interface {
 	Dial(ctx context.Context, name string, port int32) (net.Conn, error)
 }
 
+// SecretsDir is a directory every container has in memory, which no disk
+// of the host holds: where a box's secret files are written. It is empty
+// at each start.
+const SecretsDir = "/run/tower/secrets"
+
 // ContainerSpec is a container to make.
 type ContainerSpec struct {
 	GuestSpec

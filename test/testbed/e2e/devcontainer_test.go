@@ -3,6 +3,10 @@
 package e2e
 
 import (
+	"encoding/base64"
+	"os"
+	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,6 +26,60 @@ var devcontainerRepos = []struct{ name, url, branch, commit string }{
 	{"cpp", "https://github.com/microsoft/vscode-remote-try-cpp.git", "main", "a673af1023cdf1680a09593e1b445baede839247"},
 	{"starter", "https://github.com/devcontainers/feature-starter.git", "main", "67a45f05bb47843fef96f53ab09eab04680f6d95"},
 	{"node", "https://github.com/microsoft/vscode-remote-try-node.git", "main", "3b9986fe3c4bcd5a288b92bda320d763a0285954"},
+}
+
+// A secret file of the remoteUser's box: its value is the test's own.
+const (
+	secretFileValue = "e2e-secret-file-Vd83q"
+	secretFilePath  = "/home/node/.config/tower-e2e/token"
+)
+
+// onHostDisk says where on the host's disks value is, "" if nowhere: the
+// package's datasets, and the upper layer of every container of hostd's.
+func onHostDisk(t *testing.T, value string) string {
+	t.Helper()
+	var dirs []string
+	out, err := exec.Command("zfs", "list", "-H", "-o", "mountpoint", "-r", env.Dataset).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range strings.Fields(string(out)) {
+		if strings.HasPrefix(m, "/") {
+			dirs = append(dirs, m)
+		}
+	}
+	ids, err := exec.Command("docker", "ps", "-aq", "--filter", "label=tower.hangarlab.cloud/hostd=main").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A running container's writable layer is the upperdir of the overlay
+	// its init has as /: Docker's containerd store says it nowhere else.
+	for _, id := range strings.Fields(string(ids)) {
+		pid, err := exec.Command("docker", "inspect", "-f", "{{.State.Pid}}", id).Output()
+		if err != nil || strings.TrimSpace(string(pid)) == "0" {
+			continue
+		}
+		info, err := os.ReadFile("/proc/" + strings.TrimSpace(string(pid)) + "/mountinfo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(string(info), "\n") {
+			f := strings.Fields(line)
+			if len(f) < 5 || f[4] != "/" {
+				continue
+			}
+			for _, opt := range strings.Split(f[len(f)-1], ",") {
+				if upper, ok := strings.CutPrefix(opt, "upperdir="); ok {
+					dirs = append(dirs, upper)
+				}
+			}
+		}
+	}
+	if !slices.ContainsFunc(dirs, func(d string) bool { return strings.Contains(d, "snapshots") || strings.Contains(d, "overlay") }) {
+		t.Fatalf("found no container layer to search: %v", dirs)
+	}
+	out, _ = exec.Command("grep", append([]string{"-rlsF", value}, dirs...)...).Output()
+	return strings.TrimSpace(string(out))
 }
 
 // TestBoxesOfDevcontainers: boxes of real repositories are made of their
@@ -62,11 +120,16 @@ apiVersion: environments.tower.hangarlab.cloud/v1alpha1
 kind: Box
 metadata: {name: fallback}
 spec: {workstream: ws1, checkouts: [{repository: hello}], fallbackImage: "` + testbed.BusyBox + `"}
+---
+apiVersion: secrets.tower.hangarlab.cloud/v1alpha1
+kind: Secret
+metadata: {name: e2e-file}
+spec: {type: SECRET_TYPE_OPAQUE, data: {token: "` + base64.StdEncoding.EncodeToString([]byte(secretFileValue)) + `"}}
 `
 	for _, r := range devcontainerRepos {
 		addons := ""
 		if r.name == "starter" {
-			addons = ", addons: [browser]"
+			addons = ", addons: [browser], secretFiles: [{secret: e2e-file, key: token, path: " + secretFilePath + "}]"
 		}
 		m += `---
 apiVersion: environments.tower.hangarlab.cloud/v1alpha1
@@ -121,6 +184,14 @@ spec: {workstream: ws1, checkouts: [{repository: ` + r.name + `, ref: ` + r.comm
 	run("starter", `id -un; stat -c %U /workspace; touch /workspace/written && echo writable; echo "$CHROME_PATH"; chromium --version; command -v dockerd || echo no-dockerd`,
 		// Playwright's build of Chromium calls itself Chrome for Testing.
 		"node\nnode\nwritable\n/usr/local/bin/chromium\n", "Chrome for Testing", "no-dockerd")
+	// Its secret file reads through a link to memory, and no disk of the
+	// host holds its value: not the box's dataset, not its container's
+	// layer.
+	run("starter", "cat "+secretFilePath+"; echo; readlink "+secretFilePath+"; stat -f -c %T /run/tower/secrets",
+		secretFileValue+"\n/run/tower/secrets/", "\ntmpfs")
+	if where := onHostDisk(t, secretFileValue); where != "" {
+		t.Errorf("a secret file's value is on the host's disk: %s", where)
+	}
 	// A process runs in it as its remoteUser, apart from the call.
 	if out, code, err := runProcess(ctx, w.envs, boxEnv("starter"), "id -un"); err != nil || code != 0 || strings.TrimSpace(out) != "node" {
 		t.Errorf("a process in the box of a remoteUser wrote %q, exited %d, %v", out, code, err)

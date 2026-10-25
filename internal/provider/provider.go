@@ -42,6 +42,11 @@ var (
 	ErrLeaseLost = errors.New("provider: the branch moved since its lease")
 )
 
+// SecretsDir is a directory every container instance has in memory,
+// emptied as it stops, which no disk of the target holds: where tower
+// writes a box's secret files.
+const SecretsDir = "/run/tower/secrets"
+
 // Instance names an Instance object of the target, by its project and
 // name.
 type Instance struct {

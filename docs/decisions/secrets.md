@@ -23,7 +23,11 @@ boxes in the background, where no intent is in flight.
 - **A secret goes only to the environment that uses it, never into a spec
   of a lower layer.** On hangar a Container's spec is stored in plain text in
   hangar's store, so tower injects a value per command, or writes it through
-  a command into a file in memory in the box.
+  a command into a file in memory in the box. On hostd that is a tmpfs
+  every box container has at `/run/tower/secrets`, written at each start;
+  the path a secret file asks for is a link to it, so no disk of the host
+  holds a value. Machines take no secret files: a VM would need the same
+  in memory first.
 - **Goldens never see secrets.** A blueprint's secrets are given only in each
   machine's own configure phase.
 - **Privileged boxes run through tower like any box.** Which command may run

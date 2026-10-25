@@ -3,6 +3,8 @@ package apiserver
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -620,8 +622,21 @@ func (s *Server) writeSecretFiles(ctx context.Context, key controller.Key, box *
 			if mode == 0 {
 				mode = 0o600
 			}
-			if err := p.WriteFile(ctx, ref, f.GetPath(), mode, 0, bytes.NewReader(values[i])); err != nil {
+			// The value in memory (provider.SecretsDir), and at its path a
+			// link to it, which a disk may hold.
+			sum := sha256.Sum256([]byte(f.GetPath()))
+			held := provider.SecretsDir + "/" + hex.EncodeToString(sum[:8])
+			if err := p.WriteFile(ctx, ref, held, mode, 0, bytes.NewReader(values[i])); err != nil {
 				return fmt.Errorf("writing the secret file %s: %w", f.GetPath(), err)
+			}
+			code, err := p.Exec(ctx, provider.ExecRequest{Instance: ref, Command: []string{
+				"sh", "-c", `mkdir -p "$(dirname "$2")" && ln -sfn "$1" "$2"`, "sh", held, f.GetPath(),
+			}})
+			if err == nil && code != 0 {
+				err = fmt.Errorf("exit %d: %w", code, provider.ErrFailed)
+			}
+			if err != nil {
+				return fmt.Errorf("linking the secret file %s: %w", f.GetPath(), err)
 			}
 		}
 		if err := s.annotateInstance(ctx, key.Project, ref.Name, secretFilesAnnotation, run); err != nil {
