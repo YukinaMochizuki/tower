@@ -2,14 +2,17 @@ package devcontainer
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -151,24 +154,86 @@ func commandOf(dec *json.Decoder) (string, error) {
 			_, err := dec.Token()
 			return strings.Join(parts, " "), err
 		case '{':
-			var parts []string
+			// Object.values' order: a key that is an array index first,
+			// by its number, then the rest as written; a key written twice
+			// keeps its first place and its last value.
+			type named struct {
+				key string
+				cmd string
+			}
+			var entries []named
 			for dec.More() {
-				if _, err := dec.Token(); err != nil { // the name
+				tok, err := dec.Token() // the name
+				if err != nil {
 					return "", err
 				}
+				key, _ := tok.(string)
 				p, err := commandOf(dec)
 				if err != nil {
 					return "", err
 				}
-				if p != "" {
-					parts = append(parts, p)
+				if i := slices.IndexFunc(entries, func(e named) bool { return e.key == key }); i >= 0 {
+					entries[i].cmd = p
+				} else {
+					entries = append(entries, named{key, p})
 				}
 			}
-			_, err := dec.Token()
-			return strings.Join(parts, " && "), err
+			if _, err := dec.Token(); err != nil {
+				return "", err
+			}
+			slices.SortStableFunc(entries, func(a, b named) int {
+				ai, aok := arrayIndex(a.key)
+				bi, bok := arrayIndex(b.key)
+				switch {
+				case aok && bok:
+					return cmp.Compare(ai, bi)
+				case aok:
+					return -1
+				case bok:
+					return 1
+				}
+				return 0
+			})
+			var parts []string
+			for _, e := range entries {
+				if e.cmd != "" {
+					parts = append(parts, e.cmd)
+				}
+			}
+			return strings.Join(parts, " && "), nil
 		}
 	}
 	return "", nil
+}
+
+// arrayIndex reads a key that JavaScript orders as an array index: the
+// canonical text of an integer below 2^32-1.
+func arrayIndex(key string) (uint64, bool) {
+	n, err := strconv.ParseUint(key, 10, 32)
+	if err != nil || n == 1<<32-1 || strconv.FormatUint(n, 10) != key {
+		return 0, false
+	}
+	return n, true
+}
+
+// jsNumber is JavaScript's String of a JSON number: the shortest text
+// that reads back as the same double, in exponent form from 1e21 and
+// below 1e-6.
+func jsNumber(n json.Number) string {
+	f, err := strconv.ParseFloat(string(n), 64)
+	if err != nil {
+		return string(n)
+	}
+	if f == 0 {
+		return "0"
+	}
+	if a := math.Abs(f); a >= 1e21 || a < 1e-6 {
+		s := strconv.FormatFloat(f, 'e', -1, 64)
+		mant, exp, _ := strings.Cut(s, "e")
+		sign := exp[:1]
+		return mant + "e" + sign + strings.TrimLeft(exp[1:], "0")
+	}
+	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
 // jsString is JavaScript's String(v) of a JSON value, for an array of
@@ -180,7 +245,7 @@ func jsString(v any) string {
 	case string:
 		return x
 	case json.Number:
-		return x.String()
+		return jsNumber(x)
 	case bool:
 		if x {
 			return "true"

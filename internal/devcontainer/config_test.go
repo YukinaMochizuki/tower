@@ -85,6 +85,23 @@ func TestParseConfig(t *testing.T) {
 	if _, err := parseConfig(".devcontainer.json", []byte(`{"image": `)); err == nil {
 		t.Error("a devcontainer that does not parse parsed")
 	}
+	t.Run("named commands in Object.values' order, numbers as String writes them", func(t *testing.T) {
+		// As node reads it: Object.values({b:"x", 10:"y", 2:"z", a:"w", b:"v"}) is
+		// ["z","y","v","w"], and String([1.0, 1e21, 1e-7, 0.5, -0, 100]) is
+		// "1,1e+21,1e-7,0.5,0,100".
+		c, err := parseConfig(".devcontainer.json", []byte(`{"image": "x",
+			"postCreateCommand": {"b": "x", "10": "y", "2": "z", "a": "w", "b": "v"},
+			"onCreateCommand": ["echo", 1.0, 1e21, 1e-7, 0.5, -0, 100]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.PostCreate != "z && y && v && w" {
+			t.Errorf("postCreateCommand %q", c.PostCreate)
+		}
+		if c.OnCreate != "echo 1 1e+21 1e-7 0.5 0 100" {
+			t.Errorf("onCreateCommand %q", c.OnCreate)
+		}
+	})
 	t.Run("values as written", func(t *testing.T) {
 		c, err := parseConfig(".devcontainer.json", []byte(`{"image": "x", "containerEnv": {"MULTI": "one\ntwo", "CTRL": "a\u0001b", "DOLLAR": "$HOME"}}`))
 		if err != nil {
