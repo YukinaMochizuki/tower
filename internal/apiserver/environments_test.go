@@ -11,6 +11,7 @@ import (
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
+	"github.com/YukinaMochizuki/tower/internal/apiserver"
 	"github.com/YukinaMochizuki/tower/internal/client"
 )
 
@@ -170,11 +171,58 @@ func TestABoxNamesWhatItIsMadeOf(t *testing.T) {
 			b.Spec.Workstream = ""
 			return b
 		}(), connect.CodeInvalidArgument},
-		"a privileged secret that is not there": {func() *envv1alpha1.Box {
-			b := box("b", "repo")
-			b.Spec.PrivilegedSecret = "ghost"
-			return b
-		}(), connect.CodeFailedPrecondition},
+		"a privileged secret that is not there": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "ghost", Key: "A", As: "A"}}
+		}, connect.CodeFailedPrecondition),
+		"a privileged key its secret does not hold": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "s", Key: "B", As: "B"}}
+		}, connect.CodeFailedPrecondition),
+		"a privileged value with no key": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "s", As: "A"}}
+		}, connect.CodeInvalidArgument),
+		"a privileged value named no variable": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "s", Key: "A", As: "1-A"}}
+		}, connect.CodeInvalidArgument),
+		"two privileged values of one name": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "s", Key: "A", As: "A"}, {Secret: "s", Key: "A", As: "A"}}
+		}, connect.CodeInvalidArgument),
+		"a secret file of a secret that is not there": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.SecretFiles = []*envv1alpha1.SecretFile{{Secret: "ghost", Key: "A", Path: "/etc/a"}}
+		}, connect.CodeFailedPrecondition),
+		"a secret file of a key its secret does not hold": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.SecretFiles = []*envv1alpha1.SecretFile{{Secret: "s", Key: "B", Path: "/etc/a"}}
+		}, connect.CodeFailedPrecondition),
+		"a secret file at a relative path": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.SecretFiles = []*envv1alpha1.SecretFile{{Secret: "s", Key: "A", Path: "etc/a"}}
+		}, connect.CodeInvalidArgument),
+		"a secret file at a path that is not clean": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.SecretFiles = []*envv1alpha1.SecretFile{{Secret: "s", Key: "A", Path: "/etc/../a"}}
+		}, connect.CodeInvalidArgument),
+		"two secret files at one path": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.SecretFiles = []*envv1alpha1.SecretFile{{Secret: "s", Key: "A", Path: "/a"}, {Secret: "s", Key: "A", Path: "/a"}}
+		}, connect.CodeInvalidArgument),
+		"a secret file of no mode": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.SecretFiles = []*envv1alpha1.SecretFile{{Secret: "s", Key: "A", Path: "/a", Mode: 0o10000}}
+		}, connect.CodeInvalidArgument),
+		"an image and an image build": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.Image = "ghcr.io/acme/dev:1"
+			b.Spec.ImageBuild = &envv1alpha1.ImageBuild{Dockerfile: "FROM scratch\n"}
+		}, connect.CodeInvalidArgument),
+		"an image build with no Dockerfile": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.ImageBuild = &envv1alpha1.ImageBuild{Files: map[string][]byte{"a": nil}}
+		}, connect.CodeInvalidArgument),
+		"an image build with a file named Dockerfile": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.ImageBuild = &envv1alpha1.ImageBuild{Dockerfile: "FROM scratch\n", Files: map[string][]byte{"Dockerfile": nil}}
+		}, connect.CodeInvalidArgument),
+		"an image build with a file at a path that is not clean": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.ImageBuild = &envv1alpha1.ImageBuild{Dockerfile: "FROM scratch\n", Files: map[string][]byte{"etc/../app.conf": nil}}
+		}, connect.CodeInvalidArgument),
+		"an image build with a file out of its context": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.ImageBuild = &envv1alpha1.ImageBuild{Dockerfile: "FROM scratch\n", Files: map[string][]byte{"../etc/passwd": nil}}
+		}, connect.CodeInvalidArgument),
+		"an image build over its size": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.ImageBuild = &envv1alpha1.ImageBuild{Dockerfile: "FROM scratch\n", Files: map[string][]byte{"big": make([]byte, apiserver.MaxImageBuild)}}
+		}, connect.CodeInvalidArgument),
 		"memory that is no quantity": {func() *envv1alpha1.Box {
 			b := box("b", "repo")
 			b.Spec.Resources = &envv1alpha1.Resources{Memory: "much"}
@@ -191,11 +239,31 @@ func TestABoxNamesWhatItIsMadeOf(t *testing.T) {
 		}
 	}
 	privileged := box("priv", "repo")
-	privileged.Spec.PrivilegedSecret = "s"
+	privileged.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "s", Key: "A", As: "GH_TOKEN"}, {Secret: "s", Key: "A", As: "OTHER"}}
+	privileged.Spec.SecretFiles = []*envv1alpha1.SecretFile{{Secret: "s", Key: "A", Path: "/root/.config/gh/hosts.yml"}, {Secret: "s", Key: "A", Path: "/etc/a", Mode: 0o644}}
 	privileged.Spec.Resources = &envv1alpha1.Resources{Cpu: "2", Memory: "4Gi", Disk: "40Gi"}
 	if err := applyAs(t, w, registry.Box, privileged); err != nil {
 		t.Errorf("a privileged box: %v", err)
 	}
+	built := box("built")
+	built.Spec.ImageBuild = &envv1alpha1.ImageBuild{Dockerfile: "FROM scratch\nCOPY etc/app.conf /etc/\n", Files: map[string][]byte{"etc/app.conf": []byte("a=1")}}
+	if err := applyAs(t, w, registry.Box, built); err != nil {
+		t.Errorf("an empty box with an image build: %v", err)
+	}
+}
+
+// withBox is a box of the repository "repo" changed by mutate, and the
+// code applying it must answer.
+func withBox(mutate func(*envv1alpha1.Box), code connect.Code) struct {
+	b    *envv1alpha1.Box
+	code connect.Code
+} {
+	b := box("b", "repo")
+	mutate(b)
+	return struct {
+		b    *envv1alpha1.Box
+		code connect.Code
+	}{b, code}
 }
 
 func TestAMachineNamesItsSecrets(t *testing.T) {

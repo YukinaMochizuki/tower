@@ -228,17 +228,21 @@ func TestExecStreamsOutputInOrder(t *testing.T) {
 	wantCode(t, err, connect.CodeInvalidArgument, "an exec of no command")
 }
 
-// TestAPrivilegedBoxsSecretReachesOnlyItsCommands: tower adds a privileged
-// box's Secret to each command's environment, over what the caller gives,
-// and the values reach no object, event, log line or database file.
+// TestAPrivilegedBoxsSecretReachesOnlyItsCommands: tower adds the values a
+// privileged box names to each command's environment, under the names it
+// gives them, over what the caller gives; a key it does not name is not
+// given, and the values reach no object, event, log line or database file.
 func TestAPrivilegedBoxsSecretReachesOnlyItsCommands(t *testing.T) {
 	var logs syncBuffer
 	w := newWorld(t, worldOption{config: func(c *apiserver.Config) {
 		c.Logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	}})
-	const canary = "canary-gh-Wq07"
-	w.mustApply(registry.Secret, secret("web", "forge", map[string]string{"GH_TOKEN": canary}))
-	w.readyBox("priv", func(b *envv1alpha1.Box) { b.Spec.PrivilegedSecret = "forge" })
+	const canary, npm, unnamed = "canary-gh-Wq07", "canary-npm-Lp30", "canary-unnamed-Zt88"
+	w.mustApply(registry.Secret, secret("web", "forge", map[string]string{"GH_TOKEN": canary, "UNNAMED": unnamed}))
+	w.mustApply(registry.Secret, secret("web", "registry", map[string]string{"token": npm}))
+	w.readyBox("priv", func(b *envv1alpha1.Box) {
+		b.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "forge", Key: "GH_TOKEN", As: "GH_TOKEN"}, {Secret: "registry", Key: "token", As: "NPM_TOKEN"}}
+	})
 	w.readyBox("plain")
 	envs := w.as(workstream).envs
 	for _, name := range []string{"priv", "plain"} {
@@ -250,7 +254,7 @@ func TestAPrivilegedBoxsSecretReachesOnlyItsCommands(t *testing.T) {
 	}
 	execs := w.fake.Execs()
 	priv, plain := execs[len(execs)-2], execs[len(execs)-1]
-	if priv.Env["GH_TOKEN"] != canary || priv.Env["PAGER"] != "cat" {
+	if priv.Env["GH_TOKEN"] != canary || priv.Env["NPM_TOKEN"] != npm || priv.Env["PAGER"] != "cat" || len(priv.Env) != 3 {
 		t.Errorf("the privileged box's command was given %v", priv.Env)
 	}
 	if plain.Env["GH_TOKEN"] != "forged" {
@@ -258,6 +262,7 @@ func TestAPrivilegedBoxsSecretReachesOnlyItsCommands(t *testing.T) {
 	}
 	w.waitSettled()
 	w.nowhere(canary, &logs)
+	w.nowhere(npm, &logs)
 }
 
 // TestExecWakesAnIdleBox: a command in a box tower stopped for idleness

@@ -74,9 +74,11 @@ type Fake struct {
 	instances map[provider.Instance]*instance
 	artifacts map[string]*artifact
 	images    map[string]bool
-	mirrors   map[string]*repo
-	remotes   map[string]*repo
-	execs     []Exec
+	// contexts are the images' build contexts.
+	contexts map[string][]byte
+	mirrors  map[string]*repo
+	remotes  map[string]*repo
+	execs    []Exec
 	// seen are the instances of the target it has reconciled, realized or
 	// not, which a fault cleared reconciles again.
 	seen      map[provider.Instance]bool
@@ -111,6 +113,8 @@ type instance struct {
 	started time.Time
 	address string
 	files   map[string][]byte
+	// modes are the modes files were last written with at offset 0.
+	modes map[string]fs.FileMode
 	// base is the size of the golden its disk was cloned from, which
 	// used_disk leaves out.
 	base int
@@ -157,7 +161,7 @@ type Exec struct {
 func New(target string, clock clockwork.Clock) *Fake {
 	return &Fake{
 		Target: target, clock: clock, log: slog.New(slog.DiscardHandler),
-		instances: map[provider.Instance]*instance{}, artifacts: map[string]*artifact{}, images: map[string]bool{},
+		instances: map[provider.Instance]*instance{}, artifacts: map[string]*artifact{}, images: map[string]bool{}, contexts: map[string][]byte{},
 		mirrors: map[string]*repo{}, remotes: map[string]*repo{}, seen: map[provider.Instance]bool{},
 		bootFailures: map[string]string{}, vanished: map[string]bool{}, diskTotal: DefaultDiskTotal,
 		processLogCap: provider.DefaultProcessLogCap, finishedProcesses: provider.DefaultFinishedProcesses,
@@ -502,6 +506,27 @@ func (f *Fake) Files(ref provider.Instance) map[string]string {
 	return out
 }
 
+// Mode is the mode an instance's file was last written with, and whether
+// it was written.
+func (f *Fake) Mode(ref provider.Instance, p string) (fs.FileMode, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	local := f.instances[ref]
+	if local == nil {
+		return 0, false
+	}
+	m, ok := local.modes[path.Clean(p)]
+	return m, ok
+}
+
+// BuildContext is the build context an image was built from, nil for one
+// never built.
+func (f *Fake) BuildContext(image string) []byte {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.contexts[image])
+}
+
 // Artifacts are the names of the artifacts the target holds, sorted.
 func (f *Fake) Artifacts() []string {
 	f.mu.Lock()
@@ -662,7 +687,7 @@ func (f *Fake) ReadFile(_ context.Context, in provider.Instance, p string, w io.
 	return err
 }
 
-func (f *Fake) WriteFile(_ context.Context, in provider.Instance, p string, _ fs.FileMode, offset int64, r io.Reader) error {
+func (f *Fake) WriteFile(_ context.Context, in provider.Instance, p string, mode fs.FileMode, offset int64, r io.Reader) error {
 	b, err := io.ReadAll(r)
 	if err != nil {
 		return err
@@ -679,6 +704,11 @@ func (f *Fake) WriteFile(_ context.Context, in provider.Instance, p string, _ fs
 			return fmt.Errorf("%s holds %d bytes; a chunk at %d does not start where it ends: %w", p, have, offset, provider.ErrFailed)
 		}
 		b = append(slices.Clone(local.files[p]), b...)
+	} else {
+		if local.modes == nil {
+			local.modes = map[string]fs.FileMode{}
+		}
+		local.modes[p] = mode
 	}
 	local.files[p] = b
 	return nil
@@ -747,6 +777,7 @@ func (f *Fake) BuildImage(ctx context.Context, req provider.BuildRequest) (strin
 		return "", provider.ErrNoSpace
 	}
 	f.images[image] = true
+	f.contexts[image] = b
 	return image, nil
 }
 

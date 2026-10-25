@@ -145,7 +145,9 @@ func TestProcessesThroughTower(t *testing.T) {
 	}})
 	const canary = "canary-proc-Hx52"
 	w.mustApply(registry.Secret, secret("web", "forge", map[string]string{"GH_TOKEN": canary}))
-	w.readyBox("dev", func(b *envv1alpha1.Box) { b.Spec.PrivilegedSecret = "forge" })
+	w.readyBox("dev", func(b *envv1alpha1.Box) {
+		b.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "forge", Key: "GH_TOKEN", As: "GH_TOKEN"}}
+	})
 	envs := w.as(workstream).envs
 	ctx := t.Context()
 

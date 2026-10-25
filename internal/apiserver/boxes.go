@@ -1,9 +1,11 @@
 package apiserver
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"slices"
 	"time"
 
@@ -31,6 +33,9 @@ const (
 	// materializedAnnotation marks an instance whose checkouts are made
 	// (and, on the slow path, its dependencies installed).
 	materializedAnnotation = registry.Domain + "/materialized"
+	// secretFilesAnnotation is the start of an instance's run its box's
+	// secret files were written in (runOf).
+	secretFilesAnnotation = registry.Domain + "/secret-files"
 )
 
 // errMirrorNotFetched waits for a repository's mirror on the target.
@@ -223,6 +228,13 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		}
 	}
 	phase := in.GetStatus().GetPhase()
+	if phase != envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING && in.GetMetadata().GetAnnotations()[secretFilesAnnotation] != "" {
+		// Its secret files are written again when it next runs, whatever
+		// the start time its provider reports then.
+		if err := s.annotateInstance(ctx, key.Project, in.GetMetadata().GetName(), secretFilesAnnotation, ""); err != nil {
+			return err
+		}
+	}
 	if desired == envv1alpha1.RunState_RUN_STATE_STOPPED {
 		if phase == envv1alpha1.InstancePhase_INSTANCE_PHASE_STOPPED {
 			st.Phase = envv1alpha1.BoxPhase_BOX_PHASE_STOPPED
@@ -239,6 +251,10 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 	default:
 		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", "its instance is starting")
 		return nil
+	}
+	// Its secret files, at each start, before anything runs in it.
+	if len(spec.GetSecretFiles()) > 0 && in.GetMetadata().GetAnnotations()[secretFilesAnnotation] != runOf(in) {
+		return s.writeSecretFiles(ctx, key, box, in, p, bs)
 	}
 	if in.GetMetadata().GetAnnotations()[materializedAnnotation] != "true" {
 		return s.materializeBox(ctx, key, box, in, p, bs)
@@ -263,7 +279,10 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 // what it is resolved from is not there yet.
 func (s *Server) boxImageGolden(ctx context.Context, project, target string, spec *envv1alpha1.BoxSpec) (string, string, error) {
 	req := devcontainer.Request{Target: target, Image: spec.GetImage(), Addons: spec.GetAddons()}
-	if req.Image == "" {
+	if b := spec.GetImageBuild(); b != nil {
+		req.Build = &devcontainer.Build{Dockerfile: b.GetDockerfile(), Files: b.GetFiles()}
+	}
+	if req.Image == "" && req.Build == nil {
 		first := spec.GetCheckouts()[0]
 		repo, ok, err := getTyped[*envv1alpha1.Repository](ctx, s, registry.Repository, resource.Key{Project: project, Name: first.GetRepository()})
 		if err != nil {
@@ -286,8 +305,12 @@ func (s *Server) boxImageGolden(ctx context.Context, project, target string, spe
 	if err != nil {
 		return "", "", err
 	}
-	inputs := &envv1alpha1.BoxImageInputs{BaseImageDigest: img.BaseImageDigest, DevcontainerHash: img.DevcontainerHash, Addons: img.Addons}
+	inputs := &envv1alpha1.BoxImageInputs{BaseImageDigest: img.BaseImageDigest, DevcontainerHash: img.DevcontainerHash, BuildHash: img.BuildHash, Addons: img.Addons}
 	hash := inputHash(append([]string{"box-image", target, img.BaseImageDigest, img.DevcontainerHash}, img.Addons...)...)
+	if img.BuildHash != "" {
+		// Its own build, add-ons and all, is the image.
+		hash = inputHash(append([]string{"box-image-build", target, img.BuildHash}, img.Addons...)...)
+	}
 	name := goldenName("img", hash)
 	_, err = s.ensureGolden(ctx, project, name, &envv1alpha1.GoldenSpec{
 		Target: target, InputHash: hash, Inputs: &envv1alpha1.GoldenSpec_BoxImage{BoxImage: inputs},
@@ -431,6 +454,86 @@ func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *en
 		return s.annotateInstance(ctx, key.Project, ref.Name, materializedAnnotation, "true")
 	})
 	return nil
+}
+
+// runOf names the run of a running instance: when it started, as its
+// provider reports it.
+func runOf(in *envv1alpha1.Instance) string {
+	if t := in.GetStatus().GetStartTime(); t != nil {
+		return t.AsTime().UTC().Format(time.RFC3339Nano)
+	}
+	return "running"
+}
+
+// writeSecretFiles writes the box's secret files into its running
+// instance through the provider, then marks the instance with the run they
+// were written in: a start of the instance after it writes them again.
+// The values are opened for the job alone and go nowhere but the files.
+func (s *Server) writeSecretFiles(ctx context.Context, key controller.Key, box *envv1alpha1.Box, in *envv1alpha1.Instance, p provider.Provider, bs *boxState) error {
+	job := "secretfiles/" + key.String()
+	jerr, running := s.jobs.lastError(job)
+	if jerr != nil && !running {
+		s.jobs.forget(job)
+		if transient(jerr) {
+			bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", jerr.Error())
+			return fmt.Errorf("box %s: %w: %w", key, controller.ErrWaiting, jerr)
+		}
+		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_FAILED, "SecretFilesFailed", jerr.Error())
+		return nil
+	}
+	bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", "its secret files are being written")
+	if running {
+		return nil
+	}
+	ref := provider.Instance{Project: key.Project, Name: in.GetMetadata().GetName()}
+	run, files := runOf(in), box.GetSpec().GetSecretFiles()
+	s.startJob(bs.st.GetTarget(), job, s.boxCtrl, key, func(ctx context.Context) error {
+		values, err := openSecretValues(ctx, s, key.Project, files)
+		if err != nil {
+			return fmt.Errorf("%w: %w", err, provider.ErrFailed)
+		}
+		for i, f := range files {
+			mode := fs.FileMode(f.GetMode())
+			if mode == 0 {
+				mode = 0o600
+			}
+			if err := p.WriteFile(ctx, ref, f.GetPath(), mode, 0, bytes.NewReader(values[i])); err != nil {
+				return fmt.Errorf("writing the secret file %s: %w", f.GetPath(), err)
+			}
+		}
+		return s.annotateInstance(ctx, key.Project, ref.Name, secretFilesAnnotation, run)
+	})
+	return nil
+}
+
+// secretKeyRef names one value of a Secret.
+type secretKeyRef interface {
+	GetSecret() string
+	GetKey() string
+}
+
+// openSecretValues opens the values refs name, in their order, each Secret
+// once. Its error names a secret or a key, never a value.
+func openSecretValues[R secretKeyRef](ctx context.Context, s *Server, project string, refs []R) ([][]byte, error) {
+	opened := map[string]map[string][]byte{}
+	out := make([][]byte, 0, len(refs))
+	for _, ref := range refs {
+		data, ok := opened[ref.GetSecret()]
+		if !ok {
+			var err error
+			data, err = s.OpenSecret(s.system(ctx), resource.Key{Project: project, Name: ref.GetSecret()})
+			if err != nil {
+				return nil, fmt.Errorf("its secret %q cannot be opened: %s", ref.GetSecret(), messageOf(err))
+			}
+			opened[ref.GetSecret()] = data
+		}
+		v, ok := data[ref.GetKey()]
+		if !ok {
+			return nil, fmt.Errorf("its secret %q holds no key %q", ref.GetSecret(), ref.GetKey())
+		}
+		out = append(out, v)
+	}
+	return out, nil
 }
 
 // instanceMarked reports whether an instance carries one of tower's marks:

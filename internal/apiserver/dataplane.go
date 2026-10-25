@@ -165,14 +165,14 @@ func (h environmentService) findIn(ctx context.Context, env *envv1alpha1.Environ
 		}
 		e.box, e.workstream = b, b.GetSpec().GetWorkstream()
 		target, instance = b.GetStatus().GetTarget(), b.GetStatus().GetInstance()
-		if name := b.GetSpec().GetPrivilegedSecret(); name != "" {
-			data, err := s.OpenSecret(s.system(ctx), resource.Key{Project: e.key.Project, Name: name})
+		if refs := b.GetSpec().GetPrivilegedSecrets(); len(refs) > 0 {
+			values, err := openSecretValues(ctx, s, e.key.Project, refs)
 			if err != nil {
-				return nil, failedPrecondition("%s is privileged, and its secret %q cannot be opened: %s", e, name, messageOf(err))
+				return nil, failedPrecondition("%s is privileged, and %s", e, err)
 			}
 			e.secretEnv = map[string]string{}
-			for k, v := range data {
-				e.secretEnv[k] = string(v)
+			for i, ref := range refs {
+				e.secretEnv[ref.GetAs()] = string(values[i])
 			}
 		}
 	default:
