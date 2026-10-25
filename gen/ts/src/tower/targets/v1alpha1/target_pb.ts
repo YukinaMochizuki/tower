@@ -255,8 +255,8 @@ export type TargetStatus = Message<"tower.targets.v1alpha1.TargetStatus"> & {
 
   /**
    * What the provider says about itself, one fact a line: its version, the
-   * health of its ZFS pool, its Docker and QEMU versions, a hangar project's
-   * quota and what it uses of it.
+   * health of its ZFS pool, its Docker and Cloud Hypervisor versions, a
+   * hangar project's quota and what it uses of it.
    *
    * @generated from field: repeated tower.targets.v1alpha1.Fact facts = 8;
    */

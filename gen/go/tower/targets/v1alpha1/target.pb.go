@@ -406,8 +406,8 @@ type TargetStatus struct {
 	Usage     *Usage    `protobuf:"bytes,6,opt,name=usage,proto3" json:"usage,omitempty"`
 	Counts    *Counts   `protobuf:"bytes,7,opt,name=counts,proto3" json:"counts,omitempty"`
 	// What the provider says about itself, one fact a line: its version, the
-	// health of its ZFS pool, its Docker and QEMU versions, a hangar project's
-	// quota and what it uses of it.
+	// health of its ZFS pool, its Docker and Cloud Hypervisor versions, a
+	// hangar project's quota and what it uses of it.
 	Facts         []*Fact `protobuf:"bytes,8,rep,name=facts,proto3" json:"facts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -298,7 +298,7 @@
           "$ref": "#/$defs/tower.targets.v1alpha1.Counts"
         },
         "facts": {
-          "description": "What the provider says about itself, one fact a line: its version, the health of its ZFS pool, its Docker and QEMU versions, a hangar project's quota and what it uses of it.",
+          "description": "What the provider says about itself, one fact a line: its version, the health of its ZFS pool, its Docker and Cloud Hypervisor versions, a hangar project's quota and what it uses of it.",
           "items": {
             "$ref": "#/$defs/tower.targets.v1alpha1.Fact"
           },
