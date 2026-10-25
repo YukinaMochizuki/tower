@@ -172,9 +172,7 @@ func (b *backend) read(ctx context.Context, p authz.Caller, verb authz.Verb, key
 	}
 	cur, err := b.s.store.Get(ctx, b.storeKey(key))
 	if errors.Is(err, store.ErrNotFound) && authz.OwnTargetOnly(p) {
-		// Whether another target's object exists is not this caller's to
-		// learn.
-		return store.Object{}, nil, denied("%s may not %s %s", p, verb, b.asked(key))
+		return store.Object{}, nil, b.notOwn(p, verb, key)
 	}
 	if err != nil {
 		return store.Object{}, nil, apiError(err)
@@ -184,9 +182,17 @@ func (b *backend) read(ctx context.Context, p authz.Caller, verb authz.Verb, key
 		return store.Object{}, nil, apiError(err)
 	}
 	if !b.ownTarget(p, obj) {
-		return store.Object{}, nil, denied("%s may not %s %s", p, verb, b.asked(key))
+		return store.Object{}, nil, b.notOwn(p, verb, key)
 	}
 	return cur, obj, nil
+}
+
+// notOwn is what a caller held to its own target is told of an object that
+// is not there or is another target's: not found, alike for both, so it
+// learns nothing of other targets, and a hostd reads only NotFound as an
+// object gone (internal/hostd releases on it alone).
+func (b *backend) notOwn(p authz.Caller, verb authz.Verb, key resource.Key) error {
+	return connect.NewError(connect.CodeNotFound, fmt.Errorf("%s cannot %s %s: not found on its target", p, verb, b.asked(key)))
 }
 
 // ownTarget reports whether p may see obj at all: whoever is not held to

@@ -224,11 +224,33 @@ func checkVerb(t *testing.T, ctx context.Context, c clients, r registry.Resource
 	}
 }
 
+// checkHidden checks that verb on each named object answers NotFound, in
+// words that do not tell one from another.
+func checkHidden(t *testing.T, ctx context.Context, c clients, r registry.Resource, verb authz.Verb, names ...string) {
+	t.Helper()
+	var msgs []string
+	for _, name := range names {
+		err := call(ctx, c, r, verb, name)
+		if connect.CodeOf(err) != connect.CodeNotFound {
+			t.Errorf("%s %s %q: %v, want not found", verb, r.Plural, name, err)
+			continue
+		}
+		msgs = append(msgs, messageWithout(err, name))
+	}
+	for _, m := range msgs[min(1, len(msgs)):] {
+		if m != msgs[0] {
+			t.Errorf("%s %s: the answers tell one object from another: %q", verb, r.Plural, msgs)
+			break
+		}
+	}
+}
+
 // TestHostdTouchesOnlyItsOwnTarget: a hostd token reads the Instances and
 // Goldens of its target and its Target, writes the status of those
 // Instances and of its Target, and nothing else: another target's objects,
-// and ones that do not exist, are refused alike; a list or a watch shows
-// only its own. A hostd token is authenticated, and its secret works.
+// and ones that do not exist, are not found alike, so hostd reads a
+// refusal for any other reason apart from an object gone; a list or a
+// watch shows only its own. A hostd token is authenticated, and its secret works.
 func TestHostdTouchesOnlyItsOwnTarget(t *testing.T) {
 	e := newEnv(t)
 	ctx := t.Context()
@@ -252,7 +274,7 @@ func TestHostdTouchesOnlyItsOwnTarget(t *testing.T) {
 					}
 					if slices.Contains(own[r.Kind], verb) {
 						checkVerb(t, ctx, c, r, verb, true, fixtureOf[r.Kind])
-						checkVerb(t, ctx, c, r, verb, false, others[r.Kind], "absent")
+						checkHidden(t, ctx, c, r, verb, others[r.Kind], "absent")
 						continue
 					}
 					checkVerb(t, ctx, c, r, verb, false, fixtureOf[r.Kind], "absent")

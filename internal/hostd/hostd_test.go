@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -115,6 +116,45 @@ func TestADeletedInstanceLeavesTheHost(t *testing.T) {
 		s := w.Fake.State()
 		return s.Empty(), fmt.Sprintf("%+v", s)
 	})
+}
+
+// denying answers GetInstance PermissionDenied while it is on, as tower
+// does to a token being revoked, and counts what it answered.
+type denying struct {
+	next     http.RoundTripper
+	on       atomic.Bool
+	answered atomic.Int64
+}
+
+func (d *denying) RoundTrip(r *http.Request) (*http.Response, error) {
+	if d.on.Load() && strings.HasSuffix(r.URL.Path, "/GetInstance") {
+		d.answered.Add(1)
+		body := `{"code":"permission_denied","message":"refused"}`
+		return &http.Response{
+			StatusCode: http.StatusForbidden, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(body)), ContentLength: int64(len(body)), Request: r,
+		}, nil
+	}
+	return d.next.RoundTrip(r)
+}
+
+// TestARefusalReleasesNothing: an Instance read refused, rather than not
+// found, leaves its guest and disk on the host.
+func TestARefusalReleasesNothing(t *testing.T) {
+	d := &denying{}
+	w := hostdtest.New(t, hostdtest.Options{Transport: func(next http.RoundTripper) http.RoundTripper {
+		d.next = next
+		return d
+	}})
+	w.Apply(t, "kept", container("net-a"))
+	w.WaitPhase(t, "kept", envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING)
+	d.on.Store(true)
+	// Read again at every resync: a few of them refused.
+	testutil.Eventually(t, "instance reads refused", func() bool { return d.answered.Load() >= 5 })
+	if s := w.Fake.State(); len(s.Containers) != 1 || len(s.Disks) != 1 || len(s.Networks) != 1 {
+		t.Errorf("a refused read released %+v", s)
+	}
+	d.on.Store(false)
 }
 
 // TestTheSweepTakesWhatADownHostdMissed: an Instance deleted while hostd

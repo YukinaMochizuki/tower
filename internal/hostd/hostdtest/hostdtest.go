@@ -49,6 +49,9 @@ type Options struct {
 	Host func(*hostd.Config)
 	// StatePath keeps the fake host in a file.
 	StatePath string
+	// Transport, if set, wraps what hostd calls tower through, as a test
+	// that answers some calls itself does.
+	Transport func(http.RoundTripper) http.RoundTripper
 }
 
 // World is an apiserver with the hostd target Target, realized by Host
@@ -109,7 +112,7 @@ func (w *World) start(t *testing.T, opts Options) {
 	}
 	w.Streams = "http://" + ln.Addr().String()
 	cfg := hostd.Config{
-		Target: Target, Drivers: w.Fake.Drivers(), Client: w.Env.WithSecret(w.Secret),
+		Target: Target, Drivers: w.Fake.Drivers(), Client: w.client(opts),
 		TicketKey: w.Signer.PublicKey(), StreamURL: w.Streams,
 		ReportEvery: 200 * time.Millisecond, SweepEvery: 200 * time.Millisecond, SweepGrace: time.Hour,
 	}
@@ -135,6 +138,15 @@ func (w *World) start(t *testing.T, opts Options) {
 		_ = srv.Close()
 	}
 	t.Cleanup(w.Stop)
+}
+
+// client is hostd's client of tower, with its token.
+func (w *World) client(opts Options) *client.Client {
+	hc := apiservertest.Bearer(w.Secret)
+	if opts.Transport != nil {
+		hc.Transport = opts.Transport(hc.Transport)
+	}
+	return client.New(hc, w.Env.URL)
 }
 
 // Restart stops hostd and starts another on the same host, read back from

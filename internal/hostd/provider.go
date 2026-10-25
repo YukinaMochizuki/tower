@@ -37,8 +37,7 @@ type placed struct {
 // is ErrNotFound; an API that does not answer, ErrUnavailable.
 func (h *Host) find(ctx context.Context, ref provider.Instance) (placed, error) {
 	o, err := h.c.Get(ctx, registry.Instance, client.Key{Project: ref.Project, Name: ref.Name})
-	switch connect.CodeOf(err) {
-	case connect.CodeNotFound, connect.CodePermissionDenied:
+	if connect.CodeOf(err) == connect.CodeNotFound {
 		return placed{}, fmt.Errorf("instance %s/%s: %w", ref.Project, ref.Name, provider.ErrNotFound)
 	}
 	if err != nil {

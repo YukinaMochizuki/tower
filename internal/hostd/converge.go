@@ -62,7 +62,10 @@ func (h *Host) reconcile(ctx context.Context, key controller.Key) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	o, err := h.c.Get(ctx, registry.Instance, client.Key{Project: key.Project, Name: key.Name})
-	if code := connect.CodeOf(err); code == connect.CodeNotFound || code == connect.CodePermissionDenied {
+	// NotFound alone says the Instance is gone. Any other error, a refusal
+	// included (a token being revoked, say), says nothing of it, so the host
+	// is left as it is; what is truly gone, the sweep takes after its grace.
+	if connect.CodeOf(err) == connect.CodeNotFound {
 		return h.release(ctx, key, "")
 	}
 	if err != nil {
@@ -70,7 +73,8 @@ func (h *Host) reconcile(ctx context.Context, key controller.Key) error {
 	}
 	in := o.(*envv1alpha1.Instance)
 	if in.GetSpec().GetTarget() != h.cfg.Target {
-		return h.release(ctx, key, "")
+		// tower shows no other target's; one shown is left to the sweep.
+		return nil
 	}
 	if err := h.release(ctx, key, in.GetMetadata().GetUid()); err != nil {
 		return err
@@ -128,8 +132,7 @@ func (h *Host) converge(ctx context.Context, in *envv1alpha1.Instance) (observed
 		from := ""
 		if gname := spec.GetDiskGolden(); gname != "" {
 			o, err := h.c.Get(ctx, registry.Golden, client.Key{Project: ref.GetProject(), Name: gname})
-			// One not there reads to hostd as one it may not read.
-			if code := connect.CodeOf(err); err != nil && code != connect.CodeNotFound && code != connect.CodePermissionDenied {
+			if err != nil && connect.CodeOf(err) != connect.CodeNotFound {
 				return observed{}, err
 			}
 			gd, _ := o.(*envv1alpha1.Golden)
