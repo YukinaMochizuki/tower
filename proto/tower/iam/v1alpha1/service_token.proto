@@ -1,0 +1,149 @@
+syntax = "proto3";
+
+package tower.iam.v1alpha1;
+
+import "google/protobuf/timestamp.proto";
+import "tower/meta/v1/meta.proto";
+import "tower/meta/v1/options.proto";
+
+// ServiceToken is a client's credential: an opaque `twr_` secret it sends as
+// `Authorization: Bearer`, which authenticates it as the principal
+// serviceToken:<name>. What the token may do is its role, fixed when the
+// token is made. Tower keeps only the secret's SHA-256, outside objects:
+// ServiceTokenIssuerService returns the secret once, when it creates or
+// rotates the token, and nothing shows it again. A token made by apply has no
+// secret until it is rotated. Deleting the token revokes its secret at once.
+// See docs/decisions/authentication.md.
+message ServiceToken {
+  option (tower.meta.v1.resource) = {
+    kind: "ServiceToken"
+    plural: "servicetokens"
+    short_names: ["st"]
+    scope: SCOPE_GLOBAL
+  };
+  string api_version = 1;
+  string kind = 2;
+  tower.meta.v1.ObjectMeta metadata = 3;
+  ServiceTokenSpec spec = 4;
+  ServiceTokenStatus status = 5;
+}
+
+// ServiceTokenSpec is the desired state of a service token.
+message ServiceTokenSpec {
+  // What the token is for, for people to read.
+  string description = 1;
+  // What the token may do. A token never changes role: a client that needs
+  // another one gets another token.
+  Role role = 2 [(tower.meta.v1.field).immutable = true];
+  // The Target a hostd token acts for, by name; required for ROLE_HOSTD and
+  // refused for every other role.
+  string target = 3 [(tower.meta.v1.field).immutable = true];
+}
+
+// Role is what a service token may do. docs/decisions/authentication.md
+// lists each role's permissions.
+enum Role {
+  // Refused.
+  ROLE_UNSPECIFIED = 0;
+  // Manages tower itself: targets, projects, tokens, secrets.
+  ROLE_ADMIN = 1;
+  // workstream: states intents in every project and drives the
+  // environments in them, including pushing a branch and running commands
+  // on a privileged box.
+  ROLE_WORKSTREAM = 2;
+  // A hostd agent: reads the objects of its own target and reports their
+  // status, nothing else.
+  ROLE_HOSTD = 3;
+}
+
+// ServiceTokenStatus is what can be said of a service token's secret
+// without it. The apiserver alone writes it.
+message ServiceTokenStatus {
+  int64 observed_generation = 1;
+  // None yet: whether the token has a secret, and until when, is
+  // secret_prefix and expire_time.
+  repeated tower.meta.v1.Condition conditions = 2;
+  // The secret's first characters, such as twr_Ab3dE9xQ, to tell which
+  // secret someone holds. Empty while it has none.
+  string secret_prefix = 3;
+  // When the current secret was issued.
+  google.protobuf.Timestamp issue_time = 4;
+  // When the current secret stops working.
+  google.protobuf.Timestamp expire_time = 5;
+  // When the token was last used, to within an hour; unset if never.
+  google.protobuf.Timestamp last_use_time = 6;
+}
+
+// ServiceTokenService manages service tokens. Only ROLE_ADMIN may apply or
+// delete one, since whoever holds a token's secret acts with its role.
+// ServiceTokenIssuerService issues secrets.
+service ServiceTokenService {
+  rpc GetServiceToken(GetServiceTokenRequest) returns (GetServiceTokenResponse);
+  rpc ListServiceTokens(ListServiceTokensRequest) returns (ListServiceTokensResponse);
+  rpc WatchServiceTokens(WatchServiceTokensRequest) returns (stream WatchServiceTokensResponse);
+  rpc ApplyServiceToken(ApplyServiceTokenRequest) returns (ApplyServiceTokenResponse);
+  rpc DeleteServiceToken(DeleteServiceTokenRequest) returns (DeleteServiceTokenResponse);
+  rpc UpdateServiceTokenStatus(UpdateServiceTokenStatusRequest) returns (UpdateServiceTokenStatusResponse);
+}
+
+message GetServiceTokenRequest {
+  string name = 1;
+}
+
+message GetServiceTokenResponse {
+  ServiceToken service_token = 1;
+}
+
+message ListServiceTokensRequest {
+  string label_selector = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListServiceTokensResponse {
+  repeated ServiceToken items = 1;
+  string next_page_token = 2;
+  int64 revision = 3;
+}
+
+message WatchServiceTokensRequest {
+  string label_selector = 1;
+  int64 since_revision = 2;
+}
+
+message WatchServiceTokensResponse {
+  tower.meta.v1.EventType type = 1;
+  ServiceToken service_token = 2;
+  int64 revision = 3;
+}
+
+message ApplyServiceTokenRequest {
+  ServiceToken service_token = 1;
+  // Refuses an existing object with ALREADY_EXISTS, changing nothing.
+  bool create_only = 2;
+}
+
+message ApplyServiceTokenResponse {
+  ServiceToken service_token = 1;
+  repeated string warnings = 2;
+  bool created = 3;
+}
+
+message DeleteServiceTokenRequest {
+  string name = 1;
+  optional int64 expected_resource_version = 2;
+}
+
+message DeleteServiceTokenResponse {
+  ServiceToken service_token = 1;
+}
+
+message UpdateServiceTokenStatusRequest {
+  string name = 1;
+  ServiceTokenStatus status = 2;
+  optional int64 expected_resource_version = 3;
+}
+
+message UpdateServiceTokenStatusResponse {
+  ServiceToken service_token = 1;
+}

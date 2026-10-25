@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package tower.targets.v1alpha1;
+
+import "tower/meta/v1/meta.proto";
+import "tower/meta/v1/options.proto";
+
+// Placement says where a project's environments run. Its name is the
+// project's. It is an administrator's, apart from the Project workstream
+// applies, because the two have different owners. A project with no
+// Placement materializes nothing: its environments wait as UNPLACED, never
+// on a default target. See docs/decisions/placement.md.
+message Placement {
+  option (tower.meta.v1.resource) = {
+    kind: "Placement"
+    plural: "placements"
+    short_names: ["pl"]
+    scope: SCOPE_GLOBAL
+  };
+  string api_version = 1;
+  string kind = 2;
+  tower.meta.v1.ObjectMeta metadata = 3;
+  PlacementSpec spec = 4;
+  PlacementStatus status = 5;
+}
+
+// PlacementSpec names the target.
+message PlacementSpec {
+  // A Target's name. Changing it affects only environments made after the
+  // change; those that exist stay where they are.
+  string target = 1;
+}
+
+// PlacementStatus says whether the placement can be used.
+message PlacementStatus {
+  int64 observed_generation = 1;
+  // Ready: the target exists and is not being deleted.
+  repeated tower.meta.v1.Condition conditions = 2;
+}
+
+// PlacementService manages placements.
+service PlacementService {
+  rpc GetPlacement(GetPlacementRequest) returns (GetPlacementResponse);
+  rpc ListPlacements(ListPlacementsRequest) returns (ListPlacementsResponse);
+  rpc WatchPlacements(WatchPlacementsRequest) returns (stream WatchPlacementsResponse);
+  rpc ApplyPlacement(ApplyPlacementRequest) returns (ApplyPlacementResponse);
+  rpc DeletePlacement(DeletePlacementRequest) returns (DeletePlacementResponse);
+  rpc UpdatePlacementStatus(UpdatePlacementStatusRequest) returns (UpdatePlacementStatusResponse);
+}
+
+message GetPlacementRequest {
+  string name = 1;
+}
+
+message GetPlacementResponse {
+  Placement placement = 1;
+}
+
+message ListPlacementsRequest {
+  string label_selector = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListPlacementsResponse {
+  repeated Placement items = 1;
+  string next_page_token = 2;
+  int64 revision = 3;
+}
+
+message WatchPlacementsRequest {
+  string label_selector = 1;
+  int64 since_revision = 2;
+}
+
+message WatchPlacementsResponse {
+  tower.meta.v1.EventType type = 1;
+  Placement placement = 2;
+  int64 revision = 3;
+}
+
+message ApplyPlacementRequest {
+  Placement placement = 1;
+  // Refuses an existing object with ALREADY_EXISTS, changing nothing.
+  bool create_only = 2;
+}
+
+message ApplyPlacementResponse {
+  Placement placement = 1;
+  repeated string warnings = 2;
+  bool created = 3;
+}
+
+message DeletePlacementRequest {
+  string name = 1;
+  optional int64 expected_resource_version = 2;
+}
+
+message DeletePlacementResponse {
+  Placement placement = 1;
+}
+
+message UpdatePlacementStatusRequest {
+  string name = 1;
+  PlacementStatus status = 2;
+  optional int64 expected_resource_version = 3;
+}
+
+message UpdatePlacementStatusResponse {
+  Placement placement = 1;
+}

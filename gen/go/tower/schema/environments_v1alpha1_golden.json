@@ -1,0 +1,305 @@
+{
+  "$defs": {
+    "tower.environments.v1alpha1.BoxImageInputs": {
+      "additionalProperties": false,
+      "description": "BoxImageInputs make a box's image, which lives in the registry.",
+      "properties": {
+        "addons": {
+          "description": "Add-ons with their versions, such as \"browser@3\".",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "baseImageDigest": {
+          "description": "The image the devcontainer starts from, by digest.",
+          "type": "string"
+        },
+        "devcontainerHash": {
+          "description": "A hash of the resolved devcontainer: devcontainer.json with its features, its Dockerfile, and the files that Dockerfile copies.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.BoxWarmInputs": {
+      "additionalProperties": false,
+      "description": "BoxWarmInputs make a warm golden: a checkout of a repository's default branch with its toolchain and dependencies installed, on the target's disk. Only the most used repositories get one.",
+      "properties": {
+        "commit": {
+          "description": "The commit checked out.",
+          "type": "string"
+        },
+        "lockfilesHash": {
+          "description": "A hash of the lockfiles (go.sum, pnpm-lock.yaml, package-lock.json, uv.lock, Cargo.lock, ...).",
+          "type": "string"
+        },
+        "repository": {
+          "type": "string"
+        },
+        "toolchainHash": {
+          "description": "A hash of the toolchain's configuration (mise.toml, .tool-versions).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.GoldenSpec": {
+      "additionalProperties": false,
+      "description": "GoldenSpec is what the golden is built from. All of it is fixed.",
+      "properties": {
+        "boxImage": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.BoxImageInputs",
+          "description": "Set at most one of boxImage, boxWarm, machine."
+        },
+        "boxWarm": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.BoxWarmInputs",
+          "description": "Set at most one of boxImage, boxWarm, machine."
+        },
+        "inputHash": {
+          "description": "The hash of inputs: what makes two goldens the same.",
+          "type": "string"
+        },
+        "machine": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.MachineInputs",
+          "description": "Set at most one of boxImage, boxWarm, machine."
+        },
+        "parent": {
+          "description": "The Golden a warm golden is made on, its box image; empty otherwise.",
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.GoldenStatus": {
+      "additionalProperties": false,
+      "description": "GoldenStatus is what the golden came to.",
+      "properties": {
+        "artifact": {
+          "description": "What environments are made from: an image reference by digest, a hangar CustomImage, or a hostd snapshot.",
+          "type": "string"
+        },
+        "conditions": {
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.Condition"
+          },
+          "type": "array"
+        },
+        "lastUseTime": {
+          "description": "When an environment was last made from it: what pruning reads.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "observedGeneration": {
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "phase": {
+          "description": "GoldenPhase is where a golden is in its life.",
+          "enum": [
+            "GOLDEN_PHASE_BUILDING",
+            "GOLDEN_PHASE_READY",
+            "GOLDEN_PHASE_FAILED"
+          ],
+          "type": "string"
+        },
+        "size": {
+          "description": "What it holds on the target, as a quantity.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.MachineInputs": {
+      "additionalProperties": false,
+      "description": "MachineInputs make a converged machine.",
+      "properties": {
+        "baseImage": {
+          "type": "string"
+        },
+        "blueprintHash": {
+          "description": "A hash of the blueprint's content and its golden_vars.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.Condition": {
+      "additionalProperties": false,
+      "description": "Condition is one observed aspect of an object's state, such as \"Ready\".",
+      "properties": {
+        "lastTransitionTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "message": {
+          "description": "Human-readable detail.",
+          "type": "string"
+        },
+        "observedGeneration": {
+          "description": "The generation this condition was computed from.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "reason": {
+          "description": "CamelCase machine-readable cause of the last transition.",
+          "type": "string"
+        },
+        "status": {
+          "description": "ConditionStatus is the state of a condition.",
+          "enum": [
+            "CONDITION_STATUS_TRUE",
+            "CONDITION_STATUS_FALSE",
+            "CONDITION_STATUS_UNKNOWN"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "description": "CamelCase, such as \"Ready\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.ObjectMeta": {
+      "additionalProperties": false,
+      "description": "ObjectMeta is the metadata every resource carries. Users set name, project, labels and annotations; everything else is owned by the system. See docs/decisions/apply-semantics.md.",
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "createTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "deleteTime": {
+          "description": "Set when deletion was requested and finalizers are still pending.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "finalizers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "generation": {
+          "description": "Incremented on every change to spec.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "name": {
+          "description": "DNS-1123 label, unique within the project (or the platform, for global kinds). An Invitation's is an email instead.",
+          "type": "string"
+        },
+        "ownerReferences": {
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.OwnerReference"
+          },
+          "type": "array"
+        },
+        "project": {
+          "description": "Empty for global kinds.",
+          "type": "string"
+        },
+        "resourceVersion": {
+          "description": "Store revision of the last write to this object.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "uid": {
+          "description": "UUIDv7, assigned at creation.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.OwnerReference": {
+      "additionalProperties": false,
+      "description": "OwnerReference points at the object that owns this one. An owner is in the same project, a global object, or, for a global object, one in the project the reference names; when it is deleted, its dependents are garbage collected.",
+      "properties": {
+        "apiVersion": {
+          "type": "string"
+        },
+        "controller": {
+          "description": "The owner is the controller responsible for this object.",
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "project": {
+          "description": "The owner's project, when the owner is project-scoped and this object is global, as a RoleBinding owned by the ServiceToken it names. Empty otherwise.",
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Golden is what environments are made from on one target: a box's image, a warm checkout of a repository with its dependencies, or a converged machine. There is one per target and input hash, shared by every environment of the same inputs; a change of input is a new Golden, and one nothing was made from for a while is pruned. tower's controllers make them; workstream may read them. See docs/decisions/hostd-storage.md.",
+  "properties": {
+    "apiVersion": {
+      "const": "environments.tower.hangarlab.cloud/v1alpha1",
+      "type": "string"
+    },
+    "kind": {
+      "const": "Golden",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/tower.meta.v1.ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/tower.environments.v1alpha1.GoldenSpec"
+    },
+    "status": {
+      "$ref": "#/$defs/tower.environments.v1alpha1.GoldenStatus",
+      "readOnly": true
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata"
+  ],
+  "title": "Golden",
+  "type": "object"
+}

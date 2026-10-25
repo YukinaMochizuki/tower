@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package tower.meta.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// ObjectMeta is the metadata every resource carries. Users set name, project,
+// labels and annotations; everything else is owned by the system. See
+// docs/decisions/apply-semantics.md.
+message ObjectMeta {
+  // DNS-1123 label, unique within the project (or the platform, for global
+  // kinds). An Invitation's is an email instead.
+  string name = 1;
+  // Empty for global kinds.
+  string project = 2;
+  // UUIDv7, assigned at creation.
+  string uid = 3;
+  // Store revision of the last write to this object.
+  int64 resource_version = 4;
+  // Incremented on every change to spec.
+  int64 generation = 5;
+  google.protobuf.Timestamp create_time = 6;
+  // Set when deletion was requested and finalizers are still pending.
+  google.protobuf.Timestamp delete_time = 7;
+  // Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.
+  map<string, string> labels = 8;
+  // Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.
+  map<string, string> annotations = 9;
+  repeated string finalizers = 10;
+  repeated OwnerReference owner_references = 11;
+}
+
+// OwnerReference points at the object that owns this one. An owner is in the
+// same project, a global object, or, for a global object, one in the project
+// the reference names; when it is deleted, its dependents are garbage
+// collected.
+message OwnerReference {
+  string api_version = 1;
+  string kind = 2;
+  string name = 3;
+  string uid = 4;
+  // The owner is the controller responsible for this object.
+  bool controller = 5;
+  // The owner's project, when the owner is project-scoped and this object
+  // is global, as a RoleBinding owned by the ServiceToken it names. Empty
+  // otherwise.
+  string project = 6;
+}
+
+// ConditionStatus is the state of a condition.
+enum ConditionStatus {
+  CONDITION_STATUS_UNSPECIFIED = 0;
+  CONDITION_STATUS_TRUE = 1;
+  CONDITION_STATUS_FALSE = 2;
+  CONDITION_STATUS_UNKNOWN = 3;
+}
+
+// Condition is one observed aspect of an object's state, such as "Ready".
+message Condition {
+  // CamelCase, such as "Ready".
+  string type = 1;
+  ConditionStatus status = 2;
+  // CamelCase machine-readable cause of the last transition.
+  string reason = 3;
+  // Human-readable detail.
+  string message = 4;
+  // The generation this condition was computed from.
+  int64 observed_generation = 5;
+  google.protobuf.Timestamp last_transition_time = 6;
+}
+
+// EventType is the kind of change a watch event reports.
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_ADDED = 1;
+  EVENT_TYPE_MODIFIED = 2;
+  EVENT_TYPE_DELETED = 3;
+  // No object changed; the stream is alive and has reached the revision.
+  // Every watch starts with one, at the revision it starts after.
+  EVENT_TYPE_BOOKMARK = 4;
+}

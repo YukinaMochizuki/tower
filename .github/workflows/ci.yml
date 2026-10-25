@@ -1,0 +1,25 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - name: Fetch main for breaking-change detection
+        if: github.ref != 'refs/heads/main'
+        run: git fetch --no-tags --depth=1 origin main:main
+      - run: make lint
+      - run: make breaking
+      - run: make test
+      - run: make e2e
+      - run: make gen-check

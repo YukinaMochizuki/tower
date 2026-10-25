@@ -1,0 +1,198 @@
+syntax = "proto3";
+
+package tower.targets.v1alpha1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "tower/meta/v1/meta.proto";
+import "tower/meta/v1/options.proto";
+
+// Target is a place environments run: one project of a hangar endpoint, or
+// one host running hostd. An administrator registers it; Placement says
+// which projects run on it. See docs/decisions/placement.md.
+message Target {
+  option (tower.meta.v1.resource) = {
+    kind: "Target"
+    plural: "targets"
+    short_names: ["tgt"]
+    scope: SCOPE_GLOBAL
+  };
+  string api_version = 1;
+  string kind = 2;
+  tower.meta.v1.ObjectMeta metadata = 3;
+  TargetSpec spec = 4;
+  TargetStatus status = 5;
+}
+
+// TargetSpec is what the target is, and the settings tower's policy reads
+// for it.
+message TargetSpec {
+  // What provides the resources. It cannot change: another provider is
+  // another target.
+  oneof provider {
+    HangarTarget hangar = 1;
+    HostdTarget hostd = 2;
+  }
+  TargetSettings settings = 3;
+}
+
+// HangarTarget is one project of a hangar endpoint, which tower uses as an
+// ordinary client.
+message HangarTarget {
+  // The endpoint's API URL.
+  string endpoint = 1 [(tower.meta.v1.field).immutable = true];
+  // The hangar project every environment of this target lives in.
+  string project = 2 [(tower.meta.v1.field).immutable = true];
+  // A Secret in tower's reserved project "system" holding the hangar
+  // service token tower calls the endpoint with, under the key "token".
+  string credential_secret = 3;
+}
+
+// HostdTarget is a host running hostd. The host is whoever holds a
+// ROLE_HOSTD token whose target is this one.
+message HostdTarget {}
+
+// TargetSettings are the knobs of tower's policy on this target. Each unset
+// one takes tower's default.
+message TargetSettings {
+  // A box unused for this long is stopped (its disk kept) until it is used
+  // again. Zero is tower's default; a box workstream keeps, or that runs
+  // background work, is never stopped for idleness.
+  google.protobuf.Duration idle_stop_after = 1;
+  // How much disk warm goldens may hold on this target, as a quantity such
+  // as 200Gi. The most used repositories get one first.
+  string warm_budget = 2;
+  // How far back a repository's use counts toward its rank.
+  google.protobuf.Duration warm_window = 3;
+  // A warm golden whose checkout is older than this, or more commits
+  // behind its branch than warm_max_commits_behind, is rebuilt.
+  google.protobuf.Duration warm_max_age = 4;
+  int32 warm_max_commits_behind = 5;
+}
+
+// TargetStatus is the target's state as its provider last reported it and
+// as tower counts it: enough to see what is wrong without logging in to it.
+message TargetStatus {
+  int64 observed_generation = 1;
+  // Reachable: tower can call the provider. Reporting: the provider reported
+  // within its interval, which tower turns false after three intervals of
+  // silence. DiskPressure: free disk is under the warm budget plus a fixed
+  // margin (20Gi) for the instances to grow into.
+  repeated tower.meta.v1.Condition conditions = 2;
+  google.protobuf.Timestamp last_report_time = 3;
+  // The last error calling or hearing from the provider, if it has not
+  // succeeded since.
+  string last_error = 4;
+  Capacity capacity = 5;
+  Usage usage = 6;
+  Counts counts = 7;
+  // What the provider says about itself, one fact a line: its version, the
+  // health of its ZFS pool, its Docker and QEMU versions, a hangar project's
+  // quota and what it uses of it.
+  repeated Fact facts = 8;
+}
+
+// Capacity is the target's room, as quantities.
+message Capacity {
+  string disk_total = 1;
+  string disk_free = 2;
+  string memory_total = 3;
+  string memory_free = 4;
+  int32 cpus = 5;
+}
+
+// Usage is what holds the target's disk, by what it is for.
+message Usage {
+  string goldens = 1;
+  // What instances hold beyond the goldens they were cloned from.
+  string instances = 2;
+  string mirrors = 3;
+  string caches = 4;
+  // Everything else the provider counts on its disk.
+  string other = 5;
+}
+
+// Counts are the target's objects as tower holds them.
+message Counts {
+  // Instances by phase, such as RUNNING: 4.
+  map<string, int32> instances = 1;
+  int32 goldens = 2;
+}
+
+// Fact is one thing a provider reports about itself.
+message Fact {
+  string name = 1;
+  string value = 2;
+}
+
+// TargetService manages targets.
+service TargetService {
+  rpc GetTarget(GetTargetRequest) returns (GetTargetResponse);
+  rpc ListTargets(ListTargetsRequest) returns (ListTargetsResponse);
+  rpc WatchTargets(WatchTargetsRequest) returns (stream WatchTargetsResponse);
+  rpc ApplyTarget(ApplyTargetRequest) returns (ApplyTargetResponse);
+  rpc DeleteTarget(DeleteTargetRequest) returns (DeleteTargetResponse);
+  rpc UpdateTargetStatus(UpdateTargetStatusRequest) returns (UpdateTargetStatusResponse);
+}
+
+message GetTargetRequest {
+  string name = 1;
+}
+
+message GetTargetResponse {
+  Target target = 1;
+}
+
+message ListTargetsRequest {
+  string label_selector = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListTargetsResponse {
+  repeated Target items = 1;
+  string next_page_token = 2;
+  int64 revision = 3;
+}
+
+message WatchTargetsRequest {
+  string label_selector = 1;
+  int64 since_revision = 2;
+}
+
+message WatchTargetsResponse {
+  tower.meta.v1.EventType type = 1;
+  Target target = 2;
+  int64 revision = 3;
+}
+
+message ApplyTargetRequest {
+  Target target = 1;
+  // Refuses an existing object with ALREADY_EXISTS, changing nothing.
+  bool create_only = 2;
+}
+
+message ApplyTargetResponse {
+  Target target = 1;
+  repeated string warnings = 2;
+  bool created = 3;
+}
+
+message DeleteTargetRequest {
+  string name = 1;
+  optional int64 expected_resource_version = 2;
+}
+
+message DeleteTargetResponse {
+  Target target = 1;
+}
+
+message UpdateTargetStatusRequest {
+  string name = 1;
+  TargetStatus status = 2;
+  optional int64 expected_resource_version = 3;
+}
+
+message UpdateTargetStatusResponse {
+  Target target = 1;
+}

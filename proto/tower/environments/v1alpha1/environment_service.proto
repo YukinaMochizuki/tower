@@ -1,0 +1,313 @@
+syntax = "proto3";
+
+package tower.environments.v1alpha1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// EnvironmentService is what workstream does in a box or a machine: run a
+// command, read and write files, copy between two environments, refresh a
+// box's origin, push a branch, and ask for a ticket to stream to a port
+// directly. Only ROLE_WORKSTREAM may call it. Every call counts as a use of
+// the environment; a box tower stopped for idleness is started first, and
+// the call waits for it within its deadline. It is not a resource's
+// service, so it is written by hand rather than generated. See
+// docs/decisions/traffic.md.
+service EnvironmentService {
+  // Exec runs a command and streams its output, stdout and stderr in the
+  // order they were written, then how it ended. The command runs for as
+  // long as the call: a call that ends kills it. In a privileged box, tower
+  // adds its Secret's values to the command's environment.
+  rpc Exec(ExecRequest) returns (stream ExecResponse);
+  // ReadFile streams up to limit bytes of a file from offset.
+  rpc ReadFile(ReadFileRequest) returns (stream ReadFileResponse);
+  // WriteFile writes one chunk of a file, making its directory: offset 0
+  // replaces the file, and each later chunk starts where the file ends.
+  rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
+  // CopyFile copies a file or a directory from one environment to another
+  // of the same workstream. The bytes never leave the target.
+  rpc CopyFile(CopyFileRequest) returns (CopyFileResponse);
+  // FetchOrigin fetches the repositories of a box's checkouts into the
+  // target's mirrors, then brings each checkout's origin/* up to them.
+  rpc FetchOrigin(FetchOriginRequest) returns (FetchOriginResponse);
+  // Push pushes a branch of a box's checkout to its repository, forcing
+  // only with a lease. A repository without a credential is refused.
+  rpc Push(PushRequest) returns (PushResponse);
+  // IssueTicket returns where to stream to one port of an environment
+  // directly, and the ticket to present there. On a hangar target it is
+  // UNIMPLEMENTED: hangar forwards no port yet.
+  rpc IssueTicket(IssueTicketRequest) returns (IssueTicketResponse);
+  // StartProcess starts a process in a box and returns its id at once: a
+  // background job or a service, which outlives the call, unlike Exec's
+  // command. In a privileged box, tower adds its Secret's values to the
+  // process's environment. While a process runs, the box is never stopped
+  // for idleness; stopping the box ends it. Processes are a box's alone: in
+  // a machine this is UNIMPLEMENTED.
+  rpc StartProcess(StartProcessRequest) returns (StartProcessResponse);
+  // AttachProcess streams a process's output from an offset, stdout and
+  // stderr in the order written. With follow it goes on until the process
+  // ends; it ends with where output is held from and resumes, and the
+  // process's exit once it has one. Attaching again from the offset it
+  // ended at loses nothing the log still holds.
+  rpc AttachProcess(AttachProcessRequest) returns (stream AttachProcessResponse);
+  // SignalProcess sends a signal to a process's group.
+  rpc SignalProcess(SignalProcessRequest) returns (SignalProcessResponse);
+  // ListProcesses lists a box's processes, running and finished.
+  rpc ListProcesses(ListProcessesRequest) returns (ListProcessesResponse);
+}
+
+// Environment names a box or a machine.
+message Environment {
+  string project = 1;
+  oneof kind {
+    string box = 2;
+    string machine = 3;
+  }
+}
+
+message ExecRequest {
+  Environment environment = 1;
+  oneof command {
+    // The program and its arguments, run without a shell.
+    Argv argv = 2;
+    // A line run by /bin/sh -c.
+    string shell = 3;
+  }
+  // The working directory; empty is the environment's default.
+  string dir = 4;
+  // Added to the environment's own for this command alone.
+  map<string, string> env = 5;
+  // Kills the command once it has run this long; unset is the call's
+  // deadline alone.
+  google.protobuf.Duration timeout = 6;
+}
+
+// Argv is a program and its arguments.
+message Argv {
+  repeated string args = 1;
+}
+
+message ExecResponse {
+  oneof response {
+    bytes stdout = 1;
+    bytes stderr = 2;
+    // The last response.
+    ExecExit exit = 3;
+  }
+}
+
+// ExecExit is how a command ended.
+message ExecExit {
+  int32 code = 1;
+  // The command ran past its timeout and was killed; code is then 124,
+  // as timeout(1) exits.
+  bool timed_out = 2;
+}
+
+message ReadFileRequest {
+  Environment environment = 1;
+  string path = 2;
+  int64 offset = 3;
+  // At most 64 MiB, which unset is.
+  int64 limit = 4;
+}
+
+message ReadFileResponse {
+  oneof response {
+    bytes data = 1;
+    // The last response.
+    ReadFileEnd end = 2;
+  }
+}
+
+// ReadFileEnd says whether a read reached the end of its file.
+message ReadFileEnd {
+  // False when the file goes on past what was read: read again from where
+  // this read ended.
+  bool eof = 1;
+}
+
+message WriteFileRequest {
+  Environment environment = 1;
+  string path = 2;
+  // At most 4 MiB.
+  bytes data = 3;
+  // Where data goes: 0 replaces the file; any other offset must be the
+  // file's size, so a large file is written in chunks, in order.
+  int64 offset = 4;
+  // Permission bits; 0 is 0644.
+  uint32 mode = 5;
+}
+
+message WriteFileResponse {}
+
+message CopyFileRequest {
+  Environment from = 1;
+  string from_path = 2;
+  Environment to = 3;
+  string to_path = 4;
+}
+
+message CopyFileResponse {}
+
+message FetchOriginRequest {
+  // A box.
+  Environment environment = 1;
+}
+
+message FetchOriginResponse {
+  repeated FetchedCheckout checkouts = 1;
+}
+
+// FetchedCheckout is where one checkout's origin now is.
+message FetchedCheckout {
+  string repository = 1;
+  // The commit its repository's default branch is at.
+  string head = 2;
+}
+
+message PushRequest {
+  // A box.
+  Environment environment = 1;
+  // The checkout's Repository, by name.
+  string repository = 2;
+  string branch = 3;
+  // The commit the branch must be at on the forge for the push to go, as
+  // --force-with-lease; empty for a branch that must not exist yet. A
+  // branch elsewhere is ABORTED.
+  string lease = 4;
+}
+
+message PushResponse {}
+
+message IssueTicketRequest {
+  Environment environment = 1;
+  int32 port = 2;
+}
+
+message StartProcessRequest {
+  // A box.
+  Environment environment = 1;
+  oneof command {
+    // The program and its arguments, run without a shell.
+    Argv argv = 2;
+    // A line run by /bin/sh -c.
+    string shell = 3;
+  }
+  // The working directory; empty is the box's default.
+  string dir = 4;
+  // Added to the box's own environment for this process alone.
+  map<string, string> env = 5;
+  // A name for people, such as "dev server"; tower does not read it.
+  string name = 6;
+}
+
+message StartProcessResponse {
+  // The process's id in its box.
+  string process = 1;
+}
+
+message AttachProcessRequest {
+  // A box.
+  Environment environment = 1;
+  string process = 2;
+  // Where in the process's output to start: an offset a previous attach
+  // ended at, or 0 for everything held.
+  int64 offset = 3;
+  // Go on as the process writes, until it ends; without it, send what is
+  // there and end, as a client that polls does.
+  bool follow = 4;
+}
+
+message AttachProcessResponse {
+  oneof response {
+    ProcessOutput output = 1;
+    // The last response.
+    ProcessEnd end = 2;
+  }
+}
+
+// OutputStream is which of a process's outputs a chunk was written to.
+enum OutputStream {
+  OUTPUT_STREAM_UNSPECIFIED = 0;
+  OUTPUT_STREAM_STDOUT = 1;
+  OUTPUT_STREAM_STDERR = 2;
+}
+
+// ProcessOutput is a chunk of a process's output.
+message ProcessOutput {
+  OutputStream stream = 1;
+  // Where the chunk starts in the process's output, stdout and stderr
+  // counted together.
+  int64 offset = 2;
+  bytes data = 3;
+}
+
+// ProcessEnd is how an attach ended.
+message ProcessEnd {
+  // The oldest offset the target still holds: a process's log is capped on
+  // the target (64 MiB unless the target says otherwise), its oldest
+  // output dropped first. Output before it is gone.
+  int64 held_from = 1;
+  // Where to attach again to read what comes next.
+  int64 next_offset = 2;
+  // How the process ended; unset while it runs.
+  ProcessExit exit = 3;
+}
+
+// Signal is a signal a process's group can be sent.
+enum Signal {
+  SIGNAL_UNSPECIFIED = 0;
+  SIGNAL_TERM = 1;
+  SIGNAL_KILL = 2;
+  SIGNAL_INT = 3;
+}
+
+// ProcessExit is how a process ended.
+message ProcessExit {
+  // Its exit code; 128 plus the signal's number when a signal ended it.
+  int32 code = 1;
+  // The signal that ended it, unset if it exited.
+  Signal signal = 2;
+}
+
+message SignalProcessRequest {
+  // A box.
+  Environment environment = 1;
+  string process = 2;
+  Signal signal = 3;
+}
+
+message SignalProcessResponse {}
+
+message ListProcessesRequest {
+  // A box.
+  Environment environment = 1;
+}
+
+message ListProcessesResponse {
+  // Oldest first. A finished process is kept until its box is deleted, or
+  // until the box holds more finished processes than its target keeps (100
+  // unless the target says otherwise), the oldest going first.
+  repeated ProcessInfo processes = 1;
+}
+
+// ProcessInfo is one process of a box.
+message ProcessInfo {
+  string process = 1;
+  string name = 2;
+  // Its command line, cut short.
+  string command = 3;
+  google.protobuf.Timestamp start_time = 4;
+  bool running = 5;
+  // How it ended; unset while it runs.
+  ProcessExit exit = 6;
+}
+
+message IssueTicketResponse {
+  // Where to connect.
+  string url = 1;
+  // What to present there, valid for this environment and port alone.
+  string ticket = 2;
+  google.protobuf.Timestamp expire_time = 3;
+}

@@ -1,0 +1,12 @@
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+breaking:
+  # Objects are stored as proto binary and users write YAML with JSON names, so
+  # wire and JSON compatibility hold even in alpha. See
+  # docs/decisions/buf-breaking-wire-json.md.
+  use:
+    - WIRE_JSON

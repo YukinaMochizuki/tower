@@ -1,0 +1,147 @@
+syntax = "proto3";
+
+package tower.environments.v1alpha1;
+
+import "google/protobuf/timestamp.proto";
+import "tower/meta/v1/meta.proto";
+import "tower/meta/v1/options.proto";
+
+// Repository is a git repository of a project, which tower mirrors on the
+// project's target, builds goldens of, and checks out into boxes.
+// workstream applies one per product repository, so tower knows them before
+// any box asks. See docs/decisions/repositories.md.
+message Repository {
+  option (tower.meta.v1.resource) = {
+    kind: "Repository"
+    plural: "repositories"
+    short_names: ["repo"]
+    scope: SCOPE_PROJECT
+  };
+  string api_version = 1;
+  string kind = 2;
+  tower.meta.v1.ObjectMeta metadata = 3;
+  RepositorySpec spec = 4;
+  RepositoryStatus status = 5;
+}
+
+// RepositorySpec is where the repository is and how to reach it.
+message RepositorySpec {
+  // An https URL: a forge's, or workstream's own git service for the
+  // repositories it hosts.
+  string url = 1;
+  // A Secret in the same project whose key "token" reads the repository
+  // and pushes its branches; empty reads it anonymously and cannot push.
+  string credential_secret = 2;
+  // The branch a warm golden checks out.
+  string default_branch = 3;
+}
+
+// RepositoryStatus is what tower holds of the repository and how much it
+// is used.
+message RepositoryStatus {
+  int64 observed_generation = 1;
+  // Reachable: the last fetch succeeded.
+  repeated tower.meta.v1.Condition conditions = 2;
+  // One per target that holds a mirror.
+  repeated Mirror mirrors = 3;
+  // How much the repository is used, which ranks it for a warm golden.
+  RepositoryUse use = 4;
+}
+
+// Mirror is the repository's mirror on one target.
+message Mirror {
+  string target = 1;
+  // The commit default_branch was at in the last fetch.
+  string head = 2;
+  google.protobuf.Timestamp fetch_time = 3;
+}
+
+// RepositoryUse is the repository's use over its target's warm_window.
+message RepositoryUse {
+  // Boxes opened with this repository checked out.
+  int32 boxes_opened = 1;
+  // Seconds its boxes ran.
+  int64 box_seconds = 2;
+  google.protobuf.Timestamp last_use_time = 3;
+  // Whether the repository holds a warm golden now.
+  bool warm = 4;
+}
+
+// RepositoryService manages repositories.
+service RepositoryService {
+  rpc GetRepository(GetRepositoryRequest) returns (GetRepositoryResponse);
+  rpc ListRepositories(ListRepositoriesRequest) returns (ListRepositoriesResponse);
+  rpc WatchRepositories(WatchRepositoriesRequest) returns (stream WatchRepositoriesResponse);
+  rpc ApplyRepository(ApplyRepositoryRequest) returns (ApplyRepositoryResponse);
+  rpc DeleteRepository(DeleteRepositoryRequest) returns (DeleteRepositoryResponse);
+  rpc UpdateRepositoryStatus(UpdateRepositoryStatusRequest) returns (UpdateRepositoryStatusResponse);
+}
+
+message GetRepositoryRequest {
+  string project = 1;
+  string name = 2;
+}
+
+message GetRepositoryResponse {
+  Repository repository = 1;
+}
+
+message ListRepositoriesRequest {
+  // Empty lists across every project the caller can read.
+  string project = 1;
+  string label_selector = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+}
+
+message ListRepositoriesResponse {
+  repeated Repository items = 1;
+  string next_page_token = 2;
+  int64 revision = 3;
+}
+
+message WatchRepositoriesRequest {
+  // Empty watches every project the caller can read.
+  string project = 1;
+  string label_selector = 2;
+  int64 since_revision = 3;
+}
+
+message WatchRepositoriesResponse {
+  tower.meta.v1.EventType type = 1;
+  Repository repository = 2;
+  int64 revision = 3;
+}
+
+message ApplyRepositoryRequest {
+  Repository repository = 1;
+  // Refuses an existing object with ALREADY_EXISTS, changing nothing.
+  bool create_only = 2;
+}
+
+message ApplyRepositoryResponse {
+  Repository repository = 1;
+  repeated string warnings = 2;
+  bool created = 3;
+}
+
+message DeleteRepositoryRequest {
+  string project = 1;
+  string name = 2;
+  optional int64 expected_resource_version = 3;
+}
+
+message DeleteRepositoryResponse {
+  Repository repository = 1;
+}
+
+message UpdateRepositoryStatusRequest {
+  string project = 1;
+  string name = 2;
+  RepositoryStatus status = 3;
+  optional int64 expected_resource_version = 4;
+}
+
+message UpdateRepositoryStatusResponse {
+  Repository repository = 1;
+}

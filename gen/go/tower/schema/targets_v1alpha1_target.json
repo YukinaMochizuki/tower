@@ -1,0 +1,384 @@
+{
+  "$defs": {
+    "tower.meta.v1.Condition": {
+      "additionalProperties": false,
+      "description": "Condition is one observed aspect of an object's state, such as \"Ready\".",
+      "properties": {
+        "lastTransitionTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "message": {
+          "description": "Human-readable detail.",
+          "type": "string"
+        },
+        "observedGeneration": {
+          "description": "The generation this condition was computed from.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "reason": {
+          "description": "CamelCase machine-readable cause of the last transition.",
+          "type": "string"
+        },
+        "status": {
+          "description": "ConditionStatus is the state of a condition.",
+          "enum": [
+            "CONDITION_STATUS_TRUE",
+            "CONDITION_STATUS_FALSE",
+            "CONDITION_STATUS_UNKNOWN"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "description": "CamelCase, such as \"Ready\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.ObjectMeta": {
+      "additionalProperties": false,
+      "description": "ObjectMeta is the metadata every resource carries. Users set name, project, labels and annotations; everything else is owned by the system. See docs/decisions/apply-semantics.md.",
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "createTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "deleteTime": {
+          "description": "Set when deletion was requested and finalizers are still pending.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "finalizers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "generation": {
+          "description": "Incremented on every change to spec.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "name": {
+          "description": "DNS-1123 label, unique within the project (or the platform, for global kinds). An Invitation's is an email instead.",
+          "type": "string"
+        },
+        "ownerReferences": {
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.OwnerReference"
+          },
+          "type": "array"
+        },
+        "project": {
+          "description": "Empty for global kinds.",
+          "type": "string"
+        },
+        "resourceVersion": {
+          "description": "Store revision of the last write to this object.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "uid": {
+          "description": "UUIDv7, assigned at creation.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.OwnerReference": {
+      "additionalProperties": false,
+      "description": "OwnerReference points at the object that owns this one. An owner is in the same project, a global object, or, for a global object, one in the project the reference names; when it is deleted, its dependents are garbage collected.",
+      "properties": {
+        "apiVersion": {
+          "type": "string"
+        },
+        "controller": {
+          "description": "The owner is the controller responsible for this object.",
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "project": {
+          "description": "The owner's project, when the owner is project-scoped and this object is global, as a RoleBinding owned by the ServiceToken it names. Empty otherwise.",
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.targets.v1alpha1.Capacity": {
+      "additionalProperties": false,
+      "description": "Capacity is the target's room, as quantities.",
+      "properties": {
+        "cpus": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "diskFree": {
+          "type": "string"
+        },
+        "diskTotal": {
+          "type": "string"
+        },
+        "memoryFree": {
+          "type": "string"
+        },
+        "memoryTotal": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.targets.v1alpha1.Counts": {
+      "additionalProperties": false,
+      "description": "Counts are the target's objects as tower holds them.",
+      "properties": {
+        "goldens": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "instances": {
+          "additionalProperties": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "description": "Instances by phase, such as RUNNING: 4.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "tower.targets.v1alpha1.Fact": {
+      "additionalProperties": false,
+      "description": "Fact is one thing a provider reports about itself.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.targets.v1alpha1.HangarTarget": {
+      "additionalProperties": false,
+      "description": "HangarTarget is one project of a hangar endpoint, which tower uses as an ordinary client.",
+      "properties": {
+        "credentialSecret": {
+          "description": "A Secret in tower's reserved project \"system\" holding the hangar service token tower calls the endpoint with, under the key \"token\".",
+          "type": "string"
+        },
+        "endpoint": {
+          "description": "The endpoint's API URL.",
+          "type": "string"
+        },
+        "project": {
+          "description": "The hangar project every environment of this target lives in.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.targets.v1alpha1.HostdTarget": {
+      "additionalProperties": false,
+      "description": "HostdTarget is a host running hostd. The host is whoever holds a ROLE_HOSTD token whose target is this one.",
+      "properties": {},
+      "type": "object"
+    },
+    "tower.targets.v1alpha1.TargetSettings": {
+      "additionalProperties": false,
+      "description": "TargetSettings are the knobs of tower's policy on this target. Each unset one takes tower's default.",
+      "properties": {
+        "idleStopAfter": {
+          "description": "A box unused for this long is stopped (its disk kept) until it is used again. Zero is tower's default; a box workstream keeps, or that runs background work, is never stopped for idleness.",
+          "examples": [
+            "30s",
+            "1.5s"
+          ],
+          "pattern": "^-?[0-9]+(\\.[0-9]{1,9})?s$",
+          "type": "string"
+        },
+        "warmBudget": {
+          "description": "How much disk warm goldens may hold on this target, as a quantity such as 200Gi. The most used repositories get one first.",
+          "type": "string"
+        },
+        "warmMaxAge": {
+          "description": "A warm golden whose checkout is older than this, or more commits behind its branch than warm_max_commits_behind, is rebuilt.",
+          "examples": [
+            "30s",
+            "1.5s"
+          ],
+          "pattern": "^-?[0-9]+(\\.[0-9]{1,9})?s$",
+          "type": "string"
+        },
+        "warmMaxCommitsBehind": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "warmWindow": {
+          "description": "How far back a repository's use counts toward its rank.",
+          "examples": [
+            "30s",
+            "1.5s"
+          ],
+          "pattern": "^-?[0-9]+(\\.[0-9]{1,9})?s$",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.targets.v1alpha1.TargetSpec": {
+      "additionalProperties": false,
+      "description": "TargetSpec is what the target is, and the settings tower's policy reads for it.",
+      "properties": {
+        "hangar": {
+          "$ref": "#/$defs/tower.targets.v1alpha1.HangarTarget",
+          "description": "Set at most one of hangar, hostd."
+        },
+        "hostd": {
+          "$ref": "#/$defs/tower.targets.v1alpha1.HostdTarget",
+          "description": "Set at most one of hangar, hostd."
+        },
+        "settings": {
+          "$ref": "#/$defs/tower.targets.v1alpha1.TargetSettings"
+        }
+      },
+      "type": "object"
+    },
+    "tower.targets.v1alpha1.TargetStatus": {
+      "additionalProperties": false,
+      "description": "TargetStatus is the target's state as its provider last reported it and as tower counts it: enough to see what is wrong without logging in to it.",
+      "properties": {
+        "capacity": {
+          "$ref": "#/$defs/tower.targets.v1alpha1.Capacity"
+        },
+        "conditions": {
+          "description": "Reachable: tower can call the provider. Reporting: the provider reported within its interval, which tower turns false after three intervals of silence. DiskPressure: free disk is under the warm budget plus a fixed margin (20Gi) for the instances to grow into.",
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.Condition"
+          },
+          "type": "array"
+        },
+        "counts": {
+          "$ref": "#/$defs/tower.targets.v1alpha1.Counts"
+        },
+        "facts": {
+          "description": "What the provider says about itself, one fact a line: its version, the health of its ZFS pool, its Docker and QEMU versions, a hangar project's quota and what it uses of it.",
+          "items": {
+            "$ref": "#/$defs/tower.targets.v1alpha1.Fact"
+          },
+          "type": "array"
+        },
+        "lastError": {
+          "description": "The last error calling or hearing from the provider, if it has not succeeded since.",
+          "type": "string"
+        },
+        "lastReportTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "observedGeneration": {
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "usage": {
+          "$ref": "#/$defs/tower.targets.v1alpha1.Usage"
+        }
+      },
+      "type": "object"
+    },
+    "tower.targets.v1alpha1.Usage": {
+      "additionalProperties": false,
+      "description": "Usage is what holds the target's disk, by what it is for.",
+      "properties": {
+        "caches": {
+          "type": "string"
+        },
+        "goldens": {
+          "type": "string"
+        },
+        "instances": {
+          "description": "What instances hold beyond the goldens they were cloned from.",
+          "type": "string"
+        },
+        "mirrors": {
+          "type": "string"
+        },
+        "other": {
+          "description": "Everything else the provider counts on its disk.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Target is a place environments run: one project of a hangar endpoint, or one host running hostd. An administrator registers it; Placement says which projects run on it. See docs/decisions/placement.md.",
+  "properties": {
+    "apiVersion": {
+      "const": "targets.tower.hangarlab.cloud/v1alpha1",
+      "type": "string"
+    },
+    "kind": {
+      "const": "Target",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/tower.meta.v1.ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/tower.targets.v1alpha1.TargetSpec"
+    },
+    "status": {
+      "$ref": "#/$defs/tower.targets.v1alpha1.TargetStatus",
+      "readOnly": true
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata"
+  ],
+  "title": "Target",
+  "type": "object"
+}

@@ -1,0 +1,206 @@
+{
+  "$defs": {
+    "tower.meta.v1.Condition": {
+      "additionalProperties": false,
+      "description": "Condition is one observed aspect of an object's state, such as \"Ready\".",
+      "properties": {
+        "lastTransitionTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "message": {
+          "description": "Human-readable detail.",
+          "type": "string"
+        },
+        "observedGeneration": {
+          "description": "The generation this condition was computed from.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "reason": {
+          "description": "CamelCase machine-readable cause of the last transition.",
+          "type": "string"
+        },
+        "status": {
+          "description": "ConditionStatus is the state of a condition.",
+          "enum": [
+            "CONDITION_STATUS_TRUE",
+            "CONDITION_STATUS_FALSE",
+            "CONDITION_STATUS_UNKNOWN"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "description": "CamelCase, such as \"Ready\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.ObjectMeta": {
+      "additionalProperties": false,
+      "description": "ObjectMeta is the metadata every resource carries. Users set name, project, labels and annotations; everything else is owned by the system. See docs/decisions/apply-semantics.md.",
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "createTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "deleteTime": {
+          "description": "Set when deletion was requested and finalizers are still pending.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "finalizers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "generation": {
+          "description": "Incremented on every change to spec.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "name": {
+          "description": "DNS-1123 label, unique within the project (or the platform, for global kinds). An Invitation's is an email instead.",
+          "type": "string"
+        },
+        "ownerReferences": {
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.OwnerReference"
+          },
+          "type": "array"
+        },
+        "project": {
+          "description": "Empty for global kinds.",
+          "type": "string"
+        },
+        "resourceVersion": {
+          "description": "Store revision of the last write to this object.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "uid": {
+          "description": "UUIDv7, assigned at creation.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.OwnerReference": {
+      "additionalProperties": false,
+      "description": "OwnerReference points at the object that owns this one. An owner is in the same project, a global object, or, for a global object, one in the project the reference names; when it is deleted, its dependents are garbage collected.",
+      "properties": {
+        "apiVersion": {
+          "type": "string"
+        },
+        "controller": {
+          "description": "The owner is the controller responsible for this object.",
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "project": {
+          "description": "The owner's project, when the owner is project-scoped and this object is global, as a RoleBinding owned by the ServiceToken it names. Empty otherwise.",
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.tenancy.v1alpha1.ProjectSpec": {
+      "additionalProperties": false,
+      "description": "ProjectSpec is the desired state of a project.",
+      "properties": {
+        "displayName": {
+          "description": "A name for people to read.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.tenancy.v1alpha1.ProjectStatus": {
+      "additionalProperties": false,
+      "description": "ProjectStatus is what tower reports about a project.",
+      "properties": {
+        "conditions": {
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.Condition"
+          },
+          "type": "array"
+        },
+        "observedGeneration": {
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Project is the scope every per-product object lives in: one workstream product is one project, named by the product's id. Deleting a project deletes everything in it first.",
+  "properties": {
+    "apiVersion": {
+      "const": "tenancy.tower.hangarlab.cloud/v1alpha1",
+      "type": "string"
+    },
+    "kind": {
+      "const": "Project",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/tower.meta.v1.ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/tower.tenancy.v1alpha1.ProjectSpec"
+    },
+    "status": {
+      "$ref": "#/$defs/tower.tenancy.v1alpha1.ProjectStatus",
+      "readOnly": true
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata"
+  ],
+  "title": "Project",
+  "type": "object"
+}

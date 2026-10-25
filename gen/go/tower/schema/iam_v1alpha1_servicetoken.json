@@ -1,0 +1,239 @@
+{
+  "$defs": {
+    "tower.iam.v1alpha1.ServiceTokenSpec": {
+      "additionalProperties": false,
+      "description": "ServiceTokenSpec is the desired state of a service token.",
+      "properties": {
+        "description": {
+          "description": "What the token is for, for people to read.",
+          "type": "string"
+        },
+        "role": {
+          "description": "What the token may do. A token never changes role: a client that needs another one gets another token.\n\n- ROLE_ADMIN: Manages tower itself: targets, projects, tokens, secrets.\n- ROLE_WORKSTREAM: workstream: states intents in every project and drives the environments in them, including pushing a branch and running commands on a privileged box.\n- ROLE_HOSTD: A hostd agent: reads the objects of its own target and reports their status, nothing else.",
+          "enum": [
+            "ROLE_ADMIN",
+            "ROLE_WORKSTREAM",
+            "ROLE_HOSTD"
+          ],
+          "type": "string"
+        },
+        "target": {
+          "description": "The Target a hostd token acts for, by name; required for ROLE_HOSTD and refused for every other role.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.iam.v1alpha1.ServiceTokenStatus": {
+      "additionalProperties": false,
+      "description": "ServiceTokenStatus is what can be said of a service token's secret without it. The apiserver alone writes it.",
+      "properties": {
+        "conditions": {
+          "description": "None yet: whether the token has a secret, and until when, is secret_prefix and expire_time.",
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.Condition"
+          },
+          "type": "array"
+        },
+        "expireTime": {
+          "description": "When the current secret stops working.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "issueTime": {
+          "description": "When the current secret was issued.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "lastUseTime": {
+          "description": "When the token was last used, to within an hour; unset if never.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "observedGeneration": {
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "secretPrefix": {
+          "description": "The secret's first characters, such as twr_Ab3dE9xQ, to tell which secret someone holds. Empty while it has none.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.Condition": {
+      "additionalProperties": false,
+      "description": "Condition is one observed aspect of an object's state, such as \"Ready\".",
+      "properties": {
+        "lastTransitionTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "message": {
+          "description": "Human-readable detail.",
+          "type": "string"
+        },
+        "observedGeneration": {
+          "description": "The generation this condition was computed from.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "reason": {
+          "description": "CamelCase machine-readable cause of the last transition.",
+          "type": "string"
+        },
+        "status": {
+          "description": "ConditionStatus is the state of a condition.",
+          "enum": [
+            "CONDITION_STATUS_TRUE",
+            "CONDITION_STATUS_FALSE",
+            "CONDITION_STATUS_UNKNOWN"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "description": "CamelCase, such as \"Ready\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.ObjectMeta": {
+      "additionalProperties": false,
+      "description": "ObjectMeta is the metadata every resource carries. Users set name, project, labels and annotations; everything else is owned by the system. See docs/decisions/apply-semantics.md.",
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "createTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "deleteTime": {
+          "description": "Set when deletion was requested and finalizers are still pending.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "finalizers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "generation": {
+          "description": "Incremented on every change to spec.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "name": {
+          "description": "DNS-1123 label, unique within the project (or the platform, for global kinds). An Invitation's is an email instead.",
+          "type": "string"
+        },
+        "ownerReferences": {
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.OwnerReference"
+          },
+          "type": "array"
+        },
+        "project": {
+          "description": "Empty for global kinds.",
+          "type": "string"
+        },
+        "resourceVersion": {
+          "description": "Store revision of the last write to this object.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "uid": {
+          "description": "UUIDv7, assigned at creation.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.OwnerReference": {
+      "additionalProperties": false,
+      "description": "OwnerReference points at the object that owns this one. An owner is in the same project, a global object, or, for a global object, one in the project the reference names; when it is deleted, its dependents are garbage collected.",
+      "properties": {
+        "apiVersion": {
+          "type": "string"
+        },
+        "controller": {
+          "description": "The owner is the controller responsible for this object.",
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "project": {
+          "description": "The owner's project, when the owner is project-scoped and this object is global, as a RoleBinding owned by the ServiceToken it names. Empty otherwise.",
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "ServiceToken is a client's credential: an opaque `twr_` secret it sends as `Authorization: Bearer`, which authenticates it as the principal serviceToken:<name>. What the token may do is its role, fixed when the token is made. Tower keeps only the secret's SHA-256, outside objects: ServiceTokenIssuerService returns the secret once, when it creates or rotates the token, and nothing shows it again. A token made by apply has no secret until it is rotated. Deleting the token revokes its secret at once. See docs/decisions/authentication.md.",
+  "properties": {
+    "apiVersion": {
+      "const": "iam.tower.hangarlab.cloud/v1alpha1",
+      "type": "string"
+    },
+    "kind": {
+      "const": "ServiceToken",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/tower.meta.v1.ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/tower.iam.v1alpha1.ServiceTokenSpec"
+    },
+    "status": {
+      "$ref": "#/$defs/tower.iam.v1alpha1.ServiceTokenStatus",
+      "readOnly": true
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata"
+  ],
+  "title": "ServiceToken",
+  "type": "object"
+}

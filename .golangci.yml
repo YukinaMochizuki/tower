@@ -1,0 +1,49 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - copyloopvar
+    - errorlint
+    - forbidigo
+    - misspell
+    - nilerr
+    - unconvert
+    - usestdlibvars
+  settings:
+    forbidigo:
+      forbid:
+        - pattern: ^time\.Sleep$
+          msg: >-
+            a test waits for what it needs (testutil.Eventually), not for time
+            to pass; see docs/decisions/testing-strategy.md. A sleep that
+            stands for real work, not for waiting, says why with
+            //nolint:forbidigo // reason
+  exclusions:
+    generated: strict
+    paths:
+      - gen/
+    rules:
+      # Only tests and their support packages (named *test) are held to it.
+      - path-except: '(_test\.go$|test/[^/]+\.go$|/testutil/)'
+        linters: [forbidigo]
+      # Real-host tests wait on real hardware, which nothing can be asked.
+      - path: ^test/testbed/
+        linters: [forbidigo]
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/YukinaMochizuki/tower
+  exclusions:
+    paths:
+      - gen/

@@ -1,0 +1,273 @@
+{
+  "$defs": {
+    "tower.environments.v1alpha1.Mirror": {
+      "additionalProperties": false,
+      "description": "Mirror is the repository's mirror on one target.",
+      "properties": {
+        "fetchTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "head": {
+          "description": "The commit default_branch was at in the last fetch.",
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.RepositorySpec": {
+      "additionalProperties": false,
+      "description": "RepositorySpec is where the repository is and how to reach it.",
+      "properties": {
+        "credentialSecret": {
+          "description": "A Secret in the same project whose key \"token\" reads the repository and pushes its branches; empty reads it anonymously and cannot push.",
+          "type": "string"
+        },
+        "defaultBranch": {
+          "description": "The branch a warm golden checks out.",
+          "type": "string"
+        },
+        "url": {
+          "description": "An https URL: a forge's, or workstream's own git service for the repositories it hosts.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.RepositoryStatus": {
+      "additionalProperties": false,
+      "description": "RepositoryStatus is what tower holds of the repository and how much it is used.",
+      "properties": {
+        "conditions": {
+          "description": "Reachable: the last fetch succeeded.",
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.Condition"
+          },
+          "type": "array"
+        },
+        "mirrors": {
+          "description": "One per target that holds a mirror.",
+          "items": {
+            "$ref": "#/$defs/tower.environments.v1alpha1.Mirror"
+          },
+          "type": "array"
+        },
+        "observedGeneration": {
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "use": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.RepositoryUse",
+          "description": "How much the repository is used, which ranks it for a warm golden."
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.RepositoryUse": {
+      "additionalProperties": false,
+      "description": "RepositoryUse is the repository's use over its target's warm_window.",
+      "properties": {
+        "boxSeconds": {
+          "description": "Seconds its boxes ran.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "boxesOpened": {
+          "description": "Boxes opened with this repository checked out.",
+          "format": "int32",
+          "type": "integer"
+        },
+        "lastUseTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "warm": {
+          "description": "Whether the repository holds a warm golden now.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.Condition": {
+      "additionalProperties": false,
+      "description": "Condition is one observed aspect of an object's state, such as \"Ready\".",
+      "properties": {
+        "lastTransitionTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "message": {
+          "description": "Human-readable detail.",
+          "type": "string"
+        },
+        "observedGeneration": {
+          "description": "The generation this condition was computed from.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "reason": {
+          "description": "CamelCase machine-readable cause of the last transition.",
+          "type": "string"
+        },
+        "status": {
+          "description": "ConditionStatus is the state of a condition.",
+          "enum": [
+            "CONDITION_STATUS_TRUE",
+            "CONDITION_STATUS_FALSE",
+            "CONDITION_STATUS_UNKNOWN"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "description": "CamelCase, such as \"Ready\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.ObjectMeta": {
+      "additionalProperties": false,
+      "description": "ObjectMeta is the metadata every resource carries. Users set name, project, labels and annotations; everything else is owned by the system. See docs/decisions/apply-semantics.md.",
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "createTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "deleteTime": {
+          "description": "Set when deletion was requested and finalizers are still pending.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "finalizers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "generation": {
+          "description": "Incremented on every change to spec.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "name": {
+          "description": "DNS-1123 label, unique within the project (or the platform, for global kinds). An Invitation's is an email instead.",
+          "type": "string"
+        },
+        "ownerReferences": {
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.OwnerReference"
+          },
+          "type": "array"
+        },
+        "project": {
+          "description": "Empty for global kinds.",
+          "type": "string"
+        },
+        "resourceVersion": {
+          "description": "Store revision of the last write to this object.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "uid": {
+          "description": "UUIDv7, assigned at creation.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.OwnerReference": {
+      "additionalProperties": false,
+      "description": "OwnerReference points at the object that owns this one. An owner is in the same project, a global object, or, for a global object, one in the project the reference names; when it is deleted, its dependents are garbage collected.",
+      "properties": {
+        "apiVersion": {
+          "type": "string"
+        },
+        "controller": {
+          "description": "The owner is the controller responsible for this object.",
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "project": {
+          "description": "The owner's project, when the owner is project-scoped and this object is global, as a RoleBinding owned by the ServiceToken it names. Empty otherwise.",
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Repository is a git repository of a project, which tower mirrors on the project's target, builds goldens of, and checks out into boxes. workstream applies one per product repository, so tower knows them before any box asks. See docs/decisions/repositories.md.",
+  "properties": {
+    "apiVersion": {
+      "const": "environments.tower.hangarlab.cloud/v1alpha1",
+      "type": "string"
+    },
+    "kind": {
+      "const": "Repository",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/tower.meta.v1.ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/tower.environments.v1alpha1.RepositorySpec"
+    },
+    "status": {
+      "$ref": "#/$defs/tower.environments.v1alpha1.RepositoryStatus",
+      "readOnly": true
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata"
+  ],
+  "title": "Repository",
+  "type": "object"
+}

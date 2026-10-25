@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package tower.environments.v1alpha1;
+
+// RunState is whether an environment should be running. Stopped keeps its
+// disk.
+enum RunState {
+  // Running.
+  RUN_STATE_UNSPECIFIED = 0;
+  RUN_STATE_RUNNING = 1;
+  RUN_STATE_STOPPED = 2;
+}
+
+// Resources is a shape, as quantities; an empty one takes tower's default.
+message Resources {
+  // Such as "2".
+  string cpu = 1;
+  // Such as "4Gi".
+  string memory = 2;
+  // Such as "40Gi"; a disk only grows.
+  string disk = 3;
+}
