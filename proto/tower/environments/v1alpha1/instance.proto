@@ -50,6 +50,11 @@ message InstanceSpec {
   RunState run_state = 8;
   // Ports others on its network reach it at.
   repeated int32 expose_ports = 9;
+  // A container's environment, over its image's, for every command and
+  // process run in it, its values exactly as written: a devcontainer's
+  // containerEnv, as workstream gives it with docker run -e. Never a
+  // secret's value (docs/decisions/secrets.md).
+  map<string, string> env = 10 [(tower.meta.v1.field).immutable = true];
 }
 
 // InstancePhase is what the provider last saw of the instance.

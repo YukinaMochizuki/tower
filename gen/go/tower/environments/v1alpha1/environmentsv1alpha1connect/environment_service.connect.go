@@ -92,12 +92,13 @@ type EnvironmentServiceClient interface {
 	// directly, and the ticket to present there. On a hangar target it is
 	// UNIMPLEMENTED: hangar forwards no port yet.
 	IssueTicket(context.Context, *connect.Request[v1alpha1.IssueTicketRequest]) (*connect.Response[v1alpha1.IssueTicketResponse], error)
-	// StartProcess starts a process in a box and returns its id at once: a
-	// background job or a service, which outlives the call, unlike Exec's
-	// command. In a privileged box, tower adds its Secret's values to the
-	// process's environment. While a process runs, the box is never stopped
-	// for idleness; stopping the box ends it. Processes are a box's alone: in
-	// a machine this is UNIMPLEMENTED.
+	// StartProcess starts a process in a box or a machine and returns its id
+	// at once: a background job or a service, which outlives the call, unlike
+	// Exec's command. In a privileged box, tower adds its Secret's values to
+	// the process's environment. While a process runs, the box is never
+	// stopped for idleness (a machine never is); stopping the environment
+	// ends it. A machine's processes are read from the machine itself: while
+	// it is stopped, they are not listed.
 	StartProcess(context.Context, *connect.Request[v1alpha1.StartProcessRequest]) (*connect.Response[v1alpha1.StartProcessResponse], error)
 	// AttachProcess streams a process's output from an offset, stdout and
 	// stderr in the order written. With follow it goes on until the process
@@ -107,7 +108,7 @@ type EnvironmentServiceClient interface {
 	AttachProcess(context.Context, *connect.Request[v1alpha1.AttachProcessRequest]) (*connect.ServerStreamForClient[v1alpha1.AttachProcessResponse], error)
 	// SignalProcess sends a signal to a process's group.
 	SignalProcess(context.Context, *connect.Request[v1alpha1.SignalProcessRequest]) (*connect.Response[v1alpha1.SignalProcessResponse], error)
-	// ListProcesses lists a box's processes, running and finished.
+	// ListProcesses lists an environment's processes, running and finished.
 	ListProcesses(context.Context, *connect.Request[v1alpha1.ListProcessesRequest]) (*connect.Response[v1alpha1.ListProcessesResponse], error)
 }
 
@@ -288,12 +289,13 @@ type EnvironmentServiceHandler interface {
 	// directly, and the ticket to present there. On a hangar target it is
 	// UNIMPLEMENTED: hangar forwards no port yet.
 	IssueTicket(context.Context, *connect.Request[v1alpha1.IssueTicketRequest]) (*connect.Response[v1alpha1.IssueTicketResponse], error)
-	// StartProcess starts a process in a box and returns its id at once: a
-	// background job or a service, which outlives the call, unlike Exec's
-	// command. In a privileged box, tower adds its Secret's values to the
-	// process's environment. While a process runs, the box is never stopped
-	// for idleness; stopping the box ends it. Processes are a box's alone: in
-	// a machine this is UNIMPLEMENTED.
+	// StartProcess starts a process in a box or a machine and returns its id
+	// at once: a background job or a service, which outlives the call, unlike
+	// Exec's command. In a privileged box, tower adds its Secret's values to
+	// the process's environment. While a process runs, the box is never
+	// stopped for idleness (a machine never is); stopping the environment
+	// ends it. A machine's processes are read from the machine itself: while
+	// it is stopped, they are not listed.
 	StartProcess(context.Context, *connect.Request[v1alpha1.StartProcessRequest]) (*connect.Response[v1alpha1.StartProcessResponse], error)
 	// AttachProcess streams a process's output from an offset, stdout and
 	// stderr in the order written. With follow it goes on until the process
@@ -303,7 +305,7 @@ type EnvironmentServiceHandler interface {
 	AttachProcess(context.Context, *connect.Request[v1alpha1.AttachProcessRequest], *connect.ServerStream[v1alpha1.AttachProcessResponse]) error
 	// SignalProcess sends a signal to a process's group.
 	SignalProcess(context.Context, *connect.Request[v1alpha1.SignalProcessRequest]) (*connect.Response[v1alpha1.SignalProcessResponse], error)
-	// ListProcesses lists a box's processes, running and finished.
+	// ListProcesses lists an environment's processes, running and finished.
 	ListProcesses(context.Context, *connect.Request[v1alpha1.ListProcessesRequest]) (*connect.Response[v1alpha1.ListProcessesResponse], error)
 }
 

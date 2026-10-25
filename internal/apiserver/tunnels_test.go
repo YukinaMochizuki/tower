@@ -114,6 +114,7 @@ func (h *hosts) waitReachable(target, reason string) *targetsv1alpha1.TargetStat
 // token's target alone; calls to that target cross it, and calls to a
 // target with no tunnel are Unavailable. Reachable says which.
 func TestAHostdTokenOpensItsOwnTargetsTunnel(t *testing.T) {
+	t.Parallel()
 	h := newHosts(t)
 	if err := h.call("a"); !errors.Is(err, provider.ErrUnavailable) {
 		t.Errorf("a call to a target never connected: %v, want ErrUnavailable", err)
@@ -138,6 +139,7 @@ func TestAHostdTokenOpensItsOwnTargetsTunnel(t *testing.T) {
 // TestOnlyHostdTokensOpenTunnels: a request opening a tunnel without a
 // ROLE_HOSTD token is refused, and opens nothing.
 func TestOnlyHostdTokensOpenTunnels(t *testing.T) {
+	t.Parallel()
 	h := newHosts(t)
 	ws := must[iamv1alpha1.CreateServiceTokenResponse](t)(h.local().issuer.CreateServiceToken(t.Context(),
 		createToken("ws", iamv1alpha1.Role_ROLE_WORKSTREAM, ""))).GetSecret()
@@ -169,6 +171,7 @@ func TestOnlyHostdTokensOpenTunnels(t *testing.T) {
 // TestReachableFollowsTheTunnel: a tunnel that drops shows on its target,
 // and so does its opening again.
 func TestReachableFollowsTheTunnel(t *testing.T) {
+	t.Parallel()
 	h := newHosts(t)
 	stop := h.host(h.secrets["a"])
 	h.waitReachable("a", "Connected")
@@ -189,6 +192,7 @@ func TestReachableFollowsTheTunnel(t *testing.T) {
 // TestADeletedTokensTunnelIsDropped: a tunnel stands only while its token
 // does; deleted, its tunnel drops at the next recheck.
 func TestADeletedTokensTunnelIsDropped(t *testing.T) {
+	t.Parallel()
 	h := newHosts(t)
 	h.host(h.secrets["a"])
 	h.waitReachable("a", "Connected")

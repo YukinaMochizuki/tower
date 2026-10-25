@@ -231,7 +231,12 @@ type InstanceSpec struct {
 	Resources *Resources `protobuf:"bytes,7,opt,name=resources,proto3" json:"resources,omitempty"`
 	RunState  RunState   `protobuf:"varint,8,opt,name=run_state,json=runState,proto3,enum=tower.environments.v1alpha1.RunState" json:"run_state,omitempty"`
 	// Ports others on its network reach it at.
-	ExposePorts   []int32 `protobuf:"varint,9,rep,packed,name=expose_ports,json=exposePorts,proto3" json:"expose_ports,omitempty"`
+	ExposePorts []int32 `protobuf:"varint,9,rep,packed,name=expose_ports,json=exposePorts,proto3" json:"expose_ports,omitempty"`
+	// A container's environment, over its image's, for every command and
+	// process run in it, its values exactly as written: a devcontainer's
+	// containerEnv, as workstream gives it with docker run -e. Never a
+	// secret's value (docs/decisions/secrets.md).
+	Env           map[string]string `protobuf:"bytes,10,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -325,6 +330,13 @@ func (x *InstanceSpec) GetRunState() RunState {
 func (x *InstanceSpec) GetExposePorts() []int32 {
 	if x != nil {
 		return x.ExposePorts
+	}
+	return nil
+}
+
+func (x *InstanceSpec) GetEnv() map[string]string {
+	if x != nil {
+		return x.Env
 	}
 	return nil
 }
@@ -1124,7 +1136,7 @@ const file_tower_environments_v1alpha1_instance_proto_rawDesc = "" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x12=\n" +
 	"\x04spec\x18\x04 \x01(\v2).tower.environments.v1alpha1.InstanceSpecR\x04spec\x12C\n" +
 	"\x06status\x18\x05 \x01(\v2+.tower.environments.v1alpha1.InstanceStatusR\x06status:!\x8a\xb5\x18\x1d\n" +
-	"\bInstance\x12\tinstances\x1a\x04inst \x01\"\xa9\x03\n" +
+	"\bInstance\x12\tinstances\x1a\x04inst \x01\"\xaf\x04\n" +
 	"\fInstanceSpec\x12\x1e\n" +
 	"\x06target\x18\x01 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\x06target\x12E\n" +
 	"\x04kind\x18\x02 \x01(\x0e2).tower.environments.v1alpha1.InstanceKindB\x06\x8a\xb5\x18\x02\b\x01R\x04kind\x12\x1c\n" +
@@ -1135,7 +1147,12 @@ const file_tower_environments_v1alpha1_instance_proto_rawDesc = "" +
 	"\x05alias\x18\x06 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\x05alias\x12D\n" +
 	"\tresources\x18\a \x01(\v2&.tower.environments.v1alpha1.ResourcesR\tresources\x12B\n" +
 	"\trun_state\x18\b \x01(\x0e2%.tower.environments.v1alpha1.RunStateR\brunState\x12!\n" +
-	"\fexpose_ports\x18\t \x03(\x05R\vexposePorts\"\xff\x02\n" +
+	"\fexpose_ports\x18\t \x03(\x05R\vexposePorts\x12L\n" +
+	"\x03env\x18\n" +
+	" \x03(\v22.tower.environments.v1alpha1.InstanceSpec.EnvEntryB\x06\x8a\xb5\x18\x02\b\x01R\x03env\x1a6\n" +
+	"\bEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xff\x02\n" +
 	"\x0eInstanceStatus\x12/\n" +
 	"\x13observed_generation\x18\x01 \x01(\x03R\x12observedGeneration\x128\n" +
 	"\n" +
@@ -1227,7 +1244,7 @@ func file_tower_environments_v1alpha1_instance_proto_rawDescGZIP() []byte {
 }
 
 var file_tower_environments_v1alpha1_instance_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_tower_environments_v1alpha1_instance_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_tower_environments_v1alpha1_instance_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_tower_environments_v1alpha1_instance_proto_goTypes = []any{
 	(InstanceKind)(0),                    // 0: tower.environments.v1alpha1.InstanceKind
 	(InstancePhase)(0),                   // 1: tower.environments.v1alpha1.InstancePhase
@@ -1246,49 +1263,51 @@ var file_tower_environments_v1alpha1_instance_proto_goTypes = []any{
 	(*DeleteInstanceResponse)(nil),       // 14: tower.environments.v1alpha1.DeleteInstanceResponse
 	(*UpdateInstanceStatusRequest)(nil),  // 15: tower.environments.v1alpha1.UpdateInstanceStatusRequest
 	(*UpdateInstanceStatusResponse)(nil), // 16: tower.environments.v1alpha1.UpdateInstanceStatusResponse
-	(*v1.ObjectMeta)(nil),                // 17: tower.meta.v1.ObjectMeta
-	(*Resources)(nil),                    // 18: tower.environments.v1alpha1.Resources
-	(RunState)(0),                        // 19: tower.environments.v1alpha1.RunState
-	(*v1.Condition)(nil),                 // 20: tower.meta.v1.Condition
-	(*timestamppb.Timestamp)(nil),        // 21: google.protobuf.Timestamp
-	(v1.EventType)(0),                    // 22: tower.meta.v1.EventType
+	nil,                                  // 17: tower.environments.v1alpha1.InstanceSpec.EnvEntry
+	(*v1.ObjectMeta)(nil),                // 18: tower.meta.v1.ObjectMeta
+	(*Resources)(nil),                    // 19: tower.environments.v1alpha1.Resources
+	(RunState)(0),                        // 20: tower.environments.v1alpha1.RunState
+	(*v1.Condition)(nil),                 // 21: tower.meta.v1.Condition
+	(*timestamppb.Timestamp)(nil),        // 22: google.protobuf.Timestamp
+	(v1.EventType)(0),                    // 23: tower.meta.v1.EventType
 }
 var file_tower_environments_v1alpha1_instance_proto_depIdxs = []int32{
-	17, // 0: tower.environments.v1alpha1.Instance.metadata:type_name -> tower.meta.v1.ObjectMeta
+	18, // 0: tower.environments.v1alpha1.Instance.metadata:type_name -> tower.meta.v1.ObjectMeta
 	3,  // 1: tower.environments.v1alpha1.Instance.spec:type_name -> tower.environments.v1alpha1.InstanceSpec
 	4,  // 2: tower.environments.v1alpha1.Instance.status:type_name -> tower.environments.v1alpha1.InstanceStatus
 	0,  // 3: tower.environments.v1alpha1.InstanceSpec.kind:type_name -> tower.environments.v1alpha1.InstanceKind
-	18, // 4: tower.environments.v1alpha1.InstanceSpec.resources:type_name -> tower.environments.v1alpha1.Resources
-	19, // 5: tower.environments.v1alpha1.InstanceSpec.run_state:type_name -> tower.environments.v1alpha1.RunState
-	20, // 6: tower.environments.v1alpha1.InstanceStatus.conditions:type_name -> tower.meta.v1.Condition
-	1,  // 7: tower.environments.v1alpha1.InstanceStatus.phase:type_name -> tower.environments.v1alpha1.InstancePhase
-	21, // 8: tower.environments.v1alpha1.InstanceStatus.start_time:type_name -> google.protobuf.Timestamp
-	2,  // 9: tower.environments.v1alpha1.GetInstanceResponse.instance:type_name -> tower.environments.v1alpha1.Instance
-	2,  // 10: tower.environments.v1alpha1.ListInstancesResponse.items:type_name -> tower.environments.v1alpha1.Instance
-	22, // 11: tower.environments.v1alpha1.WatchInstancesResponse.type:type_name -> tower.meta.v1.EventType
-	2,  // 12: tower.environments.v1alpha1.WatchInstancesResponse.instance:type_name -> tower.environments.v1alpha1.Instance
-	2,  // 13: tower.environments.v1alpha1.ApplyInstanceRequest.instance:type_name -> tower.environments.v1alpha1.Instance
-	2,  // 14: tower.environments.v1alpha1.ApplyInstanceResponse.instance:type_name -> tower.environments.v1alpha1.Instance
-	2,  // 15: tower.environments.v1alpha1.DeleteInstanceResponse.instance:type_name -> tower.environments.v1alpha1.Instance
-	4,  // 16: tower.environments.v1alpha1.UpdateInstanceStatusRequest.status:type_name -> tower.environments.v1alpha1.InstanceStatus
-	2,  // 17: tower.environments.v1alpha1.UpdateInstanceStatusResponse.instance:type_name -> tower.environments.v1alpha1.Instance
-	5,  // 18: tower.environments.v1alpha1.InstanceService.GetInstance:input_type -> tower.environments.v1alpha1.GetInstanceRequest
-	7,  // 19: tower.environments.v1alpha1.InstanceService.ListInstances:input_type -> tower.environments.v1alpha1.ListInstancesRequest
-	9,  // 20: tower.environments.v1alpha1.InstanceService.WatchInstances:input_type -> tower.environments.v1alpha1.WatchInstancesRequest
-	11, // 21: tower.environments.v1alpha1.InstanceService.ApplyInstance:input_type -> tower.environments.v1alpha1.ApplyInstanceRequest
-	13, // 22: tower.environments.v1alpha1.InstanceService.DeleteInstance:input_type -> tower.environments.v1alpha1.DeleteInstanceRequest
-	15, // 23: tower.environments.v1alpha1.InstanceService.UpdateInstanceStatus:input_type -> tower.environments.v1alpha1.UpdateInstanceStatusRequest
-	6,  // 24: tower.environments.v1alpha1.InstanceService.GetInstance:output_type -> tower.environments.v1alpha1.GetInstanceResponse
-	8,  // 25: tower.environments.v1alpha1.InstanceService.ListInstances:output_type -> tower.environments.v1alpha1.ListInstancesResponse
-	10, // 26: tower.environments.v1alpha1.InstanceService.WatchInstances:output_type -> tower.environments.v1alpha1.WatchInstancesResponse
-	12, // 27: tower.environments.v1alpha1.InstanceService.ApplyInstance:output_type -> tower.environments.v1alpha1.ApplyInstanceResponse
-	14, // 28: tower.environments.v1alpha1.InstanceService.DeleteInstance:output_type -> tower.environments.v1alpha1.DeleteInstanceResponse
-	16, // 29: tower.environments.v1alpha1.InstanceService.UpdateInstanceStatus:output_type -> tower.environments.v1alpha1.UpdateInstanceStatusResponse
-	24, // [24:30] is the sub-list for method output_type
-	18, // [18:24] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	19, // 4: tower.environments.v1alpha1.InstanceSpec.resources:type_name -> tower.environments.v1alpha1.Resources
+	20, // 5: tower.environments.v1alpha1.InstanceSpec.run_state:type_name -> tower.environments.v1alpha1.RunState
+	17, // 6: tower.environments.v1alpha1.InstanceSpec.env:type_name -> tower.environments.v1alpha1.InstanceSpec.EnvEntry
+	21, // 7: tower.environments.v1alpha1.InstanceStatus.conditions:type_name -> tower.meta.v1.Condition
+	1,  // 8: tower.environments.v1alpha1.InstanceStatus.phase:type_name -> tower.environments.v1alpha1.InstancePhase
+	22, // 9: tower.environments.v1alpha1.InstanceStatus.start_time:type_name -> google.protobuf.Timestamp
+	2,  // 10: tower.environments.v1alpha1.GetInstanceResponse.instance:type_name -> tower.environments.v1alpha1.Instance
+	2,  // 11: tower.environments.v1alpha1.ListInstancesResponse.items:type_name -> tower.environments.v1alpha1.Instance
+	23, // 12: tower.environments.v1alpha1.WatchInstancesResponse.type:type_name -> tower.meta.v1.EventType
+	2,  // 13: tower.environments.v1alpha1.WatchInstancesResponse.instance:type_name -> tower.environments.v1alpha1.Instance
+	2,  // 14: tower.environments.v1alpha1.ApplyInstanceRequest.instance:type_name -> tower.environments.v1alpha1.Instance
+	2,  // 15: tower.environments.v1alpha1.ApplyInstanceResponse.instance:type_name -> tower.environments.v1alpha1.Instance
+	2,  // 16: tower.environments.v1alpha1.DeleteInstanceResponse.instance:type_name -> tower.environments.v1alpha1.Instance
+	4,  // 17: tower.environments.v1alpha1.UpdateInstanceStatusRequest.status:type_name -> tower.environments.v1alpha1.InstanceStatus
+	2,  // 18: tower.environments.v1alpha1.UpdateInstanceStatusResponse.instance:type_name -> tower.environments.v1alpha1.Instance
+	5,  // 19: tower.environments.v1alpha1.InstanceService.GetInstance:input_type -> tower.environments.v1alpha1.GetInstanceRequest
+	7,  // 20: tower.environments.v1alpha1.InstanceService.ListInstances:input_type -> tower.environments.v1alpha1.ListInstancesRequest
+	9,  // 21: tower.environments.v1alpha1.InstanceService.WatchInstances:input_type -> tower.environments.v1alpha1.WatchInstancesRequest
+	11, // 22: tower.environments.v1alpha1.InstanceService.ApplyInstance:input_type -> tower.environments.v1alpha1.ApplyInstanceRequest
+	13, // 23: tower.environments.v1alpha1.InstanceService.DeleteInstance:input_type -> tower.environments.v1alpha1.DeleteInstanceRequest
+	15, // 24: tower.environments.v1alpha1.InstanceService.UpdateInstanceStatus:input_type -> tower.environments.v1alpha1.UpdateInstanceStatusRequest
+	6,  // 25: tower.environments.v1alpha1.InstanceService.GetInstance:output_type -> tower.environments.v1alpha1.GetInstanceResponse
+	8,  // 26: tower.environments.v1alpha1.InstanceService.ListInstances:output_type -> tower.environments.v1alpha1.ListInstancesResponse
+	10, // 27: tower.environments.v1alpha1.InstanceService.WatchInstances:output_type -> tower.environments.v1alpha1.WatchInstancesResponse
+	12, // 28: tower.environments.v1alpha1.InstanceService.ApplyInstance:output_type -> tower.environments.v1alpha1.ApplyInstanceResponse
+	14, // 29: tower.environments.v1alpha1.InstanceService.DeleteInstance:output_type -> tower.environments.v1alpha1.DeleteInstanceResponse
+	16, // 30: tower.environments.v1alpha1.InstanceService.UpdateInstanceStatus:output_type -> tower.environments.v1alpha1.UpdateInstanceStatusResponse
+	25, // [25:31] is the sub-list for method output_type
+	19, // [19:25] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_tower_environments_v1alpha1_instance_proto_init() }
@@ -1305,7 +1324,7 @@ func file_tower_environments_v1alpha1_instance_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tower_environments_v1alpha1_instance_proto_rawDesc), len(file_tower_environments_v1alpha1_instance_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   15,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

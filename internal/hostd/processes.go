@@ -3,10 +3,7 @@ package hostd
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
-
-	"connectrpc.com/connect"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/controller"
@@ -14,9 +11,9 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/provider"
 )
 
-// Processes run in containers through the container driver, which keeps
-// each one's log and exit on the host; hostd keeps nothing of them. A VM's
-// are not run: tower runs none in machines.
+// Processes run in containers and VMs through their drivers, which keep
+// each one's log and exit apart from hostd (a container's on the host, a
+// VM's in the guest); hostd keeps nothing of them.
 
 // processLimits are what a process is started with: its log's cap and how
 // many finished processes its instance keeps.
@@ -45,11 +42,10 @@ func (h *Host) processLimits() processLimits {
 	return processLimits{logCap: provider.DefaultProcessLogCap, keep: provider.DefaultFinishedProcesses}
 }
 
-// processes is the container driver for an instance's processes; a VM's
-// are Unimplemented.
+// processes is the driver of an instance's processes: its kind's.
 func processes(d driver.Drivers, p placed) (driver.Processes, error) {
 	if p.in.GetSpec().GetKind() == envv1alpha1.InstanceKind_INSTANCE_KIND_VM {
-		return nil, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("instance %s/%s is a VM, which runs no processes", p.ref.Project, p.ref.Name))
+		return d.VMs, nil
 	}
 	return d.Containers, nil
 }

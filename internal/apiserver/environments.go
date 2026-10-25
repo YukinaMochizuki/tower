@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -13,11 +14,14 @@ import (
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
+	secretsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/secrets/v1alpha1"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/object"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/auth"
 	"github.com/YukinaMochizuki/tower/internal/authz"
+	"github.com/YukinaMochizuki/tower/internal/devcontainer"
 	"github.com/YukinaMochizuki/tower/internal/store"
 )
 
@@ -223,8 +227,19 @@ func validateBox(ctx context.Context, s *Server, _ authz.Caller, old, obj proto.
 	if err := ValidName(spec.GetWorkstream()); err != nil {
 		return invalid("spec.workstream: %v", err)
 	}
-	if len(spec.GetCheckouts()) == 0 && spec.GetImage() == "" {
-		return invalid("a box with no checkout needs spec.image")
+	if len(spec.GetCheckouts()) == 0 && spec.GetImage() == "" && spec.GetImageBuild() == nil {
+		return invalid("a box with no checkout needs spec.image or spec.image_build")
+	}
+	if spec.GetImage() != "" && spec.GetImageBuild() != nil {
+		return invalid("spec.image and spec.image_build are exclusive")
+	}
+	if spec.GetFallbackImage() != "" && (len(spec.GetCheckouts()) == 0 || spec.GetImage() != "" || spec.GetImageBuild() != nil) {
+		return invalid("spec.fallback_image is for a box of a repository's devcontainer: one with a checkout and neither spec.image nor spec.image_build")
+	}
+	if b := spec.GetImageBuild(); b != nil {
+		if err := validImageBuild(b); err != nil {
+			return err
+		}
 	}
 	var seen []string
 	for i, c := range spec.GetCheckouts() {
@@ -242,17 +257,94 @@ func validateBox(ctx context.Context, s *Server, _ authz.Caller, old, obj proto.
 			return invalid("spec.checkouts[%d].repository: %v", i, err)
 		}
 	}
-	for _, a := range spec.GetAddons() {
-		if err := ValidName(a); err != nil {
-			return invalid("spec.addons: %v", err)
+	for i, a := range spec.GetAddons() {
+		if !slices.Contains(devcontainer.Addons(), a) {
+			return invalid("spec.addons: tower has no add-on %q; it has %s", a, strings.Join(devcontainer.Addons(), ", "))
+		}
+		if slices.Contains(spec.GetAddons()[:i], a) {
+			return invalid("spec.addons: %q is asked for twice", a)
 		}
 	}
-	if ps := spec.GetPrivilegedSecret(); ps != "" && old == nil {
-		if err := s.requireInProject(ctx, registry.Secret, project, ps, "spec.privileged_secret"); err != nil {
-			return err
+	var names []string
+	for i, ref := range spec.GetPrivilegedSecrets() {
+		at := fmt.Sprintf("spec.privileged_secrets[%d]", i)
+		if !envName.MatchString(ref.GetAs()) {
+			return invalid("%s.as must be an environment variable name", at)
+		}
+		if slices.Contains(names, ref.GetAs()) {
+			return invalid("%s.as: %q is given twice", at, ref.GetAs())
+		}
+		names = append(names, ref.GetAs())
+		if old == nil {
+			if err := s.requireSecretKey(ctx, project, ref.GetSecret(), ref.GetKey(), at); err != nil {
+				return err
+			}
+		}
+	}
+	var paths []string
+	for i, f := range spec.GetSecretFiles() {
+		at := fmt.Sprintf("spec.secret_files[%d]", i)
+		if !path.IsAbs(f.GetPath()) || path.Clean(f.GetPath()) != f.GetPath() || f.GetPath() == "/" {
+			return invalid("%s.path must be a clean absolute path of a file", at)
+		}
+		if slices.Contains(paths, f.GetPath()) {
+			return invalid("%s.path: %q is given twice", at, f.GetPath())
+		}
+		paths = append(paths, f.GetPath())
+		if f.GetMode() > 0o7777 {
+			return invalid("%s.mode: %o is no file mode", at, f.GetMode())
+		}
+		if old == nil {
+			if err := s.requireSecretKey(ctx, project, f.GetSecret(), f.GetKey(), at); err != nil {
+				return err
+			}
 		}
 	}
 	return validResources("spec.resources", spec.GetResources())
+}
+
+// MaxImageBuild bounds an ImageBuild's Dockerfile and files, in all.
+const MaxImageBuild = 16 << 20
+
+// validImageBuild checks a box's own image build: a Dockerfile, and files
+// at clean relative paths of its context, under MaxImageBuild in all.
+func validImageBuild(b *envv1alpha1.ImageBuild) error {
+	if strings.TrimSpace(b.GetDockerfile()) == "" {
+		return invalid("spec.image_build.dockerfile is required")
+	}
+	size := len(b.GetDockerfile())
+	for name, data := range b.GetFiles() {
+		if name == "" || path.IsAbs(name) || path.Clean(name) != name || name == "." || name == ".." || strings.HasPrefix(name, "../") {
+			return invalid("spec.image_build.files: %q is not a clean relative path", name)
+		}
+		if name == "Dockerfile" {
+			return invalid("spec.image_build.files: the Dockerfile is spec.image_build.dockerfile")
+		}
+		size += len(name) + len(data)
+	}
+	if size > MaxImageBuild {
+		return invalid("spec.image_build holds %d bytes, over the %d an image build may", size, MaxImageBuild)
+	}
+	return nil
+}
+
+// requireSecretKey checks, at at, that a Secret of the name is in the
+// project and holds key. Only its keys are read, never its values.
+func (s *Server) requireSecretKey(ctx context.Context, project, name, key, at string) error {
+	if key == "" {
+		return invalid("%s.key is required", at)
+	}
+	if err := s.requireInProject(ctx, registry.Secret, project, name, at+".secret"); err != nil {
+		return err
+	}
+	sec, ok, err := getTyped[*secretsv1alpha1.Secret](ctx, s, registry.Secret, resource.Key{Project: project, Name: name})
+	if err != nil {
+		return err
+	}
+	if !ok || !slices.Contains(sec.GetStatus().GetKeys(), key) {
+		return failedPrecondition("%s.key: secret %q holds no key %q", at, name, key)
+	}
+	return nil
 }
 
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -280,6 +372,14 @@ func validateMachine(ctx context.Context, s *Server, _ authz.Caller, old, obj pr
 	for _, port := range bp.GetExposePorts() {
 		if port < 1 || port > 65535 {
 			return invalid("spec.blueprint.expose_ports: %d is not a port", port)
+		}
+	}
+	if rc := bp.GetReadyCheck(); rc != nil {
+		if strings.TrimSpace(rc.GetCommand()) == "" {
+			return invalid("spec.blueprint.ready_check.command is required")
+		}
+		if t := rc.GetTimeout(); t != nil && (!t.IsValid() || t.AsDuration() <= 0) {
+			return invalid("spec.blueprint.ready_check.timeout must be positive")
 		}
 	}
 	var names []string
@@ -316,6 +416,14 @@ func validateInstance(_ context.Context, _ *Server, _ authz.Caller, _, obj proto
 	spec := obj.(*envv1alpha1.Instance).GetSpec()
 	if spec.GetTarget() == "" || spec.GetKind() == envv1alpha1.InstanceKind_INSTANCE_KIND_UNSPECIFIED {
 		return invalid("an instance needs spec.target and spec.kind")
+	}
+	if len(spec.GetEnv()) > 0 && spec.GetKind() != envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER {
+		return invalid("spec.env is a container's")
+	}
+	for k, v := range spec.GetEnv() {
+		if !envName.MatchString(k) || strings.ContainsRune(v, 0) {
+			return invalid("spec.env: %q is no variable's name, or its value holds a NUL", k)
+		}
 	}
 	return validResources("spec.resources", spec.GetResources())
 }

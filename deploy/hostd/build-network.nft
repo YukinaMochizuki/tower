@@ -1,0 +1,29 @@
+# What a build step's network reaches (docs/decisions/images.md): loaded
+# as buildkitd starts (buildkitd.service), installed by install-deps.sh.
+# A build step runs in a network namespace of its own on the bridge
+# tower-build0 (/etc/buildkit/cni.conflist). Its packets reach the
+# internet, and DNS anywhere; nothing on the host (its loopback is its
+# namespace's own, and every address of the host's is dropped here); no
+# other bridge: no workstream's network (Docker's docker0 and br-*, a VM's
+# container's among them), no tailnet; no private, shared, link-local or
+# multicast address but by DNS. Docker's FORWARD policy drops what the
+# CNI firewall plugin does not accept; these drop before that.
+#
+# Atomic, and run again as buildkitd restarts: the table is replaced whole.
+table inet tower_build
+delete table inet tower_build
+table inet tower_build {
+	chain input {
+		type filter hook input priority filter - 10; policy accept;
+		iifname "tower-build0" drop
+	}
+	chain forward {
+		type filter hook forward priority filter - 10; policy accept;
+		iifname != "tower-build0" accept
+		oifname { "docker0", "tailscale0", "tower-build0" } drop
+		oifname "br-*" drop
+		meta l4proto { tcp, udp } th dport 53 accept
+		ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.168.0.0/16, 198.18.0.0/15, 224.0.0.0/3 } drop
+		meta nfproto ipv6 drop
+	}
+}

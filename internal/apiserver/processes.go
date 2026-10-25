@@ -2,7 +2,6 @@ package apiserver
 
 import (
 	"context"
-	"errors"
 	"maps"
 	"slices"
 	"strings"
@@ -16,15 +15,6 @@ import (
 
 // commandSummaryLen bounds the command line ListProcesses shows.
 const commandSummaryLen = 200
-
-// boxOnly refuses processes in a machine: they are a box's alone.
-func boxOnly(env *envv1alpha1.Environment) error {
-	if env.GetBox() == "" {
-		return connect.NewError(connect.CodeUnimplemented,
-			errors.New("processes run in boxes alone: a machine has none yet; run a command in it with Exec"))
-	}
-	return nil
-}
 
 // The signals and outputs, as EnvironmentService names them.
 var (
@@ -55,9 +45,6 @@ func (h environmentService) StartProcess(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, err
 	}
-	if err := boxOnly(m.GetEnvironment()); err != nil {
-		return nil, err
-	}
 	command, err := commandLine(m.GetArgv(), m.GetShell())
 	if err != nil {
 		return nil, err
@@ -86,9 +73,6 @@ func (h environmentService) AttachProcess(ctx context.Context, req *connect.Requ
 		return err
 	}
 	h.held(ctx)
-	if err := boxOnly(m.GetEnvironment()); err != nil {
-		return err
-	}
 	if m.GetProcess() == "" || m.GetOffset() < 0 {
 		return invalid("process is required, and offset at least 0")
 	}
@@ -124,9 +108,6 @@ func (h environmentService) SignalProcess(ctx context.Context, req *connect.Requ
 	if err != nil {
 		return nil, err
 	}
-	if err := boxOnly(m.GetEnvironment()); err != nil {
-		return nil, err
-	}
 	sig, ok := signals[m.GetSignal()]
 	if !ok || m.GetProcess() == "" {
 		return nil, invalid("process is required, and signal one of SIGNAL_TERM, SIGNAL_KILL or SIGNAL_INT")
@@ -147,9 +128,6 @@ func (h environmentService) SignalProcess(ctx context.Context, req *connect.Requ
 func (h environmentService) ListProcesses(ctx context.Context, req *connect.Request[envv1alpha1.ListProcessesRequest]) (*connect.Response[envv1alpha1.ListProcessesResponse], error) {
 	m := req.Msg
 	if _, err := h.begin(ctx, m.GetEnvironment()); err != nil {
-		return nil, err
-	}
-	if err := boxOnly(m.GetEnvironment()); err != nil {
 		return nil, err
 	}
 	e, err := h.open(ctx, m.GetEnvironment())

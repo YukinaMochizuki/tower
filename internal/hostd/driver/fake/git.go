@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"path"
 	"slices"
+	"strings"
 
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
 )
@@ -32,9 +34,12 @@ func (g git) Fetch(_ context.Context, spec driver.FetchSpec) (string, error) {
 	err := g.h.change("git.Fetch", func() error {
 		r := g.h.st.Remotes[spec.URL]
 		if r == nil {
-			// A repository the test said nothing of has one commit.
+			// A repository the test said nothing of has one commit, and a
+			// devcontainer of a public image.
 			sum := sha256.Sum256([]byte(spec.URL))
-			r = &repo{Branch: spec.Branch, Commits: []string{hex.EncodeToString(sum[:])[:12]}, Files: map[string][]byte{"README": []byte(spec.URL)}}
+			r = &repo{Branch: spec.Branch, Commits: []string{hex.EncodeToString(sum[:])[:12]}, Files: map[string][]byte{
+				"README": []byte(spec.URL), ".devcontainer.json": []byte(`{"image": "debian:13"}`),
+			}}
 			if r.Branch == "" {
 				r.Branch = "main"
 			}
@@ -155,4 +160,88 @@ func (g git) CommitsBehind(_ context.Context, mirror, commit, branch string) (in
 		return nil
 	})
 	return n, err
+}
+
+// at resolves ref in a mirror as Checkout does. The caller holds h.mu.
+func (g git) at(mirror, ref string) (*repo, string, error) {
+	m, err := g.mirror(mirror)
+	if err != nil {
+		return nil, "", err
+	}
+	if ref == "" || ref == m.Branch {
+		return m, m.head(), nil
+	}
+	if !slices.Contains(m.Commits, ref) {
+		return nil, "", fmt.Errorf("ref %q in mirror %s: %w", ref, mirror, driver.ErrNotFound)
+	}
+	return m, ref, nil
+}
+
+// Archive writes the mirror's files, which every commit of it holds.
+func (g git) Archive(_ context.Context, mirror, ref string, w io.Writer) (string, error) {
+	var files map[string][]byte
+	var commit string
+	err := g.h.read("git.Archive", func() error {
+		m, c, err := g.at(mirror, ref)
+		if err == nil {
+			files, commit = maps.Clone(m.Files), c
+		}
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	return commit, writeTar(w, files)
+}
+
+// object is a fake git object id: a file's is the hash of its content, a
+// directory's the hash of what is under it.
+func object(parts ...[]byte) string {
+	h := sha256.New()
+	for _, p := range parts {
+		_, _ = fmt.Fprintf(h, "%d:", len(p))
+		_, _ = h.Write(p)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:40]
+}
+
+func (g git) Read(_ context.Context, mirror, ref string, paths []string, maxContent int64) (string, map[string]driver.MirrorEntry, error) {
+	out := map[string]driver.MirrorEntry{}
+	var commit string
+	err := g.h.read("git.Read", func() error {
+		m, c, err := g.at(mirror, ref)
+		if err != nil {
+			return err
+		}
+		commit = c
+		for _, p := range paths {
+			clean := path.Clean(p)
+			if path.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") {
+				return fmt.Errorf("%q leaves the work tree", p)
+			}
+			if data, ok := m.Files[clean]; ok {
+				e := driver.MirrorEntry{Object: object(data), Size: int64(len(data))}
+				if maxContent > 0 && e.Size <= maxContent {
+					e.Content = slices.Clone(data)
+				}
+				out[p] = e
+				continue
+			}
+			prefix := clean + "/"
+			if clean == "." {
+				prefix = ""
+			}
+			var parts [][]byte
+			for _, name := range slices.Sorted(maps.Keys(m.Files)) {
+				if rest, ok := strings.CutPrefix(name, prefix); ok {
+					parts = append(parts, []byte(rest), m.Files[name])
+				}
+			}
+			if len(parts) > 0 {
+				out[p] = driver.MirrorEntry{Object: object(parts...), Dir: true}
+			}
+		}
+		return nil
+	})
+	return commit, out, err
 }

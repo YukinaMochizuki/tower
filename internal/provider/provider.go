@@ -42,6 +42,11 @@ var (
 	ErrLeaseLost = errors.New("provider: the branch moved since its lease")
 )
 
+// SecretsDir is a directory every container instance has in memory,
+// emptied as it stops, which no disk of the target holds: where tower
+// writes a box's secret files.
+const SecretsDir = "/run/tower/secrets"
+
 // Instance names an Instance object of the target, by its project and
 // name.
 type Instance struct {
@@ -67,11 +72,69 @@ type ExecRequest struct {
 // BuildRequest is an image built on the target and pushed to tower's
 // registry.
 type BuildRequest struct {
-	// Context is the build context, a tar stream with its Dockerfile.
+	// Context is the build context, a tar stream with its Dockerfile; nil
+	// when Mirror is set.
 	Context io.Reader
+	// Mirror, when set, is the build context instead: a mirror's work tree
+	// at a ref, which stays on the target.
+	Mirror *MirrorSource
+	// Dir is the context's directory within Context or the work tree, ""
+	// for its root, and Dockerfile the Dockerfile's path within Context or
+	// the work tree, which may be outside Dir; "" is Dir/Dockerfile.
+	// Neither leaves Context or the work tree.
+	Dir, Dockerfile string
 	// Repository is where in the registry the image goes, such as
 	// "web/box-images".
 	Repository string
+}
+
+// MirrorSource is a mirror's work tree at a ref (a branch, tag or commit;
+// empty is the branch the mirror fetched).
+type MirrorSource struct {
+	Mirror, Ref string
+}
+
+// MaxMirrorContent is the most of a file ReadMirror gives the content of.
+const MaxMirrorContent = 1 << 20
+
+// MirrorReadRequest is paths of a mirror read at a ref.
+type MirrorReadRequest struct {
+	MirrorSource
+	// Paths are relative to the work tree's root; "" is the root.
+	Paths []string
+	// Content asks for the content of each file of at most
+	// MaxMirrorContent bytes as well.
+	Content bool
+}
+
+// MirrorRead is what a mirror holds at the paths read.
+type MirrorRead struct {
+	// Commit is the commit the ref is at.
+	Commit string
+	// Entries are the paths that are there, by path; a path not there has
+	// none.
+	Entries map[string]MirrorEntry
+}
+
+// MirrorEntry is one path of a mirror's work tree.
+type MirrorEntry struct {
+	// Object is its git object id, a hash of what it holds: a directory's
+	// is its tree's, so it changes with any file under it.
+	Object string
+	Dir    bool
+	// Size is a file's, in bytes.
+	Size int64
+	// Content is a file's when asked for and no larger than
+	// MaxMirrorContent, nil otherwise.
+	Content []byte
+}
+
+// ImageConfig is what an image says of itself in its registry.
+type ImageConfig struct {
+	// Digest is its manifest's, such as "sha256:...".
+	Digest string
+	// User is the user it runs as, "" for root.
+	User string
 }
 
 // Artifact is a golden as the target holds it: an image by digest, a
@@ -217,6 +280,10 @@ type Provider interface {
 	// BuildImage builds an image and pushes it to the registry, returning
 	// its reference by digest. The same context builds the same digest.
 	BuildImage(ctx context.Context, req BuildRequest) (image string, err error)
+	// ResolveImage reads what an image reference names from its registry,
+	// tower's or another, without pulling it; one the registry lacks is
+	// ErrNotFound.
+	ResolveImage(ctx context.Context, ref string) (ImageConfig, error)
 	// Capture makes a golden artifact of a stopped instance's disk.
 	Capture(ctx context.Context, in Instance) (Artifact, error)
 	// DeleteArtifact deletes a golden artifact; one already gone is no
@@ -236,6 +303,9 @@ type Provider interface {
 	// CommitsBehind counts the commits on a branch of a mirror since
 	// commit.
 	CommitsBehind(ctx context.Context, mirror, commit, branch string) (int, error)
+	// ReadMirror reads paths of a mirror's work tree at a ref. A mirror
+	// never fetched, or a ref it lacks, is ErrNotFound.
+	ReadMirror(ctx context.Context, req MirrorReadRequest) (MirrorRead, error)
 	// Push pushes a branch, with --force-with-lease on Lease and never
 	// otherwise.
 	Push(ctx context.Context, req PushRequest) error

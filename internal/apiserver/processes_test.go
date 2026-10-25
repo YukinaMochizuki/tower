@@ -60,6 +60,7 @@ func (w *world) processesRunning(box string) int32 {
 // never stopped for idleness, and the process ending is a use of it: the
 // idle clock starts again then, so the output can still be read.
 func TestARunningProcessKeepsABox(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, idleAfter(time.Hour))
 	w.readyBox("dev")
 	envs := w.as(workstream).envs
@@ -87,6 +88,7 @@ func TestARunningProcessKeepsABox(t *testing.T) {
 // an editor connected on a ticket, is never stopped for idleness, and the
 // last stream's end is a use of it.
 func TestAnOpenStreamKeepsABox(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, idleAfter(time.Hour))
 	w.readyBox("dev")
 	in := provider.Instance{Project: "web", Name: w.box("dev").GetStatus().GetInstance()}
@@ -117,6 +119,7 @@ func TestAnOpenStreamKeepsABox(t *testing.T) {
 // TestARequestedStopEndsProcesses: stopping a box at workstream's request
 // ends its processes.
 func TestARequestedStopEndsProcesses(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.readyBox("dev")
 	id := startProcess(t, w.as(workstream).envs, &envv1alpha1.StartProcessRequest{Environment: boxEnv("dev"), Command: &envv1alpha1.StartProcessRequest_Argv{Argv: &envv1alpha1.Argv{Args: []string{"sleep"}}}})
@@ -139,13 +142,16 @@ func TestARequestedStopEndsProcesses(t *testing.T) {
 // it is listed and signalled; a privileged box's Secret reaches its
 // environment and nowhere else; and an attach keeps the box in use.
 func TestProcessesThroughTower(t *testing.T) {
+	t.Parallel()
 	var logs syncBuffer
 	w := newWorld(t, worldOption{config: func(c *apiserver.Config) {
 		c.Logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	}})
 	const canary = "canary-proc-Hx52"
 	w.mustApply(registry.Secret, secret("web", "forge", map[string]string{"GH_TOKEN": canary}))
-	w.readyBox("dev", func(b *envv1alpha1.Box) { b.Spec.PrivilegedSecret = "forge" })
+	w.readyBox("dev", func(b *envv1alpha1.Box) {
+		b.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "forge", Key: "GH_TOKEN", As: "GH_TOKEN"}}
+	})
 	envs := w.as(workstream).envs
 	ctx := t.Context()
 
@@ -214,23 +220,32 @@ func TestProcessesThroughTower(t *testing.T) {
 	w.nowhere(canary, &logs)
 }
 
-// TestProcessesAreABoxs: in a machine, every process call is
-// Unimplemented, saying so.
-func TestProcessesAreABoxs(t *testing.T) {
+// TestProcessesInAMachine: a machine runs processes as a box does, given
+// the environment of their own, apart from any call.
+func TestProcessesInAMachine(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.mustApply(registry.Machine, machine("k3s"))
 	w.waitMachine("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_READY)
 	envs := w.as(workstream).envs
 	ctx := t.Context()
-	_, err := envs.StartProcess(ctx, connect.NewRequest(&envv1alpha1.StartProcessRequest{Environment: machineEnv("k3s"), Command: &envv1alpha1.StartProcessRequest_Shell{Shell: "true"}}))
-	wantCode(t, err, connect.CodeUnimplemented, "StartProcess in a machine")
-	if !strings.Contains(messageOfErr(err), "machine") {
-		t.Errorf("the refusal does not say why: %v", err)
+	id := startProcess(t, envs, &envv1alpha1.StartProcessRequest{
+		Environment: machineEnv("k3s"), Command: &envv1alpha1.StartProcessRequest_Argv{Argv: &envv1alpha1.Argv{Args: []string{"emit", "out:served"}}},
+		Env: map[string]string{"PORT": "6443"}, Name: "serve",
+	})
+	execs := w.fake.Execs()
+	if last := execs[len(execs)-1]; !last.Process || last.Env["PORT"] != "6443" || last.Instance.Name != w.machine("k3s").GetStatus().GetInstance() {
+		t.Errorf("the process was given %+v", last)
 	}
-	_, _, err = attachProcess(ctx, envs, &envv1alpha1.AttachProcessRequest{Environment: machineEnv("k3s"), Process: "p1"})
-	wantCode(t, err, connect.CodeUnimplemented, "AttachProcess in a machine")
-	_, err = envs.SignalProcess(ctx, connect.NewRequest(&envv1alpha1.SignalProcessRequest{Environment: machineEnv("k3s"), Process: "p1", Signal: envv1alpha1.Signal_SIGNAL_TERM}))
-	wantCode(t, err, connect.CodeUnimplemented, "SignalProcess in a machine")
-	_, err = envs.ListProcesses(ctx, connect.NewRequest(&envv1alpha1.ListProcessesRequest{Environment: machineEnv("k3s")}))
-	wantCode(t, err, connect.CodeUnimplemented, "ListProcesses in a machine")
+	out, end, err := attachProcess(ctx, envs, &envv1alpha1.AttachProcessRequest{Environment: machineEnv("k3s"), Process: id, Follow: true})
+	if err != nil || out != "served\n" || end.GetExit() == nil {
+		t.Errorf("attached %q, ended %v, %v", out, end, err)
+	}
+	list, err := envs.ListProcesses(ctx, connect.NewRequest(&envv1alpha1.ListProcessesRequest{Environment: machineEnv("k3s")}))
+	if err != nil || len(list.Msg.GetProcesses()) != 1 || list.Msg.GetProcesses()[0].GetName() != "serve" {
+		t.Errorf("listed %v, %v", list.Msg.GetProcesses(), err)
+	}
+	if _, err := envs.SignalProcess(ctx, connect.NewRequest(&envv1alpha1.SignalProcessRequest{Environment: machineEnv("k3s"), Process: id, Signal: envv1alpha1.Signal_SIGNAL_TERM})); err != nil {
+		t.Errorf("signalling a process that ended: %v", err)
+	}
 }

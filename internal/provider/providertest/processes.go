@@ -3,10 +3,12 @@ package providertest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/YukinaMochizuki/tower/internal/provider"
+	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
 // attached is what an attach gave: the output, each chunk as
@@ -45,6 +47,24 @@ func start(t *testing.T, h Harness, in provider.Instance, name string, command .
 		t.Fatalf("starting %v gave no id", command)
 	}
 	return id
+}
+
+// waitEnded waits until the provider lists the process ended: one runs
+// for a while on a real host, however short its command.
+func waitEnded(t *testing.T, h Harness, in provider.Instance, id string) {
+	t.Helper()
+	testutil.Eventually(t, "process "+id+" ended", func() (bool, string) {
+		list, err := h.Provider.ListProcesses(t.Context(), in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range list {
+			if p.ID == id {
+				return p.Exit != nil, fmt.Sprintf("%+v", p)
+			}
+		}
+		return false, fmt.Sprintf("not listed in %+v", list)
+	})
 }
 
 func testProcessOutput(t *testing.T, h Harness) {
@@ -105,7 +125,8 @@ func testProcessReattach(t *testing.T, h Harness) {
 func testProcessSignalAndList(t *testing.T, h Harness) {
 	in, _ := h.Start(t, "proc-signal", h.container("net-a"))
 	done := start(t, h, in, "quick", "exit", "3")
-	running := start(t, h, in, "server", "sleep")
+	waitEnded(t, h, in, done)
+	running := start(t, h, in, "server", "sleep", "3600")
 	// A follow goes on until the process ends.
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -119,7 +140,7 @@ func testProcessSignalAndList(t *testing.T, h Harness) {
 		t.Fatal(err)
 	}
 	if len(list) != 2 || list[0].ID != done || list[0].Exit == nil || list[0].Exit.Code != 3 ||
-		list[1].ID != running || list[1].Exit != nil || list[1].Name != "server" || strings.Join(list[1].Command, " ") != "sleep" {
+		list[1].ID != running || list[1].Exit != nil || list[1].Name != "server" || strings.Join(list[1].Command, " ") != "sleep 3600" {
 		t.Errorf("listed %+v", list)
 	}
 	if err := h.Provider.SignalProcess(t.Context(), in, running, provider.SignalTerm); err != nil {
@@ -136,7 +157,7 @@ func testProcessSignalAndList(t *testing.T, h Harness) {
 
 func testProcessesDieWithTheirInstance(t *testing.T, h Harness) {
 	in, _ := h.Start(t, "proc-die", h.container("net-a"))
-	id := start(t, h, in, "", "sleep")
+	id := start(t, h, in, "", "sleep", "3600")
 	h.Stop(t, in)
 	list, err := h.Provider.ListProcesses(t.Context(), in)
 	if err != nil {
@@ -158,6 +179,7 @@ func testProcessLimits(t *testing.T, h Harness) {
 	defer h.ProcessLimits(provider.DefaultProcessLogCap, provider.DefaultFinishedProcesses)
 	in, _ := h.Start(t, "proc-limits", h.container("net-a"))
 	id := start(t, h, in, "", "emit", "out:0123456789", "out:abcdefghij", "out:ABCDEFGHIJ")
+	waitEnded(t, h, in, id)
 	a, err := attach(t, h, t.Context(), in, id, 0, false)
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +189,7 @@ func testProcessLimits(t *testing.T, h Harness) {
 		t.Errorf("a log over its cap: %q from %v, ended %+v", a.text, a.offsets, a.end)
 	}
 	for range 3 {
-		start(t, h, in, "", "true")
+		waitEnded(t, h, in, start(t, h, in, "", "true"))
 	}
 	list, err := h.Provider.ListProcesses(t.Context(), in)
 	if err != nil {

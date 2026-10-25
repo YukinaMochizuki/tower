@@ -20,7 +20,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tower/hostd/v1/host.proto.
  */
 export const file_tower_hostd_v1_host: GenFile = /*@__PURE__*/
-  fileDesc("Chl0b3dlci9ob3N0ZC92MS9ob3N0LnByb3RvEg50b3dlci5ob3N0ZC52MSIpCghJbnN0YW5jZRIPCgdwcm9qZWN0GAEgASgJEgwKBG5hbWUYAiABKAkiVQoLRXhlY1JlcXVlc3QSKgoFc3RhcnQYASABKAsyGS50b3dlci5ob3N0ZC52MS5FeGVjU3RhcnRIABIPCgVzdGRpbhgCIAEoDEgAQgkKB3JlcXVlc3QiwQEKCUV4ZWNTdGFydBIqCghpbnN0YW5jZRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEg8KB2NvbW1hbmQYAiADKAkSLwoDZW52GAMgAygLMiIudG93ZXIuaG9zdGQudjEuRXhlY1N0YXJ0LkVudkVudHJ5EgsKA2RpchgEIAEoCRINCgVzdGRpbhgFIAEoCBoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIlMKDEV4ZWNSZXNwb25zZRIQCgZzdGRvdXQYASABKAxIABIQCgZzdGRlcnIYAiABKAxIABITCglleGl0X2NvZGUYAyABKAVIAEIKCghyZXNwb25zZSJLCg9SZWFkRmlsZVJlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRIMCgRwYXRoGAIgASgJIiAKEFJlYWRGaWxlUmVzcG9uc2USDAoEZGF0YRgBIAEoDCJeChBXcml0ZUZpbGVSZXF1ZXN0Ei8KBXN0YXJ0GAEgASgLMh4udG93ZXIuaG9zdGQudjEuV3JpdGVGaWxlU3RhcnRIABIOCgRkYXRhGAIgASgMSABCCQoHcmVxdWVzdCJoCg5Xcml0ZUZpbGVTdGFydBIqCghpbnN0YW5jZRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEgwKBHBhdGgYAiABKAkSDAoEbW9kZRgDIAEoDRIOCgZvZmZzZXQYBCABKAMiEwoRV3JpdGVGaWxlUmVzcG9uc2UifwoLQ29weVJlcXVlc3QSJgoEZnJvbRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEhEKCWZyb21fcGF0aBgCIAEoCRIkCgJ0bxgDIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEg8KB3RvX3BhdGgYBCABKAkiDgoMQ29weVJlc3BvbnNlImMKEUJ1aWxkSW1hZ2VSZXF1ZXN0EjAKBXN0YXJ0GAEgASgLMh8udG93ZXIuaG9zdGQudjEuQnVpbGRJbWFnZVN0YXJ0SAASEQoHY29udGV4dBgCIAEoDEgAQgkKB3JlcXVlc3QiJQoPQnVpbGRJbWFnZVN0YXJ0EhIKCnJlcG9zaXRvcnkYASABKAkiIwoSQnVpbGRJbWFnZVJlc3BvbnNlEg0KBWltYWdlGAEgASgJIjwKDkNhcHR1cmVSZXF1ZXN0EioKCGluc3RhbmNlGAEgASgLMhgudG93ZXIuaG9zdGQudjEuSW5zdGFuY2UiMQoPQ2FwdHVyZVJlc3BvbnNlEhAKCGFydGlmYWN0GAEgASgJEgwKBHNpemUYAiABKAQiKQoVRGVsZXRlQXJ0aWZhY3RSZXF1ZXN0EhAKCGFydGlmYWN0GAEgASgJIhgKFkRlbGV0ZUFydGlmYWN0UmVzcG9uc2UiSgoMRmV0Y2hSZXF1ZXN0Eg4KBm1pcnJvchgBIAEoCRILCgN1cmwYAiABKAkSDQoFdG9rZW4YAyABKAkSDgoGYnJhbmNoGAQgASgJIh0KDUZldGNoUmVzcG9uc2USDAoEaGVhZBgBIAEoCSJnCg9DaGVja291dFJlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRIOCgZtaXJyb3IYAiABKAkSCwoDcmVmGAMgASgJEgsKA2RpchgEIAEoCSIiChBDaGVja291dFJlc3BvbnNlEg4KBmNvbW1pdBgBIAEoCSJeChNVcGRhdGVPcmlnaW5SZXF1ZXN0EioKCGluc3RhbmNlGAEgASgLMhgudG93ZXIuaG9zdGQudjEuSW5zdGFuY2USDgoGbWlycm9yGAIgASgJEgsKA2RpchgDIAEoCSIWChRVcGRhdGVPcmlnaW5SZXNwb25zZSJGChRDb21taXRzQmVoaW5kUmVxdWVzdBIOCgZtaXJyb3IYASABKAkSDgoGY29tbWl0GAIgASgJEg4KBmJyYW5jaBgDIAEoCSIoChVDb21taXRzQmVoaW5kUmVzcG9uc2USDwoHY29tbWl0cxgBIAEoBSKRAQoLUHVzaFJlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRILCgNkaXIYAiABKAkSDgoGbWlycm9yGAMgASgJEgsKA3VybBgEIAEoCRINCgV0b2tlbhgFIAEoCRIOCgZicmFuY2gYBiABKAkSDQoFbGVhc2UYByABKAkiDgoMUHVzaFJlc3BvbnNlIkkKDVRpY2tldFJlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRIMCgRwb3J0GAIgASgFItQBChNTdGFydFByb2Nlc3NSZXF1ZXN0EioKCGluc3RhbmNlGAEgASgLMhgudG93ZXIuaG9zdGQudjEuSW5zdGFuY2USDwoHY29tbWFuZBgCIAMoCRI5CgNlbnYYAyADKAsyLC50b3dlci5ob3N0ZC52MS5TdGFydFByb2Nlc3NSZXF1ZXN0LkVudkVudHJ5EgsKA2RpchgEIAEoCRIMCgRuYW1lGAUgASgJGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiJwoUU3RhcnRQcm9jZXNzUmVzcG9uc2USDwoHcHJvY2VzcxgBIAEoCSJzChRBdHRhY2hQcm9jZXNzUmVxdWVzdBIqCghpbnN0YW5jZRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEg8KB3Byb2Nlc3MYAiABKAkSDgoGb2Zmc2V0GAMgASgDEg4KBmZvbGxvdxgEIAEoCCJ/ChVBdHRhY2hQcm9jZXNzUmVzcG9uc2USLwoGb3V0cHV0GAEgASgLMh0udG93ZXIuaG9zdGQudjEuUHJvY2Vzc091dHB1dEgAEikKA2VuZBgCIAEoCzIaLnRvd2VyLmhvc3RkLnYxLlByb2Nlc3NFbmRIAEIKCghyZXNwb25zZSJbCg1Qcm9jZXNzT3V0cHV0EiwKBnN0cmVhbRgBIAEoDjIcLnRvd2VyLmhvc3RkLnYxLk91dHB1dFN0cmVhbRIOCgZvZmZzZXQYAiABKAMSDAoEZGF0YRgDIAEoDCJfCgpQcm9jZXNzRW5kEhEKCWhlbGRfZnJvbRgBIAEoAxITCgtuZXh0X29mZnNldBgCIAEoAxIpCgRleGl0GAMgASgLMhsudG93ZXIuaG9zdGQudjEuUHJvY2Vzc0V4aXQiQwoLUHJvY2Vzc0V4aXQSDAoEY29kZRgBIAEoBRImCgZzaWduYWwYAiABKA4yFi50b3dlci5ob3N0ZC52MS5TaWduYWwiewoUU2lnbmFsUHJvY2Vzc1JlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRIPCgdwcm9jZXNzGAIgASgJEiYKBnNpZ25hbBgDIAEoDjIWLnRvd2VyLmhvc3RkLnYxLlNpZ25hbCIXChVTaWduYWxQcm9jZXNzUmVzcG9uc2UiQgoUTGlzdFByb2Nlc3Nlc1JlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZSJDChVMaXN0UHJvY2Vzc2VzUmVzcG9uc2USKgoJcHJvY2Vzc2VzGAEgAygLMhcudG93ZXIuaG9zdGQudjEuUHJvY2VzcyKUAQoHUHJvY2VzcxIPCgdwcm9jZXNzGAEgASgJEgwKBG5hbWUYAiABKAkSDwoHY29tbWFuZBgDIAMoCRIuCgpzdGFydF90aW1lGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIpCgRleGl0GAUgASgLMhsudG93ZXIuaG9zdGQudjEuUHJvY2Vzc0V4aXQiTgoOVGlja2V0UmVzcG9uc2USCwoDdXJsGAEgASgJEi8KC2V4cGlyZV90aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCphCgxPdXRwdXRTdHJlYW0SHQoZT1VUUFVUX1NUUkVBTV9VTlNQRUNJRklFRBAAEhgKFE9VVFBVVF9TVFJFQU1fU1RET1VUEAESGAoUT1VUUFVUX1NUUkVBTV9TVERFUlIQAipSCgZTaWduYWwSFgoSU0lHTkFMX1VOU1BFQ0lGSUVEEAASDwoLU0lHTkFMX1RFUk0QARIPCgtTSUdOQUxfS0lMTBACEg4KClNJR05BTF9JTlQQAzKRCwoLSG9zdFNlcnZpY2USRQoERXhlYxIbLnRvd2VyLmhvc3RkLnYxLkV4ZWNSZXF1ZXN0GhwudG93ZXIuaG9zdGQudjEuRXhlY1Jlc3BvbnNlKAEwARJPCghSZWFkRmlsZRIfLnRvd2VyLmhvc3RkLnYxLlJlYWRGaWxlUmVxdWVzdBogLnRvd2VyLmhvc3RkLnYxLlJlYWRGaWxlUmVzcG9uc2UwARJSCglXcml0ZUZpbGUSIC50b3dlci5ob3N0ZC52MS5Xcml0ZUZpbGVSZXF1ZXN0GiEudG93ZXIuaG9zdGQudjEuV3JpdGVGaWxlUmVzcG9uc2UoARJBCgRDb3B5EhsudG93ZXIuaG9zdGQudjEuQ29weVJlcXVlc3QaHC50b3dlci5ob3N0ZC52MS5Db3B5UmVzcG9uc2USVQoKQnVpbGRJbWFnZRIhLnRvd2VyLmhvc3RkLnYxLkJ1aWxkSW1hZ2VSZXF1ZXN0GiIudG93ZXIuaG9zdGQudjEuQnVpbGRJbWFnZVJlc3BvbnNlKAESSgoHQ2FwdHVyZRIeLnRvd2VyLmhvc3RkLnYxLkNhcHR1cmVSZXF1ZXN0Gh8udG93ZXIuaG9zdGQudjEuQ2FwdHVyZVJlc3BvbnNlEl8KDkRlbGV0ZUFydGlmYWN0EiUudG93ZXIuaG9zdGQudjEuRGVsZXRlQXJ0aWZhY3RSZXF1ZXN0GiYudG93ZXIuaG9zdGQudjEuRGVsZXRlQXJ0aWZhY3RSZXNwb25zZRJECgVGZXRjaBIcLnRvd2VyLmhvc3RkLnYxLkZldGNoUmVxdWVzdBodLnRvd2VyLmhvc3RkLnYxLkZldGNoUmVzcG9uc2USTQoIQ2hlY2tvdXQSHy50b3dlci5ob3N0ZC52MS5DaGVja291dFJlcXVlc3QaIC50b3dlci5ob3N0ZC52MS5DaGVja291dFJlc3BvbnNlElkKDFVwZGF0ZU9yaWdpbhIjLnRvd2VyLmhvc3RkLnYxLlVwZGF0ZU9yaWdpblJlcXVlc3QaJC50b3dlci5ob3N0ZC52MS5VcGRhdGVPcmlnaW5SZXNwb25zZRJcCg1Db21taXRzQmVoaW5kEiQudG93ZXIuaG9zdGQudjEuQ29tbWl0c0JlaGluZFJlcXVlc3QaJS50b3dlci5ob3N0ZC52MS5Db21taXRzQmVoaW5kUmVzcG9uc2USQQoEUHVzaBIbLnRvd2VyLmhvc3RkLnYxLlB1c2hSZXF1ZXN0GhwudG93ZXIuaG9zdGQudjEuUHVzaFJlc3BvbnNlEkcKBlRpY2tldBIdLnRvd2VyLmhvc3RkLnYxLlRpY2tldFJlcXVlc3QaHi50b3dlci5ob3N0ZC52MS5UaWNrZXRSZXNwb25zZRJZCgxTdGFydFByb2Nlc3MSIy50b3dlci5ob3N0ZC52MS5TdGFydFByb2Nlc3NSZXF1ZXN0GiQudG93ZXIuaG9zdGQudjEuU3RhcnRQcm9jZXNzUmVzcG9uc2USXgoNQXR0YWNoUHJvY2VzcxIkLnRvd2VyLmhvc3RkLnYxLkF0dGFjaFByb2Nlc3NSZXF1ZXN0GiUudG93ZXIuaG9zdGQudjEuQXR0YWNoUHJvY2Vzc1Jlc3BvbnNlMAESXAoNU2lnbmFsUHJvY2VzcxIkLnRvd2VyLmhvc3RkLnYxLlNpZ25hbFByb2Nlc3NSZXF1ZXN0GiUudG93ZXIuaG9zdGQudjEuU2lnbmFsUHJvY2Vzc1Jlc3BvbnNlElwKDUxpc3RQcm9jZXNzZXMSJC50b3dlci5ob3N0ZC52MS5MaXN0UHJvY2Vzc2VzUmVxdWVzdBolLnRvd2VyLmhvc3RkLnYxLkxpc3RQcm9jZXNzZXNSZXNwb25zZUK5AQoSY29tLnRvd2VyLmhvc3RkLnYxQglIb3N0UHJvdG9QAVo+Z2l0aHViLmNvbS9ZdWtpbmFNb2NoaXp1a2kvdG93ZXIvZ2VuL2dvL3Rvd2VyL2hvc3RkL3YxO2hvc3RkdjGiAgNUSFiqAg5Ub3dlci5Ib3N0ZC5WMcoCDlRvd2VyXEhvc3RkXFYx4gIaVG93ZXJcSG9zdGRcVjFcR1BCTWV0YWRhdGHqAhBUb3dlcjo6SG9zdGQ6OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("Chl0b3dlci9ob3N0ZC92MS9ob3N0LnByb3RvEg50b3dlci5ob3N0ZC52MSIpCghJbnN0YW5jZRIPCgdwcm9qZWN0GAEgASgJEgwKBG5hbWUYAiABKAkiVQoLRXhlY1JlcXVlc3QSKgoFc3RhcnQYASABKAsyGS50b3dlci5ob3N0ZC52MS5FeGVjU3RhcnRIABIPCgVzdGRpbhgCIAEoDEgAQgkKB3JlcXVlc3QiwQEKCUV4ZWNTdGFydBIqCghpbnN0YW5jZRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEg8KB2NvbW1hbmQYAiADKAkSLwoDZW52GAMgAygLMiIudG93ZXIuaG9zdGQudjEuRXhlY1N0YXJ0LkVudkVudHJ5EgsKA2RpchgEIAEoCRINCgVzdGRpbhgFIAEoCBoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIlMKDEV4ZWNSZXNwb25zZRIQCgZzdGRvdXQYASABKAxIABIQCgZzdGRlcnIYAiABKAxIABITCglleGl0X2NvZGUYAyABKAVIAEIKCghyZXNwb25zZSJLCg9SZWFkRmlsZVJlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRIMCgRwYXRoGAIgASgJIiAKEFJlYWRGaWxlUmVzcG9uc2USDAoEZGF0YRgBIAEoDCJeChBXcml0ZUZpbGVSZXF1ZXN0Ei8KBXN0YXJ0GAEgASgLMh4udG93ZXIuaG9zdGQudjEuV3JpdGVGaWxlU3RhcnRIABIOCgRkYXRhGAIgASgMSABCCQoHcmVxdWVzdCJoCg5Xcml0ZUZpbGVTdGFydBIqCghpbnN0YW5jZRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEgwKBHBhdGgYAiABKAkSDAoEbW9kZRgDIAEoDRIOCgZvZmZzZXQYBCABKAMiEwoRV3JpdGVGaWxlUmVzcG9uc2UifwoLQ29weVJlcXVlc3QSJgoEZnJvbRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEhEKCWZyb21fcGF0aBgCIAEoCRIkCgJ0bxgDIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEg8KB3RvX3BhdGgYBCABKAkiDgoMQ29weVJlc3BvbnNlImMKEUJ1aWxkSW1hZ2VSZXF1ZXN0EjAKBXN0YXJ0GAEgASgLMh8udG93ZXIuaG9zdGQudjEuQnVpbGRJbWFnZVN0YXJ0SAASEQoHY29udGV4dBgCIAEoDEgAQgkKB3JlcXVlc3QidAoPQnVpbGRJbWFnZVN0YXJ0EhIKCnJlcG9zaXRvcnkYASABKAkSCwoDZGlyGAIgASgJEhIKCmRvY2tlcmZpbGUYAyABKAkSLAoGbWlycm9yGAQgASgLMhwudG93ZXIuaG9zdGQudjEuTWlycm9yU291cmNlIisKDE1pcnJvclNvdXJjZRIOCgZtaXJyb3IYASABKAkSCwoDcmVmGAIgASgJIiIKE1Jlc29sdmVJbWFnZVJlcXVlc3QSCwoDcmVmGAEgASgJIjQKFFJlc29sdmVJbWFnZVJlc3BvbnNlEg4KBmRpZ2VzdBgBIAEoCRIMCgR1c2VyGAIgASgJIiMKEkJ1aWxkSW1hZ2VSZXNwb25zZRINCgVpbWFnZRgBIAEoCSI8Cg5DYXB0dXJlUmVxdWVzdBIqCghpbnN0YW5jZRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlIjEKD0NhcHR1cmVSZXNwb25zZRIQCghhcnRpZmFjdBgBIAEoCRIMCgRzaXplGAIgASgEIikKFURlbGV0ZUFydGlmYWN0UmVxdWVzdBIQCghhcnRpZmFjdBgBIAEoCSIYChZEZWxldGVBcnRpZmFjdFJlc3BvbnNlIkoKDEZldGNoUmVxdWVzdBIOCgZtaXJyb3IYASABKAkSCwoDdXJsGAIgASgJEg0KBXRva2VuGAMgASgJEg4KBmJyYW5jaBgEIAEoCSIdCg1GZXRjaFJlc3BvbnNlEgwKBGhlYWQYASABKAkiZwoPQ2hlY2tvdXRSZXF1ZXN0EioKCGluc3RhbmNlGAEgASgLMhgudG93ZXIuaG9zdGQudjEuSW5zdGFuY2USDgoGbWlycm9yGAIgASgJEgsKA3JlZhgDIAEoCRILCgNkaXIYBCABKAkiIgoQQ2hlY2tvdXRSZXNwb25zZRIOCgZjb21taXQYASABKAkiXgoTVXBkYXRlT3JpZ2luUmVxdWVzdBIqCghpbnN0YW5jZRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEg4KBm1pcnJvchgCIAEoCRILCgNkaXIYAyABKAkiFgoUVXBkYXRlT3JpZ2luUmVzcG9uc2UiRgoUQ29tbWl0c0JlaGluZFJlcXVlc3QSDgoGbWlycm9yGAEgASgJEg4KBmNvbW1pdBgCIAEoCRIOCgZicmFuY2gYAyABKAkiKAoVQ29tbWl0c0JlaGluZFJlc3BvbnNlEg8KB2NvbW1pdHMYASABKAUiYQoRUmVhZE1pcnJvclJlcXVlc3QSLAoGc291cmNlGAEgASgLMhwudG93ZXIuaG9zdGQudjEuTWlycm9yU291cmNlEg0KBXBhdGhzGAIgAygJEg8KB2NvbnRlbnQYAyABKAgiswEKElJlYWRNaXJyb3JSZXNwb25zZRIOCgZjb21taXQYASABKAkSQAoHZW50cmllcxgCIAMoCzIvLnRvd2VyLmhvc3RkLnYxLlJlYWRNaXJyb3JSZXNwb25zZS5FbnRyaWVzRW50cnkaSwoMRW50cmllc0VudHJ5EgsKA2tleRgBIAEoCRIqCgV2YWx1ZRgCIAEoCzIbLnRvd2VyLmhvc3RkLnYxLk1pcnJvckVudHJ5OgI4ASJJCgtNaXJyb3JFbnRyeRIOCgZvYmplY3QYASABKAkSCwoDZGlyGAIgASgIEgwKBHNpemUYAyABKAMSDwoHY29udGVudBgEIAEoDCKRAQoLUHVzaFJlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRILCgNkaXIYAiABKAkSDgoGbWlycm9yGAMgASgJEgsKA3VybBgEIAEoCRINCgV0b2tlbhgFIAEoCRIOCgZicmFuY2gYBiABKAkSDQoFbGVhc2UYByABKAkiDgoMUHVzaFJlc3BvbnNlIkkKDVRpY2tldFJlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRIMCgRwb3J0GAIgASgFItQBChNTdGFydFByb2Nlc3NSZXF1ZXN0EioKCGluc3RhbmNlGAEgASgLMhgudG93ZXIuaG9zdGQudjEuSW5zdGFuY2USDwoHY29tbWFuZBgCIAMoCRI5CgNlbnYYAyADKAsyLC50b3dlci5ob3N0ZC52MS5TdGFydFByb2Nlc3NSZXF1ZXN0LkVudkVudHJ5EgsKA2RpchgEIAEoCRIMCgRuYW1lGAUgASgJGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiJwoUU3RhcnRQcm9jZXNzUmVzcG9uc2USDwoHcHJvY2VzcxgBIAEoCSJzChRBdHRhY2hQcm9jZXNzUmVxdWVzdBIqCghpbnN0YW5jZRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEg8KB3Byb2Nlc3MYAiABKAkSDgoGb2Zmc2V0GAMgASgDEg4KBmZvbGxvdxgEIAEoCCJ/ChVBdHRhY2hQcm9jZXNzUmVzcG9uc2USLwoGb3V0cHV0GAEgASgLMh0udG93ZXIuaG9zdGQudjEuUHJvY2Vzc091dHB1dEgAEikKA2VuZBgCIAEoCzIaLnRvd2VyLmhvc3RkLnYxLlByb2Nlc3NFbmRIAEIKCghyZXNwb25zZSJbCg1Qcm9jZXNzT3V0cHV0EiwKBnN0cmVhbRgBIAEoDjIcLnRvd2VyLmhvc3RkLnYxLk91dHB1dFN0cmVhbRIOCgZvZmZzZXQYAiABKAMSDAoEZGF0YRgDIAEoDCJfCgpQcm9jZXNzRW5kEhEKCWhlbGRfZnJvbRgBIAEoAxITCgtuZXh0X29mZnNldBgCIAEoAxIpCgRleGl0GAMgASgLMhsudG93ZXIuaG9zdGQudjEuUHJvY2Vzc0V4aXQiQwoLUHJvY2Vzc0V4aXQSDAoEY29kZRgBIAEoBRImCgZzaWduYWwYAiABKA4yFi50b3dlci5ob3N0ZC52MS5TaWduYWwiewoUU2lnbmFsUHJvY2Vzc1JlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRIPCgdwcm9jZXNzGAIgASgJEiYKBnNpZ25hbBgDIAEoDjIWLnRvd2VyLmhvc3RkLnYxLlNpZ25hbCIXChVTaWduYWxQcm9jZXNzUmVzcG9uc2UiQgoUTGlzdFByb2Nlc3Nlc1JlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZSJDChVMaXN0UHJvY2Vzc2VzUmVzcG9uc2USKgoJcHJvY2Vzc2VzGAEgAygLMhcudG93ZXIuaG9zdGQudjEuUHJvY2VzcyKUAQoHUHJvY2VzcxIPCgdwcm9jZXNzGAEgASgJEgwKBG5hbWUYAiABKAkSDwoHY29tbWFuZBgDIAMoCRIuCgpzdGFydF90aW1lGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIpCgRleGl0GAUgASgLMhsudG93ZXIuaG9zdGQudjEuUHJvY2Vzc0V4aXQiTgoOVGlja2V0UmVzcG9uc2USCwoDdXJsGAEgASgJEi8KC2V4cGlyZV90aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCphCgxPdXRwdXRTdHJlYW0SHQoZT1VUUFVUX1NUUkVBTV9VTlNQRUNJRklFRBAAEhgKFE9VVFBVVF9TVFJFQU1fU1RET1VUEAESGAoUT1VUUFVUX1NUUkVBTV9TVERFUlIQAipSCgZTaWduYWwSFgoSU0lHTkFMX1VOU1BFQ0lGSUVEEAASDwoLU0lHTkFMX1RFUk0QARIPCgtTSUdOQUxfS0lMTBACEg4KClNJR05BTF9JTlQQAzLBDAoLSG9zdFNlcnZpY2USRQoERXhlYxIbLnRvd2VyLmhvc3RkLnYxLkV4ZWNSZXF1ZXN0GhwudG93ZXIuaG9zdGQudjEuRXhlY1Jlc3BvbnNlKAEwARJPCghSZWFkRmlsZRIfLnRvd2VyLmhvc3RkLnYxLlJlYWRGaWxlUmVxdWVzdBogLnRvd2VyLmhvc3RkLnYxLlJlYWRGaWxlUmVzcG9uc2UwARJSCglXcml0ZUZpbGUSIC50b3dlci5ob3N0ZC52MS5Xcml0ZUZpbGVSZXF1ZXN0GiEudG93ZXIuaG9zdGQudjEuV3JpdGVGaWxlUmVzcG9uc2UoARJBCgRDb3B5EhsudG93ZXIuaG9zdGQudjEuQ29weVJlcXVlc3QaHC50b3dlci5ob3N0ZC52MS5Db3B5UmVzcG9uc2USVQoKQnVpbGRJbWFnZRIhLnRvd2VyLmhvc3RkLnYxLkJ1aWxkSW1hZ2VSZXF1ZXN0GiIudG93ZXIuaG9zdGQudjEuQnVpbGRJbWFnZVJlc3BvbnNlKAESWQoMUmVzb2x2ZUltYWdlEiMudG93ZXIuaG9zdGQudjEuUmVzb2x2ZUltYWdlUmVxdWVzdBokLnRvd2VyLmhvc3RkLnYxLlJlc29sdmVJbWFnZVJlc3BvbnNlEkoKB0NhcHR1cmUSHi50b3dlci5ob3N0ZC52MS5DYXB0dXJlUmVxdWVzdBofLnRvd2VyLmhvc3RkLnYxLkNhcHR1cmVSZXNwb25zZRJfCg5EZWxldGVBcnRpZmFjdBIlLnRvd2VyLmhvc3RkLnYxLkRlbGV0ZUFydGlmYWN0UmVxdWVzdBomLnRvd2VyLmhvc3RkLnYxLkRlbGV0ZUFydGlmYWN0UmVzcG9uc2USRAoFRmV0Y2gSHC50b3dlci5ob3N0ZC52MS5GZXRjaFJlcXVlc3QaHS50b3dlci5ob3N0ZC52MS5GZXRjaFJlc3BvbnNlEk0KCENoZWNrb3V0Eh8udG93ZXIuaG9zdGQudjEuQ2hlY2tvdXRSZXF1ZXN0GiAudG93ZXIuaG9zdGQudjEuQ2hlY2tvdXRSZXNwb25zZRJZCgxVcGRhdGVPcmlnaW4SIy50b3dlci5ob3N0ZC52MS5VcGRhdGVPcmlnaW5SZXF1ZXN0GiQudG93ZXIuaG9zdGQudjEuVXBkYXRlT3JpZ2luUmVzcG9uc2USXAoNQ29tbWl0c0JlaGluZBIkLnRvd2VyLmhvc3RkLnYxLkNvbW1pdHNCZWhpbmRSZXF1ZXN0GiUudG93ZXIuaG9zdGQudjEuQ29tbWl0c0JlaGluZFJlc3BvbnNlElMKClJlYWRNaXJyb3ISIS50b3dlci5ob3N0ZC52MS5SZWFkTWlycm9yUmVxdWVzdBoiLnRvd2VyLmhvc3RkLnYxLlJlYWRNaXJyb3JSZXNwb25zZRJBCgRQdXNoEhsudG93ZXIuaG9zdGQudjEuUHVzaFJlcXVlc3QaHC50b3dlci5ob3N0ZC52MS5QdXNoUmVzcG9uc2USRwoGVGlja2V0Eh0udG93ZXIuaG9zdGQudjEuVGlja2V0UmVxdWVzdBoeLnRvd2VyLmhvc3RkLnYxLlRpY2tldFJlc3BvbnNlElkKDFN0YXJ0UHJvY2VzcxIjLnRvd2VyLmhvc3RkLnYxLlN0YXJ0UHJvY2Vzc1JlcXVlc3QaJC50b3dlci5ob3N0ZC52MS5TdGFydFByb2Nlc3NSZXNwb25zZRJeCg1BdHRhY2hQcm9jZXNzEiQudG93ZXIuaG9zdGQudjEuQXR0YWNoUHJvY2Vzc1JlcXVlc3QaJS50b3dlci5ob3N0ZC52MS5BdHRhY2hQcm9jZXNzUmVzcG9uc2UwARJcCg1TaWduYWxQcm9jZXNzEiQudG93ZXIuaG9zdGQudjEuU2lnbmFsUHJvY2Vzc1JlcXVlc3QaJS50b3dlci5ob3N0ZC52MS5TaWduYWxQcm9jZXNzUmVzcG9uc2USXAoNTGlzdFByb2Nlc3NlcxIkLnRvd2VyLmhvc3RkLnYxLkxpc3RQcm9jZXNzZXNSZXF1ZXN0GiUudG93ZXIuaG9zdGQudjEuTGlzdFByb2Nlc3Nlc1Jlc3BvbnNlQrkBChJjb20udG93ZXIuaG9zdGQudjFCCUhvc3RQcm90b1ABWj5naXRodWIuY29tL1l1a2luYU1vY2hpenVraS90b3dlci9nZW4vZ28vdG93ZXIvaG9zdGQvdjE7aG9zdGR2MaICA1RIWKoCDlRvd2VyLkhvc3RkLlYxygIOVG93ZXJcSG9zdGRcVjHiAhpUb3dlclxIb3N0ZFxWMVxHUEJNZXRhZGF0YeoCEFRvd2VyOjpIb3N0ZDo6VjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
 
 /**
  * Instance names an Instance object of the target.
@@ -366,7 +366,8 @@ export const BuildImageRequestSchema: GenMessage<BuildImageRequest> = /*@__PURE_
   messageDesc(file_tower_hostd_v1_host, 11);
 
 /**
- * BuildImageStart says where a built image goes.
+ * BuildImageStart says where a built image goes, and what it is built
+ * from.
  *
  * @generated from message tower.hostd.v1.BuildImageStart
  */
@@ -377,6 +378,30 @@ export type BuildImageStart = Message<"tower.hostd.v1.BuildImageStart"> & {
    * @generated from field: string repository = 1;
    */
   repository: string;
+
+  /**
+   * The context's directory in the tar or the work tree, empty for its
+   * root.
+   *
+   * @generated from field: string dir = 2;
+   */
+  dir: string;
+
+  /**
+   * The Dockerfile's path in the tar or the work tree; empty is
+   * dir/Dockerfile.
+   *
+   * @generated from field: string dockerfile = 3;
+   */
+  dockerfile: string;
+
+  /**
+   * When set, the context is this mirror's work tree, and no context
+   * follows.
+   *
+   * @generated from field: tower.hostd.v1.MirrorSource mirror = 4;
+   */
+  mirror?: MirrorSource | undefined;
 };
 
 /**
@@ -385,6 +410,75 @@ export type BuildImageStart = Message<"tower.hostd.v1.BuildImageStart"> & {
  */
 export const BuildImageStartSchema: GenMessage<BuildImageStart> = /*@__PURE__*/
   messageDesc(file_tower_hostd_v1_host, 12);
+
+/**
+ * MirrorSource is a mirror's work tree at a ref.
+ *
+ * @generated from message tower.hostd.v1.MirrorSource
+ */
+export type MirrorSource = Message<"tower.hostd.v1.MirrorSource"> & {
+  /**
+   * @generated from field: string mirror = 1;
+   */
+  mirror: string;
+
+  /**
+   * A branch, tag or commit; empty is the branch the mirror fetched.
+   *
+   * @generated from field: string ref = 2;
+   */
+  ref: string;
+};
+
+/**
+ * Describes the message tower.hostd.v1.MirrorSource.
+ * Use `create(MirrorSourceSchema)` to create a new message.
+ */
+export const MirrorSourceSchema: GenMessage<MirrorSource> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 13);
+
+/**
+ * @generated from message tower.hostd.v1.ResolveImageRequest
+ */
+export type ResolveImageRequest = Message<"tower.hostd.v1.ResolveImageRequest"> & {
+  /**
+   * @generated from field: string ref = 1;
+   */
+  ref: string;
+};
+
+/**
+ * Describes the message tower.hostd.v1.ResolveImageRequest.
+ * Use `create(ResolveImageRequestSchema)` to create a new message.
+ */
+export const ResolveImageRequestSchema: GenMessage<ResolveImageRequest> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 14);
+
+/**
+ * @generated from message tower.hostd.v1.ResolveImageResponse
+ */
+export type ResolveImageResponse = Message<"tower.hostd.v1.ResolveImageResponse"> & {
+  /**
+   * The manifest's digest, such as "sha256:...".
+   *
+   * @generated from field: string digest = 1;
+   */
+  digest: string;
+
+  /**
+   * The user it runs as, empty for root.
+   *
+   * @generated from field: string user = 2;
+   */
+  user: string;
+};
+
+/**
+ * Describes the message tower.hostd.v1.ResolveImageResponse.
+ * Use `create(ResolveImageResponseSchema)` to create a new message.
+ */
+export const ResolveImageResponseSchema: GenMessage<ResolveImageResponse> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 15);
 
 /**
  * @generated from message tower.hostd.v1.BuildImageResponse
@@ -403,7 +497,7 @@ export type BuildImageResponse = Message<"tower.hostd.v1.BuildImageResponse"> & 
  * Use `create(BuildImageResponseSchema)` to create a new message.
  */
 export const BuildImageResponseSchema: GenMessage<BuildImageResponse> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 13);
+  messageDesc(file_tower_hostd_v1_host, 16);
 
 /**
  * @generated from message tower.hostd.v1.CaptureRequest
@@ -420,7 +514,7 @@ export type CaptureRequest = Message<"tower.hostd.v1.CaptureRequest"> & {
  * Use `create(CaptureRequestSchema)` to create a new message.
  */
 export const CaptureRequestSchema: GenMessage<CaptureRequest> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 14);
+  messageDesc(file_tower_hostd_v1_host, 17);
 
 /**
  * @generated from message tower.hostd.v1.CaptureResponse
@@ -444,7 +538,7 @@ export type CaptureResponse = Message<"tower.hostd.v1.CaptureResponse"> & {
  * Use `create(CaptureResponseSchema)` to create a new message.
  */
 export const CaptureResponseSchema: GenMessage<CaptureResponse> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 15);
+  messageDesc(file_tower_hostd_v1_host, 18);
 
 /**
  * @generated from message tower.hostd.v1.DeleteArtifactRequest
@@ -461,7 +555,7 @@ export type DeleteArtifactRequest = Message<"tower.hostd.v1.DeleteArtifactReques
  * Use `create(DeleteArtifactRequestSchema)` to create a new message.
  */
 export const DeleteArtifactRequestSchema: GenMessage<DeleteArtifactRequest> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 16);
+  messageDesc(file_tower_hostd_v1_host, 19);
 
 /**
  * @generated from message tower.hostd.v1.DeleteArtifactResponse
@@ -474,7 +568,7 @@ export type DeleteArtifactResponse = Message<"tower.hostd.v1.DeleteArtifactRespo
  * Use `create(DeleteArtifactResponseSchema)` to create a new message.
  */
 export const DeleteArtifactResponseSchema: GenMessage<DeleteArtifactResponse> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 17);
+  messageDesc(file_tower_hostd_v1_host, 20);
 
 /**
  * @generated from message tower.hostd.v1.FetchRequest
@@ -511,7 +605,7 @@ export type FetchRequest = Message<"tower.hostd.v1.FetchRequest"> & {
  * Use `create(FetchRequestSchema)` to create a new message.
  */
 export const FetchRequestSchema: GenMessage<FetchRequest> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 18);
+  messageDesc(file_tower_hostd_v1_host, 21);
 
 /**
  * @generated from message tower.hostd.v1.FetchResponse
@@ -530,7 +624,7 @@ export type FetchResponse = Message<"tower.hostd.v1.FetchResponse"> & {
  * Use `create(FetchResponseSchema)` to create a new message.
  */
 export const FetchResponseSchema: GenMessage<FetchResponse> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 19);
+  messageDesc(file_tower_hostd_v1_host, 22);
 
 /**
  * @generated from message tower.hostd.v1.CheckoutRequest
@@ -564,7 +658,7 @@ export type CheckoutRequest = Message<"tower.hostd.v1.CheckoutRequest"> & {
  * Use `create(CheckoutRequestSchema)` to create a new message.
  */
 export const CheckoutRequestSchema: GenMessage<CheckoutRequest> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 20);
+  messageDesc(file_tower_hostd_v1_host, 23);
 
 /**
  * @generated from message tower.hostd.v1.CheckoutResponse
@@ -581,7 +675,7 @@ export type CheckoutResponse = Message<"tower.hostd.v1.CheckoutResponse"> & {
  * Use `create(CheckoutResponseSchema)` to create a new message.
  */
 export const CheckoutResponseSchema: GenMessage<CheckoutResponse> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 21);
+  messageDesc(file_tower_hostd_v1_host, 24);
 
 /**
  * @generated from message tower.hostd.v1.UpdateOriginRequest
@@ -610,7 +704,7 @@ export type UpdateOriginRequest = Message<"tower.hostd.v1.UpdateOriginRequest"> 
  * Use `create(UpdateOriginRequestSchema)` to create a new message.
  */
 export const UpdateOriginRequestSchema: GenMessage<UpdateOriginRequest> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 22);
+  messageDesc(file_tower_hostd_v1_host, 25);
 
 /**
  * @generated from message tower.hostd.v1.UpdateOriginResponse
@@ -623,7 +717,7 @@ export type UpdateOriginResponse = Message<"tower.hostd.v1.UpdateOriginResponse"
  * Use `create(UpdateOriginResponseSchema)` to create a new message.
  */
 export const UpdateOriginResponseSchema: GenMessage<UpdateOriginResponse> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 23);
+  messageDesc(file_tower_hostd_v1_host, 26);
 
 /**
  * @generated from message tower.hostd.v1.CommitsBehindRequest
@@ -650,7 +744,7 @@ export type CommitsBehindRequest = Message<"tower.hostd.v1.CommitsBehindRequest"
  * Use `create(CommitsBehindRequestSchema)` to create a new message.
  */
 export const CommitsBehindRequestSchema: GenMessage<CommitsBehindRequest> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 24);
+  messageDesc(file_tower_hostd_v1_host, 27);
 
 /**
  * @generated from message tower.hostd.v1.CommitsBehindResponse
@@ -667,7 +761,102 @@ export type CommitsBehindResponse = Message<"tower.hostd.v1.CommitsBehindRespons
  * Use `create(CommitsBehindResponseSchema)` to create a new message.
  */
 export const CommitsBehindResponseSchema: GenMessage<CommitsBehindResponse> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 25);
+  messageDesc(file_tower_hostd_v1_host, 28);
+
+/**
+ * @generated from message tower.hostd.v1.ReadMirrorRequest
+ */
+export type ReadMirrorRequest = Message<"tower.hostd.v1.ReadMirrorRequest"> & {
+  /**
+   * @generated from field: tower.hostd.v1.MirrorSource source = 1;
+   */
+  source?: MirrorSource | undefined;
+
+  /**
+   * Relative to the work tree's root; empty is the root.
+   *
+   * @generated from field: repeated string paths = 2;
+   */
+  paths: string[];
+
+  /**
+   * Whether to give the content of each file of at most 1 MiB.
+   *
+   * @generated from field: bool content = 3;
+   */
+  content: boolean;
+};
+
+/**
+ * Describes the message tower.hostd.v1.ReadMirrorRequest.
+ * Use `create(ReadMirrorRequestSchema)` to create a new message.
+ */
+export const ReadMirrorRequestSchema: GenMessage<ReadMirrorRequest> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 29);
+
+/**
+ * @generated from message tower.hostd.v1.ReadMirrorResponse
+ */
+export type ReadMirrorResponse = Message<"tower.hostd.v1.ReadMirrorResponse"> & {
+  /**
+   * The commit the ref is at.
+   *
+   * @generated from field: string commit = 1;
+   */
+  commit: string;
+
+  /**
+   * The paths that are there.
+   *
+   * @generated from field: map<string, tower.hostd.v1.MirrorEntry> entries = 2;
+   */
+  entries: { [key: string]: MirrorEntry };
+};
+
+/**
+ * Describes the message tower.hostd.v1.ReadMirrorResponse.
+ * Use `create(ReadMirrorResponseSchema)` to create a new message.
+ */
+export const ReadMirrorResponseSchema: GenMessage<ReadMirrorResponse> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 30);
+
+/**
+ * MirrorEntry is one path of a mirror's work tree.
+ *
+ * @generated from message tower.hostd.v1.MirrorEntry
+ */
+export type MirrorEntry = Message<"tower.hostd.v1.MirrorEntry"> & {
+  /**
+   * Its git object id; a directory's is its tree's.
+   *
+   * @generated from field: string object = 1;
+   */
+  object: string;
+
+  /**
+   * @generated from field: bool dir = 2;
+   */
+  dir: boolean;
+
+  /**
+   * @generated from field: int64 size = 3;
+   */
+  size: bigint;
+
+  /**
+   * A file's content, when asked for and small enough.
+   *
+   * @generated from field: bytes content = 4;
+   */
+  content: Uint8Array;
+};
+
+/**
+ * Describes the message tower.hostd.v1.MirrorEntry.
+ * Use `create(MirrorEntrySchema)` to create a new message.
+ */
+export const MirrorEntrySchema: GenMessage<MirrorEntry> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 31);
 
 /**
  * @generated from message tower.hostd.v1.PushRequest
@@ -722,7 +911,7 @@ export type PushRequest = Message<"tower.hostd.v1.PushRequest"> & {
  * Use `create(PushRequestSchema)` to create a new message.
  */
 export const PushRequestSchema: GenMessage<PushRequest> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 26);
+  messageDesc(file_tower_hostd_v1_host, 32);
 
 /**
  * @generated from message tower.hostd.v1.PushResponse
@@ -735,7 +924,7 @@ export type PushResponse = Message<"tower.hostd.v1.PushResponse"> & {
  * Use `create(PushResponseSchema)` to create a new message.
  */
 export const PushResponseSchema: GenMessage<PushResponse> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 27);
+  messageDesc(file_tower_hostd_v1_host, 33);
 
 /**
  * @generated from message tower.hostd.v1.TicketRequest
@@ -757,7 +946,7 @@ export type TicketRequest = Message<"tower.hostd.v1.TicketRequest"> & {
  * Use `create(TicketRequestSchema)` to create a new message.
  */
 export const TicketRequestSchema: GenMessage<TicketRequest> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 28);
+  messageDesc(file_tower_hostd_v1_host, 34);
 
 /**
  * @generated from message tower.hostd.v1.StartProcessRequest
@@ -803,7 +992,7 @@ export type StartProcessRequest = Message<"tower.hostd.v1.StartProcessRequest"> 
  * Use `create(StartProcessRequestSchema)` to create a new message.
  */
 export const StartProcessRequestSchema: GenMessage<StartProcessRequest> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 29);
+  messageDesc(file_tower_hostd_v1_host, 35);
 
 /**
  * @generated from message tower.hostd.v1.StartProcessResponse
@@ -822,7 +1011,7 @@ export type StartProcessResponse = Message<"tower.hostd.v1.StartProcessResponse"
  * Use `create(StartProcessResponseSchema)` to create a new message.
  */
 export const StartProcessResponseSchema: GenMessage<StartProcessResponse> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 30);
+  messageDesc(file_tower_hostd_v1_host, 36);
 
 /**
  * @generated from message tower.hostd.v1.AttachProcessRequest
@@ -854,7 +1043,7 @@ export type AttachProcessRequest = Message<"tower.hostd.v1.AttachProcessRequest"
  * Use `create(AttachProcessRequestSchema)` to create a new message.
  */
 export const AttachProcessRequestSchema: GenMessage<AttachProcessRequest> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 31);
+  messageDesc(file_tower_hostd_v1_host, 37);
 
 /**
  * @generated from message tower.hostd.v1.AttachProcessResponse
@@ -885,7 +1074,7 @@ export type AttachProcessResponse = Message<"tower.hostd.v1.AttachProcessRespons
  * Use `create(AttachProcessResponseSchema)` to create a new message.
  */
 export const AttachProcessResponseSchema: GenMessage<AttachProcessResponse> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 32);
+  messageDesc(file_tower_hostd_v1_host, 38);
 
 /**
  * ProcessOutput is a chunk of a process's log.
@@ -916,7 +1105,7 @@ export type ProcessOutput = Message<"tower.hostd.v1.ProcessOutput"> & {
  * Use `create(ProcessOutputSchema)` to create a new message.
  */
 export const ProcessOutputSchema: GenMessage<ProcessOutput> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 33);
+  messageDesc(file_tower_hostd_v1_host, 39);
 
 /**
  * ProcessEnd is how an attach ended.
@@ -951,7 +1140,7 @@ export type ProcessEnd = Message<"tower.hostd.v1.ProcessEnd"> & {
  * Use `create(ProcessEndSchema)` to create a new message.
  */
 export const ProcessEndSchema: GenMessage<ProcessEnd> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 34);
+  messageDesc(file_tower_hostd_v1_host, 40);
 
 /**
  * ProcessExit is how a process ended.
@@ -979,7 +1168,7 @@ export type ProcessExit = Message<"tower.hostd.v1.ProcessExit"> & {
  * Use `create(ProcessExitSchema)` to create a new message.
  */
 export const ProcessExitSchema: GenMessage<ProcessExit> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 35);
+  messageDesc(file_tower_hostd_v1_host, 41);
 
 /**
  * @generated from message tower.hostd.v1.SignalProcessRequest
@@ -1006,7 +1195,7 @@ export type SignalProcessRequest = Message<"tower.hostd.v1.SignalProcessRequest"
  * Use `create(SignalProcessRequestSchema)` to create a new message.
  */
 export const SignalProcessRequestSchema: GenMessage<SignalProcessRequest> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 36);
+  messageDesc(file_tower_hostd_v1_host, 42);
 
 /**
  * @generated from message tower.hostd.v1.SignalProcessResponse
@@ -1019,7 +1208,7 @@ export type SignalProcessResponse = Message<"tower.hostd.v1.SignalProcessRespons
  * Use `create(SignalProcessResponseSchema)` to create a new message.
  */
 export const SignalProcessResponseSchema: GenMessage<SignalProcessResponse> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 37);
+  messageDesc(file_tower_hostd_v1_host, 43);
 
 /**
  * @generated from message tower.hostd.v1.ListProcessesRequest
@@ -1036,7 +1225,7 @@ export type ListProcessesRequest = Message<"tower.hostd.v1.ListProcessesRequest"
  * Use `create(ListProcessesRequestSchema)` to create a new message.
  */
 export const ListProcessesRequestSchema: GenMessage<ListProcessesRequest> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 38);
+  messageDesc(file_tower_hostd_v1_host, 44);
 
 /**
  * @generated from message tower.hostd.v1.ListProcessesResponse
@@ -1053,7 +1242,7 @@ export type ListProcessesResponse = Message<"tower.hostd.v1.ListProcessesRespons
  * Use `create(ListProcessesResponseSchema)` to create a new message.
  */
 export const ListProcessesResponseSchema: GenMessage<ListProcessesResponse> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 39);
+  messageDesc(file_tower_hostd_v1_host, 45);
 
 /**
  * Process is one process of an instance.
@@ -1094,7 +1283,7 @@ export type Process = Message<"tower.hostd.v1.Process"> & {
  * Use `create(ProcessSchema)` to create a new message.
  */
 export const ProcessSchema: GenMessage<Process> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 40);
+  messageDesc(file_tower_hostd_v1_host, 46);
 
 /**
  * @generated from message tower.hostd.v1.TicketResponse
@@ -1120,7 +1309,7 @@ export type TicketResponse = Message<"tower.hostd.v1.TicketResponse"> & {
  * Use `create(TicketResponseSchema)` to create a new message.
  */
 export const TicketResponseSchema: GenMessage<TicketResponse> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 41);
+  messageDesc(file_tower_hostd_v1_host, 47);
 
 /**
  * OutputStream is which output a chunk was written to.
@@ -1239,7 +1428,8 @@ export const HostService: GenService<{
   /**
    * BuildImage builds an image from a build context and pushes it to the
    * registry. The first request says where it goes; later ones carry the
-   * context, a tar stream.
+   * context, a tar stream, unless the first names a mirror's work tree as
+   * the context, which stays on the host.
    *
    * @generated from rpc tower.hostd.v1.HostService.BuildImage
    */
@@ -1247,6 +1437,17 @@ export const HostService: GenService<{
     methodKind: "client_streaming";
     input: typeof BuildImageRequestSchema;
     output: typeof BuildImageResponseSchema;
+  },
+  /**
+   * ResolveImage reads what an image reference names from its registry,
+   * without pulling it.
+   *
+   * @generated from rpc tower.hostd.v1.HostService.ResolveImage
+   */
+  resolveImage: {
+    methodKind: "unary";
+    input: typeof ResolveImageRequestSchema;
+    output: typeof ResolveImageResponseSchema;
   },
   /**
    * Capture makes a golden artifact of a stopped instance's disk.
@@ -1309,6 +1510,17 @@ export const HostService: GenService<{
     methodKind: "unary";
     input: typeof CommitsBehindRequestSchema;
     output: typeof CommitsBehindResponseSchema;
+  },
+  /**
+   * ReadMirror reads paths of a mirror's work tree at a ref: what each is
+   * and, if asked, a small file's content.
+   *
+   * @generated from rpc tower.hostd.v1.HostService.ReadMirror
+   */
+  readMirror: {
+    methodKind: "unary";
+    input: typeof ReadMirrorRequestSchema;
+    output: typeof ReadMirrorResponseSchema;
   },
   /**
    * Push pushes a branch of an instance's checkout through the mirror,

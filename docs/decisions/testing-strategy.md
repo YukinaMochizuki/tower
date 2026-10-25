@@ -5,8 +5,8 @@ Status: accepted, 2026-10.
 ## Context
 
 One person maintains tower, and coding agents write most of its tests. What
-tower drives (hangar, Docker, QEMU, ZFS) is not available in an ordinary
-workspace or CI runner. hangar solved the same problem
+tower drives (hangar, Docker, Cloud Hypervisor, ZFS) is not available in an
+ordinary workspace or CI runner. hangar solved the same problem
 (`hangar: docs/decisions/testing-strategy.md`), and tower takes its answer.
 
 ## Decision

@@ -41,6 +41,7 @@ func (e *env) wantAuthenticates(secret string, want bool, what string) {
 // which authenticates as the token and holds what its role grants, nothing
 // else; nothing shows the secret again.
 func TestServiceTokenIsIssuedOnce(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	e.setup()
@@ -88,6 +89,7 @@ func TestServiceTokenIsIssuedOnce(t *testing.T) {
 // when it is a hostd token's; the issuer refuses as apply does, and leaves
 // no token behind.
 func TestServiceTokenSpecIsChecked(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	a := e.as(admin)
@@ -133,6 +135,7 @@ func TestServiceTokenSpecIsChecked(t *testing.T) {
 // TestServiceTokenStoresOnlyTheHash greps every database file for the
 // secret: it is not there, its SHA-256 is.
 func TestServiceTokenStoresOnlyTheHash(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	secret := must[iamv1alpha1.CreateServiceTokenResponse](t)(e.local().issuer.CreateServiceToken(ctx, createToken("deployer", iamv1alpha1.Role_ROLE_WORKSTREAM, ""))).GetSecret()
@@ -159,6 +162,7 @@ func TestServiceTokenStoresOnlyTheHash(t *testing.T) {
 // TestServiceTokenRotate: a rotated token's old secret stops working at
 // once, the new one works, and the status names the new one.
 func TestServiceTokenRotate(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	a := e.as(admin)
@@ -183,6 +187,7 @@ func TestServiceTokenRotate(t *testing.T) {
 // TestServiceTokenMadeByApplyHasNoSecret: apply makes a token with nothing
 // to authenticate with until it is rotated.
 func TestServiceTokenMadeByApplyHasNoSecret(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	a := e.as(admin)
@@ -199,6 +204,7 @@ func TestServiceTokenMadeByApplyHasNoSecret(t *testing.T) {
 // TestServiceTokenDelete: deleting a token refuses its secret at once, and
 // frees its name for a token whose secret is its own.
 func TestServiceTokenDelete(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	a := e.as(admin)
@@ -244,6 +250,7 @@ func (s *syncBuffer) String() string {
 // across creating, rotating, using, refusing and deleting a token, holds
 // none of its secrets.
 func TestServiceTokenSecretsAreNeverLogged(t *testing.T) {
+	t.Parallel()
 	var logs syncBuffer
 	e := newEnv(t, func(c *apiserver.Config) {
 		c.Logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -292,6 +299,7 @@ func (f *failingRevoke) RevokeCredentialsOf(ctx context.Context, principal strin
 // fails, the secret still stops working, and a token made again under the
 // name does not take it up.
 func TestAFailedRevokeLeavesNoSecret(t *testing.T) {
+	t.Parallel()
 	creds := &failingRevoke{}
 	e := newEnv(t, func(c *apiserver.Config) {
 		creds.Credentials = c.Credentials
@@ -326,6 +334,7 @@ func (lostRevoke) RevokeCredentialsOf(context.Context, string, time.Time) (int, 
 // lost, its credential still stored, authenticates nothing once its token
 // is gone, and nothing for a token made again under the same name.
 func TestASecretNeverPassesToALaterTokenOfItsName(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t, func(c *apiserver.Config) { c.Credentials = lostRevoke{c.Credentials} })
 	ctx := t.Context()
 	a := e.as(admin)
@@ -351,6 +360,7 @@ func TestASecretNeverPassesToALaterTokenOfItsName(t *testing.T) {
 // secret fails, the token stays, being deleted, and its secret is refused;
 // once revokes work again, the next periodic sweep lets it go.
 func TestFailingRevokesKeepTheToken(t *testing.T) {
+	t.Parallel()
 	creds := &failingRevoke{}
 	e := newEnv(t, func(c *apiserver.Config) {
 		creds.Credentials = c.Credentials
@@ -385,6 +395,7 @@ func TestFailingRevokesKeepTheToken(t *testing.T) {
 // TestRotateRacingDeleteLeavesNoSecret: rotations racing the token's delete
 // leave no secret that works, whichever lands first.
 func TestRotateRacingDeleteLeavesNoSecret(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	a := e.as(admin)
@@ -417,6 +428,7 @@ func TestRotateRacingDeleteLeavesNoSecret(t *testing.T) {
 // TestServiceTokenExpires: a secret works until its duration is up, and the
 // duration is bounded.
 func TestServiceTokenExpires(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	a := e.as(admin)
@@ -435,6 +447,7 @@ func TestServiceTokenExpires(t *testing.T) {
 // TestUnknownTokensAreRefusedAlike: an unknown, a malformed and another
 // prefix's secret are refused the same way, and no refusal quotes it.
 func TestUnknownTokensAreRefusedAlike(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	for _, s := range []string{token.New(token.Service).Reveal(), "twr_", "twr_short", "hgr_" + token.Random()} {
 		_, err := e.withToken(s).projects.ListProjects(t.Context(), connect.NewRequest(&tenancyv1alpha1.ListProjectsRequest{}))
@@ -448,6 +461,7 @@ func TestUnknownTokensAreRefusedAlike(t *testing.T) {
 // TestServiceTokenLastUse: a use shows in the token's status, at most one
 // write an hour.
 func TestServiceTokenLastUse(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	a := e.as(admin)
@@ -504,6 +518,7 @@ func TestServiceTokenLastUse(t *testing.T) {
 // TestRootOnTheHostMakesTheFirstAdmin: with no token at all, root on the
 // host makes an admin token whose secret then holds the admin role.
 func TestRootOnTheHostMakesTheFirstAdmin(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	secret := must[iamv1alpha1.CreateServiceTokenResponse](t)(e.local().issuer.CreateServiceToken(ctx, createToken("first", iamv1alpha1.Role_ROLE_ADMIN, ""))).GetSecret()

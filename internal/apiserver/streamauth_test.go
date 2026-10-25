@@ -84,6 +84,7 @@ func receivesAdded(t *testing.T, events <-chan *secretsv1alpha1.WatchSecretsResp
 // rotated; one whose caller stays authenticated, as through the dev header,
 // ends once the token it names is gone and its role with it.
 func TestAWatchEndsWithItsServiceToken(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	e.setup()
@@ -119,6 +120,7 @@ func filler() string {
 // writing to a client that reads nothing, and so in no read or write that
 // would see its end, still ends at the recheck that refuses its caller.
 func TestARevokedStreamEndsThoughItsClientStoppedReading(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	a := e.as(admin)

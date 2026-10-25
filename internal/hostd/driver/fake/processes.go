@@ -144,7 +144,7 @@ func (g guests) StartProcess(_ context.Context, name string, spec driver.Process
 			return nil
 		}
 		var out output
-		code := shell{g: g, gu: gu, d: d, env: spec.Env, dir: spec.Dir, out: &out}.run(spec.Command)
+		code := shell{g: g, gu: gu, d: d, env: envOf(gu, spec.Env), dir: spec.Dir, out: &out}.run(spec.Command)
 		for _, c := range out.chunks {
 			p.write(c.stderr, c.b)
 		}

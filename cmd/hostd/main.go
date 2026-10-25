@@ -41,7 +41,7 @@ func main() {
 	flag.StringVar(&f.target, "target", "", "the Target this host is, the one its token is for")
 	flag.StringVar(&f.tokenFile, "token-file", "", "file holding the ROLE_HOSTD token's secret, only its owner may read it")
 	flag.StringVar(&f.ticketKey, "ticket-public-key", "", "tower's public key for tickets, the .pub file beside its --ticket-key; empty refuses every direct stream")
-	flag.StringVar(&f.stateDir, "state-dir", "/var/lib/hostd", "directory the drivers work in")
+	flag.StringVar(&f.stateDir, "state-dir", "/var/lib/tower-hostd", "directory the drivers work in: disks' mounts, mirrors, processes and VMs, ssh's key")
 	flag.StringVar(&f.directListen, "direct-listen", "", "address direct streams are served on, the host's tailnet address and a port, such as 100.64.0.7:7443; required, so it is never every interface by default")
 	flag.StringVar(&f.directURL, "direct-url", "", "where clients reach --direct-listen, such as http://host.tailnet:7443; empty is the address listened on, this host's name for every interface's")
 	flag.DurationVar(&f.reportEvery, "report-every", hostd.DefaultReportEvery, "how often the target is reported and every instance read back")

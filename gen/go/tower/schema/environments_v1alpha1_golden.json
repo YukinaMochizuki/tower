@@ -15,6 +15,10 @@
           "description": "The image the devcontainer starts from, by digest.",
           "type": "string"
         },
+        "buildHash": {
+          "description": "A hash of the box's ImageBuild, its Dockerfile and files, for an image built from one; base_image_digest and devcontainer_hash are then empty.",
+          "type": "string"
+        },
         "devcontainerHash": {
           "description": "A hash of the resolved devcontainer: devcontainer.json with its features, its Dockerfile, and the files that Dockerfile copies.",
           "type": "string"

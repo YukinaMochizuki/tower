@@ -1,10 +1,15 @@
 package apiserver
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"slices"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -23,14 +28,26 @@ import (
 
 // A box's conditions, all the box controller's.
 const (
-	BoxImageBuilt    = "ImageBuilt"
-	BoxMaterialized  = "Materialized"
-	BoxReady         = "Ready"
-	stoppedIdle      = "Idle"
-	stoppedRequested = "Requested"
+	BoxImageBuilt   = "ImageBuilt"
+	BoxMaterialized = "Materialized"
+	// BoxSetUp says whether its devcontainer's setup steps all passed; one
+	// that did not leaves the box READY, with a warning here.
+	BoxSetUp = "SetUp"
+	// BoxDevcontainerFellBack, true, says its image is the one to fall
+	// back to, its devcontainer's being one tower could not make, and why.
+	BoxDevcontainerFellBack = "DevcontainerFellBack"
+	BoxReady                = "Ready"
+	stoppedIdle             = "Idle"
+	stoppedRequested        = "Requested"
 	// materializedAnnotation marks an instance whose checkouts are made
 	// (and, on the slow path, its dependencies installed).
 	materializedAnnotation = registry.Domain + "/materialized"
+	// secretFilesAnnotation is the start of an instance's run its box's
+	// secret files were written in (runOf).
+	secretFilesAnnotation = registry.Domain + "/secret-files"
+	// setupAnnotation is the warnings of its devcontainer's setup steps
+	// that did not pass, if any.
+	setupAnnotation = registry.Domain + "/setup-warnings"
 )
 
 // errMirrorNotFetched waits for a repository's mirror on the target.
@@ -135,13 +152,24 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 
 	// Its image.
 	if st.ImageGolden == "" {
-		name, reason, err := s.boxImageGolden(ctx, key.Project, st.Target, spec)
+		name, reason, why, err := s.boxImageGolden(ctx, p, key.Project, st.Target, spec, fellBack(st))
+		if errors.Is(err, devcontainer.ErrUnresolvable) {
+			// Resolved again at its next reconcile, as the repository may
+			// have changed.
+			msg := unresolvableMessage(err)
+			bs.cond(BoxImageBuilt, false, "Unresolvable", msg)
+			bs.not(envv1alpha1.BoxPhase_BOX_PHASE_FAILED, "DevcontainerUnresolvable", msg)
+			return nil
+		}
 		if err != nil {
 			return err
 		}
 		if name == "" {
 			bs.not(envv1alpha1.BoxPhase_BOX_PHASE_PENDING, reason, "")
 			return nil
+		}
+		if why != "" {
+			bs.cond(BoxDevcontainerFellBack, true, "Unresolvable", why)
 		}
 		st.ImageGolden = name
 	}
@@ -161,6 +189,25 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		msg, err := s.failedGoldenMessage(ctx, img)
 		if err != nil {
 			return err
+		}
+		// Its devcontainer's image did not build: as workstream does, the
+		// image to fall back to, saying why.
+		if img.GetSpec().GetBoxImage().GetDevcontainerHash() != "" && s.fallbackImage(spec) != "" && !fellBack(st) {
+			name, reason, _, err := s.boxImageGolden(ctx, p, key.Project, st.Target, spec, true)
+			if err != nil && !errors.Is(err, devcontainer.ErrUnresolvable) {
+				return err
+			}
+			if err == nil && name != "" {
+				bs.cond(BoxDevcontainerFellBack, true, "BuildFailed", "its devcontainer's image did not build: "+msg)
+				st.ImageGolden = name
+				bs.not(envv1alpha1.BoxPhase_BOX_PHASE_BUILDING, "Building", "the image it falls back to is being built")
+				return fmt.Errorf("box %s: falling back: %w", key, controller.ErrWaiting)
+			}
+			if err == nil {
+				bs.not(envv1alpha1.BoxPhase_BOX_PHASE_PENDING, reason, "")
+				return nil
+			}
+			msg += "; and " + devcontainer.Reason(err)
 		}
 		bs.cond(BoxImageBuilt, false, "BuildFailed", msg)
 		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_FAILED, "ImageBuildFailed", msg)
@@ -223,6 +270,13 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		}
 	}
 	phase := in.GetStatus().GetPhase()
+	if phase != envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING && in.GetMetadata().GetAnnotations()[secretFilesAnnotation] != "" {
+		// Its secret files are written again when it next runs, whatever
+		// the start time its provider reports then.
+		if err := s.annotateInstance(ctx, key.Project, in.GetMetadata().GetName(), secretFilesAnnotation, ""); err != nil {
+			return err
+		}
+	}
 	if desired == envv1alpha1.RunState_RUN_STATE_STOPPED {
 		if phase == envv1alpha1.InstancePhase_INSTANCE_PHASE_STOPPED {
 			st.Phase = envv1alpha1.BoxPhase_BOX_PHASE_STOPPED
@@ -240,10 +294,19 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", "its instance is starting")
 		return nil
 	}
+	// Its secret files, at each start, before anything runs in it.
+	if len(spec.GetSecretFiles()) > 0 && in.GetMetadata().GetAnnotations()[secretFilesAnnotation] != runOf(in) {
+		return s.writeSecretFiles(ctx, key, box, in, p, bs)
+	}
 	if in.GetMetadata().GetAnnotations()[materializedAnnotation] != "true" {
 		return s.materializeBox(ctx, key, box, in, p, bs)
 	}
 	bs.cond(BoxMaterialized, true, "Materialized", "")
+	if w := in.GetMetadata().GetAnnotations()[setupAnnotation]; w != "" {
+		bs.cond(BoxSetUp, false, "SetupFailed", w)
+	} else {
+		bs.cond(BoxSetUp, true, "SetUp", "")
+	}
 	if st.Phase != envv1alpha1.BoxPhase_BOX_PHASE_READY {
 		repo := ""
 		if cs := spec.GetCheckouts(); len(cs) > 0 {
@@ -261,41 +324,60 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 // boxImageGolden resolves the box's image and makes its Golden, shared by
 // every box of the same inputs, returning its name; "" with a reason while
 // what it is resolved from is not there yet.
-func (s *Server) boxImageGolden(ctx context.Context, project, target string, spec *envv1alpha1.BoxSpec) (string, string, error) {
-	req := devcontainer.Request{Target: target, Image: spec.GetImage(), Addons: spec.GetAddons()}
-	if req.Image == "" {
+//
+// useFallback asks for the image to fall back to whatever the
+// devcontainer; why, when set, is why the image is that.
+func (s *Server) boxImageGolden(ctx context.Context, p provider.Provider, project, target string, spec *envv1alpha1.BoxSpec, useFallback bool) (name, reason, why string, err error) {
+	req := devcontainer.Request{Target: target, Image: spec.GetImage(), FallbackImage: s.fallbackImage(spec), UseFallback: useFallback, Addons: spec.GetAddons()}
+	if b := spec.GetImageBuild(); b != nil {
+		req.Build = &devcontainer.Build{Dockerfile: b.GetDockerfile(), Files: b.GetFiles()}
+	}
+	if req.Image == "" && req.Build == nil {
 		first := spec.GetCheckouts()[0]
 		repo, ok, err := getTyped[*envv1alpha1.Repository](ctx, s, registry.Repository, resource.Key{Project: project, Name: first.GetRepository()})
 		if err != nil {
-			return "", "", err
+			return "", "", "", err
 		}
 		if !ok {
-			return "", "RepositoryMissing", nil
+			return "", "RepositoryMissing", "", nil
 		}
 		head := mirrorHead(repo, target)
 		if head == "" {
 			s.fetchNow(controller.Key{Project: project, Name: first.GetRepository()})
-			return "", "WaitingForMirror", nil
+			return "", "WaitingForMirror", "", nil
 		}
 		req.Mirror, req.Commit = mirrorName(project, first.GetRepository()), head
 		if first.GetRef() != "" {
 			req.Commit = first.GetRef()
 		}
 	}
-	img, err := s.cfg.Resolver.Image(ctx, req)
+	img, err := s.cfg.Resolver.Image(ctx, p, req)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	inputs := &envv1alpha1.BoxImageInputs{BaseImageDigest: img.BaseImageDigest, DevcontainerHash: img.DevcontainerHash, Addons: img.Addons}
+	// Built from the commit read, not from a branch read again later.
+	if img.Commit != "" {
+		req.Commit = img.Commit
+	}
+	inputs := &envv1alpha1.BoxImageInputs{BaseImageDigest: img.BaseImageDigest, DevcontainerHash: img.DevcontainerHash, BuildHash: img.BuildHash, Addons: img.Addons}
 	hash := inputHash(append([]string{"box-image", target, img.BaseImageDigest, img.DevcontainerHash}, img.Addons...)...)
-	name := goldenName("img", hash)
+	if img.BuildHash != "" {
+		// Its own build, add-ons and all, is the image.
+		hash = inputHash(append([]string{"box-image-build", target, img.BuildHash}, img.Addons...)...)
+	}
+	name = goldenName("img", hash)
 	_, err = s.ensureGolden(ctx, project, name, &envv1alpha1.GoldenSpec{
 		Target: target, InputHash: hash, Inputs: &envv1alpha1.GoldenSpec_BoxImage{BoxImage: inputs},
-	}, buildSpec{Image: &req}, nil)
+	}, buildSpec{Image: &req, Env: img.Env}, nil)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return name, "", nil
+	return name, "", img.FellBack, nil
+}
+
+// fellBack says the box's image is the fallback, not its devcontainer's.
+func fellBack(st *envv1alpha1.BoxStatus) bool {
+	return conditions.Find(st.GetConditions(), BoxDevcontainerFellBack).GetStatus() == metav1.ConditionStatus_CONDITION_STATUS_TRUE
 }
 
 // makeBoxInstance makes the box's instance from its image, with its disk
@@ -323,12 +405,18 @@ func (s *Server) makeBoxInstance(ctx context.Context, key controller.Key, box *e
 			return err
 		}
 	}
+	// Its devcontainer's containerEnv, recorded with its image's build.
+	var build buildSpec
+	if _, err := s.getRecord(ctx, goldenBuildKey(key.Project, img.GetMetadata().GetName()), &build); err != nil {
+		return err
+	}
 	_, err := s.backend(registry.Instance).Create(s.system(ctx), &envv1alpha1.Instance{
 		Metadata: &metav1.ObjectMeta{Project: key.Project, Name: name, OwnerReferences: []*metav1.OwnerReference{ownedBy(registry.Box, box)}},
 		Spec: &envv1alpha1.InstanceSpec{
 			Target: st.Target, Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, Image: img.GetStatus().GetArtifact(),
 			DiskGolden: warm, Network: spec.GetWorkstream(), Alias: key.Name,
 			Resources: withDefaults(envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, spec.GetResources()), RunState: runState,
+			Env: build.Env,
 		},
 	})
 	if err != nil && connect.CodeOf(err) != connect.CodeAlreadyExists {
@@ -370,21 +458,23 @@ func (s *Server) readyWarm(ctx context.Context, project, repo, target, parent st
 // dependencies.
 func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *envv1alpha1.Box, in *envv1alpha1.Instance, p provider.Provider, bs *boxState) error {
 	job := "materialize/" + key.String()
-	jerr, running := s.jobs.lastError(job)
-	if jerr != nil && !running {
-		s.jobs.forget(job)
-		if transient(jerr) {
-			bs.cond(BoxMaterialized, false, "Waiting", jerr.Error())
-			bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", jerr.Error())
-			return fmt.Errorf("box %s: %w: %w", key, controller.ErrWaiting, jerr)
-		}
-		bs.cond(BoxMaterialized, false, "CheckoutFailed", jerr.Error())
-		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_FAILED, "CheckoutFailed", jerr.Error())
+	step := boxStep(key, box, in, "materialize")
+	g, err := s.stepGate(ctx, job, step)
+	switch {
+	case err != nil:
+		return err
+	case g.Waiting != nil:
+		bs.cond(BoxMaterialized, false, "Waiting", g.Waiting.Error())
+		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", g.Waiting.Error())
+		return fmt.Errorf("box %s: %w: %w", key, controller.ErrWaiting, g.Waiting)
+	case g.Failed != "":
+		bs.cond(BoxMaterialized, false, "CheckoutFailed", g.Failed)
+		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_FAILED, "CheckoutFailed", g.Failed)
 		return nil
 	}
 	bs.cond(BoxMaterialized, false, "CheckingOut", "")
 	bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", "its repositories are being checked out")
-	if running {
+	if g.Running {
 		return nil
 	}
 	target, warm := bs.st.GetTarget(), in.GetSpec().GetDiskGolden()
@@ -420,17 +510,213 @@ func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *en
 			}
 		}
 		if warm == "" && len(checkouts) > 0 {
-			w, err := s.cfg.Resolver.Warm(ctx, target, mirrorName(key.Project, checkouts[0].GetRepository()), first)
+			w, err := s.cfg.Resolver.Warm(ctx, p, mirrorName(key.Project, checkouts[0].GetRepository()), first)
 			if err != nil {
 				return err
 			}
-			if err := s.mustRun(ctx, p, ref, nil, "/workspace", w.Install...); err != nil {
+			if len(w.Install) > 0 {
+				if err := s.mustRun(ctx, p, ref, nil, "/workspace", w.Install...); err != nil {
+					return err
+				}
+			}
+		}
+		if len(checkouts) > 0 {
+			if err := s.setUpBox(ctx, p, key, box, ref, mirrorName(key.Project, checkouts[0].GetRepository()), first); err != nil {
 				return err
 			}
 		}
-		return s.annotateInstance(ctx, key.Project, ref.Name, materializedAnnotation, "true")
+		if err := s.annotateInstance(ctx, key.Project, ref.Name, materializedAnnotation, "true"); err != nil {
+			return err
+		}
+		return s.stepPassed(ctx, step)
 	})
 	return nil
+}
+
+// boxStep is one of the box's instance steps, in its instance's run.
+func boxStep(key controller.Key, box *envv1alpha1.Box, in *envv1alpha1.Instance, name string) stepRef {
+	return newStepRef("box", key.Project, key.Name, name, in.GetMetadata().GetUid()+"/"+runOf(in), box.GetMetadata().GetGeneration())
+}
+
+// fallbackImage is what a box of a repository without a devcontainer is
+// made of: its own fallback_image, else tower's default.
+func (s *Server) fallbackImage(spec *envv1alpha1.BoxSpec) string {
+	if f := spec.GetFallbackImage(); f != "" {
+		return f
+	}
+	return s.cfg.DefaultBoxImage
+}
+
+// setupStepTimeout is how long one of a devcontainer's setup steps may
+// run: workstream's default for a box operation
+// (WORKSTREAM_BOX_OP_TIMEOUT_MS).
+const setupStepTimeout = 3 * time.Minute
+
+// unresolvableMessage is an ErrUnresolvable's reason, for people.
+func unresolvableMessage(err error) string { return devcontainer.Reason(err) }
+
+// setUpBox runs the box's devcontainer setup steps in its instance once its
+// repositories are checked out, as workstream does: in /workspace, as the
+// image's user, with the box's privileged secrets as any command of it
+// has them. A step that fails or runs out of time does not fail the box,
+// which workstream keeps too: it is recorded on the instance
+// (setupAnnotation), quoting the end of its output unless it was given
+// secrets, and the box reports it in its SetUp condition.
+func (s *Server) setUpBox(ctx context.Context, p provider.Provider, key controller.Key, box *envv1alpha1.Box, ref provider.Instance, mirror, commit string) error {
+	spec := box.GetSpec()
+	// One fallen back is the plain box workstream would make: nothing is
+	// set up in it.
+	if fellBack(box.GetStatus()) {
+		return nil
+	}
+	req := devcontainer.Request{Target: box.GetStatus().GetTarget(), Mirror: mirror, Commit: commit, Image: spec.GetImage(), FallbackImage: s.fallbackImage(spec)}
+	if spec.GetImageBuild() != nil {
+		req.Build = &devcontainer.Build{}
+	}
+	var warnings []string
+	steps, err := s.cfg.Resolver.Setup(ctx, p, req)
+	switch {
+	case errors.Is(err, devcontainer.ErrUnresolvable):
+		warnings = append(warnings, "setup: "+unresolvableMessage(err))
+	case err != nil:
+		return err
+	}
+	var env map[string]string
+	if refs := spec.GetPrivilegedSecrets(); len(refs) > 0 && len(steps) > 0 {
+		values, err := openSecretValues(ctx, s, key.Project, refs)
+		if err != nil {
+			return fmt.Errorf("%w: %w", err, provider.ErrFailed)
+		}
+		env = map[string]string{}
+		for i, r := range refs {
+			env[r.GetAs()] = string(values[i])
+		}
+	}
+	for _, step := range steps {
+		var out bytes.Buffer
+		stepCtx, cancel := context.WithTimeout(ctx, setupStepTimeout)
+		code, err := p.Exec(stepCtx, provider.ExecRequest{Instance: ref, Command: step.Command, Env: env, Dir: "/workspace", Stdout: &out, Stderr: &out})
+		timedOut := stepCtx.Err() != nil && ctx.Err() == nil
+		cancel()
+		switch {
+		case timedOut:
+			warnings = append(warnings, fmt.Sprintf("%s: did not end in %s", step.Name, setupStepTimeout))
+		case transient(err) || ctx.Err() != nil:
+			return err
+		case err != nil:
+			warnings = append(warnings, fmt.Sprintf("%s: %v", step.Name, err))
+		case code != 0 && len(env) > 0:
+			warnings = append(warnings, fmt.Sprintf("%s: exit %d", step.Name, code))
+		case code != 0:
+			tail := strings.TrimSpace(out.String())
+			if len(tail) > 300 {
+				tail = tail[len(tail)-300:]
+			}
+			warnings = append(warnings, fmt.Sprintf("%s: exit %d: %s", step.Name, code, tail))
+		}
+	}
+	if len(warnings) == 0 {
+		return nil
+	}
+	return s.annotateInstance(ctx, key.Project, ref.Name, setupAnnotation, strings.Join(warnings, "; "))
+}
+
+// runOf names the run of a running instance: when it started, as its
+// provider reports it.
+func runOf(in *envv1alpha1.Instance) string {
+	if t := in.GetStatus().GetStartTime(); t != nil {
+		return t.AsTime().UTC().Format(time.RFC3339Nano)
+	}
+	return "running"
+}
+
+// writeSecretFiles writes the box's secret files into its running
+// instance through the provider, then marks the instance with the run they
+// were written in: a start of the instance after it writes them again.
+// The values are opened for the job alone and go nowhere but the files.
+func (s *Server) writeSecretFiles(ctx context.Context, key controller.Key, box *envv1alpha1.Box, in *envv1alpha1.Instance, p provider.Provider, bs *boxState) error {
+	job := "secretfiles/" + key.String()
+	step := boxStep(key, box, in, "secretfiles")
+	g, err := s.stepGate(ctx, job, step)
+	switch {
+	case err != nil:
+		return err
+	case g.Waiting != nil:
+		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", g.Waiting.Error())
+		return fmt.Errorf("box %s: %w: %w", key, controller.ErrWaiting, g.Waiting)
+	case g.Failed != "":
+		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_FAILED, "SecretFilesFailed", g.Failed)
+		return nil
+	}
+	bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", "its secret files are being written")
+	if g.Running {
+		return nil
+	}
+	ref := provider.Instance{Project: key.Project, Name: in.GetMetadata().GetName()}
+	run, files := runOf(in), box.GetSpec().GetSecretFiles()
+	s.startJob(bs.st.GetTarget(), job, s.boxCtrl, key, func(ctx context.Context) error {
+		values, err := openSecretValues(ctx, s, key.Project, files)
+		if err != nil {
+			return fmt.Errorf("%w: %w", err, provider.ErrFailed)
+		}
+		for i, f := range files {
+			mode := fs.FileMode(f.GetMode())
+			if mode == 0 {
+				mode = 0o600
+			}
+			// The value in memory (provider.SecretsDir), and at its path a
+			// link to it, which a disk may hold.
+			sum := sha256.Sum256([]byte(f.GetPath()))
+			held := provider.SecretsDir + "/" + hex.EncodeToString(sum[:8])
+			if err := p.WriteFile(ctx, ref, held, mode, 0, bytes.NewReader(values[i])); err != nil {
+				return fmt.Errorf("writing the secret file %s: %w", f.GetPath(), err)
+			}
+			code, err := p.Exec(ctx, provider.ExecRequest{Instance: ref, Command: []string{
+				"sh", "-c", `mkdir -p "$(dirname "$2")" && ln -sfn "$1" "$2"`, "sh", held, f.GetPath(),
+			}})
+			if err == nil && code != 0 {
+				err = fmt.Errorf("exit %d: %w", code, provider.ErrFailed)
+			}
+			if err != nil {
+				return fmt.Errorf("linking the secret file %s: %w", f.GetPath(), err)
+			}
+		}
+		if err := s.annotateInstance(ctx, key.Project, ref.Name, secretFilesAnnotation, run); err != nil {
+			return err
+		}
+		return s.stepPassed(ctx, step)
+	})
+	return nil
+}
+
+// secretKeyRef names one value of a Secret.
+type secretKeyRef interface {
+	GetSecret() string
+	GetKey() string
+}
+
+// openSecretValues opens the values refs name, in their order, each Secret
+// once. Its error names a secret or a key, never a value.
+func openSecretValues[R secretKeyRef](ctx context.Context, s *Server, project string, refs []R) ([][]byte, error) {
+	opened := map[string]map[string][]byte{}
+	out := make([][]byte, 0, len(refs))
+	for _, ref := range refs {
+		data, ok := opened[ref.GetSecret()]
+		if !ok {
+			var err error
+			data, err = s.OpenSecret(s.system(ctx), resource.Key{Project: project, Name: ref.GetSecret()})
+			if err != nil {
+				return nil, fmt.Errorf("its secret %q cannot be opened: %s", ref.GetSecret(), messageOf(err))
+			}
+			opened[ref.GetSecret()] = data
+		}
+		v, ok := data[ref.GetKey()]
+		if !ok {
+			return nil, fmt.Errorf("its secret %q holds no key %q", ref.GetSecret(), ref.GetKey())
+		}
+		out = append(out, v)
+	}
+	return out, nil
 }
 
 // instanceMarked reports whether an instance carries one of tower's marks:

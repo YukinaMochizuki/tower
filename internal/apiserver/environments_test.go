@@ -9,8 +9,10 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
+	"github.com/YukinaMochizuki/tower/internal/apiserver"
 	"github.com/YukinaMochizuki/tower/internal/client"
 )
 
@@ -31,6 +33,7 @@ func applyAs(t *testing.T, c clients, r registry.Resource, obj proto.Message) er
 }
 
 func TestTargetsAreChecked(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	a := e.as(admin)
 	if err := applyAs(t, a, registry.Target, hangarTarget("h")); err != nil {
@@ -85,6 +88,7 @@ func TestTargetsAreChecked(t *testing.T) {
 // TestAPlacementNamesAProjectAndATarget: a placement is named after an
 // existing project and names an existing target.
 func TestAPlacementNamesAProjectAndATarget(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setup()
 	a := e.as(admin)
@@ -105,6 +109,7 @@ func TestAPlacementNamesAProjectAndATarget(t *testing.T) {
 // TestATargetInUseIsNotDeleted: deleting a target a Placement or an
 // Instance names is refused, saying which, to everyone but the system.
 func TestATargetInUseIsNotDeleted(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.fixtures()
 	ctx := t.Context()
@@ -121,6 +126,7 @@ func TestATargetInUseIsNotDeleted(t *testing.T) {
 }
 
 func TestRepositoriesAreChecked(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setup()
 	a := e.as(admin)
@@ -147,6 +153,7 @@ func TestRepositoriesAreChecked(t *testing.T) {
 // project, its privileged secret a secret of it, an empty box names its
 // image, and its quantities parse.
 func TestABoxNamesWhatItIsMadeOf(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.fixtures()
 	w := e.as(workstream)
@@ -165,16 +172,75 @@ func TestABoxNamesWhatItIsMadeOf(t *testing.T) {
 		"a repository that is not there": {box("b", "ghost"), connect.CodeFailedPrecondition},
 		"a repository twice":             {box("b", "repo", "repo"), connect.CodeInvalidArgument},
 		"no checkout and no image":       {box("b"), connect.CodeInvalidArgument},
+		"an add-on tower lacks": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.Addons = []string{"browser", "gpu"}
+		}, connect.CodeInvalidArgument),
+		"an add-on twice": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.Addons = []string{"desktop", "desktop"}
+		}, connect.CodeInvalidArgument),
+		"a fallback image beside an image": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.Image, b.Spec.FallbackImage = "ubuntu:24.04", "debian:13"
+		}, connect.CodeInvalidArgument),
+		"a fallback image for no checkout": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.Checkouts, b.Spec.Image, b.Spec.FallbackImage = nil, "ubuntu:24.04", "debian:13"
+		}, connect.CodeInvalidArgument),
 		"no workstream": {func() *envv1alpha1.Box {
 			b := box("b", "repo")
 			b.Spec.Workstream = ""
 			return b
 		}(), connect.CodeInvalidArgument},
-		"a privileged secret that is not there": {func() *envv1alpha1.Box {
-			b := box("b", "repo")
-			b.Spec.PrivilegedSecret = "ghost"
-			return b
-		}(), connect.CodeFailedPrecondition},
+		"a privileged secret that is not there": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "ghost", Key: "A", As: "A"}}
+		}, connect.CodeFailedPrecondition),
+		"a privileged key its secret does not hold": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "s", Key: "B", As: "B"}}
+		}, connect.CodeFailedPrecondition),
+		"a privileged value with no key": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "s", As: "A"}}
+		}, connect.CodeInvalidArgument),
+		"a privileged value named no variable": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "s", Key: "A", As: "1-A"}}
+		}, connect.CodeInvalidArgument),
+		"two privileged values of one name": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "s", Key: "A", As: "A"}, {Secret: "s", Key: "A", As: "A"}}
+		}, connect.CodeInvalidArgument),
+		"a secret file of a secret that is not there": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.SecretFiles = []*envv1alpha1.SecretFile{{Secret: "ghost", Key: "A", Path: "/etc/a"}}
+		}, connect.CodeFailedPrecondition),
+		"a secret file of a key its secret does not hold": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.SecretFiles = []*envv1alpha1.SecretFile{{Secret: "s", Key: "B", Path: "/etc/a"}}
+		}, connect.CodeFailedPrecondition),
+		"a secret file at a relative path": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.SecretFiles = []*envv1alpha1.SecretFile{{Secret: "s", Key: "A", Path: "etc/a"}}
+		}, connect.CodeInvalidArgument),
+		"a secret file at a path that is not clean": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.SecretFiles = []*envv1alpha1.SecretFile{{Secret: "s", Key: "A", Path: "/etc/../a"}}
+		}, connect.CodeInvalidArgument),
+		"two secret files at one path": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.SecretFiles = []*envv1alpha1.SecretFile{{Secret: "s", Key: "A", Path: "/a"}, {Secret: "s", Key: "A", Path: "/a"}}
+		}, connect.CodeInvalidArgument),
+		"a secret file of no mode": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.SecretFiles = []*envv1alpha1.SecretFile{{Secret: "s", Key: "A", Path: "/a", Mode: 0o10000}}
+		}, connect.CodeInvalidArgument),
+		"an image and an image build": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.Image = "ghcr.io/acme/dev:1"
+			b.Spec.ImageBuild = &envv1alpha1.ImageBuild{Dockerfile: "FROM scratch\n"}
+		}, connect.CodeInvalidArgument),
+		"an image build with no Dockerfile": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.ImageBuild = &envv1alpha1.ImageBuild{Files: map[string][]byte{"a": nil}}
+		}, connect.CodeInvalidArgument),
+		"an image build with a file named Dockerfile": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.ImageBuild = &envv1alpha1.ImageBuild{Dockerfile: "FROM scratch\n", Files: map[string][]byte{"Dockerfile": nil}}
+		}, connect.CodeInvalidArgument),
+		"an image build with a file at a path that is not clean": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.ImageBuild = &envv1alpha1.ImageBuild{Dockerfile: "FROM scratch\n", Files: map[string][]byte{"etc/../app.conf": nil}}
+		}, connect.CodeInvalidArgument),
+		"an image build with a file out of its context": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.ImageBuild = &envv1alpha1.ImageBuild{Dockerfile: "FROM scratch\n", Files: map[string][]byte{"../etc/passwd": nil}}
+		}, connect.CodeInvalidArgument),
+		"an image build over its size": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.ImageBuild = &envv1alpha1.ImageBuild{Dockerfile: "FROM scratch\n", Files: map[string][]byte{"big": make([]byte, apiserver.MaxImageBuild)}}
+		}, connect.CodeInvalidArgument),
 		"memory that is no quantity": {func() *envv1alpha1.Box {
 			b := box("b", "repo")
 			b.Spec.Resources = &envv1alpha1.Resources{Memory: "much"}
@@ -191,14 +257,63 @@ func TestABoxNamesWhatItIsMadeOf(t *testing.T) {
 		}
 	}
 	privileged := box("priv", "repo")
-	privileged.Spec.PrivilegedSecret = "s"
+	privileged.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "s", Key: "A", As: "GH_TOKEN"}, {Secret: "s", Key: "A", As: "OTHER"}}
+	privileged.Spec.SecretFiles = []*envv1alpha1.SecretFile{{Secret: "s", Key: "A", Path: "/root/.config/gh/hosts.yml"}, {Secret: "s", Key: "A", Path: "/etc/a", Mode: 0o644}}
 	privileged.Spec.Resources = &envv1alpha1.Resources{Cpu: "2", Memory: "4Gi", Disk: "40Gi"}
 	if err := applyAs(t, w, registry.Box, privileged); err != nil {
 		t.Errorf("a privileged box: %v", err)
 	}
+	built := box("built")
+	built.Spec.ImageBuild = &envv1alpha1.ImageBuild{Dockerfile: "FROM scratch\nCOPY etc/app.conf /etc/\n", Files: map[string][]byte{"etc/app.conf": []byte("a=1")}}
+	if err := applyAs(t, w, registry.Box, built); err != nil {
+		t.Errorf("an empty box with an image build: %v", err)
+	}
+}
+
+// withBox is a box of the repository "repo" changed by mutate, and the
+// code applying it must answer.
+func withBox(mutate func(*envv1alpha1.Box), code connect.Code) struct {
+	b    *envv1alpha1.Box
+	code connect.Code
+} {
+	b := box("b", "repo")
+	mutate(b)
+	return struct {
+		b    *envv1alpha1.Box
+		code connect.Code
+	}{b, code}
+}
+
+// TestAnInstancesEnvironment: an instance's environment is a container's,
+// of variables' names, its values without NUL.
+func TestAnInstancesEnvironment(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.fixtures()
+	sys := e.asSystem()
+	for what, tc := range map[string]struct {
+		kind envv1alpha1.InstanceKind
+		env  map[string]string
+		code connect.Code
+	}{
+		"values as written":     {envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, map[string]string{"A": "one\ntwo", "B": "a\x01b"}, 0},
+		"a name of no variable": {envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, map[string]string{"A B": "1"}, connect.CodeInvalidArgument},
+		"a value holding NUL":   {envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, map[string]string{"A": "a\x00b"}, connect.CodeInvalidArgument},
+		"of a vm":               {envv1alpha1.InstanceKind_INSTANCE_KIND_VM, map[string]string{"A": "1"}, connect.CodeInvalidArgument},
+	} {
+		in := &envv1alpha1.Instance{
+			Metadata: &metav1.ObjectMeta{Project: "web", Name: "i-" + strings.ReplaceAll(strings.Trim(strings.ToLower(what), "'"), " ", "-")},
+			Spec:     &envv1alpha1.InstanceSpec{Target: "t1", Kind: tc.kind, Image: "img", Env: tc.env},
+		}
+		_, err := sys.generic.Apply(t.Context(), registry.Instance, in)
+		if (tc.code == 0 && err != nil) || (tc.code != 0 && connect.CodeOf(err) != tc.code) {
+			t.Errorf("an instance of %s: %v, want %v", what, err, tc.code)
+		}
+	}
 }
 
 func TestAMachineNamesItsSecrets(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.fixtures()
 	w := e.as(workstream)
@@ -221,6 +336,12 @@ func TestAMachineNamesItsSecrets(t *testing.T) {
 		"no base image":        {func(s *envv1alpha1.MachineSpec) { s.Blueprint.BaseImage = "" }, connect.CodeInvalidArgument},
 		"a disk that is no quantity": {func(s *envv1alpha1.MachineSpec) {
 			s.Resources = &envv1alpha1.Resources{Disk: "big"}
+		}, connect.CodeInvalidArgument},
+		"a ready check with no command": {func(s *envv1alpha1.MachineSpec) {
+			s.Blueprint.ReadyCheck = &envv1alpha1.ReadyCheck{Command: " "}
+		}, connect.CodeInvalidArgument},
+		"a ready check that times out at once": {func(s *envv1alpha1.MachineSpec) {
+			s.Blueprint.ReadyCheck = &envv1alpha1.ReadyCheck{Command: "true", Timeout: durationpb.New(0)}
 		}, connect.CodeInvalidArgument},
 	} {
 		m := machine("m")

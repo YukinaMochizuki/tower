@@ -292,7 +292,10 @@ type BoxImageInputs struct {
 	// features, its Dockerfile, and the files that Dockerfile copies.
 	DevcontainerHash string `protobuf:"bytes,2,opt,name=devcontainer_hash,json=devcontainerHash,proto3" json:"devcontainer_hash,omitempty"`
 	// Add-ons with their versions, such as "browser@3".
-	Addons        []string `protobuf:"bytes,3,rep,name=addons,proto3" json:"addons,omitempty"`
+	Addons []string `protobuf:"bytes,3,rep,name=addons,proto3" json:"addons,omitempty"`
+	// A hash of the box's ImageBuild, its Dockerfile and files, for an image
+	// built from one; base_image_digest and devcontainer_hash are then empty.
+	BuildHash     string `protobuf:"bytes,4,opt,name=build_hash,json=buildHash,proto3" json:"build_hash,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -346,6 +349,13 @@ func (x *BoxImageInputs) GetAddons() []string {
 		return x.Addons
 	}
 	return nil
+}
+
+func (x *BoxImageInputs) GetBuildHash() string {
+	if x != nil {
+		return x.BuildHash
+	}
+	return ""
 }
 
 // BoxWarmInputs make a warm golden: a checkout of a repository's default
@@ -1263,11 +1273,13 @@ const file_tower_environments_v1alpha1_golden_proto_rawDesc = "" +
 	"\tbox_image\x18\x04 \x01(\v2+.tower.environments.v1alpha1.BoxImageInputsH\x00R\bboxImage\x12G\n" +
 	"\bbox_warm\x18\x05 \x01(\v2*.tower.environments.v1alpha1.BoxWarmInputsH\x00R\aboxWarm\x12F\n" +
 	"\amachine\x18\x06 \x01(\v2*.tower.environments.v1alpha1.MachineInputsH\x00R\amachineB\b\n" +
-	"\x06inputs\"\x81\x01\n" +
+	"\x06inputs\"\xa0\x01\n" +
 	"\x0eBoxImageInputs\x12*\n" +
 	"\x11base_image_digest\x18\x01 \x01(\tR\x0fbaseImageDigest\x12+\n" +
 	"\x11devcontainer_hash\x18\x02 \x01(\tR\x10devcontainerHash\x12\x16\n" +
-	"\x06addons\x18\x03 \x03(\tR\x06addons\"\x95\x01\n" +
+	"\x06addons\x18\x03 \x03(\tR\x06addons\x12\x1d\n" +
+	"\n" +
+	"build_hash\x18\x04 \x01(\tR\tbuildHash\"\x95\x01\n" +
 	"\rBoxWarmInputs\x12\x1e\n" +
 	"\n" +
 	"repository\x18\x01 \x01(\tR\n" +

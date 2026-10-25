@@ -7,3 +7,5 @@ sql:
       go:
         package: db
         out: internal/store/sqlite/db
+        # Each statement is parsed once per connection, not on every call.
+        emit_prepared_queries: true

@@ -80,6 +80,10 @@ type Host struct {
 	// limits are SetProcessLimits'; nil is provider's defaults.
 	limits  atomic.Pointer[processLimits]
 	streams streamCount
+	pulls   *pulls
+	// unnamedImages are the images of the host no Instance or Golden
+	// named at a sweep, by ID, since when (sweepImages). Under mu.
+	unnamedImages map[string]time.Time
 }
 
 var _ provider.Provider = (*Host)(nil)
@@ -89,7 +93,7 @@ func New(cfg Config) *Host {
 	cfg.ReportEvery = cmp.Or(cfg.ReportEvery, DefaultReportEvery)
 	cfg.SweepEvery = cmp.Or(cfg.SweepEvery, DefaultSweepEvery)
 	cfg.SweepGrace = cmp.Or(cfg.SweepGrace, DefaultSweepGrace)
-	h := &Host{cfg: cfg, d: cfg.Drivers, c: cfg.Client, clock: cfg.Clock, log: cfg.Log}
+	h := &Host{cfg: cfg, d: cfg.Drivers, c: cfg.Client, clock: cfg.Clock, log: cfg.Log, unnamedImages: map[string]time.Time{}}
 	if h.clock == nil {
 		h.clock = clockwork.NewRealClock()
 	}
@@ -97,6 +101,7 @@ func New(cfg Config) *Host {
 		h.log = slog.New(slog.DiscardHandler)
 	}
 	h.ctrl = h.newController()
+	h.pulls = newPulls(cfg.Drivers.Images, h.clock, func(k controller.Key) { h.ctrl.Enqueue(k) })
 	return h
 }
 
@@ -107,6 +112,7 @@ func (h *Host) Run(ctx context.Context) error {
 		return err
 	}
 	g, ctx := errgroup.WithContext(ctx)
+	h.pulls.start(ctx)
 	g.Go(func() error { return h.ctrl.Run(ctx) })
 	g.Go(func() error { h.every(ctx, h.cfg.ReportEvery, "report", h.Report); return nil })
 	g.Go(func() error { h.every(ctx, h.cfg.SweepEvery, "sweep", h.Sweep); return nil })

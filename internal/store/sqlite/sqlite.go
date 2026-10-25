@@ -43,7 +43,9 @@ type Store struct {
 	// writes cannot then fail to upgrade because another process (such as a
 	// backup tool) wrote in between.
 	rdb, wdb *sql.DB
-	q        *db.Queries
+	// q and wq hold the statements prepared on rdb and on wdb: a
+	// transaction takes only those of its own database.
+	q, wq *db.Queries
 	// closing is set before the databases close, so errors from operations
 	// racing Close can be reported as store.ErrClosed.
 	closing atomic.Bool
@@ -106,11 +108,22 @@ func open(ctx context.Context, rdb, wdb *sql.DB) (*Store, error) {
 	if _, err := provider.Up(ctx); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	s := &Store{rdb: rdb, wdb: wdb, q: db.New(rdb), subs: map[*subscriber]struct{}{}}
-	if s.rev, err = s.q.GetMeta(ctx, "revision"); err != nil {
+	q, err := db.Prepare(ctx, rdb)
+	if err != nil {
 		return nil, err
 	}
-	if s.compacted, err = s.q.GetMeta(ctx, "compacted"); err != nil {
+	wq, err := db.Prepare(ctx, wdb)
+	if err != nil {
+		_ = q.Close()
+		return nil, err
+	}
+	s := &Store{rdb: rdb, wdb: wdb, q: q, wq: wq, subs: map[*subscriber]struct{}{}}
+	if s.rev, err = s.q.GetMeta(ctx, "revision"); err == nil {
+		s.compacted, err = s.q.GetMeta(ctx, "compacted")
+	}
+	if err != nil {
+		_ = q.Close()
+		_ = wq.Close()
 		return nil, err
 	}
 	return s, nil
@@ -234,7 +247,7 @@ func (s *Store) txn(ctx context.Context, fn func(t *txn) error) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	t := &txn{q: s.q.WithTx(tx), rev: s.rev}
+	t := &txn{q: s.wq.WithTx(tx), rev: s.rev}
 	if err := fn(t); err != nil {
 		return err
 	}
@@ -415,7 +428,7 @@ func (s *Store) Compact(ctx context.Context, revision int64) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	q := s.q.WithTx(tx)
+	q := s.wq.WithTx(tx)
 	if err := q.DeleteEventsThrough(ctx, revision); err != nil {
 		return err
 	}
@@ -442,7 +455,7 @@ func (s *Store) Close() error {
 		delete(s.subs, sub)
 	}
 	s.mu.Unlock()
-	return errors.Join(s.rdb.Close(), s.wdb.Close())
+	return errors.Join(s.q.Close(), s.wq.Close(), s.rdb.Close(), s.wdb.Close())
 }
 
 func (s *Store) Watch(ctx context.Context, opts store.WatchOptions, send func(store.Event) error) error {

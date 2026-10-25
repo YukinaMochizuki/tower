@@ -32,6 +32,7 @@ func (w *world) sleeping() bool {
 // TestACallInFlightKeepsABoxInUse: a box is never stopped for idleness
 // while a call into it runs, however long, and the call's end is a use.
 func TestACallInFlightKeepsABoxInUse(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, idleAfter(time.Hour))
 	w.readyBox("dev")
 	ctx, cancel := context.WithCancel(t.Context())
@@ -48,6 +49,9 @@ func TestACallInFlightKeepsABoxInUse(t *testing.T) {
 	}
 	cancel()
 	<-done
+	// The client sees the call end before the server counts its end as a
+	// use; the idle clock starts from that count.
+	testutil.Eventually(t, "the call over", func() bool { return !w.srv.InUse("web", "dev") })
 	w.advance(59 * time.Minute)
 	if p := w.box("dev").GetStatus().GetPhase(); p != envv1alpha1.BoxPhase_BOX_PHASE_READY {
 		t.Errorf("a box whose call ended 59 minutes ago is %v", p)
@@ -59,6 +63,7 @@ func TestACallInFlightKeepsABoxInUse(t *testing.T) {
 // TestAUseAsAnIdleStopIsDecidedKeepsTheBox: a use that comes between an
 // idle stop being decided and its being written keeps the box running.
 func TestAUseAsAnIdleStopIsDecidedKeepsTheBox(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, idleAfter(time.Hour))
 	w.readyBox("dev")
 	var once sync.Once
@@ -75,6 +80,7 @@ func TestAUseAsAnIdleStopIsDecidedKeepsTheBox(t *testing.T) {
 // refused at once, saying why, as is one into a box being deleted while
 // the call waits for it.
 func TestACallToAFailedOrGoingBoxEndsAtOnce(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.fake.FailBuilds(fmt.Errorf("step 3/7: npm ci exited 1: %w", provider.ErrFailed))
 	w.mustApply(registry.Repository, repository("api"))
@@ -123,6 +129,7 @@ func (p slowReads) ReadFile(ctx context.Context, in provider.Instance, path stri
 // TestAStreamEndsWhenItsTokenGoes: an Exec or a ReadFile stream under way
 // ends once the workstream token it was opened with is rotated or deleted.
 func TestAStreamEndsWhenItsTokenGoes(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, worldOption{config: func(c *apiserver.Config) {
 		base := c.Providers
 		c.Providers = func(target string) (provider.Provider, error) {
@@ -184,6 +191,7 @@ func TestAStreamEndsWhenItsTokenGoes(t *testing.T) {
 // false after three report intervals without a report, and last_error
 // holds a job's failure, with when, until a job on the target succeeds.
 func TestTheTargetSaysWhenItsProviderFallsSilentOrAJobFails(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ctx := t.Context()
 	target := func() *targetsv1alpha1.TargetStatus {

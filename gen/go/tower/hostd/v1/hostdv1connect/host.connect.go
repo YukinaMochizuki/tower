@@ -50,6 +50,9 @@ const (
 	HostServiceCopyProcedure = "/tower.hostd.v1.HostService/Copy"
 	// HostServiceBuildImageProcedure is the fully-qualified name of the HostService's BuildImage RPC.
 	HostServiceBuildImageProcedure = "/tower.hostd.v1.HostService/BuildImage"
+	// HostServiceResolveImageProcedure is the fully-qualified name of the HostService's ResolveImage
+	// RPC.
+	HostServiceResolveImageProcedure = "/tower.hostd.v1.HostService/ResolveImage"
 	// HostServiceCaptureProcedure is the fully-qualified name of the HostService's Capture RPC.
 	HostServiceCaptureProcedure = "/tower.hostd.v1.HostService/Capture"
 	// HostServiceDeleteArtifactProcedure is the fully-qualified name of the HostService's
@@ -65,6 +68,8 @@ const (
 	// HostServiceCommitsBehindProcedure is the fully-qualified name of the HostService's CommitsBehind
 	// RPC.
 	HostServiceCommitsBehindProcedure = "/tower.hostd.v1.HostService/CommitsBehind"
+	// HostServiceReadMirrorProcedure is the fully-qualified name of the HostService's ReadMirror RPC.
+	HostServiceReadMirrorProcedure = "/tower.hostd.v1.HostService/ReadMirror"
 	// HostServicePushProcedure is the fully-qualified name of the HostService's Push RPC.
 	HostServicePushProcedure = "/tower.hostd.v1.HostService/Push"
 	// HostServiceTicketProcedure is the fully-qualified name of the HostService's Ticket RPC.
@@ -101,8 +106,12 @@ type HostServiceClient interface {
 	Copy(context.Context, *connect.Request[v1.CopyRequest]) (*connect.Response[v1.CopyResponse], error)
 	// BuildImage builds an image from a build context and pushes it to the
 	// registry. The first request says where it goes; later ones carry the
-	// context, a tar stream.
+	// context, a tar stream, unless the first names a mirror's work tree as
+	// the context, which stays on the host.
 	BuildImage(context.Context) *connect.ClientStreamForClient[v1.BuildImageRequest, v1.BuildImageResponse]
+	// ResolveImage reads what an image reference names from its registry,
+	// without pulling it.
+	ResolveImage(context.Context, *connect.Request[v1.ResolveImageRequest]) (*connect.Response[v1.ResolveImageResponse], error)
 	// Capture makes a golden artifact of a stopped instance's disk.
 	Capture(context.Context, *connect.Request[v1.CaptureRequest]) (*connect.Response[v1.CaptureResponse], error)
 	// DeleteArtifact deletes a golden artifact; one already gone is no
@@ -117,6 +126,9 @@ type HostServiceClient interface {
 	UpdateOrigin(context.Context, *connect.Request[v1.UpdateOriginRequest]) (*connect.Response[v1.UpdateOriginResponse], error)
 	// CommitsBehind counts the commits on a mirror's branch since a commit.
 	CommitsBehind(context.Context, *connect.Request[v1.CommitsBehindRequest]) (*connect.Response[v1.CommitsBehindResponse], error)
+	// ReadMirror reads paths of a mirror's work tree at a ref: what each is
+	// and, if asked, a small file's content.
+	ReadMirror(context.Context, *connect.Request[v1.ReadMirrorRequest]) (*connect.Response[v1.ReadMirrorResponse], error)
 	// Push pushes a branch of an instance's checkout through the mirror,
 	// forcing only with a lease.
 	Push(context.Context, *connect.Request[v1.PushRequest]) (*connect.Response[v1.PushResponse], error)
@@ -185,6 +197,12 @@ func NewHostServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(hostServiceMethods.ByName("BuildImage")),
 			connect.WithClientOptions(opts...),
 		),
+		resolveImage: connect.NewClient[v1.ResolveImageRequest, v1.ResolveImageResponse](
+			httpClient,
+			baseURL+HostServiceResolveImageProcedure,
+			connect.WithSchema(hostServiceMethods.ByName("ResolveImage")),
+			connect.WithClientOptions(opts...),
+		),
 		capture: connect.NewClient[v1.CaptureRequest, v1.CaptureResponse](
 			httpClient,
 			baseURL+HostServiceCaptureProcedure,
@@ -219,6 +237,12 @@ func NewHostServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+HostServiceCommitsBehindProcedure,
 			connect.WithSchema(hostServiceMethods.ByName("CommitsBehind")),
+			connect.WithClientOptions(opts...),
+		),
+		readMirror: connect.NewClient[v1.ReadMirrorRequest, v1.ReadMirrorResponse](
+			httpClient,
+			baseURL+HostServiceReadMirrorProcedure,
+			connect.WithSchema(hostServiceMethods.ByName("ReadMirror")),
 			connect.WithClientOptions(opts...),
 		),
 		push: connect.NewClient[v1.PushRequest, v1.PushResponse](
@@ -267,12 +291,14 @@ type hostServiceClient struct {
 	writeFile      *connect.Client[v1.WriteFileRequest, v1.WriteFileResponse]
 	copy           *connect.Client[v1.CopyRequest, v1.CopyResponse]
 	buildImage     *connect.Client[v1.BuildImageRequest, v1.BuildImageResponse]
+	resolveImage   *connect.Client[v1.ResolveImageRequest, v1.ResolveImageResponse]
 	capture        *connect.Client[v1.CaptureRequest, v1.CaptureResponse]
 	deleteArtifact *connect.Client[v1.DeleteArtifactRequest, v1.DeleteArtifactResponse]
 	fetch          *connect.Client[v1.FetchRequest, v1.FetchResponse]
 	checkout       *connect.Client[v1.CheckoutRequest, v1.CheckoutResponse]
 	updateOrigin   *connect.Client[v1.UpdateOriginRequest, v1.UpdateOriginResponse]
 	commitsBehind  *connect.Client[v1.CommitsBehindRequest, v1.CommitsBehindResponse]
+	readMirror     *connect.Client[v1.ReadMirrorRequest, v1.ReadMirrorResponse]
 	push           *connect.Client[v1.PushRequest, v1.PushResponse]
 	ticket         *connect.Client[v1.TicketRequest, v1.TicketResponse]
 	startProcess   *connect.Client[v1.StartProcessRequest, v1.StartProcessResponse]
@@ -306,6 +332,11 @@ func (c *hostServiceClient) BuildImage(ctx context.Context) *connect.ClientStrea
 	return c.buildImage.CallClientStream(ctx)
 }
 
+// ResolveImage calls tower.hostd.v1.HostService.ResolveImage.
+func (c *hostServiceClient) ResolveImage(ctx context.Context, req *connect.Request[v1.ResolveImageRequest]) (*connect.Response[v1.ResolveImageResponse], error) {
+	return c.resolveImage.CallUnary(ctx, req)
+}
+
 // Capture calls tower.hostd.v1.HostService.Capture.
 func (c *hostServiceClient) Capture(ctx context.Context, req *connect.Request[v1.CaptureRequest]) (*connect.Response[v1.CaptureResponse], error) {
 	return c.capture.CallUnary(ctx, req)
@@ -334,6 +365,11 @@ func (c *hostServiceClient) UpdateOrigin(ctx context.Context, req *connect.Reque
 // CommitsBehind calls tower.hostd.v1.HostService.CommitsBehind.
 func (c *hostServiceClient) CommitsBehind(ctx context.Context, req *connect.Request[v1.CommitsBehindRequest]) (*connect.Response[v1.CommitsBehindResponse], error) {
 	return c.commitsBehind.CallUnary(ctx, req)
+}
+
+// ReadMirror calls tower.hostd.v1.HostService.ReadMirror.
+func (c *hostServiceClient) ReadMirror(ctx context.Context, req *connect.Request[v1.ReadMirrorRequest]) (*connect.Response[v1.ReadMirrorResponse], error) {
+	return c.readMirror.CallUnary(ctx, req)
 }
 
 // Push calls tower.hostd.v1.HostService.Push.
@@ -384,8 +420,12 @@ type HostServiceHandler interface {
 	Copy(context.Context, *connect.Request[v1.CopyRequest]) (*connect.Response[v1.CopyResponse], error)
 	// BuildImage builds an image from a build context and pushes it to the
 	// registry. The first request says where it goes; later ones carry the
-	// context, a tar stream.
+	// context, a tar stream, unless the first names a mirror's work tree as
+	// the context, which stays on the host.
 	BuildImage(context.Context, *connect.ClientStream[v1.BuildImageRequest]) (*connect.Response[v1.BuildImageResponse], error)
+	// ResolveImage reads what an image reference names from its registry,
+	// without pulling it.
+	ResolveImage(context.Context, *connect.Request[v1.ResolveImageRequest]) (*connect.Response[v1.ResolveImageResponse], error)
 	// Capture makes a golden artifact of a stopped instance's disk.
 	Capture(context.Context, *connect.Request[v1.CaptureRequest]) (*connect.Response[v1.CaptureResponse], error)
 	// DeleteArtifact deletes a golden artifact; one already gone is no
@@ -400,6 +440,9 @@ type HostServiceHandler interface {
 	UpdateOrigin(context.Context, *connect.Request[v1.UpdateOriginRequest]) (*connect.Response[v1.UpdateOriginResponse], error)
 	// CommitsBehind counts the commits on a mirror's branch since a commit.
 	CommitsBehind(context.Context, *connect.Request[v1.CommitsBehindRequest]) (*connect.Response[v1.CommitsBehindResponse], error)
+	// ReadMirror reads paths of a mirror's work tree at a ref: what each is
+	// and, if asked, a small file's content.
+	ReadMirror(context.Context, *connect.Request[v1.ReadMirrorRequest]) (*connect.Response[v1.ReadMirrorResponse], error)
 	// Push pushes a branch of an instance's checkout through the mirror,
 	// forcing only with a lease.
 	Push(context.Context, *connect.Request[v1.PushRequest]) (*connect.Response[v1.PushResponse], error)
@@ -464,6 +507,12 @@ func NewHostServiceHandler(svc HostServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(hostServiceMethods.ByName("BuildImage")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hostServiceResolveImageHandler := connect.NewUnaryHandler(
+		HostServiceResolveImageProcedure,
+		svc.ResolveImage,
+		connect.WithSchema(hostServiceMethods.ByName("ResolveImage")),
+		connect.WithHandlerOptions(opts...),
+	)
 	hostServiceCaptureHandler := connect.NewUnaryHandler(
 		HostServiceCaptureProcedure,
 		svc.Capture,
@@ -498,6 +547,12 @@ func NewHostServiceHandler(svc HostServiceHandler, opts ...connect.HandlerOption
 		HostServiceCommitsBehindProcedure,
 		svc.CommitsBehind,
 		connect.WithSchema(hostServiceMethods.ByName("CommitsBehind")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hostServiceReadMirrorHandler := connect.NewUnaryHandler(
+		HostServiceReadMirrorProcedure,
+		svc.ReadMirror,
+		connect.WithSchema(hostServiceMethods.ByName("ReadMirror")),
 		connect.WithHandlerOptions(opts...),
 	)
 	hostServicePushHandler := connect.NewUnaryHandler(
@@ -548,6 +603,8 @@ func NewHostServiceHandler(svc HostServiceHandler, opts ...connect.HandlerOption
 			hostServiceCopyHandler.ServeHTTP(w, r)
 		case HostServiceBuildImageProcedure:
 			hostServiceBuildImageHandler.ServeHTTP(w, r)
+		case HostServiceResolveImageProcedure:
+			hostServiceResolveImageHandler.ServeHTTP(w, r)
 		case HostServiceCaptureProcedure:
 			hostServiceCaptureHandler.ServeHTTP(w, r)
 		case HostServiceDeleteArtifactProcedure:
@@ -560,6 +617,8 @@ func NewHostServiceHandler(svc HostServiceHandler, opts ...connect.HandlerOption
 			hostServiceUpdateOriginHandler.ServeHTTP(w, r)
 		case HostServiceCommitsBehindProcedure:
 			hostServiceCommitsBehindHandler.ServeHTTP(w, r)
+		case HostServiceReadMirrorProcedure:
+			hostServiceReadMirrorHandler.ServeHTTP(w, r)
 		case HostServicePushProcedure:
 			hostServicePushHandler.ServeHTTP(w, r)
 		case HostServiceTicketProcedure:
@@ -601,6 +660,10 @@ func (UnimplementedHostServiceHandler) BuildImage(context.Context, *connect.Clie
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.hostd.v1.HostService.BuildImage is not implemented"))
 }
 
+func (UnimplementedHostServiceHandler) ResolveImage(context.Context, *connect.Request[v1.ResolveImageRequest]) (*connect.Response[v1.ResolveImageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.hostd.v1.HostService.ResolveImage is not implemented"))
+}
+
 func (UnimplementedHostServiceHandler) Capture(context.Context, *connect.Request[v1.CaptureRequest]) (*connect.Response[v1.CaptureResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.hostd.v1.HostService.Capture is not implemented"))
 }
@@ -623,6 +686,10 @@ func (UnimplementedHostServiceHandler) UpdateOrigin(context.Context, *connect.Re
 
 func (UnimplementedHostServiceHandler) CommitsBehind(context.Context, *connect.Request[v1.CommitsBehindRequest]) (*connect.Response[v1.CommitsBehindResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.hostd.v1.HostService.CommitsBehind is not implemented"))
+}
+
+func (UnimplementedHostServiceHandler) ReadMirror(context.Context, *connect.Request[v1.ReadMirrorRequest]) (*connect.Response[v1.ReadMirrorResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.hostd.v1.HostService.ReadMirror is not implemented"))
 }
 
 func (UnimplementedHostServiceHandler) Push(context.Context, *connect.Request[v1.PushRequest]) (*connect.Response[v1.PushResponse], error) {

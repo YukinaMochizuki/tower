@@ -524,7 +524,7 @@ export const IssueTicketRequestSchema: GenMessage<IssueTicketRequest> = /*@__PUR
  */
 export type StartProcessRequest = Message<"tower.environments.v1alpha1.StartProcessRequest"> & {
   /**
-   * A box.
+   * A box or a machine.
    *
    * @generated from field: tower.environments.v1alpha1.Environment environment = 1;
    */
@@ -552,14 +552,14 @@ export type StartProcessRequest = Message<"tower.environments.v1alpha1.StartProc
   } | { case: undefined; value?: undefined };
 
   /**
-   * The working directory; empty is the box's default.
+   * The working directory; empty is the environment's default.
    *
    * @generated from field: string dir = 4;
    */
   dir: string;
 
   /**
-   * Added to the box's own environment for this process alone.
+   * Added to the environment's own for this process alone.
    *
    * @generated from field: map<string, string> env = 5;
    */
@@ -585,7 +585,7 @@ export const StartProcessRequestSchema: GenMessage<StartProcessRequest> = /*@__P
  */
 export type StartProcessResponse = Message<"tower.environments.v1alpha1.StartProcessResponse"> & {
   /**
-   * The process's id in its box.
+   * The process's id in its environment.
    *
    * @generated from field: string process = 1;
    */
@@ -604,7 +604,7 @@ export const StartProcessResponseSchema: GenMessage<StartProcessResponse> = /*@_
  */
 export type AttachProcessRequest = Message<"tower.environments.v1alpha1.AttachProcessRequest"> & {
   /**
-   * A box.
+   * A box or a machine.
    *
    * @generated from field: tower.environments.v1alpha1.Environment environment = 1;
    */
@@ -772,7 +772,7 @@ export const ProcessExitSchema: GenMessage<ProcessExit> = /*@__PURE__*/
  */
 export type SignalProcessRequest = Message<"tower.environments.v1alpha1.SignalProcessRequest"> & {
   /**
-   * A box.
+   * A box or a machine.
    *
    * @generated from field: tower.environments.v1alpha1.Environment environment = 1;
    */
@@ -814,7 +814,7 @@ export const SignalProcessResponseSchema: GenMessage<SignalProcessResponse> = /*
  */
 export type ListProcessesRequest = Message<"tower.environments.v1alpha1.ListProcessesRequest"> & {
   /**
-   * A box.
+   * A box or a machine.
    *
    * @generated from field: tower.environments.v1alpha1.Environment environment = 1;
    */
@@ -833,9 +833,9 @@ export const ListProcessesRequestSchema: GenMessage<ListProcessesRequest> = /*@_
  */
 export type ListProcessesResponse = Message<"tower.environments.v1alpha1.ListProcessesResponse"> & {
   /**
-   * Oldest first. A finished process is kept until its box is deleted, or
-   * until the box holds more finished processes than its target keeps (100
-   * unless the target says otherwise), the oldest going first.
+   * Oldest first. A finished process is kept until its environment is
+   * deleted, or until it holds more finished processes than its target
+   * keeps (100 unless the target says otherwise), the oldest going first.
    *
    * @generated from field: repeated tower.environments.v1alpha1.ProcessInfo processes = 1;
    */
@@ -850,7 +850,7 @@ export const ListProcessesResponseSchema: GenMessage<ListProcessesResponse> = /*
   messageDesc(file_tower_environments_v1alpha1_environment_service, 28);
 
 /**
- * ProcessInfo is one process of a box.
+ * ProcessInfo is one process of a box or a machine.
  *
  * @generated from message tower.environments.v1alpha1.ProcessInfo
  */
@@ -1082,12 +1082,13 @@ export const EnvironmentService: GenService<{
     output: typeof IssueTicketResponseSchema;
   },
   /**
-   * StartProcess starts a process in a box and returns its id at once: a
-   * background job or a service, which outlives the call, unlike Exec's
-   * command. In a privileged box, tower adds its Secret's values to the
-   * process's environment. While a process runs, the box is never stopped
-   * for idleness; stopping the box ends it. Processes are a box's alone: in
-   * a machine this is UNIMPLEMENTED.
+   * StartProcess starts a process in a box or a machine and returns its id
+   * at once: a background job or a service, which outlives the call, unlike
+   * Exec's command. In a privileged box, tower adds its Secret's values to
+   * the process's environment. While a process runs, the box is never
+   * stopped for idleness (a machine never is); stopping the environment
+   * ends it. A machine's processes are read from the machine itself: while
+   * it is stopped, they are not listed.
    *
    * @generated from rpc tower.environments.v1alpha1.EnvironmentService.StartProcess
    */
@@ -1121,7 +1122,7 @@ export const EnvironmentService: GenService<{
     output: typeof SignalProcessResponseSchema;
   },
   /**
-   * ListProcesses lists a box's processes, running and finished.
+   * ListProcesses lists an environment's processes, running and finished.
    *
    * @generated from rpc tower.environments.v1alpha1.EnvironmentService.ListProcesses
    */

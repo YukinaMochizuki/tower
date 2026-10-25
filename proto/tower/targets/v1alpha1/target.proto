@@ -87,8 +87,8 @@ message TargetStatus {
   Usage usage = 6;
   Counts counts = 7;
   // What the provider says about itself, one fact a line: its version, the
-  // health of its ZFS pool, its Docker and QEMU versions, a hangar project's
-  // quota and what it uses of it.
+  // health of its ZFS pool, its Docker and Cloud Hypervisor versions, a
+  // hangar project's quota and what it uses of it.
   repeated Fact facts = 8;
 }
 
@@ -110,6 +110,9 @@ message Usage {
   string caches = 4;
   // Everything else the provider counts on its disk.
   string other = 5;
+  // The images the host holds, pulled from tower's registry, as its
+  // provider reports them; hostd removes those nothing names.
+  string images = 6;
 }
 
 // Counts are the target's objects as tower holds them.

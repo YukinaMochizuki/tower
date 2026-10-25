@@ -154,12 +154,58 @@ func rename(r io.Reader, from, to string) io.Reader {
 	return pr
 }
 
+// BuildImage builds a context tower sent, or a mirror's work tree, which
+// goes from the git driver to the image driver on the host alone.
 func (h *Host) BuildImage(ctx context.Context, req provider.BuildRequest) (string, error) {
-	ref, err := h.d.Images.Build(ctx, req.Repository, req.Context)
+	spec := driver.BuildSpec{Repository: req.Repository, Context: req.Context, Dir: req.Dir, Dockerfile: req.Dockerfile}
+	var archived chan error
+	var pr *io.PipeReader
+	if m := req.Mirror; m != nil {
+		var pw *io.PipeWriter
+		pr, pw = io.Pipe()
+		archived = make(chan error, 1)
+		go func() {
+			_, err := h.d.Git.Archive(ctx, m.Mirror, m.Ref, pw)
+			pw.CloseWithError(err)
+			archived <- err
+		}()
+		spec.Context = pr
+	}
+	ref, err := h.d.Images.Build(ctx, spec)
+	if archived != nil {
+		// A build that ended before reading it all ends the archive too.
+		_ = pr.CloseWithError(errors.New("build ended"))
+		// An archive that failed failed the build with it, as its tar
+		// ended short; a mirror or ref not there is said as such.
+		if aerr := <-archived; err != nil && errors.Is(aerr, driver.ErrNotFound) {
+			return "", providerError(aerr)
+		}
+	}
 	if err != nil && !errors.Is(err, driver.ErrNoSpace) && !errors.Is(err, context.Canceled) {
 		return "", fmt.Errorf("building %s: %w: %w", req.Repository, err, provider.ErrFailed)
 	}
 	return ref, providerError(err)
+}
+
+func (h *Host) ResolveImage(ctx context.Context, ref string) (provider.ImageConfig, error) {
+	cfg, err := h.d.Images.Resolve(ctx, ref)
+	return provider.ImageConfig{Digest: cfg.Digest, User: cfg.User}, providerError(err)
+}
+
+func (h *Host) ReadMirror(ctx context.Context, req provider.MirrorReadRequest) (provider.MirrorRead, error) {
+	var most int64
+	if req.Content {
+		most = provider.MaxMirrorContent
+	}
+	commit, entries, err := h.d.Git.Read(ctx, req.Mirror, req.Ref, req.Paths, most)
+	if err != nil {
+		return provider.MirrorRead{}, providerError(err)
+	}
+	out := provider.MirrorRead{Commit: commit, Entries: map[string]provider.MirrorEntry{}}
+	for p, e := range entries {
+		out.Entries[p] = provider.MirrorEntry{Object: e.Object, Dir: e.Dir, Size: e.Size, Content: e.Content}
+	}
+	return out, nil
 }
 
 func (h *Host) Capture(ctx context.Context, in provider.Instance) (provider.Artifact, error) {

@@ -1,6 +1,6 @@
 // Package driver is what hostd asks of its host, behind five drivers:
-// storage (ZFS), containers (Docker), VMs (QEMU), images (tower's registry
-// and a builder) and git (the mirrors). A driver does what it is told and
+// storage (ZFS), containers (Docker), VMs (Cloud Hypervisor), images
+// (tower's registry and BuildKit) and git (the mirrors). A driver does what it is told and
 // lists what is there; it keeps no record beyond the host itself, and it
 // decides nothing (docs/decisions/layers.md). Everything hostd makes
 // carries the labels below, which a driver keeps with it and lists back,
@@ -243,11 +243,19 @@ type Guests interface {
 	Dial(ctx context.Context, name string, port int32) (net.Conn, error)
 }
 
+// SecretsDir is a directory every container has in memory, which no disk
+// of the host holds: where a box's secret files are written. It is empty
+// at each start.
+const SecretsDir = "/run/tower/secrets"
+
 // ContainerSpec is a container to make.
 type ContainerSpec struct {
 	GuestSpec
 	// Image is a reference by digest the host has pulled.
 	Image string
+	// Env is its environment over the image's, each value as written, for
+	// every command and process in it.
+	Env map[string]string `json:",omitempty"`
 }
 
 // Containers runs containers: Docker on a real host.
@@ -307,11 +315,13 @@ type LogEnd struct {
 }
 
 // Processes runs processes in a guest apart from any call, each in a
-// process group of its own. The driver keeps on the host, apart from
-// hostd, each one's log and how it ended (a real host in hostd's state
-// directory, written by a supervisor that outlives hostd), so a later
-// hostd reads them back. A guest stopping ends its processes; one removed
-// takes them with it.
+// process group of its own. The driver keeps apart from hostd each one's
+// log and how it ended, written by a supervisor in the guest that
+// outlives the call and hostd, so a later hostd reads them back: a
+// container's in hostd's state directory, read while it is stopped too; a
+// VM's in the guest itself, read while it runs. A guest stopping ends its
+// processes, which read as ended, by its stop's signal or killed
+// (SIGKILL); one removed takes them with it.
 type Processes interface {
 	// StartProcess starts a process in a running guest and returns its id,
 	// unique in the guest.
@@ -337,9 +347,10 @@ type VMSpec struct {
 	BaseImage string
 }
 
-// VMs runs VMs: QEMU on a real host, reached over ssh.
+// VMs runs VMs: Cloud Hypervisor on a real host, reached over ssh.
 type VMs interface {
 	Guests
+	Processes
 	// Create makes a VM, stopped, once: one of the name made otherwise is
 	// ErrConflict.
 	Create(ctx context.Context, spec VMSpec) error
@@ -351,10 +362,50 @@ type Images interface {
 	// Pull brings an image, a reference by digest, onto the host; one the
 	// registry lacks is ErrNotFound.
 	Pull(ctx context.Context, ref string) error
-	// Build builds a context, a tar with its Dockerfile, pushes the image
-	// to repository in the registry and returns its reference by digest.
-	// The same context builds the same digest.
-	Build(ctx context.Context, repository string, buildContext io.Reader) (string, error)
+	// Build builds a context, pushes the image to its repository in the
+	// registry and returns its reference by digest. The same context builds
+	// the same digest. A Dir or Dockerfile outside the tar fails as a
+	// context that does not build does.
+	Build(ctx context.Context, spec BuildSpec) (string, error)
+	// Resolve reads what a reference names from its registry without
+	// pulling it: its digest and the user it runs as. One the registry
+	// lacks is ErrNotFound.
+	Resolve(ctx context.Context, ref string) (ImageConfig, error)
+	// List lists the images the host holds from tower's registry, and no
+	// other.
+	List(ctx context.Context) ([]HostImage, error)
+	// Remove removes a reference of an image the host holds, the image
+	// going with its last; one a container is made of, running or not, is
+	// ErrBusy, and one gone no error.
+	Remove(ctx context.Context, ref string) error
+	// DiskUsage is what the host's images hold on its disk, in bytes.
+	DiskUsage(ctx context.Context) (uint64, error)
+}
+
+// HostImage is an image the host holds.
+type HostImage struct {
+	ID string
+	// Refs are the references by digest it was pulled as.
+	Refs []string
+}
+
+// BuildSpec is an image to build.
+type BuildSpec struct {
+	// Repository is where in the registry it goes.
+	Repository string
+	// Context is a tar holding the context and its Dockerfile.
+	Context io.Reader
+	// Dir is the context's directory in the tar, "" its root; Dockerfile
+	// the Dockerfile's path in the tar, "" for Dir/Dockerfile.
+	Dir, Dockerfile string
+}
+
+// ImageConfig is what an image says of itself.
+type ImageConfig struct {
+	// Digest is its manifest's.
+	Digest string
+	// User is the user it runs as, "" for root.
+	User string
 }
 
 // FetchSpec brings a branch of a repository into a mirror.
@@ -396,4 +447,22 @@ type Git interface {
 	Push(ctx context.Context, spec PushSpec, gitDir io.Reader) error
 	// CommitsBehind counts the commits on the mirror's branch since commit.
 	CommitsBehind(ctx context.Context, mirror, commit, branch string) (int, error)
+	// Archive writes a tar of the mirror's work tree at ref (empty is its
+	// branch), without .git, and returns the commit it is.
+	Archive(ctx context.Context, mirror, ref string, w io.Writer) (string, error)
+	// Read reads paths of the mirror's work tree at ref (empty is its
+	// branch): the commit, and the entry of each path that is there, by
+	// path, with the content of each file of at most maxContent bytes; 0
+	// reads no content.
+	Read(ctx context.Context, mirror, ref string, paths []string, maxContent int64) (string, map[string]MirrorEntry, error)
+}
+
+// MirrorEntry is a path of a mirror's work tree.
+type MirrorEntry struct {
+	// Object is its git object id; a directory's is its tree's.
+	Object string
+	Dir    bool
+	Size   int64
+	// Content is a file's, when read.
+	Content []byte
 }

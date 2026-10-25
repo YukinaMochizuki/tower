@@ -5,7 +5,7 @@ GOLANGCI_LINT := $(TOOL) golangci-lint
 # Paths whose contents are produced by `make gen` and must never drift.
 GENERATED := gen internal/apiserver/servicegen internal/store/sqlite/db
 
-.PHONY: all gen check lint lint-proto lint-go breaking test e2e gen-check dev tools deps
+.PHONY: all gen check lint lint-proto lint-go breaking test e2e test-e2e-race e2e-host build-deploy gen-check dev tools deps
 
 all: check
 
@@ -29,6 +29,7 @@ lint-proto:
 
 lint-go:
 	$(GOLANGCI_LINT) run ./...
+	$(GOLANGCI_LINT) run --build-tags testbed ./test/testbed/...
 
 # Compares against main; skipped while main has no schema to compare with.
 breaking:
@@ -38,17 +39,46 @@ breaking:
 		echo "breaking: main has no proto/ yet"; \
 	fi
 
+# The race detector, but not on the SQLite driver: SQLite translated to Go,
+# whose instrumented memory accesses cost a third of a race run's CPU.
+RACE := -race -gcflags=modernc.org/...=-race=false
+
 test:
-	go test -race -timeout 20m ./...
+	go test $(RACE) -timeout 20m ./...
 
 # Hermetic end-to-end tests: tower, hostd and the CLI with fake drivers.
-# Passes while test/e2e holds no package yet.
+# Without the race detector and in parallel; test-e2e-race runs them under
+# it, one at a time (docs/conventions/testing.md says why). Both pass while
+# test/e2e holds no package yet.
 e2e:
 	@if [ -n "$$(find test/e2e -name '*.go' 2>/dev/null)" ]; then \
-		go test -race -timeout 20m -tags e2e ./test/e2e/...; \
+		go test -timeout 20m -tags e2e ./test/e2e/...; \
 	else \
 		echo "e2e: no packages under test/e2e yet"; \
 	fi
+
+test-e2e-race:
+	@if [ -n "$$(find test/e2e -name '*.go' 2>/dev/null)" ]; then \
+		go test $(RACE) -parallel 1 -timeout 40m -tags e2e ./test/e2e/...; \
+	else \
+		echo "test-e2e-race: no packages under test/e2e yet"; \
+	fi
+
+# Real-host tests (L4) on a testbed test/testbed/setup.sh made: the
+# drivers' conformance suites against the real drivers, the provider
+# contract against hostd over them (in process and through its tunnel),
+# the storage driver on the host, and the demo and a k3s machine end to end
+# (docs/runbook/testbed.md). The tests are built as you and run as root,
+# one package at a time. RUN=regexp picks some; PKG=drivers one package.
+TESTBED_PKGS = $(if $(PKG),./test/testbed/$(PKG),./test/testbed/...)
+e2e-host:
+	go test -exec 'sudo -E' -tags testbed -p 1 -count=1 -timeout 120m -v $(if $(RUN),-run '$(RUN)') $(TESTBED_PKGS)
+
+# The binaries docs/runbook/deploy.md installs, tower-guest static.
+build-deploy:
+	@mkdir -p bin
+	go build -o bin/ ./cmd/tower-apiserver ./cmd/tower ./cmd/hostd
+	CGO_ENABLED=0 go build -o bin/tower-guest ./cmd/tower-guest
 
 # Regenerates into the working tree and fails if anything changed, so it holds
 # for uncommitted work as well as in CI.

@@ -150,6 +150,7 @@ var fixtureOf = map[string]string{
 // named. A hostd token is held to its own target, object by object: see
 // TestHostdTouchesOnlyItsOwnTarget.
 func TestEveryRolesVerbs(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	e.fixtures()
@@ -252,6 +253,7 @@ func checkHidden(t *testing.T, ctx context.Context, c clients, r registry.Resour
 // refusal for any other reason apart from an object gone; a list or a
 // watch shows only its own. A hostd token is authenticated, and its secret works.
 func TestHostdTouchesOnlyItsOwnTarget(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	e.fixtures()
@@ -343,6 +345,7 @@ func TestHostdTouchesOnlyItsOwnTarget(t *testing.T) {
 // create and rotate tokens' secrets; every other caller is refused, saying
 // only what it named, whether the token exists or not.
 func TestWhoMayIssueTokens(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	for i, c := range []clients{e.as(admin), e.local()} {
@@ -371,6 +374,7 @@ func TestWhoMayIssueTokens(t *testing.T) {
 // the token ends what it may do on its very next call, and a token of the
 // same name made again holds the new one's role.
 func TestARoleCountsAtOnce(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	e.setup()
@@ -391,6 +395,7 @@ func TestARoleCountsAtOnce(t *testing.T) {
 // names an object it was not shown, as one naming another target's object
 // would tell that it exists.
 func TestAHostdListLearnsNothingOfOtherTargets(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	e.fixtures()

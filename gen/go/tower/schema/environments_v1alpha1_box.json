@@ -5,30 +5,41 @@
       "description": "BoxSpec is what workstream wants. What the box is made of cannot change: a different recipe is a different box.",
       "properties": {
         "addons": {
-          "description": "Add-ons layered onto the image, such as \"browser\" or \"desktop\".",
+          "description": "Add-ons layered onto the image, in this order: \"browser\" or \"desktop\", workstream's (docs/decisions/box-addons.md).",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "checkouts": {
-          "description": "The repositories to check out: the first at /workspace, each other at /repos/<repository>. Empty is an empty box, which needs image.",
+          "description": "The repositories to check out: the first at /workspace, each other at /repos/<repository>. Empty is an empty box, which needs image. The first's devcontainer is the box's image unless image or image_build is set, read as workstream reads it (docs/decisions/devcontainers.md).",
           "items": {
             "$ref": "#/$defs/tower.environments.v1alpha1.Checkout"
           },
           "type": "array"
         },
-        "image": {
-          "description": "An explicit base image, which skips the first checkout's devcontainer.",
+        "fallbackImage": {
+          "description": "The image the box is made of when its first checkout has no devcontainer at its ref, or one tower cannot make a box of (its DevcontainerFellBack condition says why), with its add-ons layered on: workstream sends the repository's boxImage or its own default, as its setup \"auto\" falls back to them. Empty is tower's --default-box-image; a box with neither fails. Not with image or image_build.",
           "type": "string"
+        },
+        "image": {
+          "description": "An explicit base image, which skips the first checkout's devcontainer. At most one of image and image_build is set.",
+          "type": "string"
+        },
+        "imageBuild": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.ImageBuild",
+          "description": "An image built for the box from a Dockerfile, with its add-ons layered on, as a container blueprint is, which skips the first checkout's devcontainer. At most one of image and image_build is set."
         },
         "keep": {
           "description": "Never stopped for idleness while set: workstream's keep_box. A box with a process running (EnvironmentService.StartProcess) is not either.",
           "type": "boolean"
         },
-        "privilegedSecret": {
-          "description": "A Secret in the same project whose values reach every command run in the box, as environment variables; empty is not privileged. The values never enter a spec of a lower layer (docs/decisions/secrets.md).",
-          "type": "string"
+        "privilegedSecrets": {
+          "description": "Values of Secrets in the same project that reach every command and process run in the box, as environment variables named by their as; none is not privileged. The values never enter a spec of a lower layer (docs/decisions/secrets.md).",
+          "items": {
+            "$ref": "#/$defs/tower.environments.v1alpha1.SecretRef"
+          },
+          "type": "array"
         },
         "resources": {
           "$ref": "#/$defs/tower.environments.v1alpha1.Resources"
@@ -40,6 +51,13 @@
             "RUN_STATE_STOPPED"
           ],
           "type": "string"
+        },
+        "secretFiles": {
+          "description": "Values of Secrets in the same project written into the box as files, at each start of its instance and before any command runs in it.",
+          "items": {
+            "$ref": "#/$defs/tower.environments.v1alpha1.SecretFile"
+          },
+          "type": "array"
         },
         "workstream": {
           "description": "The workstream the box belongs to, by id. A workstream's boxes and machines share a network and reach each other by alias.",
@@ -57,7 +75,7 @@
           "type": "string"
         },
         "conditions": {
-          "description": "Ready, with ImageBuilt and Materialized on the way to it.",
+          "description": "Ready, with ImageBuilt and Materialized on the way to it; SetUp, which says whether its devcontainer's setup steps passed: one that did not leaves the box READY; and DevcontainerFellBack, true when its image is the one to fall back to, saying why.",
           "items": {
             "$ref": "#/$defs/tower.meta.v1.Condition"
           },
@@ -126,6 +144,24 @@
       },
       "type": "object"
     },
+    "tower.environments.v1alpha1.ImageBuild": {
+      "additionalProperties": false,
+      "description": "ImageBuild is a box image's own build: a Dockerfile and the files its context holds beside it, 16 MiB in all at most.",
+      "properties": {
+        "dockerfile": {
+          "type": "string"
+        },
+        "files": {
+          "additionalProperties": {
+            "contentEncoding": "base64",
+            "type": "string"
+          },
+          "description": "The context's files by their relative path, such as \"etc/app.conf\"; never \"Dockerfile\".",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
     "tower.environments.v1alpha1.Resources": {
       "additionalProperties": false,
       "description": "Resources is a shape, as quantities; an empty one takes tower's default.",
@@ -140,6 +176,48 @@
         },
         "memory": {
           "description": "Such as \"4Gi\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.SecretFile": {
+      "additionalProperties": false,
+      "description": "SecretFile is one value of a Secret written into a box as a file. The value enters no object, status, log or event, nor any disk: it is held in memory in the box, its path a link to it (docs/decisions/secrets.md).",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "mode": {
+          "description": "The file's permission bits; 0 is 0600.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "description": "Where in the box, an absolute path.",
+          "type": "string"
+        },
+        "secret": {
+          "description": "A Secret in the same project.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.SecretRef": {
+      "additionalProperties": false,
+      "description": "SecretRef names one value of a Secret and what to call it.",
+      "properties": {
+        "as": {
+          "description": "The variable the value is given as.",
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "secret": {
+          "description": "A Secret in the same project.",
           "type": "string"
         }
       },

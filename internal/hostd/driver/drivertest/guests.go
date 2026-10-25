@@ -24,7 +24,17 @@ type GuestKind struct {
 	Create func(t *testing.T, spec driver.GuestSpec) error
 	// Workspace is a directory of the guest its disk holds.
 	Workspace string
+	// Keeps are directories of the guest where it keeps what it is told,
+	// searched for what must never be kept.
+	Keeps []string
 }
+
+// ContainersOf is the harness's container driver as a guest kind, for a
+// harness that runs the suites one at a time.
+func ContainersOf(h Harness) GuestKind { return h.containers() }
+
+// VMsOf is the harness's VM driver as a guest kind.
+func VMsOf(h Harness) GuestKind { return h.vms() }
 
 func (h Harness) containers() GuestKind {
 	c := h.Drivers.Containers
@@ -40,10 +50,32 @@ func (h Harness) containers() GuestKind {
 func (h Harness) vms() GuestKind {
 	v := h.Drivers.VMs
 	return GuestKind{
-		Driver: v, DiskKind: driver.Volume, Workspace: "/home/tower",
+		Driver: v, DiskKind: driver.Volume, Workspace: "/home/tower", Keeps: []string{"/var/lib/tower"},
 		Create: func(t *testing.T, spec driver.GuestSpec) error {
 			return v.Create(t.Context(), driver.VMSpec{GuestSpec: spec, BaseImage: h.BaseImage})
 		},
+	}
+}
+
+// testContainerEnv: a container's environment, given in its spec, reaches
+// every command in it with each value as written, a newline and a control
+// byte included, as docker run -e gives them; a command's own wins.
+func testContainerEnv(t *testing.T, h Harness, k GuestKind) {
+	if k.DiskKind != driver.Dataset {
+		t.Skip("a VM takes no environment of its spec")
+	}
+	env := map[string]string{"TOWER_MULTI": "one\ntwo", "TOWER_CTRL": "a\x01b", "TOWER_MINE": "spec"}
+	withEnv := k
+	withEnv.Create = func(t *testing.T, spec driver.GuestSpec) error {
+		mustNot(t, "pulling "+h.Image, h.Drivers.Images.Pull(t.Context(), h.Image))
+		return h.Drivers.Containers.Create(t.Context(), driver.ContainerSpec{GuestSpec: spec, Image: h.Image, Env: env})
+	}
+	g := withEnv.guestWithDisk(t, h, "env")
+	code, out := run(t, k.Driver, g, map[string]string{"TOWER_MINE": "command"}, "env")
+	for _, want := range []string{"TOWER_MULTI=one\ntwo\n", "TOWER_CTRL=a\x01b\n", "TOWER_MINE=command\n"} {
+		if code != 0 || !strings.Contains(out, want) {
+			t.Errorf("env exited %d without %q: %q", code, want, out)
+		}
 	}
 }
 
@@ -82,6 +114,7 @@ func RunGuests(t *testing.T, h Harness, k GuestKind) {
 		{"Networks", testNetworks},
 		{"Exec", testGuestExec},
 		{"EnvironmentIsPerCommand", testGuestEnv},
+		{"EnvironmentOfItsSpec", testContainerEnv},
 		{"ExecEndsWithItsContext", testExecEnds},
 		{"Files", testGuestFiles},
 		{"Copy", testGuestCopy},

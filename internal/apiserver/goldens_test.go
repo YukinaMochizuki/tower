@@ -74,6 +74,7 @@ func (w *world) goldensEverMadeFor(repo string) []string {
 // twice as long after each failure in a row, which a restart keeps. The
 // box waiting says why and when; a success ends the backoff.
 func TestAFailedGoldenIsBuiltAgainAfterABackoff(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.fake.FailBuilds(fmt.Errorf("step 3/7: npm ci exited 1: %w", provider.ErrFailed))
 	w.mustApply(registry.Repository, repository("api"))
@@ -133,6 +134,7 @@ func TestAFailedGoldenIsBuiltAgainAfterABackoff(t *testing.T) {
 // counted against the budget, until the box goes; no new box is cloned
 // from it meanwhile.
 func TestAWarmGoldenInUseIsKeptUntilUnused(t *testing.T) {
+	t.Parallel()
 	// Room for one warm golden of 10Gi, and not for another on an
 	// estimate (5Gi) beside it.
 	w := newWorld(t, worldOption{settings: &targetsv1alpha1.TargetSettings{WarmBudget: "14Gi"}})
@@ -194,6 +196,7 @@ func TestAWarmGoldenInUseIsKeptUntilUnused(t *testing.T) {
 // big for the budget is not let in again on the estimate, also after tower
 // restarts: its golden is not built again.
 func TestAWarmSizeOutlivesARestart(t *testing.T) {
+	t.Parallel()
 	// Both are let in on the estimate (5Gi each); built, at 10Gi each,
 	// one goes, and would fit again beside the other on the estimate.
 	w := newWorld(t, worldOption{settings: &targetsv1alpha1.TargetSettings{WarmBudget: "16Gi"}})
@@ -230,6 +233,7 @@ func TestAWarmSizeOutlivesARestart(t *testing.T) {
 // warm golden only if it was made on the box's own image, on the box's own
 // target; otherwise it takes the slow path.
 func TestAWarmGoldenOfAnotherImageOrTargetIsNotCloned(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.openBoxes("api", 2)
 	w.advance(5 * time.Minute)
@@ -267,6 +271,7 @@ func TestAWarmGoldenOfAnotherImageOrTargetIsNotCloned(t *testing.T) {
 // deleted takes it for gone, and waits for a new one, rather than read the
 // old one's state.
 func TestAGoldenBeingDeletedIsNotUsed(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.fake.FailBuilds(fmt.Errorf("broken: %w", provider.ErrFailed))
 	w.mustApply(registry.Repository, repository("api"))
@@ -305,6 +310,7 @@ func TestAGoldenBeingDeletedIsNotUsed(t *testing.T) {
 // TestAGoldensBuildIsTowersOwn: what a golden is built from is kept where
 // only tower reads it; the golden, which hostd reads, holds its hashes.
 func TestAGoldensBuildIsTowersOwn(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	b := w.readyBox("dev")
 	g, _ := w.golden(b.GetStatus().GetImageGolden())
@@ -322,6 +328,7 @@ func TestAGoldensBuildIsTowersOwn(t *testing.T) {
 // up to the head the repository's status names, which a warm golden is
 // built at, not the mirror's own, which a fetch may have moved past it.
 func TestAMirrorAheadOfItsRepositoryIsNotStale(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, worldOption{settings: &targetsv1alpha1.TargetSettings{
 		WarmMaxCommitsBehind: 2, IdleStopAfter: durationpb.New(1000 * time.Hour),
 	}})
@@ -354,4 +361,27 @@ func TestAMirrorAheadOfItsRepositoryIsNotStale(t *testing.T) {
 	if made := w.goldensEverMadeFor("api"); len(made) != 1 || made[0] != first {
 		t.Errorf("a warm golden fresh against its repository's status was rebuilt: %v", made)
 	}
+}
+
+// TestABuildTheTargetDidNotAnswerIsTriedAgain: a golden's build that
+// failed because its target did not answer, as a hostd not yet connected
+// does not, is tried again once it answers, and the box comes up.
+func TestABuildTheTargetDidNotAnswerIsTriedAgain(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.fake.SetUnavailable(true)
+	b := box("dev")
+	b.Spec.Image = "ghcr.io/acme/dev:1"
+	w.mustApply(registry.Box, b)
+	testutil.Eventually(t, "the build tried and refused", func() (bool, string) {
+		o, err := w.get(registry.Target, "", "t1")
+		if err != nil {
+			return false, err.Error()
+		}
+		last := o.(*targetsv1alpha1.Target).GetStatus().GetLastError()
+		return strings.Contains(last, "golden/"), last
+	})
+	w.fake.SetUnavailable(false)
+	w.advance(controllerMaxWait)
+	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_READY)
 }

@@ -7,6 +7,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
 )
 
 type DBTX interface {
@@ -20,12 +21,338 @@ func New(db DBTX) *Queries {
 	return &Queries{db: db}
 }
 
+func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
+	q := Queries{db: db}
+	var err error
+	if q.consumeCredentialStmt, err = db.PrepareContext(ctx, consumeCredential); err != nil {
+		return nil, fmt.Errorf("error preparing query ConsumeCredential: %w", err)
+	}
+	if q.countAuthRequestsStmt, err = db.PrepareContext(ctx, countAuthRequests); err != nil {
+		return nil, fmt.Errorf("error preparing query CountAuthRequests: %w", err)
+	}
+	if q.deleteAuthRequestStmt, err = db.PrepareContext(ctx, deleteAuthRequest); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteAuthRequest: %w", err)
+	}
+	if q.deleteCredentialFamilyStmt, err = db.PrepareContext(ctx, deleteCredentialFamily); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteCredentialFamily: %w", err)
+	}
+	if q.deleteEventsThroughStmt, err = db.PrepareContext(ctx, deleteEventsThrough); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteEventsThrough: %w", err)
+	}
+	if q.deleteExpiredAuthRequestsStmt, err = db.PrepareContext(ctx, deleteExpiredAuthRequests); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteExpiredAuthRequests: %w", err)
+	}
+	if q.deleteExpiredCredentialsStmt, err = db.PrepareContext(ctx, deleteExpiredCredentials); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteExpiredCredentials: %w", err)
+	}
+	if q.deleteExpiredRevokedFamiliesStmt, err = db.PrepareContext(ctx, deleteExpiredRevokedFamilies); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteExpiredRevokedFamilies: %w", err)
+	}
+	if q.deleteObjectStmt, err = db.PrepareContext(ctx, deleteObject); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteObject: %w", err)
+	}
+	if q.familiesOfStmt, err = db.PrepareContext(ctx, familiesOf); err != nil {
+		return nil, fmt.Errorf("error preparing query FamiliesOf: %w", err)
+	}
+	if q.familyExpiryStmt, err = db.PrepareContext(ctx, familyExpiry); err != nil {
+		return nil, fmt.Errorf("error preparing query FamilyExpiry: %w", err)
+	}
+	if q.familyHoldsStmt, err = db.PrepareContext(ctx, familyHolds); err != nil {
+		return nil, fmt.Errorf("error preparing query FamilyHolds: %w", err)
+	}
+	if q.familyRevokedStmt, err = db.PrepareContext(ctx, familyRevoked); err != nil {
+		return nil, fmt.Errorf("error preparing query FamilyRevoked: %w", err)
+	}
+	if q.getAuthRequestStmt, err = db.PrepareContext(ctx, getAuthRequest); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAuthRequest: %w", err)
+	}
+	if q.getCredentialStmt, err = db.PrepareContext(ctx, getCredential); err != nil {
+		return nil, fmt.Errorf("error preparing query GetCredential: %w", err)
+	}
+	if q.getMetaStmt, err = db.PrepareContext(ctx, getMeta); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMeta: %w", err)
+	}
+	if q.getObjectStmt, err = db.PrepareContext(ctx, getObject); err != nil {
+		return nil, fmt.Errorf("error preparing query GetObject: %w", err)
+	}
+	if q.insertAuthRequestStmt, err = db.PrepareContext(ctx, insertAuthRequest); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertAuthRequest: %w", err)
+	}
+	if q.insertCredentialStmt, err = db.PrepareContext(ctx, insertCredential); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertCredential: %w", err)
+	}
+	if q.insertEventStmt, err = db.PrepareContext(ctx, insertEvent); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertEvent: %w", err)
+	}
+	if q.insertObjectStmt, err = db.PrepareContext(ctx, insertObject); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertObject: %w", err)
+	}
+	if q.listEventsStmt, err = db.PrepareContext(ctx, listEvents); err != nil {
+		return nil, fmt.Errorf("error preparing query ListEvents: %w", err)
+	}
+	if q.listObjectsStmt, err = db.PrepareContext(ctx, listObjects); err != nil {
+		return nil, fmt.Errorf("error preparing query ListObjects: %w", err)
+	}
+	if q.revokeFamilyStmt, err = db.PrepareContext(ctx, revokeFamily); err != nil {
+		return nil, fmt.Errorf("error preparing query RevokeFamily: %w", err)
+	}
+	if q.setMetaStmt, err = db.PrepareContext(ctx, setMeta); err != nil {
+		return nil, fmt.Errorf("error preparing query SetMeta: %w", err)
+	}
+	if q.swapAuthRequestStmt, err = db.PrepareContext(ctx, swapAuthRequest); err != nil {
+		return nil, fmt.Errorf("error preparing query SwapAuthRequest: %w", err)
+	}
+	if q.touchCredentialStmt, err = db.PrepareContext(ctx, touchCredential); err != nil {
+		return nil, fmt.Errorf("error preparing query TouchCredential: %w", err)
+	}
+	if q.updateObjectStmt, err = db.PrepareContext(ctx, updateObject); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateObject: %w", err)
+	}
+	return &q, nil
+}
+
+func (q *Queries) Close() error {
+	var err error
+	if q.consumeCredentialStmt != nil {
+		if cerr := q.consumeCredentialStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing consumeCredentialStmt: %w", cerr)
+		}
+	}
+	if q.countAuthRequestsStmt != nil {
+		if cerr := q.countAuthRequestsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countAuthRequestsStmt: %w", cerr)
+		}
+	}
+	if q.deleteAuthRequestStmt != nil {
+		if cerr := q.deleteAuthRequestStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteAuthRequestStmt: %w", cerr)
+		}
+	}
+	if q.deleteCredentialFamilyStmt != nil {
+		if cerr := q.deleteCredentialFamilyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteCredentialFamilyStmt: %w", cerr)
+		}
+	}
+	if q.deleteEventsThroughStmt != nil {
+		if cerr := q.deleteEventsThroughStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteEventsThroughStmt: %w", cerr)
+		}
+	}
+	if q.deleteExpiredAuthRequestsStmt != nil {
+		if cerr := q.deleteExpiredAuthRequestsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteExpiredAuthRequestsStmt: %w", cerr)
+		}
+	}
+	if q.deleteExpiredCredentialsStmt != nil {
+		if cerr := q.deleteExpiredCredentialsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteExpiredCredentialsStmt: %w", cerr)
+		}
+	}
+	if q.deleteExpiredRevokedFamiliesStmt != nil {
+		if cerr := q.deleteExpiredRevokedFamiliesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteExpiredRevokedFamiliesStmt: %w", cerr)
+		}
+	}
+	if q.deleteObjectStmt != nil {
+		if cerr := q.deleteObjectStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteObjectStmt: %w", cerr)
+		}
+	}
+	if q.familiesOfStmt != nil {
+		if cerr := q.familiesOfStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing familiesOfStmt: %w", cerr)
+		}
+	}
+	if q.familyExpiryStmt != nil {
+		if cerr := q.familyExpiryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing familyExpiryStmt: %w", cerr)
+		}
+	}
+	if q.familyHoldsStmt != nil {
+		if cerr := q.familyHoldsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing familyHoldsStmt: %w", cerr)
+		}
+	}
+	if q.familyRevokedStmt != nil {
+		if cerr := q.familyRevokedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing familyRevokedStmt: %w", cerr)
+		}
+	}
+	if q.getAuthRequestStmt != nil {
+		if cerr := q.getAuthRequestStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAuthRequestStmt: %w", cerr)
+		}
+	}
+	if q.getCredentialStmt != nil {
+		if cerr := q.getCredentialStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getCredentialStmt: %w", cerr)
+		}
+	}
+	if q.getMetaStmt != nil {
+		if cerr := q.getMetaStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMetaStmt: %w", cerr)
+		}
+	}
+	if q.getObjectStmt != nil {
+		if cerr := q.getObjectStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getObjectStmt: %w", cerr)
+		}
+	}
+	if q.insertAuthRequestStmt != nil {
+		if cerr := q.insertAuthRequestStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertAuthRequestStmt: %w", cerr)
+		}
+	}
+	if q.insertCredentialStmt != nil {
+		if cerr := q.insertCredentialStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertCredentialStmt: %w", cerr)
+		}
+	}
+	if q.insertEventStmt != nil {
+		if cerr := q.insertEventStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertEventStmt: %w", cerr)
+		}
+	}
+	if q.insertObjectStmt != nil {
+		if cerr := q.insertObjectStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertObjectStmt: %w", cerr)
+		}
+	}
+	if q.listEventsStmt != nil {
+		if cerr := q.listEventsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listEventsStmt: %w", cerr)
+		}
+	}
+	if q.listObjectsStmt != nil {
+		if cerr := q.listObjectsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listObjectsStmt: %w", cerr)
+		}
+	}
+	if q.revokeFamilyStmt != nil {
+		if cerr := q.revokeFamilyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing revokeFamilyStmt: %w", cerr)
+		}
+	}
+	if q.setMetaStmt != nil {
+		if cerr := q.setMetaStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setMetaStmt: %w", cerr)
+		}
+	}
+	if q.swapAuthRequestStmt != nil {
+		if cerr := q.swapAuthRequestStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing swapAuthRequestStmt: %w", cerr)
+		}
+	}
+	if q.touchCredentialStmt != nil {
+		if cerr := q.touchCredentialStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing touchCredentialStmt: %w", cerr)
+		}
+	}
+	if q.updateObjectStmt != nil {
+		if cerr := q.updateObjectStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateObjectStmt: %w", cerr)
+		}
+	}
+	return err
+}
+
+func (q *Queries) exec(ctx context.Context, stmt *sql.Stmt, query string, args ...interface{}) (sql.Result, error) {
+	switch {
+	case stmt != nil && q.tx != nil:
+		return q.tx.StmtContext(ctx, stmt).ExecContext(ctx, args...)
+	case stmt != nil:
+		return stmt.ExecContext(ctx, args...)
+	default:
+		return q.db.ExecContext(ctx, query, args...)
+	}
+}
+
+func (q *Queries) query(ctx context.Context, stmt *sql.Stmt, query string, args ...interface{}) (*sql.Rows, error) {
+	switch {
+	case stmt != nil && q.tx != nil:
+		return q.tx.StmtContext(ctx, stmt).QueryContext(ctx, args...)
+	case stmt != nil:
+		return stmt.QueryContext(ctx, args...)
+	default:
+		return q.db.QueryContext(ctx, query, args...)
+	}
+}
+
+func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, args ...interface{}) *sql.Row {
+	switch {
+	case stmt != nil && q.tx != nil:
+		return q.tx.StmtContext(ctx, stmt).QueryRowContext(ctx, args...)
+	case stmt != nil:
+		return stmt.QueryRowContext(ctx, args...)
+	default:
+		return q.db.QueryRowContext(ctx, query, args...)
+	}
+}
+
 type Queries struct {
-	db DBTX
+	db                               DBTX
+	tx                               *sql.Tx
+	consumeCredentialStmt            *sql.Stmt
+	countAuthRequestsStmt            *sql.Stmt
+	deleteAuthRequestStmt            *sql.Stmt
+	deleteCredentialFamilyStmt       *sql.Stmt
+	deleteEventsThroughStmt          *sql.Stmt
+	deleteExpiredAuthRequestsStmt    *sql.Stmt
+	deleteExpiredCredentialsStmt     *sql.Stmt
+	deleteExpiredRevokedFamiliesStmt *sql.Stmt
+	deleteObjectStmt                 *sql.Stmt
+	familiesOfStmt                   *sql.Stmt
+	familyExpiryStmt                 *sql.Stmt
+	familyHoldsStmt                  *sql.Stmt
+	familyRevokedStmt                *sql.Stmt
+	getAuthRequestStmt               *sql.Stmt
+	getCredentialStmt                *sql.Stmt
+	getMetaStmt                      *sql.Stmt
+	getObjectStmt                    *sql.Stmt
+	insertAuthRequestStmt            *sql.Stmt
+	insertCredentialStmt             *sql.Stmt
+	insertEventStmt                  *sql.Stmt
+	insertObjectStmt                 *sql.Stmt
+	listEventsStmt                   *sql.Stmt
+	listObjectsStmt                  *sql.Stmt
+	revokeFamilyStmt                 *sql.Stmt
+	setMetaStmt                      *sql.Stmt
+	swapAuthRequestStmt              *sql.Stmt
+	touchCredentialStmt              *sql.Stmt
+	updateObjectStmt                 *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
-		db: tx,
+		db:                               tx,
+		tx:                               tx,
+		consumeCredentialStmt:            q.consumeCredentialStmt,
+		countAuthRequestsStmt:            q.countAuthRequestsStmt,
+		deleteAuthRequestStmt:            q.deleteAuthRequestStmt,
+		deleteCredentialFamilyStmt:       q.deleteCredentialFamilyStmt,
+		deleteEventsThroughStmt:          q.deleteEventsThroughStmt,
+		deleteExpiredAuthRequestsStmt:    q.deleteExpiredAuthRequestsStmt,
+		deleteExpiredCredentialsStmt:     q.deleteExpiredCredentialsStmt,
+		deleteExpiredRevokedFamiliesStmt: q.deleteExpiredRevokedFamiliesStmt,
+		deleteObjectStmt:                 q.deleteObjectStmt,
+		familiesOfStmt:                   q.familiesOfStmt,
+		familyExpiryStmt:                 q.familyExpiryStmt,
+		familyHoldsStmt:                  q.familyHoldsStmt,
+		familyRevokedStmt:                q.familyRevokedStmt,
+		getAuthRequestStmt:               q.getAuthRequestStmt,
+		getCredentialStmt:                q.getCredentialStmt,
+		getMetaStmt:                      q.getMetaStmt,
+		getObjectStmt:                    q.getObjectStmt,
+		insertAuthRequestStmt:            q.insertAuthRequestStmt,
+		insertCredentialStmt:             q.insertCredentialStmt,
+		insertEventStmt:                  q.insertEventStmt,
+		insertObjectStmt:                 q.insertObjectStmt,
+		listEventsStmt:                   q.listEventsStmt,
+		listObjectsStmt:                  q.listObjectsStmt,
+		revokeFamilyStmt:                 q.revokeFamilyStmt,
+		setMetaStmt:                      q.setMetaStmt,
+		swapAuthRequestStmt:              q.swapAuthRequestStmt,
+		touchCredentialStmt:              q.touchCredentialStmt,
+		updateObjectStmt:                 q.updateObjectStmt,
 	}
 }

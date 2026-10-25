@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -32,6 +34,7 @@ import (
 // and, with no warm golden, its repository checked out from the mirror and
 // its dependencies installed.
 func TestABoxComesUp(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{"go.mod": "module api\n"}, "c1", "c2")
 	// The target does not answer at first, so the box waits for its
@@ -84,6 +87,7 @@ func TestABoxComesUp(t *testing.T) {
 // TestBoxesOfTheSameInputsShareAnImage: two boxes of one repository and
 // add-ons share one image golden, built once; other add-ons are another.
 func TestBoxesOfTheSameInputsShareAnImage(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.mustApply(registry.Repository, repository("api"))
 	w.mustApply(registry.Box, box("one", "api"))
@@ -108,6 +112,7 @@ func TestBoxesOfTheSameInputsShareAnImage(t *testing.T) {
 // TestABoxWaitsForAPlacement: a box of a project with no Placement is
 // UNPLACED, and comes up once one is made.
 func TestABoxWaitsForAPlacement(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, worldOption{unplaced: true})
 	w.mustApply(registry.Repository, repository("api"))
 	w.mustApply(registry.Box, box("dev", "api"))
@@ -126,6 +131,7 @@ func TestABoxWaitsForAPlacement(t *testing.T) {
 // TestABuildFailureFailsTheBox: an image that does not build fails its box
 // with the reason.
 func TestABuildFailureFailsTheBox(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.fake.FailBuilds(fmt.Errorf("step 3/7: npm ci exited 1: %w", provider.ErrFailed))
 	w.mustApply(registry.Repository, repository("api"))
@@ -168,6 +174,7 @@ func (w *world) getRepo(name string) (*envv1alpha1.Repository, bool) {
 // idle_stop_after is stopped, its disk kept, and Wake brings the same box
 // back, on the same instance.
 func TestAnIdleBoxStopsAndWakes(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, idleAfter(time.Hour))
 	before := w.readyBox("dev")
 	w.advance(30 * time.Minute)
@@ -207,6 +214,7 @@ func TestAnIdleBoxStopsAndWakes(t *testing.T) {
 // status at most once a minute: calls between flushes write nothing, and
 // idleness is measured from the last use, also after tower restarts.
 func TestUseKeepsABoxRunning(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, idleAfter(time.Hour))
 	w.readyBox("dev")
 	w.advance(40 * time.Minute)
@@ -240,6 +248,7 @@ func TestUseKeepsABoxRunning(t *testing.T) {
 // idleness; once let go, it is idle as any other. A box running a process
 // is not either: TestARunningProcessKeepsABox.
 func TestKeepPreventsIdleStop(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, idleAfter(time.Hour))
 	w.readyBox("kept", func(b *envv1alpha1.Box) { b.Spec.Keep = true })
 	w.readyBox("idle")
@@ -258,6 +267,7 @@ func TestKeepPreventsIdleStop(t *testing.T) {
 // TestARequestedStopStays: a box workstream stops is STOPPED for
 // "Requested", and Wake does not start it.
 func TestARequestedStopStays(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	b := w.readyBox("dev")
 	b.Spec.RunState = envv1alpha1.RunState_RUN_STATE_STOPPED
@@ -278,6 +288,7 @@ func TestARequestedStopStays(t *testing.T) {
 // in a builder VM and captured, its instance cloned from it and configured
 // with its own vars; it is never stopped for idleness.
 func TestAMachineComesUpAndIsNeverIdle(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, idleAfter(time.Hour))
 	m := machine("k3s")
 	m.Spec.Blueprint.ExposePorts = []int32{6443}
@@ -294,13 +305,15 @@ func TestAMachineComesUpAndIsNeverIdle(t *testing.T) {
 		!slices.Equal(in.GetSpec().GetExposePorts(), []int32{6443}) {
 		t.Errorf("golden %v, instance %v", g.GetStatus(), in.GetSpec())
 	}
+	// The golden phase is every task but those tagged configure, which the
+	// machine runs alone, as workstream's untagged blueprints are written.
 	var tags []string
 	for _, e := range w.fake.Execs() {
 		if e.Command[0] == "ansible-playbook" {
 			tags = append(tags, e.Command[3])
 		}
 	}
-	if !slices.Equal(tags, []string{"--tags=golden", "--tags=configure"}) {
+	if !slices.Equal(tags, []string{"--skip-tags=configure", "--tags=configure"}) {
 		t.Errorf("the blueprint's phases ran as %v", tags)
 	}
 	// The builder went once its golden was captured.
@@ -318,10 +331,136 @@ func TestAMachineComesUpAndIsNeverIdle(t *testing.T) {
 	}
 }
 
+// readyCheck answers a machine's ready check in the fake: it passes once
+// pass is set, and prints why not until then.
+type readyCheck struct {
+	command string
+	pass    atomic.Bool
+	tries   atomic.Int32
+	env     atomic.Bool
+}
+
+func (r *readyCheck) on(f *fake.Fake) {
+	f.OnExec(func(req provider.ExecRequest) (int, bool) {
+		if !slices.Equal(req.Command, []string{"sh", "-c", r.command}) {
+			return 0, false
+		}
+		r.tries.Add(1)
+		if len(req.Env) > 0 {
+			r.env.Store(true)
+		}
+		if r.pass.Load() {
+			return 0, true
+		}
+		_, _ = io.WriteString(req.Stdout, "node k3s NotReady\n")
+		return 1, true
+	})
+}
+
+// waitMachineTicking waits for the machine to be in phase as the clock
+// moves on by the ready check's interval at each look.
+func (w *world) waitMachineTicking(name string, phase envv1alpha1.MachinePhase) *envv1alpha1.Machine {
+	w.t.Helper()
+	var m *envv1alpha1.Machine
+	testutil.Eventually(w.t, fmt.Sprintf("machine %s %v", name, phase), func() (bool, string) {
+		if m = w.machine(name); m.GetStatus().GetPhase() == phase {
+			return true, ""
+		}
+		w.clock.Advance(5 * time.Second)
+		return false, m.GetStatus().String()
+	})
+	return m
+}
+
+// TestAMachineIsReadyOnceItsReadyCheckPasses: a configured machine stays
+// CONFIGURING while its blueprint's ready check fails, tried every 5
+// seconds in it without its secrets, and is READY once it passes; after
+// the machine starts again it is checked again.
+func TestAMachineIsReadyOnceItsReadyCheckPasses(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	check := &readyCheck{command: "k3s kubectl get nodes 2>/dev/null | grep -q ' Ready '"}
+	check.on(w.fake)
+	w.mustApply(registry.Secret, secret("web", "k3s", map[string]string{"TOKEN": "t"}))
+	m := machine("k3s")
+	m.Spec.Blueprint.ReadyCheck = &envv1alpha1.ReadyCheck{Command: check.command}
+	m.Spec.Secrets = []*envv1alpha1.SecretRef{{Secret: "k3s", Key: "TOKEN", As: "K3S_TOKEN"}}
+	w.mustApply(registry.Machine, m)
+	testutil.Eventually(t, "the ready check tried three times", func() (bool, string) {
+		if check.tries.Load() >= 3 {
+			return true, ""
+		}
+		w.clock.Advance(5 * time.Second)
+		return false, w.machine("k3s").GetStatus().String()
+	})
+	st := w.machine("k3s").GetStatus()
+	if st.GetPhase() != envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING ||
+		condition(st.GetConditions(), apiserver.MachineConfigured).GetStatus() != metav1.ConditionStatus_CONDITION_STATUS_TRUE ||
+		condition(st.GetConditions(), apiserver.MachineReady).GetReason() != "WaitingForReady" {
+		t.Fatalf("a configured machine whose ready check fails: %v", st)
+	}
+	check.pass.Store(true)
+	w.waitMachineTicking("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_READY)
+	if check.env.Load() {
+		t.Error("the ready check was given an environment")
+	}
+
+	// Started again, it is checked again.
+	check.pass.Store(false)
+	tries := check.tries.Load()
+	stop := w.machine("k3s")
+	stop.Spec.RunState = envv1alpha1.RunState_RUN_STATE_STOPPED
+	w.mustApply(registry.Machine, stop)
+	w.waitMachine("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_STOPPED)
+	w.advance(time.Minute)
+	start := w.machine("k3s")
+	start.Spec.RunState = envv1alpha1.RunState_RUN_STATE_RUNNING
+	w.mustApply(registry.Machine, start)
+	w.waitMachine("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING)
+	testutil.Eventually(t, "the ready check tried again", func() (bool, string) {
+		return check.tries.Load() > tries, ""
+	})
+	check.pass.Store(true)
+	w.waitMachineTicking("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_READY)
+}
+
+// TestAMachineWhoseReadyCheckNeverPassesFails: a ready check that has not
+// passed by its timeout fails the machine with the end of its output, as
+// any instance step fails: it runs again once its backoff passes.
+func TestAMachineWhoseReadyCheckNeverPassesFails(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	check := &readyCheck{command: "true-never"}
+	check.on(w.fake)
+	m := machine("k3s")
+	m.Spec.Blueprint.ReadyCheck = &envv1alpha1.ReadyCheck{Command: check.command, Timeout: durationpb.New(30 * time.Second)}
+	w.mustApply(registry.Machine, m)
+	failed := w.waitMachineTicking("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED)
+	msg := condition(failed.GetStatus().GetConditions(), apiserver.MachineReady).GetMessage()
+	if !strings.Contains(msg, "did not pass in 30s") || !strings.Contains(msg, "node k3s NotReady") {
+		t.Errorf("a machine whose ready check never passed failed with %q", msg)
+	}
+	if n := check.tries.Load(); n < 2 || n > 7 {
+		t.Errorf("the ready check was tried %d times in 30 seconds, 5 seconds apart", n)
+	}
+	// It stays failed, and is not tried again, until its backoff passes.
+	tries := check.tries.Load()
+	w.advance(time.Minute)
+	again := w.machine("k3s").GetStatus()
+	if again.GetPhase() != envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED || condition(again.GetConditions(), apiserver.MachineReady).GetMessage() != msg ||
+		!strings.Contains(msg, "; tried again at ") || check.tries.Load() != tries {
+		t.Errorf("a minute after its ready check failed, tried %d times more: %v", check.tries.Load()-tries, again)
+	}
+	check.pass.Store(true)
+	w.advance(apiserver.StepRetryFirst)
+	w.waitMachineTicking("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_READY)
+}
+
 // TestAMachinesSecretsReachOnlyItsCommands: a machine's secret values
 // reach its configure phase as that command's environment, and no object,
 // event, log line or database file.
 func TestAMachinesSecretsReachOnlyItsCommands(t *testing.T) {
+	t.Parallel()
 	var logs syncBuffer
 	w := newWorld(t, worldOption{config: func(c *apiserver.Config) {
 		c.Logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -379,6 +518,7 @@ var errDone = errors.New("done")
 // TestARestartMidBuildFinishesTheWork: tower restarted while a box's image
 // builds finds the golden building, builds it again, and brings the box up.
 func TestARestartMidBuildFinishesTheWork(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	release := w.fake.HoldBuilds()
 	defer release()
@@ -396,6 +536,7 @@ func TestARestartMidBuildFinishesTheWork(t *testing.T) {
 // TestAVanishedInstanceIsRemade: an instance its target lost is reported
 // on its box and made again; the box comes back READY.
 func TestAVanishedInstanceIsRemade(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	b := w.readyBox("dev")
 	before, _ := w.instance(b.GetStatus().GetInstance())
@@ -417,6 +558,7 @@ func TestAVanishedInstanceIsRemade(t *testing.T) {
 // TestAPlacementWhoseTargetGoesSaysSo: a Placement whose Target the system
 // deleted stays, Ready=False.
 func TestAPlacementWhoseTargetGoesSaysSo(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	ready := func() *metav1.Condition {
 		o, err := w.get(registry.Placement, "", "web")
@@ -461,6 +603,7 @@ func (w *world) warmOf() map[string][]string {
 // gets none, one that falls out loses its; a box of a warm repository is
 // cloned from it, skipping the install.
 func TestWarmGoldensFollowUse(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, worldOption{settings: &targetsv1alpha1.TargetSettings{WarmBudget: "25Gi"}})
 	w.fake.CaptureSize(func(provider.Instance) uint64 { return 10 << 30 })
 	open := func(repo string, n int) {
@@ -549,6 +692,7 @@ func TestWarmGoldensFollowUse(t *testing.T) {
 // TestAnUnusedGoldenIsPruned: a golden nothing was made from for the prune
 // delay and nothing references is deleted; one a box still uses is not.
 func TestAnUnusedGoldenIsPruned(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	kept := w.readyBox("kept")
 	keptGolden, _ := w.golden(kept.GetStatus().GetImageGolden())
@@ -577,6 +721,7 @@ func TestAnUnusedGoldenIsPruned(t *testing.T) {
 // into the target's status, beside what the provider reports there, and
 // DiskPressure when free disk is under the warm budget and a margin.
 func TestTheTargetsStatusCountsWhatItHolds(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, worldOption{settings: &targetsv1alpha1.TargetSettings{WarmBudget: "100Gi"}})
 	w.readyBox("dev")
 	if err := w.fake.Report(t.Context()); err != nil {
@@ -612,6 +757,7 @@ func TestTheTargetsStatusCountsWhatItHolds(t *testing.T) {
 // branch than warm_max_commits_behind, or older than warm_max_age, is
 // rebuilt, and the old one goes once the new one is ready.
 func TestAStaleWarmGoldenIsRebuilt(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, worldOption{settings: &targetsv1alpha1.TargetSettings{
 		WarmMaxCommitsBehind: 2, WarmMaxAge: durationpb.New(48 * time.Hour), IdleStopAfter: durationpb.New(1000 * time.Hour),
 	}})
@@ -661,6 +807,7 @@ func TestAStaleWarmGoldenIsRebuilt(t *testing.T) {
 // TestANeverUsedRepositoryGetsNoWarmGolden: with room in the budget, a
 // repository no box was opened with gets no warm golden.
 func TestANeverUsedRepositoryGetsNoWarmGolden(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, worldOption{settings: &targetsv1alpha1.TargetSettings{WarmBudget: "100Gi"}})
 	w.mustApply(registry.Repository, repository("unused"))
 	w.readyBox("dev")

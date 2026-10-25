@@ -13,7 +13,8 @@ reclaim boxes when a disk fills up, keep warm boxes ready. Left to workstream,
 it was done by a person archiving workstreams by hand when the disk was full.
 
 The resources themselves come from more than one place: hangar (an IaaS of
-microVMs) on one host or more, and plain hosts running Docker and QEMU.
+microVMs) on one host or more, and plain hosts running Docker and Cloud
+Hypervisor.
 
 ## Decision
 
@@ -24,12 +25,13 @@ microVMs) on one host or more, and plain hosts running Docker and QEMU.
   interface that hangar and hostd both implement. A provider never chooses:
   it creates, deletes, runs, connects, snapshots, clones and reports.
 - **hostd is resources only.** On a host without hangar, hostd operates
-  Docker, QEMU and ZFS and reports their state, following hangar's node agent
-  (`hangar: docs/decisions/node-agent.md`): it dials tower for its whole
-  control path, watches the objects placed on its host, and keeps no state
-  of its own. It listens only for direct streams, on an address it is given
-  (the host's tailnet one), each on a ticket tower issued for one instance
-  and port (`traffic.md`).
+  Docker, Cloud Hypervisor and ZFS and reports their state (a VM runs in a
+  Docker container of its own, on its workstream's Docker network),
+  following hangar's node agent (`hangar: docs/decisions/node-agent.md`):
+  it dials tower for its whole control path, watches the objects placed on
+  its host, and keeps no state of its own. It listens only for direct
+  streams, on an address it is given (the host's tailnet one), each on a
+  ticket tower issued for one instance and port (`traffic.md`).
 - **Toward hangar, tower is an ordinary client** with a service token in one
   hangar project. hangar learns nothing of devcontainers, goldens or
   workstream.

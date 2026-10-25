@@ -927,11 +927,21 @@ func (*BuildImageRequest_Start) isBuildImageRequest_Request() {}
 
 func (*BuildImageRequest_Context) isBuildImageRequest_Request() {}
 
-// BuildImageStart says where a built image goes.
+// BuildImageStart says where a built image goes, and what it is built
+// from.
 type BuildImageStart struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Where in the registry, such as "web/box-images".
-	Repository    string `protobuf:"bytes,1,opt,name=repository,proto3" json:"repository,omitempty"`
+	Repository string `protobuf:"bytes,1,opt,name=repository,proto3" json:"repository,omitempty"`
+	// The context's directory in the tar or the work tree, empty for its
+	// root.
+	Dir string `protobuf:"bytes,2,opt,name=dir,proto3" json:"dir,omitempty"`
+	// The Dockerfile's path in the tar or the work tree; empty is
+	// dir/Dockerfile.
+	Dockerfile string `protobuf:"bytes,3,opt,name=dockerfile,proto3" json:"dockerfile,omitempty"`
+	// When set, the context is this mirror's work tree, and no context
+	// follows.
+	Mirror        *MirrorSource `protobuf:"bytes,4,opt,name=mirror,proto3" json:"mirror,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -973,6 +983,179 @@ func (x *BuildImageStart) GetRepository() string {
 	return ""
 }
 
+func (x *BuildImageStart) GetDir() string {
+	if x != nil {
+		return x.Dir
+	}
+	return ""
+}
+
+func (x *BuildImageStart) GetDockerfile() string {
+	if x != nil {
+		return x.Dockerfile
+	}
+	return ""
+}
+
+func (x *BuildImageStart) GetMirror() *MirrorSource {
+	if x != nil {
+		return x.Mirror
+	}
+	return nil
+}
+
+// MirrorSource is a mirror's work tree at a ref.
+type MirrorSource struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Mirror string                 `protobuf:"bytes,1,opt,name=mirror,proto3" json:"mirror,omitempty"`
+	// A branch, tag or commit; empty is the branch the mirror fetched.
+	Ref           string `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MirrorSource) Reset() {
+	*x = MirrorSource{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MirrorSource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MirrorSource) ProtoMessage() {}
+
+func (x *MirrorSource) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MirrorSource.ProtoReflect.Descriptor instead.
+func (*MirrorSource) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *MirrorSource) GetMirror() string {
+	if x != nil {
+		return x.Mirror
+	}
+	return ""
+}
+
+func (x *MirrorSource) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
+type ResolveImageRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ref           string                 `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveImageRequest) Reset() {
+	*x = ResolveImageRequest{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveImageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveImageRequest) ProtoMessage() {}
+
+func (x *ResolveImageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveImageRequest.ProtoReflect.Descriptor instead.
+func (*ResolveImageRequest) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ResolveImageRequest) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
+type ResolveImageResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The manifest's digest, such as "sha256:...".
+	Digest string `protobuf:"bytes,1,opt,name=digest,proto3" json:"digest,omitempty"`
+	// The user it runs as, empty for root.
+	User          string `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveImageResponse) Reset() {
+	*x = ResolveImageResponse{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveImageResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveImageResponse) ProtoMessage() {}
+
+func (x *ResolveImageResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveImageResponse.ProtoReflect.Descriptor instead.
+func (*ResolveImageResponse) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ResolveImageResponse) GetDigest() string {
+	if x != nil {
+		return x.Digest
+	}
+	return ""
+}
+
+func (x *ResolveImageResponse) GetUser() string {
+	if x != nil {
+		return x.User
+	}
+	return ""
+}
+
 type BuildImageResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The image's reference by digest.
@@ -983,7 +1166,7 @@ type BuildImageResponse struct {
 
 func (x *BuildImageResponse) Reset() {
 	*x = BuildImageResponse{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[13]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -995,7 +1178,7 @@ func (x *BuildImageResponse) String() string {
 func (*BuildImageResponse) ProtoMessage() {}
 
 func (x *BuildImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[13]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1008,7 +1191,7 @@ func (x *BuildImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildImageResponse.ProtoReflect.Descriptor instead.
 func (*BuildImageResponse) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{13}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *BuildImageResponse) GetImage() string {
@@ -1027,7 +1210,7 @@ type CaptureRequest struct {
 
 func (x *CaptureRequest) Reset() {
 	*x = CaptureRequest{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[14]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1039,7 +1222,7 @@ func (x *CaptureRequest) String() string {
 func (*CaptureRequest) ProtoMessage() {}
 
 func (x *CaptureRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[14]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1052,7 +1235,7 @@ func (x *CaptureRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CaptureRequest.ProtoReflect.Descriptor instead.
 func (*CaptureRequest) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{14}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *CaptureRequest) GetInstance() *Instance {
@@ -1073,7 +1256,7 @@ type CaptureResponse struct {
 
 func (x *CaptureResponse) Reset() {
 	*x = CaptureResponse{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[15]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1085,7 +1268,7 @@ func (x *CaptureResponse) String() string {
 func (*CaptureResponse) ProtoMessage() {}
 
 func (x *CaptureResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[15]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1098,7 +1281,7 @@ func (x *CaptureResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CaptureResponse.ProtoReflect.Descriptor instead.
 func (*CaptureResponse) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{15}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CaptureResponse) GetArtifact() string {
@@ -1124,7 +1307,7 @@ type DeleteArtifactRequest struct {
 
 func (x *DeleteArtifactRequest) Reset() {
 	*x = DeleteArtifactRequest{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[16]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1136,7 +1319,7 @@ func (x *DeleteArtifactRequest) String() string {
 func (*DeleteArtifactRequest) ProtoMessage() {}
 
 func (x *DeleteArtifactRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[16]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1149,7 +1332,7 @@ func (x *DeleteArtifactRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteArtifactRequest.ProtoReflect.Descriptor instead.
 func (*DeleteArtifactRequest) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{16}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *DeleteArtifactRequest) GetArtifact() string {
@@ -1167,7 +1350,7 @@ type DeleteArtifactResponse struct {
 
 func (x *DeleteArtifactResponse) Reset() {
 	*x = DeleteArtifactResponse{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[17]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1179,7 +1362,7 @@ func (x *DeleteArtifactResponse) String() string {
 func (*DeleteArtifactResponse) ProtoMessage() {}
 
 func (x *DeleteArtifactResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[17]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1192,7 +1375,7 @@ func (x *DeleteArtifactResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteArtifactResponse.ProtoReflect.Descriptor instead.
 func (*DeleteArtifactResponse) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{17}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{20}
 }
 
 type FetchRequest struct {
@@ -1210,7 +1393,7 @@ type FetchRequest struct {
 
 func (x *FetchRequest) Reset() {
 	*x = FetchRequest{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[18]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1222,7 +1405,7 @@ func (x *FetchRequest) String() string {
 func (*FetchRequest) ProtoMessage() {}
 
 func (x *FetchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[18]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1235,7 +1418,7 @@ func (x *FetchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchRequest.ProtoReflect.Descriptor instead.
 func (*FetchRequest) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{18}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *FetchRequest) GetMirror() string {
@@ -1276,7 +1459,7 @@ type FetchResponse struct {
 
 func (x *FetchResponse) Reset() {
 	*x = FetchResponse{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[19]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1288,7 +1471,7 @@ func (x *FetchResponse) String() string {
 func (*FetchResponse) ProtoMessage() {}
 
 func (x *FetchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[19]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1301,7 +1484,7 @@ func (x *FetchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchResponse.ProtoReflect.Descriptor instead.
 func (*FetchResponse) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{19}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *FetchResponse) GetHead() string {
@@ -1324,7 +1507,7 @@ type CheckoutRequest struct {
 
 func (x *CheckoutRequest) Reset() {
 	*x = CheckoutRequest{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[20]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1336,7 +1519,7 @@ func (x *CheckoutRequest) String() string {
 func (*CheckoutRequest) ProtoMessage() {}
 
 func (x *CheckoutRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[20]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1349,7 +1532,7 @@ func (x *CheckoutRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckoutRequest.ProtoReflect.Descriptor instead.
 func (*CheckoutRequest) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{20}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *CheckoutRequest) GetInstance() *Instance {
@@ -1389,7 +1572,7 @@ type CheckoutResponse struct {
 
 func (x *CheckoutResponse) Reset() {
 	*x = CheckoutResponse{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[21]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1401,7 +1584,7 @@ func (x *CheckoutResponse) String() string {
 func (*CheckoutResponse) ProtoMessage() {}
 
 func (x *CheckoutResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[21]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1414,7 +1597,7 @@ func (x *CheckoutResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckoutResponse.ProtoReflect.Descriptor instead.
 func (*CheckoutResponse) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{21}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *CheckoutResponse) GetCommit() string {
@@ -1436,7 +1619,7 @@ type UpdateOriginRequest struct {
 
 func (x *UpdateOriginRequest) Reset() {
 	*x = UpdateOriginRequest{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[22]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1448,7 +1631,7 @@ func (x *UpdateOriginRequest) String() string {
 func (*UpdateOriginRequest) ProtoMessage() {}
 
 func (x *UpdateOriginRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[22]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1461,7 +1644,7 @@ func (x *UpdateOriginRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateOriginRequest.ProtoReflect.Descriptor instead.
 func (*UpdateOriginRequest) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{22}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *UpdateOriginRequest) GetInstance() *Instance {
@@ -1493,7 +1676,7 @@ type UpdateOriginResponse struct {
 
 func (x *UpdateOriginResponse) Reset() {
 	*x = UpdateOriginResponse{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[23]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1505,7 +1688,7 @@ func (x *UpdateOriginResponse) String() string {
 func (*UpdateOriginResponse) ProtoMessage() {}
 
 func (x *UpdateOriginResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[23]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1518,7 +1701,7 @@ func (x *UpdateOriginResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateOriginResponse.ProtoReflect.Descriptor instead.
 func (*UpdateOriginResponse) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{23}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{26}
 }
 
 type CommitsBehindRequest struct {
@@ -1532,7 +1715,7 @@ type CommitsBehindRequest struct {
 
 func (x *CommitsBehindRequest) Reset() {
 	*x = CommitsBehindRequest{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[24]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1544,7 +1727,7 @@ func (x *CommitsBehindRequest) String() string {
 func (*CommitsBehindRequest) ProtoMessage() {}
 
 func (x *CommitsBehindRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[24]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1557,7 +1740,7 @@ func (x *CommitsBehindRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitsBehindRequest.ProtoReflect.Descriptor instead.
 func (*CommitsBehindRequest) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{24}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *CommitsBehindRequest) GetMirror() string {
@@ -1590,7 +1773,7 @@ type CommitsBehindResponse struct {
 
 func (x *CommitsBehindResponse) Reset() {
 	*x = CommitsBehindResponse{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[25]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1602,7 +1785,7 @@ func (x *CommitsBehindResponse) String() string {
 func (*CommitsBehindResponse) ProtoMessage() {}
 
 func (x *CommitsBehindResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[25]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1615,7 +1798,7 @@ func (x *CommitsBehindResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitsBehindResponse.ProtoReflect.Descriptor instead.
 func (*CommitsBehindResponse) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{25}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *CommitsBehindResponse) GetCommits() int32 {
@@ -1623,6 +1806,193 @@ func (x *CommitsBehindResponse) GetCommits() int32 {
 		return x.Commits
 	}
 	return 0
+}
+
+type ReadMirrorRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Source *MirrorSource          `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
+	// Relative to the work tree's root; empty is the root.
+	Paths []string `protobuf:"bytes,2,rep,name=paths,proto3" json:"paths,omitempty"`
+	// Whether to give the content of each file of at most 1 MiB.
+	Content       bool `protobuf:"varint,3,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadMirrorRequest) Reset() {
+	*x = ReadMirrorRequest{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadMirrorRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadMirrorRequest) ProtoMessage() {}
+
+func (x *ReadMirrorRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadMirrorRequest.ProtoReflect.Descriptor instead.
+func (*ReadMirrorRequest) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *ReadMirrorRequest) GetSource() *MirrorSource {
+	if x != nil {
+		return x.Source
+	}
+	return nil
+}
+
+func (x *ReadMirrorRequest) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
+}
+
+func (x *ReadMirrorRequest) GetContent() bool {
+	if x != nil {
+		return x.Content
+	}
+	return false
+}
+
+type ReadMirrorResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The commit the ref is at.
+	Commit string `protobuf:"bytes,1,opt,name=commit,proto3" json:"commit,omitempty"`
+	// The paths that are there.
+	Entries       map[string]*MirrorEntry `protobuf:"bytes,2,rep,name=entries,proto3" json:"entries,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadMirrorResponse) Reset() {
+	*x = ReadMirrorResponse{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadMirrorResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadMirrorResponse) ProtoMessage() {}
+
+func (x *ReadMirrorResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadMirrorResponse.ProtoReflect.Descriptor instead.
+func (*ReadMirrorResponse) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ReadMirrorResponse) GetCommit() string {
+	if x != nil {
+		return x.Commit
+	}
+	return ""
+}
+
+func (x *ReadMirrorResponse) GetEntries() map[string]*MirrorEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+// MirrorEntry is one path of a mirror's work tree.
+type MirrorEntry struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Its git object id; a directory's is its tree's.
+	Object string `protobuf:"bytes,1,opt,name=object,proto3" json:"object,omitempty"`
+	Dir    bool   `protobuf:"varint,2,opt,name=dir,proto3" json:"dir,omitempty"`
+	Size   int64  `protobuf:"varint,3,opt,name=size,proto3" json:"size,omitempty"`
+	// A file's content, when asked for and small enough.
+	Content       []byte `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MirrorEntry) Reset() {
+	*x = MirrorEntry{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MirrorEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MirrorEntry) ProtoMessage() {}
+
+func (x *MirrorEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MirrorEntry.ProtoReflect.Descriptor instead.
+func (*MirrorEntry) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *MirrorEntry) GetObject() string {
+	if x != nil {
+		return x.Object
+	}
+	return ""
+}
+
+func (x *MirrorEntry) GetDir() bool {
+	if x != nil {
+		return x.Dir
+	}
+	return false
+}
+
+func (x *MirrorEntry) GetSize() int64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
+func (x *MirrorEntry) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
 }
 
 type PushRequest struct {
@@ -1645,7 +2015,7 @@ type PushRequest struct {
 
 func (x *PushRequest) Reset() {
 	*x = PushRequest{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[26]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1657,7 +2027,7 @@ func (x *PushRequest) String() string {
 func (*PushRequest) ProtoMessage() {}
 
 func (x *PushRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[26]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1670,7 +2040,7 @@ func (x *PushRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PushRequest.ProtoReflect.Descriptor instead.
 func (*PushRequest) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{26}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *PushRequest) GetInstance() *Instance {
@@ -1730,7 +2100,7 @@ type PushResponse struct {
 
 func (x *PushResponse) Reset() {
 	*x = PushResponse{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[27]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1742,7 +2112,7 @@ func (x *PushResponse) String() string {
 func (*PushResponse) ProtoMessage() {}
 
 func (x *PushResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[27]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1755,7 +2125,7 @@ func (x *PushResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PushResponse.ProtoReflect.Descriptor instead.
 func (*PushResponse) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{27}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{33}
 }
 
 type TicketRequest struct {
@@ -1768,7 +2138,7 @@ type TicketRequest struct {
 
 func (x *TicketRequest) Reset() {
 	*x = TicketRequest{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[28]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1780,7 +2150,7 @@ func (x *TicketRequest) String() string {
 func (*TicketRequest) ProtoMessage() {}
 
 func (x *TicketRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[28]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1793,7 +2163,7 @@ func (x *TicketRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TicketRequest.ProtoReflect.Descriptor instead.
 func (*TicketRequest) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{28}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *TicketRequest) GetInstance() *Instance {
@@ -1828,7 +2198,7 @@ type StartProcessRequest struct {
 
 func (x *StartProcessRequest) Reset() {
 	*x = StartProcessRequest{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[29]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1840,7 +2210,7 @@ func (x *StartProcessRequest) String() string {
 func (*StartProcessRequest) ProtoMessage() {}
 
 func (x *StartProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[29]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1853,7 +2223,7 @@ func (x *StartProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartProcessRequest.ProtoReflect.Descriptor instead.
 func (*StartProcessRequest) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{29}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *StartProcessRequest) GetInstance() *Instance {
@@ -1901,7 +2271,7 @@ type StartProcessResponse struct {
 
 func (x *StartProcessResponse) Reset() {
 	*x = StartProcessResponse{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[30]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1913,7 +2283,7 @@ func (x *StartProcessResponse) String() string {
 func (*StartProcessResponse) ProtoMessage() {}
 
 func (x *StartProcessResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[30]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1926,7 +2296,7 @@ func (x *StartProcessResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartProcessResponse.ProtoReflect.Descriptor instead.
 func (*StartProcessResponse) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{30}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *StartProcessResponse) GetProcess() string {
@@ -1948,7 +2318,7 @@ type AttachProcessRequest struct {
 
 func (x *AttachProcessRequest) Reset() {
 	*x = AttachProcessRequest{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[31]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1960,7 +2330,7 @@ func (x *AttachProcessRequest) String() string {
 func (*AttachProcessRequest) ProtoMessage() {}
 
 func (x *AttachProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[31]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1973,7 +2343,7 @@ func (x *AttachProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttachProcessRequest.ProtoReflect.Descriptor instead.
 func (*AttachProcessRequest) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{31}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *AttachProcessRequest) GetInstance() *Instance {
@@ -2017,7 +2387,7 @@ type AttachProcessResponse struct {
 
 func (x *AttachProcessResponse) Reset() {
 	*x = AttachProcessResponse{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[32]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2029,7 +2399,7 @@ func (x *AttachProcessResponse) String() string {
 func (*AttachProcessResponse) ProtoMessage() {}
 
 func (x *AttachProcessResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[32]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2042,7 +2412,7 @@ func (x *AttachProcessResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttachProcessResponse.ProtoReflect.Descriptor instead.
 func (*AttachProcessResponse) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{32}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *AttachProcessResponse) GetResponse() isAttachProcessResponse_Response {
@@ -2100,7 +2470,7 @@ type ProcessOutput struct {
 
 func (x *ProcessOutput) Reset() {
 	*x = ProcessOutput{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[33]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2112,7 +2482,7 @@ func (x *ProcessOutput) String() string {
 func (*ProcessOutput) ProtoMessage() {}
 
 func (x *ProcessOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[33]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2125,7 +2495,7 @@ func (x *ProcessOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessOutput.ProtoReflect.Descriptor instead.
 func (*ProcessOutput) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{33}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ProcessOutput) GetStream() OutputStream {
@@ -2164,7 +2534,7 @@ type ProcessEnd struct {
 
 func (x *ProcessEnd) Reset() {
 	*x = ProcessEnd{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[34]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2176,7 +2546,7 @@ func (x *ProcessEnd) String() string {
 func (*ProcessEnd) ProtoMessage() {}
 
 func (x *ProcessEnd) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[34]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2189,7 +2559,7 @@ func (x *ProcessEnd) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessEnd.ProtoReflect.Descriptor instead.
 func (*ProcessEnd) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{34}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ProcessEnd) GetHeldFrom() int64 {
@@ -2226,7 +2596,7 @@ type ProcessExit struct {
 
 func (x *ProcessExit) Reset() {
 	*x = ProcessExit{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[35]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2238,7 +2608,7 @@ func (x *ProcessExit) String() string {
 func (*ProcessExit) ProtoMessage() {}
 
 func (x *ProcessExit) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[35]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2251,7 +2621,7 @@ func (x *ProcessExit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessExit.ProtoReflect.Descriptor instead.
 func (*ProcessExit) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{35}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ProcessExit) GetCode() int32 {
@@ -2279,7 +2649,7 @@ type SignalProcessRequest struct {
 
 func (x *SignalProcessRequest) Reset() {
 	*x = SignalProcessRequest{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[36]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2291,7 +2661,7 @@ func (x *SignalProcessRequest) String() string {
 func (*SignalProcessRequest) ProtoMessage() {}
 
 func (x *SignalProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[36]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2304,7 +2674,7 @@ func (x *SignalProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalProcessRequest.ProtoReflect.Descriptor instead.
 func (*SignalProcessRequest) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{36}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *SignalProcessRequest) GetInstance() *Instance {
@@ -2336,7 +2706,7 @@ type SignalProcessResponse struct {
 
 func (x *SignalProcessResponse) Reset() {
 	*x = SignalProcessResponse{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[37]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2348,7 +2718,7 @@ func (x *SignalProcessResponse) String() string {
 func (*SignalProcessResponse) ProtoMessage() {}
 
 func (x *SignalProcessResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[37]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2361,7 +2731,7 @@ func (x *SignalProcessResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalProcessResponse.ProtoReflect.Descriptor instead.
 func (*SignalProcessResponse) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{37}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{43}
 }
 
 type ListProcessesRequest struct {
@@ -2373,7 +2743,7 @@ type ListProcessesRequest struct {
 
 func (x *ListProcessesRequest) Reset() {
 	*x = ListProcessesRequest{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[38]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2385,7 +2755,7 @@ func (x *ListProcessesRequest) String() string {
 func (*ListProcessesRequest) ProtoMessage() {}
 
 func (x *ListProcessesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[38]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2398,7 +2768,7 @@ func (x *ListProcessesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProcessesRequest.ProtoReflect.Descriptor instead.
 func (*ListProcessesRequest) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{38}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *ListProcessesRequest) GetInstance() *Instance {
@@ -2417,7 +2787,7 @@ type ListProcessesResponse struct {
 
 func (x *ListProcessesResponse) Reset() {
 	*x = ListProcessesResponse{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[39]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2429,7 +2799,7 @@ func (x *ListProcessesResponse) String() string {
 func (*ListProcessesResponse) ProtoMessage() {}
 
 func (x *ListProcessesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[39]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2442,7 +2812,7 @@ func (x *ListProcessesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProcessesResponse.ProtoReflect.Descriptor instead.
 func (*ListProcessesResponse) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{39}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *ListProcessesResponse) GetProcesses() []*Process {
@@ -2467,7 +2837,7 @@ type Process struct {
 
 func (x *Process) Reset() {
 	*x = Process{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[40]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2479,7 +2849,7 @@ func (x *Process) String() string {
 func (*Process) ProtoMessage() {}
 
 func (x *Process) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[40]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2492,7 +2862,7 @@ func (x *Process) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Process.ProtoReflect.Descriptor instead.
 func (*Process) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{40}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *Process) GetProcess() string {
@@ -2542,7 +2912,7 @@ type TicketResponse struct {
 
 func (x *TicketResponse) Reset() {
 	*x = TicketResponse{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[41]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2554,7 +2924,7 @@ func (x *TicketResponse) String() string {
 func (*TicketResponse) ProtoMessage() {}
 
 func (x *TicketResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[41]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2567,7 +2937,7 @@ func (x *TicketResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TicketResponse.ProtoReflect.Descriptor instead.
 func (*TicketResponse) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{41}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *TicketResponse) GetUrl() string {
@@ -2635,11 +3005,24 @@ const file_tower_hostd_v1_host_proto_rawDesc = "" +
 	"\x11BuildImageRequest\x127\n" +
 	"\x05start\x18\x01 \x01(\v2\x1f.tower.hostd.v1.BuildImageStartH\x00R\x05start\x12\x1a\n" +
 	"\acontext\x18\x02 \x01(\fH\x00R\acontextB\t\n" +
-	"\arequest\"1\n" +
+	"\arequest\"\x99\x01\n" +
 	"\x0fBuildImageStart\x12\x1e\n" +
 	"\n" +
 	"repository\x18\x01 \x01(\tR\n" +
-	"repository\"*\n" +
+	"repository\x12\x10\n" +
+	"\x03dir\x18\x02 \x01(\tR\x03dir\x12\x1e\n" +
+	"\n" +
+	"dockerfile\x18\x03 \x01(\tR\n" +
+	"dockerfile\x124\n" +
+	"\x06mirror\x18\x04 \x01(\v2\x1c.tower.hostd.v1.MirrorSourceR\x06mirror\"8\n" +
+	"\fMirrorSource\x12\x16\n" +
+	"\x06mirror\x18\x01 \x01(\tR\x06mirror\x12\x10\n" +
+	"\x03ref\x18\x02 \x01(\tR\x03ref\"'\n" +
+	"\x13ResolveImageRequest\x12\x10\n" +
+	"\x03ref\x18\x01 \x01(\tR\x03ref\"B\n" +
+	"\x14ResolveImageResponse\x12\x16\n" +
+	"\x06digest\x18\x01 \x01(\tR\x06digest\x12\x12\n" +
+	"\x04user\x18\x02 \x01(\tR\x04user\"*\n" +
 	"\x12BuildImageResponse\x12\x14\n" +
 	"\x05image\x18\x01 \x01(\tR\x05image\"F\n" +
 	"\x0eCaptureRequest\x124\n" +
@@ -2674,7 +3057,22 @@ const file_tower_hostd_v1_host_proto_rawDesc = "" +
 	"\x06commit\x18\x02 \x01(\tR\x06commit\x12\x16\n" +
 	"\x06branch\x18\x03 \x01(\tR\x06branch\"1\n" +
 	"\x15CommitsBehindResponse\x12\x18\n" +
-	"\acommits\x18\x01 \x01(\x05R\acommits\"\xc3\x01\n" +
+	"\acommits\x18\x01 \x01(\x05R\acommits\"y\n" +
+	"\x11ReadMirrorRequest\x124\n" +
+	"\x06source\x18\x01 \x01(\v2\x1c.tower.hostd.v1.MirrorSourceR\x06source\x12\x14\n" +
+	"\x05paths\x18\x02 \x03(\tR\x05paths\x12\x18\n" +
+	"\acontent\x18\x03 \x01(\bR\acontent\"\xd0\x01\n" +
+	"\x12ReadMirrorResponse\x12\x16\n" +
+	"\x06commit\x18\x01 \x01(\tR\x06commit\x12I\n" +
+	"\aentries\x18\x02 \x03(\v2/.tower.hostd.v1.ReadMirrorResponse.EntriesEntryR\aentries\x1aW\n" +
+	"\fEntriesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x121\n" +
+	"\x05value\x18\x02 \x01(\v2\x1b.tower.hostd.v1.MirrorEntryR\x05value:\x028\x01\"e\n" +
+	"\vMirrorEntry\x12\x16\n" +
+	"\x06object\x18\x01 \x01(\tR\x06object\x12\x10\n" +
+	"\x03dir\x18\x02 \x01(\bR\x03dir\x12\x12\n" +
+	"\x04size\x18\x03 \x01(\x03R\x04size\x12\x18\n" +
+	"\acontent\x18\x04 \x01(\fR\acontent\"\xc3\x01\n" +
 	"\vPushRequest\x124\n" +
 	"\binstance\x18\x01 \x01(\v2\x18.tower.hostd.v1.InstanceR\binstance\x12\x10\n" +
 	"\x03dir\x18\x02 \x01(\tR\x03dir\x12\x16\n" +
@@ -2750,20 +3148,23 @@ const file_tower_hostd_v1_host_proto_rawDesc = "" +
 	"\vSIGNAL_TERM\x10\x01\x12\x0f\n" +
 	"\vSIGNAL_KILL\x10\x02\x12\x0e\n" +
 	"\n" +
-	"SIGNAL_INT\x10\x032\x91\v\n" +
+	"SIGNAL_INT\x10\x032\xc1\f\n" +
 	"\vHostService\x12E\n" +
 	"\x04Exec\x12\x1b.tower.hostd.v1.ExecRequest\x1a\x1c.tower.hostd.v1.ExecResponse(\x010\x01\x12O\n" +
 	"\bReadFile\x12\x1f.tower.hostd.v1.ReadFileRequest\x1a .tower.hostd.v1.ReadFileResponse0\x01\x12R\n" +
 	"\tWriteFile\x12 .tower.hostd.v1.WriteFileRequest\x1a!.tower.hostd.v1.WriteFileResponse(\x01\x12A\n" +
 	"\x04Copy\x12\x1b.tower.hostd.v1.CopyRequest\x1a\x1c.tower.hostd.v1.CopyResponse\x12U\n" +
 	"\n" +
-	"BuildImage\x12!.tower.hostd.v1.BuildImageRequest\x1a\".tower.hostd.v1.BuildImageResponse(\x01\x12J\n" +
+	"BuildImage\x12!.tower.hostd.v1.BuildImageRequest\x1a\".tower.hostd.v1.BuildImageResponse(\x01\x12Y\n" +
+	"\fResolveImage\x12#.tower.hostd.v1.ResolveImageRequest\x1a$.tower.hostd.v1.ResolveImageResponse\x12J\n" +
 	"\aCapture\x12\x1e.tower.hostd.v1.CaptureRequest\x1a\x1f.tower.hostd.v1.CaptureResponse\x12_\n" +
 	"\x0eDeleteArtifact\x12%.tower.hostd.v1.DeleteArtifactRequest\x1a&.tower.hostd.v1.DeleteArtifactResponse\x12D\n" +
 	"\x05Fetch\x12\x1c.tower.hostd.v1.FetchRequest\x1a\x1d.tower.hostd.v1.FetchResponse\x12M\n" +
 	"\bCheckout\x12\x1f.tower.hostd.v1.CheckoutRequest\x1a .tower.hostd.v1.CheckoutResponse\x12Y\n" +
 	"\fUpdateOrigin\x12#.tower.hostd.v1.UpdateOriginRequest\x1a$.tower.hostd.v1.UpdateOriginResponse\x12\\\n" +
-	"\rCommitsBehind\x12$.tower.hostd.v1.CommitsBehindRequest\x1a%.tower.hostd.v1.CommitsBehindResponse\x12A\n" +
+	"\rCommitsBehind\x12$.tower.hostd.v1.CommitsBehindRequest\x1a%.tower.hostd.v1.CommitsBehindResponse\x12S\n" +
+	"\n" +
+	"ReadMirror\x12!.tower.hostd.v1.ReadMirrorRequest\x1a\".tower.hostd.v1.ReadMirrorResponse\x12A\n" +
 	"\x04Push\x12\x1b.tower.hostd.v1.PushRequest\x1a\x1c.tower.hostd.v1.PushResponse\x12G\n" +
 	"\x06Ticket\x12\x1d.tower.hostd.v1.TicketRequest\x1a\x1e.tower.hostd.v1.TicketResponse\x12Y\n" +
 	"\fStartProcess\x12#.tower.hostd.v1.StartProcessRequest\x1a$.tower.hostd.v1.StartProcessResponse\x12^\n" +
@@ -2785,7 +3186,7 @@ func file_tower_hostd_v1_host_proto_rawDescGZIP() []byte {
 }
 
 var file_tower_hostd_v1_host_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_tower_hostd_v1_host_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
+var file_tower_hostd_v1_host_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
 var file_tower_hostd_v1_host_proto_goTypes = []any{
 	(OutputStream)(0),              // 0: tower.hostd.v1.OutputStream
 	(Signal)(0),                    // 1: tower.hostd.v1.Signal
@@ -2802,108 +3203,123 @@ var file_tower_hostd_v1_host_proto_goTypes = []any{
 	(*CopyResponse)(nil),           // 12: tower.hostd.v1.CopyResponse
 	(*BuildImageRequest)(nil),      // 13: tower.hostd.v1.BuildImageRequest
 	(*BuildImageStart)(nil),        // 14: tower.hostd.v1.BuildImageStart
-	(*BuildImageResponse)(nil),     // 15: tower.hostd.v1.BuildImageResponse
-	(*CaptureRequest)(nil),         // 16: tower.hostd.v1.CaptureRequest
-	(*CaptureResponse)(nil),        // 17: tower.hostd.v1.CaptureResponse
-	(*DeleteArtifactRequest)(nil),  // 18: tower.hostd.v1.DeleteArtifactRequest
-	(*DeleteArtifactResponse)(nil), // 19: tower.hostd.v1.DeleteArtifactResponse
-	(*FetchRequest)(nil),           // 20: tower.hostd.v1.FetchRequest
-	(*FetchResponse)(nil),          // 21: tower.hostd.v1.FetchResponse
-	(*CheckoutRequest)(nil),        // 22: tower.hostd.v1.CheckoutRequest
-	(*CheckoutResponse)(nil),       // 23: tower.hostd.v1.CheckoutResponse
-	(*UpdateOriginRequest)(nil),    // 24: tower.hostd.v1.UpdateOriginRequest
-	(*UpdateOriginResponse)(nil),   // 25: tower.hostd.v1.UpdateOriginResponse
-	(*CommitsBehindRequest)(nil),   // 26: tower.hostd.v1.CommitsBehindRequest
-	(*CommitsBehindResponse)(nil),  // 27: tower.hostd.v1.CommitsBehindResponse
-	(*PushRequest)(nil),            // 28: tower.hostd.v1.PushRequest
-	(*PushResponse)(nil),           // 29: tower.hostd.v1.PushResponse
-	(*TicketRequest)(nil),          // 30: tower.hostd.v1.TicketRequest
-	(*StartProcessRequest)(nil),    // 31: tower.hostd.v1.StartProcessRequest
-	(*StartProcessResponse)(nil),   // 32: tower.hostd.v1.StartProcessResponse
-	(*AttachProcessRequest)(nil),   // 33: tower.hostd.v1.AttachProcessRequest
-	(*AttachProcessResponse)(nil),  // 34: tower.hostd.v1.AttachProcessResponse
-	(*ProcessOutput)(nil),          // 35: tower.hostd.v1.ProcessOutput
-	(*ProcessEnd)(nil),             // 36: tower.hostd.v1.ProcessEnd
-	(*ProcessExit)(nil),            // 37: tower.hostd.v1.ProcessExit
-	(*SignalProcessRequest)(nil),   // 38: tower.hostd.v1.SignalProcessRequest
-	(*SignalProcessResponse)(nil),  // 39: tower.hostd.v1.SignalProcessResponse
-	(*ListProcessesRequest)(nil),   // 40: tower.hostd.v1.ListProcessesRequest
-	(*ListProcessesResponse)(nil),  // 41: tower.hostd.v1.ListProcessesResponse
-	(*Process)(nil),                // 42: tower.hostd.v1.Process
-	(*TicketResponse)(nil),         // 43: tower.hostd.v1.TicketResponse
-	nil,                            // 44: tower.hostd.v1.ExecStart.EnvEntry
-	nil,                            // 45: tower.hostd.v1.StartProcessRequest.EnvEntry
-	(*timestamppb.Timestamp)(nil),  // 46: google.protobuf.Timestamp
+	(*MirrorSource)(nil),           // 15: tower.hostd.v1.MirrorSource
+	(*ResolveImageRequest)(nil),    // 16: tower.hostd.v1.ResolveImageRequest
+	(*ResolveImageResponse)(nil),   // 17: tower.hostd.v1.ResolveImageResponse
+	(*BuildImageResponse)(nil),     // 18: tower.hostd.v1.BuildImageResponse
+	(*CaptureRequest)(nil),         // 19: tower.hostd.v1.CaptureRequest
+	(*CaptureResponse)(nil),        // 20: tower.hostd.v1.CaptureResponse
+	(*DeleteArtifactRequest)(nil),  // 21: tower.hostd.v1.DeleteArtifactRequest
+	(*DeleteArtifactResponse)(nil), // 22: tower.hostd.v1.DeleteArtifactResponse
+	(*FetchRequest)(nil),           // 23: tower.hostd.v1.FetchRequest
+	(*FetchResponse)(nil),          // 24: tower.hostd.v1.FetchResponse
+	(*CheckoutRequest)(nil),        // 25: tower.hostd.v1.CheckoutRequest
+	(*CheckoutResponse)(nil),       // 26: tower.hostd.v1.CheckoutResponse
+	(*UpdateOriginRequest)(nil),    // 27: tower.hostd.v1.UpdateOriginRequest
+	(*UpdateOriginResponse)(nil),   // 28: tower.hostd.v1.UpdateOriginResponse
+	(*CommitsBehindRequest)(nil),   // 29: tower.hostd.v1.CommitsBehindRequest
+	(*CommitsBehindResponse)(nil),  // 30: tower.hostd.v1.CommitsBehindResponse
+	(*ReadMirrorRequest)(nil),      // 31: tower.hostd.v1.ReadMirrorRequest
+	(*ReadMirrorResponse)(nil),     // 32: tower.hostd.v1.ReadMirrorResponse
+	(*MirrorEntry)(nil),            // 33: tower.hostd.v1.MirrorEntry
+	(*PushRequest)(nil),            // 34: tower.hostd.v1.PushRequest
+	(*PushResponse)(nil),           // 35: tower.hostd.v1.PushResponse
+	(*TicketRequest)(nil),          // 36: tower.hostd.v1.TicketRequest
+	(*StartProcessRequest)(nil),    // 37: tower.hostd.v1.StartProcessRequest
+	(*StartProcessResponse)(nil),   // 38: tower.hostd.v1.StartProcessResponse
+	(*AttachProcessRequest)(nil),   // 39: tower.hostd.v1.AttachProcessRequest
+	(*AttachProcessResponse)(nil),  // 40: tower.hostd.v1.AttachProcessResponse
+	(*ProcessOutput)(nil),          // 41: tower.hostd.v1.ProcessOutput
+	(*ProcessEnd)(nil),             // 42: tower.hostd.v1.ProcessEnd
+	(*ProcessExit)(nil),            // 43: tower.hostd.v1.ProcessExit
+	(*SignalProcessRequest)(nil),   // 44: tower.hostd.v1.SignalProcessRequest
+	(*SignalProcessResponse)(nil),  // 45: tower.hostd.v1.SignalProcessResponse
+	(*ListProcessesRequest)(nil),   // 46: tower.hostd.v1.ListProcessesRequest
+	(*ListProcessesResponse)(nil),  // 47: tower.hostd.v1.ListProcessesResponse
+	(*Process)(nil),                // 48: tower.hostd.v1.Process
+	(*TicketResponse)(nil),         // 49: tower.hostd.v1.TicketResponse
+	nil,                            // 50: tower.hostd.v1.ExecStart.EnvEntry
+	nil,                            // 51: tower.hostd.v1.ReadMirrorResponse.EntriesEntry
+	nil,                            // 52: tower.hostd.v1.StartProcessRequest.EnvEntry
+	(*timestamppb.Timestamp)(nil),  // 53: google.protobuf.Timestamp
 }
 var file_tower_hostd_v1_host_proto_depIdxs = []int32{
 	4,  // 0: tower.hostd.v1.ExecRequest.start:type_name -> tower.hostd.v1.ExecStart
 	2,  // 1: tower.hostd.v1.ExecStart.instance:type_name -> tower.hostd.v1.Instance
-	44, // 2: tower.hostd.v1.ExecStart.env:type_name -> tower.hostd.v1.ExecStart.EnvEntry
+	50, // 2: tower.hostd.v1.ExecStart.env:type_name -> tower.hostd.v1.ExecStart.EnvEntry
 	2,  // 3: tower.hostd.v1.ReadFileRequest.instance:type_name -> tower.hostd.v1.Instance
 	9,  // 4: tower.hostd.v1.WriteFileRequest.start:type_name -> tower.hostd.v1.WriteFileStart
 	2,  // 5: tower.hostd.v1.WriteFileStart.instance:type_name -> tower.hostd.v1.Instance
 	2,  // 6: tower.hostd.v1.CopyRequest.from:type_name -> tower.hostd.v1.Instance
 	2,  // 7: tower.hostd.v1.CopyRequest.to:type_name -> tower.hostd.v1.Instance
 	14, // 8: tower.hostd.v1.BuildImageRequest.start:type_name -> tower.hostd.v1.BuildImageStart
-	2,  // 9: tower.hostd.v1.CaptureRequest.instance:type_name -> tower.hostd.v1.Instance
-	2,  // 10: tower.hostd.v1.CheckoutRequest.instance:type_name -> tower.hostd.v1.Instance
-	2,  // 11: tower.hostd.v1.UpdateOriginRequest.instance:type_name -> tower.hostd.v1.Instance
-	2,  // 12: tower.hostd.v1.PushRequest.instance:type_name -> tower.hostd.v1.Instance
-	2,  // 13: tower.hostd.v1.TicketRequest.instance:type_name -> tower.hostd.v1.Instance
-	2,  // 14: tower.hostd.v1.StartProcessRequest.instance:type_name -> tower.hostd.v1.Instance
-	45, // 15: tower.hostd.v1.StartProcessRequest.env:type_name -> tower.hostd.v1.StartProcessRequest.EnvEntry
-	2,  // 16: tower.hostd.v1.AttachProcessRequest.instance:type_name -> tower.hostd.v1.Instance
-	35, // 17: tower.hostd.v1.AttachProcessResponse.output:type_name -> tower.hostd.v1.ProcessOutput
-	36, // 18: tower.hostd.v1.AttachProcessResponse.end:type_name -> tower.hostd.v1.ProcessEnd
-	0,  // 19: tower.hostd.v1.ProcessOutput.stream:type_name -> tower.hostd.v1.OutputStream
-	37, // 20: tower.hostd.v1.ProcessEnd.exit:type_name -> tower.hostd.v1.ProcessExit
-	1,  // 21: tower.hostd.v1.ProcessExit.signal:type_name -> tower.hostd.v1.Signal
-	2,  // 22: tower.hostd.v1.SignalProcessRequest.instance:type_name -> tower.hostd.v1.Instance
-	1,  // 23: tower.hostd.v1.SignalProcessRequest.signal:type_name -> tower.hostd.v1.Signal
-	2,  // 24: tower.hostd.v1.ListProcessesRequest.instance:type_name -> tower.hostd.v1.Instance
-	42, // 25: tower.hostd.v1.ListProcessesResponse.processes:type_name -> tower.hostd.v1.Process
-	46, // 26: tower.hostd.v1.Process.start_time:type_name -> google.protobuf.Timestamp
-	37, // 27: tower.hostd.v1.Process.exit:type_name -> tower.hostd.v1.ProcessExit
-	46, // 28: tower.hostd.v1.TicketResponse.expire_time:type_name -> google.protobuf.Timestamp
-	3,  // 29: tower.hostd.v1.HostService.Exec:input_type -> tower.hostd.v1.ExecRequest
-	6,  // 30: tower.hostd.v1.HostService.ReadFile:input_type -> tower.hostd.v1.ReadFileRequest
-	8,  // 31: tower.hostd.v1.HostService.WriteFile:input_type -> tower.hostd.v1.WriteFileRequest
-	11, // 32: tower.hostd.v1.HostService.Copy:input_type -> tower.hostd.v1.CopyRequest
-	13, // 33: tower.hostd.v1.HostService.BuildImage:input_type -> tower.hostd.v1.BuildImageRequest
-	16, // 34: tower.hostd.v1.HostService.Capture:input_type -> tower.hostd.v1.CaptureRequest
-	18, // 35: tower.hostd.v1.HostService.DeleteArtifact:input_type -> tower.hostd.v1.DeleteArtifactRequest
-	20, // 36: tower.hostd.v1.HostService.Fetch:input_type -> tower.hostd.v1.FetchRequest
-	22, // 37: tower.hostd.v1.HostService.Checkout:input_type -> tower.hostd.v1.CheckoutRequest
-	24, // 38: tower.hostd.v1.HostService.UpdateOrigin:input_type -> tower.hostd.v1.UpdateOriginRequest
-	26, // 39: tower.hostd.v1.HostService.CommitsBehind:input_type -> tower.hostd.v1.CommitsBehindRequest
-	28, // 40: tower.hostd.v1.HostService.Push:input_type -> tower.hostd.v1.PushRequest
-	30, // 41: tower.hostd.v1.HostService.Ticket:input_type -> tower.hostd.v1.TicketRequest
-	31, // 42: tower.hostd.v1.HostService.StartProcess:input_type -> tower.hostd.v1.StartProcessRequest
-	33, // 43: tower.hostd.v1.HostService.AttachProcess:input_type -> tower.hostd.v1.AttachProcessRequest
-	38, // 44: tower.hostd.v1.HostService.SignalProcess:input_type -> tower.hostd.v1.SignalProcessRequest
-	40, // 45: tower.hostd.v1.HostService.ListProcesses:input_type -> tower.hostd.v1.ListProcessesRequest
-	5,  // 46: tower.hostd.v1.HostService.Exec:output_type -> tower.hostd.v1.ExecResponse
-	7,  // 47: tower.hostd.v1.HostService.ReadFile:output_type -> tower.hostd.v1.ReadFileResponse
-	10, // 48: tower.hostd.v1.HostService.WriteFile:output_type -> tower.hostd.v1.WriteFileResponse
-	12, // 49: tower.hostd.v1.HostService.Copy:output_type -> tower.hostd.v1.CopyResponse
-	15, // 50: tower.hostd.v1.HostService.BuildImage:output_type -> tower.hostd.v1.BuildImageResponse
-	17, // 51: tower.hostd.v1.HostService.Capture:output_type -> tower.hostd.v1.CaptureResponse
-	19, // 52: tower.hostd.v1.HostService.DeleteArtifact:output_type -> tower.hostd.v1.DeleteArtifactResponse
-	21, // 53: tower.hostd.v1.HostService.Fetch:output_type -> tower.hostd.v1.FetchResponse
-	23, // 54: tower.hostd.v1.HostService.Checkout:output_type -> tower.hostd.v1.CheckoutResponse
-	25, // 55: tower.hostd.v1.HostService.UpdateOrigin:output_type -> tower.hostd.v1.UpdateOriginResponse
-	27, // 56: tower.hostd.v1.HostService.CommitsBehind:output_type -> tower.hostd.v1.CommitsBehindResponse
-	29, // 57: tower.hostd.v1.HostService.Push:output_type -> tower.hostd.v1.PushResponse
-	43, // 58: tower.hostd.v1.HostService.Ticket:output_type -> tower.hostd.v1.TicketResponse
-	32, // 59: tower.hostd.v1.HostService.StartProcess:output_type -> tower.hostd.v1.StartProcessResponse
-	34, // 60: tower.hostd.v1.HostService.AttachProcess:output_type -> tower.hostd.v1.AttachProcessResponse
-	39, // 61: tower.hostd.v1.HostService.SignalProcess:output_type -> tower.hostd.v1.SignalProcessResponse
-	41, // 62: tower.hostd.v1.HostService.ListProcesses:output_type -> tower.hostd.v1.ListProcessesResponse
-	46, // [46:63] is the sub-list for method output_type
-	29, // [29:46] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	15, // 9: tower.hostd.v1.BuildImageStart.mirror:type_name -> tower.hostd.v1.MirrorSource
+	2,  // 10: tower.hostd.v1.CaptureRequest.instance:type_name -> tower.hostd.v1.Instance
+	2,  // 11: tower.hostd.v1.CheckoutRequest.instance:type_name -> tower.hostd.v1.Instance
+	2,  // 12: tower.hostd.v1.UpdateOriginRequest.instance:type_name -> tower.hostd.v1.Instance
+	15, // 13: tower.hostd.v1.ReadMirrorRequest.source:type_name -> tower.hostd.v1.MirrorSource
+	51, // 14: tower.hostd.v1.ReadMirrorResponse.entries:type_name -> tower.hostd.v1.ReadMirrorResponse.EntriesEntry
+	2,  // 15: tower.hostd.v1.PushRequest.instance:type_name -> tower.hostd.v1.Instance
+	2,  // 16: tower.hostd.v1.TicketRequest.instance:type_name -> tower.hostd.v1.Instance
+	2,  // 17: tower.hostd.v1.StartProcessRequest.instance:type_name -> tower.hostd.v1.Instance
+	52, // 18: tower.hostd.v1.StartProcessRequest.env:type_name -> tower.hostd.v1.StartProcessRequest.EnvEntry
+	2,  // 19: tower.hostd.v1.AttachProcessRequest.instance:type_name -> tower.hostd.v1.Instance
+	41, // 20: tower.hostd.v1.AttachProcessResponse.output:type_name -> tower.hostd.v1.ProcessOutput
+	42, // 21: tower.hostd.v1.AttachProcessResponse.end:type_name -> tower.hostd.v1.ProcessEnd
+	0,  // 22: tower.hostd.v1.ProcessOutput.stream:type_name -> tower.hostd.v1.OutputStream
+	43, // 23: tower.hostd.v1.ProcessEnd.exit:type_name -> tower.hostd.v1.ProcessExit
+	1,  // 24: tower.hostd.v1.ProcessExit.signal:type_name -> tower.hostd.v1.Signal
+	2,  // 25: tower.hostd.v1.SignalProcessRequest.instance:type_name -> tower.hostd.v1.Instance
+	1,  // 26: tower.hostd.v1.SignalProcessRequest.signal:type_name -> tower.hostd.v1.Signal
+	2,  // 27: tower.hostd.v1.ListProcessesRequest.instance:type_name -> tower.hostd.v1.Instance
+	48, // 28: tower.hostd.v1.ListProcessesResponse.processes:type_name -> tower.hostd.v1.Process
+	53, // 29: tower.hostd.v1.Process.start_time:type_name -> google.protobuf.Timestamp
+	43, // 30: tower.hostd.v1.Process.exit:type_name -> tower.hostd.v1.ProcessExit
+	53, // 31: tower.hostd.v1.TicketResponse.expire_time:type_name -> google.protobuf.Timestamp
+	33, // 32: tower.hostd.v1.ReadMirrorResponse.EntriesEntry.value:type_name -> tower.hostd.v1.MirrorEntry
+	3,  // 33: tower.hostd.v1.HostService.Exec:input_type -> tower.hostd.v1.ExecRequest
+	6,  // 34: tower.hostd.v1.HostService.ReadFile:input_type -> tower.hostd.v1.ReadFileRequest
+	8,  // 35: tower.hostd.v1.HostService.WriteFile:input_type -> tower.hostd.v1.WriteFileRequest
+	11, // 36: tower.hostd.v1.HostService.Copy:input_type -> tower.hostd.v1.CopyRequest
+	13, // 37: tower.hostd.v1.HostService.BuildImage:input_type -> tower.hostd.v1.BuildImageRequest
+	16, // 38: tower.hostd.v1.HostService.ResolveImage:input_type -> tower.hostd.v1.ResolveImageRequest
+	19, // 39: tower.hostd.v1.HostService.Capture:input_type -> tower.hostd.v1.CaptureRequest
+	21, // 40: tower.hostd.v1.HostService.DeleteArtifact:input_type -> tower.hostd.v1.DeleteArtifactRequest
+	23, // 41: tower.hostd.v1.HostService.Fetch:input_type -> tower.hostd.v1.FetchRequest
+	25, // 42: tower.hostd.v1.HostService.Checkout:input_type -> tower.hostd.v1.CheckoutRequest
+	27, // 43: tower.hostd.v1.HostService.UpdateOrigin:input_type -> tower.hostd.v1.UpdateOriginRequest
+	29, // 44: tower.hostd.v1.HostService.CommitsBehind:input_type -> tower.hostd.v1.CommitsBehindRequest
+	31, // 45: tower.hostd.v1.HostService.ReadMirror:input_type -> tower.hostd.v1.ReadMirrorRequest
+	34, // 46: tower.hostd.v1.HostService.Push:input_type -> tower.hostd.v1.PushRequest
+	36, // 47: tower.hostd.v1.HostService.Ticket:input_type -> tower.hostd.v1.TicketRequest
+	37, // 48: tower.hostd.v1.HostService.StartProcess:input_type -> tower.hostd.v1.StartProcessRequest
+	39, // 49: tower.hostd.v1.HostService.AttachProcess:input_type -> tower.hostd.v1.AttachProcessRequest
+	44, // 50: tower.hostd.v1.HostService.SignalProcess:input_type -> tower.hostd.v1.SignalProcessRequest
+	46, // 51: tower.hostd.v1.HostService.ListProcesses:input_type -> tower.hostd.v1.ListProcessesRequest
+	5,  // 52: tower.hostd.v1.HostService.Exec:output_type -> tower.hostd.v1.ExecResponse
+	7,  // 53: tower.hostd.v1.HostService.ReadFile:output_type -> tower.hostd.v1.ReadFileResponse
+	10, // 54: tower.hostd.v1.HostService.WriteFile:output_type -> tower.hostd.v1.WriteFileResponse
+	12, // 55: tower.hostd.v1.HostService.Copy:output_type -> tower.hostd.v1.CopyResponse
+	18, // 56: tower.hostd.v1.HostService.BuildImage:output_type -> tower.hostd.v1.BuildImageResponse
+	17, // 57: tower.hostd.v1.HostService.ResolveImage:output_type -> tower.hostd.v1.ResolveImageResponse
+	20, // 58: tower.hostd.v1.HostService.Capture:output_type -> tower.hostd.v1.CaptureResponse
+	22, // 59: tower.hostd.v1.HostService.DeleteArtifact:output_type -> tower.hostd.v1.DeleteArtifactResponse
+	24, // 60: tower.hostd.v1.HostService.Fetch:output_type -> tower.hostd.v1.FetchResponse
+	26, // 61: tower.hostd.v1.HostService.Checkout:output_type -> tower.hostd.v1.CheckoutResponse
+	28, // 62: tower.hostd.v1.HostService.UpdateOrigin:output_type -> tower.hostd.v1.UpdateOriginResponse
+	30, // 63: tower.hostd.v1.HostService.CommitsBehind:output_type -> tower.hostd.v1.CommitsBehindResponse
+	32, // 64: tower.hostd.v1.HostService.ReadMirror:output_type -> tower.hostd.v1.ReadMirrorResponse
+	35, // 65: tower.hostd.v1.HostService.Push:output_type -> tower.hostd.v1.PushResponse
+	49, // 66: tower.hostd.v1.HostService.Ticket:output_type -> tower.hostd.v1.TicketResponse
+	38, // 67: tower.hostd.v1.HostService.StartProcess:output_type -> tower.hostd.v1.StartProcessResponse
+	40, // 68: tower.hostd.v1.HostService.AttachProcess:output_type -> tower.hostd.v1.AttachProcessResponse
+	45, // 69: tower.hostd.v1.HostService.SignalProcess:output_type -> tower.hostd.v1.SignalProcessResponse
+	47, // 70: tower.hostd.v1.HostService.ListProcesses:output_type -> tower.hostd.v1.ListProcessesResponse
+	52, // [52:71] is the sub-list for method output_type
+	33, // [33:52] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_tower_hostd_v1_host_proto_init() }
@@ -2928,7 +3344,7 @@ func file_tower_hostd_v1_host_proto_init() {
 		(*BuildImageRequest_Start)(nil),
 		(*BuildImageRequest_Context)(nil),
 	}
-	file_tower_hostd_v1_host_proto_msgTypes[32].OneofWrappers = []any{
+	file_tower_hostd_v1_host_proto_msgTypes[38].OneofWrappers = []any{
 		(*AttachProcessResponse_Output)(nil),
 		(*AttachProcessResponse_End)(nil),
 	}
@@ -2938,7 +3354,7 @@ func file_tower_hostd_v1_host_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tower_hostd_v1_host_proto_rawDesc), len(file_tower_hostd_v1_host_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   44,
+			NumMessages:   51,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

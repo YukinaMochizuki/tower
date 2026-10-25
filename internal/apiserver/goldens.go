@@ -64,8 +64,10 @@ var errGoldenGoing = fmt.Errorf("a golden of the same inputs is being deleted: %
 // blueprint. tower's own, and no secret; it is kept as an internal record
 // (goldenBuildKind), so hostd, which reads goldens, sees only their hashes.
 type buildSpec struct {
-	// Image is the request a box image is resolved from.
+	// Image is the request a box image is resolved from, and Env the
+	// environment a box of it is given: its devcontainer's containerEnv.
 	Image *devcontainer.Request `json:"image,omitempty"`
+	Env   map[string]string     `json:"env,omitempty"`
 	// Mirror is a warm checkout's, Branch the branch it follows.
 	Mirror string `json:"mirror,omitempty"`
 	Branch string `json:"branch,omitempty"`
@@ -298,10 +300,12 @@ func (s *Server) reconcileGolden(ctx context.Context, key controller.Key) error 
 		return nil
 	}
 	if jerr != nil {
+		// Said once: a transient failure is tried again when the key comes
+		// back, as a target that did not answer may answer then.
+		s.jobs.forget(job)
 		if transient(jerr) {
 			return fmt.Errorf("building golden %s: %w: %w", key, controller.ErrWaiting, jerr)
 		}
-		s.jobs.forget(job)
 		return s.setGolden(ctx, g, envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED, "BuildFailed", jerr.Error(), nil)
 	}
 	p, err := s.providerFor(g.GetSpec().GetTarget())
@@ -331,16 +335,17 @@ func (s *Server) reconcileGolden(ctx context.Context, key controller.Key) error 
 	return s.setGolden(ctx, g, envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED, "BuildFailed", "the golden names no inputs", nil)
 }
 
-// buildImage builds a box image through the provider.
+// buildImage builds a box image through the provider, from the base
+// image the golden was made for: one whose tag moved since is built as the
+// golden's inputs say.
 func (s *Server) buildImage(ctx context.Context, p provider.Provider, g *envv1alpha1.Golden, build buildSpec) error {
 	if build.Image == nil {
 		return fmt.Errorf("the image's request is not recorded: %w", provider.ErrFailed)
 	}
-	img, err := s.cfg.Resolver.Image(ctx, *build.Image)
-	if err != nil {
-		return err
+	ref, err := s.resolveAndBuild(ctx, p, g, *build.Image)
+	if errors.Is(err, devcontainer.ErrUnresolvable) {
+		return fmt.Errorf("%s: %w", unresolvableMessage(err), provider.ErrFailed)
 	}
-	ref, err := p.BuildImage(ctx, provider.BuildRequest{Context: bytes.NewReader(img.Context), Repository: g.GetMetadata().GetProject() + "/box"})
 	if err != nil {
 		return err
 	}
@@ -349,6 +354,17 @@ func (s *Server) buildImage(ctx context.Context, p provider.Provider, g *envv1al
 			st.Artifact = ref
 		})
 	})
+}
+
+func (s *Server) resolveAndBuild(ctx context.Context, p provider.Provider, g *envv1alpha1.Golden, req devcontainer.Request) (string, error) {
+	img, err := s.cfg.Resolver.Image(ctx, p, req)
+	if err != nil {
+		return "", err
+	}
+	if d := g.GetSpec().GetBoxImage().GetBaseImageDigest(); d != "" {
+		img.BaseImageDigest = d
+	}
+	return s.cfg.Resolver.Build(ctx, p, req, img, g.GetMetadata().GetProject()+"/box")
 }
 
 // retryStatus runs write on the golden as stored until it is not refused
@@ -469,15 +485,20 @@ func (s *Server) convergeWarm(ctx context.Context, p provider.Provider, ref prov
 	if _, err := p.Checkout(ctx, ref, build.Mirror, warm.GetCommit(), "/workspace"); err != nil {
 		return err
 	}
-	w, err := s.cfg.Resolver.Warm(ctx, "", build.Mirror, warm.GetCommit())
-	if err != nil {
+	w, err := s.cfg.Resolver.Warm(ctx, p, build.Mirror, warm.GetCommit())
+	if err != nil || len(w.Install) == 0 {
 		return err
 	}
 	return s.mustRun(ctx, p, ref, nil, "/workspace", w.Install...)
 }
 
 // convergeMachine runs a blueprint's golden phase in the builder, with its
-// golden vars, which are part of what the golden is.
+// golden vars, which are part of what the golden is: every task of the
+// playbook but those tagged configure, which run in each machine
+// (configureMachine). This is how workstream's blueprints are written:
+// their tasks are untagged, and a task that needs a machine's own vars or
+// secrets is tagged configure (workstream: src/machine/drivers/
+// ansible-qemu.ts).
 func (s *Server) convergeMachine(ctx context.Context, p provider.Provider, ref provider.Instance, build buildSpec) error {
 	if err := p.WriteFile(ctx, ref, "/opt/tower/blueprint.yml", 0o600, 0, strings.NewReader(build.Blueprint)); err != nil {
 		return err
@@ -490,7 +511,7 @@ func (s *Server) convergeMachine(ctx context.Context, p provider.Provider, ref p
 		return err
 	}
 	return s.mustRun(ctx, p, ref, nil, "/opt/tower",
-		"ansible-playbook", "--connection=local", "--inventory=localhost,", "--tags=golden", "--extra-vars=@golden-vars.json", "blueprint.yml")
+		"ansible-playbook", "--connection=local", "--inventory=localhost,", "--skip-tags=configure", "--extra-vars=@golden-vars.json", "blueprint.yml")
 }
 
 // mustRun runs a command, a non-zero exit being a failure of the work,

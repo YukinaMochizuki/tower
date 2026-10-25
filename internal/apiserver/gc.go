@@ -53,7 +53,8 @@ func (g *gcProgress) status() controller.Status {
 //
 // A sweep over everything runs on start and then periodically, and catches
 // whatever following writes missed. Failures are logged, never fatal: the next
-// sweep retries.
+// sweep retries. Dependents are found through s.ownerIdx, which the start
+// builds and the writes followed keep up to date.
 func (s *Server) runGC(ctx context.Context) error {
 	ticker := s.clock.NewTicker(s.cfg.SweepInterval)
 	defer ticker.Stop()
@@ -68,9 +69,13 @@ func (s *Server) runGC(ctx context.Context) error {
 		}
 	}()
 	for {
+		s.ownerIdx.invalidate()
 		rev, err := s.store.Revision(ctx)
 		if err != nil {
 			return err
+		}
+		if err := s.indexOwners(ctx, rev); err != nil && ctx.Err() == nil {
+			s.log.Error("garbage collection could not index owner references; it scans the store instead", "error", err)
 		}
 		s.sweep(ctx)
 		s.gc.follow(rev)
@@ -85,6 +90,9 @@ func (s *Server) runGC(ctx context.Context) error {
 				s.log.Error("garbage collection could not decode an object", "kind", ev.Object.Kind, "name", ev.Object.Name, "error", err)
 				return nil
 			}
+			// The index is updated first, so what follows finds a deleted
+			// object no longer among its owners' dependents.
+			newOwner := s.ownerIdx.apply(ev, ownerUIDs(obj))
 			key := resource.Key{Project: ev.Object.Project, Name: ev.Object.Name}
 			if ev.Type == store.EventDeleted {
 				s.deleteDependents(ctx, object.Meta(obj).GetUid())
@@ -92,8 +100,9 @@ func (s *Server) runGC(ctx context.Context) error {
 				return nil
 			}
 			// An owner reference the system set itself is not checked on
-			// create, and its owner may have gone in the meantime.
-			if ev.Type == store.EventCreated {
+			// create, and its owner may have gone in the meantime; so may that
+			// of one added later, whose owner's delete found nothing to take.
+			if ev.Type == store.EventCreated || newOwner {
 				s.collectIfOrphaned(ctx, b, key, obj)
 			}
 			if s.isCascading(b, obj) {
@@ -108,6 +117,22 @@ func (s *Server) runGC(ctx context.Context) error {
 			return err
 		}
 	}
+}
+
+// indexOwners builds s.ownerIdx from the store, listed once rev was read, so
+// that following the writes after rev keeps it up to date. A write the
+// listing already shows is applied again, which leaves it as it was.
+func (s *Server) indexOwners(ctx context.Context, rev int64) error {
+	m := newOwnerMap()
+	err := s.eachObject(ctx, func(b *backend, key resource.Key, obj proto.Message) error {
+		m.set(b.storeKey(key), ownerUIDs(obj))
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	s.ownerIdx.install(rev, m)
+	return nil
 }
 
 func (s *Server) isCascading(b *backend, obj proto.Message) bool {
@@ -159,20 +184,85 @@ func (s *Server) eachObject(ctx context.Context, fn func(b *backend, key resourc
 	return nil
 }
 
-// dependents calls fn for every object owned by the uid.
-func (s *Server) dependents(ctx context.Context, ownerUID string, fn func(b *backend, key resource.Key)) error {
-	return s.eachObject(ctx, func(b *backend, key resource.Key, obj proto.Message) error {
-		if slices.ContainsFunc(object.Meta(obj).GetOwnerReferences(), func(r *metav1.OwnerReference) bool {
-			return r.GetUid() == ownerUID
-		}) {
-			fn(b, key)
+// dependents calls fn for every object that may be owned by the uid, which
+// fn reads and checks before it acts. Those s.ownerIdx holds are as of the
+// writes followed so far; with complete, so are those written since, which
+// a cascade needs before it concludes that nothing is left: a dependent
+// written since is in the store, and its owner must not go before it.
+func (s *Server) dependents(ctx context.Context, ownerUID string, complete bool, fn func(b *backend, key resource.Key)) error {
+	keys, rev, ok := s.ownerIdx.lookup(ownerUID)
+	var err error
+	if ok && complete {
+		keys, ok, err = s.ownedSince(ctx, ownerUID, rev, keys)
+		if err != nil {
+			return err
+		}
+	}
+	if !ok {
+		if keys, err = s.scanDependents(ctx, ownerUID); err != nil {
+			return err
+		}
+	}
+	for _, k := range keys {
+		if b, ok := s.backends[k.Kind]; ok {
+			fn(b, resource.Key{Project: k.Project, Name: k.Name})
+		}
+	}
+	return nil
+}
+
+// errCaughtUp ends a watch that has reached the revision it was after.
+var errCaughtUp = errors.New("caught up")
+
+// ownedSince adds to keys those of the objects written after rev, through
+// the store's current revision, that name the uid. It returns false if the
+// store no longer holds the writes since rev.
+func (s *Server) ownedSince(ctx context.Context, ownerUID string, rev int64, keys []store.Key) ([]store.Key, bool, error) {
+	cur, err := s.store.Revision(ctx)
+	if err != nil || cur <= rev {
+		return keys, true, err
+	}
+	err = s.store.Watch(ctx, store.WatchOptions{SinceRevision: rev}, func(ev store.Event) error {
+		b, ok := s.backends[ev.Object.Kind]
+		if ok && ev.Type != store.EventDeleted && !slices.Contains(keys, ev.Object.Key) {
+			obj, err := b.decode(ev.Object)
+			if err != nil {
+				return err
+			}
+			if slices.Contains(ownerUIDs(obj), ownerUID) {
+				keys = append(keys, ev.Object.Key)
+			}
+		}
+		if ev.Revision >= cur {
+			return errCaughtUp
 		}
 		return nil
 	})
+	switch {
+	case errors.Is(err, errCaughtUp):
+		return keys, true, nil
+	case errors.Is(err, store.ErrCompacted):
+		return nil, false, nil
+	default:
+		return nil, false, err
+	}
+}
+
+// scanDependents returns the keys of every object that names the uid, read
+// from the whole store: what dependents does when the index cannot answer.
+func (s *Server) scanDependents(ctx context.Context, ownerUID string) ([]store.Key, error) {
+	var keys []store.Key
+	err := s.eachObject(ctx, func(b *backend, key resource.Key, obj proto.Message) error {
+		if slices.Contains(ownerUIDs(obj), ownerUID) {
+			keys = append(keys, b.storeKey(key))
+		}
+		return nil
+	})
+	return keys, err
 }
 
 func (s *Server) deleteDependents(ctx context.Context, ownerUID string) {
-	err := s.dependents(ctx, ownerUID, func(b *backend, key resource.Key) { s.collect(ctx, b, key) })
+	err := s.dependents(ctx, ownerUID, false, func(b *backend, key resource.Key) { s.collectOwned(ctx, b, key, ownerUID) })
 	if err != nil && ctx.Err() == nil {
 		s.log.Error("deleting dependents failed", "owner", ownerUID, "error", err)
 	}
@@ -182,9 +272,11 @@ func (s *Server) deleteDependents(ctx context.Context, ownerUID string) {
 // once nothing is left, which completes its deletion.
 func (s *Server) cascade(ctx context.Context, b *backend, key resource.Key, obj proto.Message) {
 	remaining := 0
-	err := s.dependents(ctx, object.Meta(obj).GetUid(), func(db *backend, dkey resource.Key) {
-		remaining++
-		s.collect(ctx, db, dkey)
+	uid := object.Meta(obj).GetUid()
+	err := s.dependents(ctx, uid, true, func(db *backend, dkey resource.Key) {
+		if s.collectOwned(ctx, db, dkey, uid) {
+			remaining++
+		}
 	})
 	if err != nil {
 		if ctx.Err() == nil {
@@ -256,13 +348,17 @@ func (s *Server) collectIfOrphaned(ctx context.Context, b *backend, key resource
 	}
 	if gone {
 		// Only the object the event was about: a later one of the same name
-		// has owners of its own.
+		// has owners of its own. And only if it still names an owner that
+		// is gone: a later write may have taken the reference back.
 		cur, err := s.store.Get(ctx, b.storeKey(key))
 		if err != nil {
 			return
 		}
 		now, err := b.decode(cur)
 		if err != nil || object.Meta(now).GetUid() != object.Meta(obj).GetUid() {
+			return
+		}
+		if gone, err := s.orphaned(ctx, key, now); err != nil || !gone {
 			return
 		}
 		rv := cur.Revision
@@ -317,6 +413,48 @@ func (s *Server) collect(ctx context.Context, b *backend, key resource.Key) {
 	case connect.CodeOf(err) != connect.CodeNotFound && ctx.Err() == nil:
 		s.log.Error("collecting failed", "kind", b.r.Kind, "project", key.Project, "name", key.Name, "error", err)
 	}
+}
+
+// collectOwned deletes the object at key as the system if it names the
+// uid as an owner, and reports whether it did when read, so it was there to
+// wait for. The delete is conditional on what was read, so an object that
+// stopped naming the uid, or another of its name, is never taken. A failure
+// is logged rather than returned: the next sweep tries again.
+func (s *Server) collectOwned(ctx context.Context, b *backend, key resource.Key, ownerUID string) (owned bool) {
+	for range maxRetries {
+		cur, err := s.store.Get(ctx, b.storeKey(key))
+		if err != nil {
+			if !errors.Is(err, store.ErrNotFound) && ctx.Err() == nil {
+				s.log.Error("reading a dependent failed", "kind", b.r.Kind, "project", key.Project, "name", key.Name, "error", err)
+			}
+			return false
+		}
+		obj, err := b.decode(cur)
+		if err != nil {
+			s.log.Error("garbage collection could not decode an object", "kind", b.r.Kind, "name", key.Name, "error", err)
+			return false
+		}
+		if !slices.Contains(ownerUIDs(obj), ownerUID) {
+			return false
+		}
+		rv := cur.Revision
+		_, err = b.Delete(s.system(ctx), key, &rv)
+		switch c := connect.CodeOf(err); {
+		case err == nil:
+			s.log.Info("collected", "kind", b.r.Kind, "project", key.Project, "name", key.Name)
+			return true
+		case c == connect.CodeAborted:
+			continue
+		case c == connect.CodeNotFound:
+			return false
+		default:
+			if ctx.Err() == nil {
+				s.log.Error("collecting failed", "kind", b.r.Kind, "project", key.Project, "name", key.Name, "error", err)
+			}
+			return true
+		}
+	}
+	return true
 }
 
 // RemoveFinalizer removes a finalizer from an object as the system, and

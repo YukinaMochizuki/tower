@@ -27,3 +27,33 @@ carry toolchain configuration that has no reason to leave the tailnet.
 - Providers need two primitives for images, build-and-push and run-from-the-
   registry, and policy does not branch.
 - The registry is one more service to run and back up.
+- **A build step runs on a network of its own.** A Dockerfile's `RUN` is a
+  project's code, run by BuildKit on the host. BuildKit's OCI worker runs
+  it in the host's network namespace unless told otherwise; on a hostd
+  host it is told `networkMode = "cni"`: each step has a namespace of its
+  own on the bridge `tower-build0` (no workstream's; `TOWER_BUILD_SUBNET`,
+  10.231.0.0/24 by default), masqueraded out. The nftables table
+  `tower_build` (`deploy/hostd/build-network.nft`, loaded as buildkitd
+  starts) leaves it the internet and DNS: it drops what the bridge sends
+  to the host, at any of its addresses, and what it sends to Docker's
+  bridges (every workstream's network, a VM's container's among them),
+  the tailnet, and any private, shared, link-local or multicast address
+  but on port 53. Pulling a `FROM` and pushing the result are BuildKit's
+  own, in the host's namespace, as they were. Two steps building at once
+  share the bridge, and reach each other: nothing filters a bridge's own
+  traffic without `br_netfilter`. The testbed's
+  `TestABuildStepReachesNothingOfTheHost` holds this.
+- **Known gap: one project can reach another's images.** Every hostd signs
+  in to the registry as one user, which reads and writes every repository,
+  and a box may name any image (`BoxSpec.image`, `fallback_image`, a
+  devcontainer's `image`, a Dockerfile's `FROM`), so a project's box can be
+  made of another project's image, or a build of one can push over
+  another's repository. Accepted for the pilot, where one product is on a
+  target; it must be closed before a second project shares a target, one
+  of two ways:
+  - the apiserver limits which of the registry's repositories a project
+    may name (its own `<project>/` alone) in what it builds and runs, and
+    names nothing else of tower's registry; or
+  - each project has registry credentials of its own, scoped to its
+    repositories, which hostd uses for that project's pulls and builds
+    alone.

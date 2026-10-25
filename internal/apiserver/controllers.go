@@ -165,6 +165,11 @@ var (
 	errNoProvider = errors.New("no provider is configured for the target")
 )
 
+// ProviderFor is the provider tower calls the target through, as its
+// controllers do: for a hostd target, the hostd behind its tunnel. The
+// testbed holds it to the provider contract (test/testbed/provider).
+func (s *Server) ProviderFor(target string) (provider.Provider, error) { return s.providerFor(target) }
+
 // providerFor is the provider of the target.
 func (s *Server) providerFor(target string) (provider.Provider, error) {
 	providers := s.cfg.Providers

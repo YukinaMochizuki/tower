@@ -30,8 +30,12 @@ service HostService {
   rpc Copy(CopyRequest) returns (CopyResponse);
   // BuildImage builds an image from a build context and pushes it to the
   // registry. The first request says where it goes; later ones carry the
-  // context, a tar stream.
+  // context, a tar stream, unless the first names a mirror's work tree as
+  // the context, which stays on the host.
   rpc BuildImage(stream BuildImageRequest) returns (BuildImageResponse);
+  // ResolveImage reads what an image reference names from its registry,
+  // without pulling it.
+  rpc ResolveImage(ResolveImageRequest) returns (ResolveImageResponse);
   // Capture makes a golden artifact of a stopped instance's disk.
   rpc Capture(CaptureRequest) returns (CaptureResponse);
   // DeleteArtifact deletes a golden artifact; one already gone is no
@@ -46,6 +50,9 @@ service HostService {
   rpc UpdateOrigin(UpdateOriginRequest) returns (UpdateOriginResponse);
   // CommitsBehind counts the commits on a mirror's branch since a commit.
   rpc CommitsBehind(CommitsBehindRequest) returns (CommitsBehindResponse);
+  // ReadMirror reads paths of a mirror's work tree at a ref: what each is
+  // and, if asked, a small file's content.
+  rpc ReadMirror(ReadMirrorRequest) returns (ReadMirrorResponse);
   // Push pushes a branch of an instance's checkout through the mirror,
   // forcing only with a lease.
   rpc Push(PushRequest) returns (PushResponse);
@@ -160,10 +167,38 @@ message BuildImageRequest {
   }
 }
 
-// BuildImageStart says where a built image goes.
+// BuildImageStart says where a built image goes, and what it is built
+// from.
 message BuildImageStart {
   // Where in the registry, such as "web/box-images".
   string repository = 1;
+  // The context's directory in the tar or the work tree, empty for its
+  // root.
+  string dir = 2;
+  // The Dockerfile's path in the tar or the work tree; empty is
+  // dir/Dockerfile.
+  string dockerfile = 3;
+  // When set, the context is this mirror's work tree, and no context
+  // follows.
+  MirrorSource mirror = 4;
+}
+
+// MirrorSource is a mirror's work tree at a ref.
+message MirrorSource {
+  string mirror = 1;
+  // A branch, tag or commit; empty is the branch the mirror fetched.
+  string ref = 2;
+}
+
+message ResolveImageRequest {
+  string ref = 1;
+}
+
+message ResolveImageResponse {
+  // The manifest's digest, such as "sha256:...".
+  string digest = 1;
+  // The user it runs as, empty for root.
+  string user = 2;
 }
 
 message BuildImageResponse {
@@ -231,6 +266,31 @@ message CommitsBehindRequest {
 
 message CommitsBehindResponse {
   int32 commits = 1;
+}
+
+message ReadMirrorRequest {
+  MirrorSource source = 1;
+  // Relative to the work tree's root; empty is the root.
+  repeated string paths = 2;
+  // Whether to give the content of each file of at most 1 MiB.
+  bool content = 3;
+}
+
+message ReadMirrorResponse {
+  // The commit the ref is at.
+  string commit = 1;
+  // The paths that are there.
+  map<string, MirrorEntry> entries = 2;
+}
+
+// MirrorEntry is one path of a mirror's work tree.
+message MirrorEntry {
+  // Its git object id; a directory's is its tree's.
+  string object = 1;
+  bool dir = 2;
+  int64 size = 3;
+  // A file's content, when asked for and small enough.
+  bytes content = 4;
 }
 
 message PushRequest {

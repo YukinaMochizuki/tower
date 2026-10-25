@@ -183,23 +183,42 @@ type BoxSpec struct {
 	// machines share a network and reach each other by alias.
 	Workstream string `protobuf:"bytes,1,opt,name=workstream,proto3" json:"workstream,omitempty"`
 	// The repositories to check out: the first at /workspace, each other at
-	// /repos/<repository>. Empty is an empty box, which needs image.
+	// /repos/<repository>. Empty is an empty box, which needs image. The
+	// first's devcontainer is the box's image unless image or image_build
+	// is set, read as workstream reads it (docs/decisions/devcontainers.md).
 	Checkouts []*Checkout `protobuf:"bytes,2,rep,name=checkouts,proto3" json:"checkouts,omitempty"`
-	// Add-ons layered onto the image, such as "browser" or "desktop".
+	// Add-ons layered onto the image, in this order: "browser" or
+	// "desktop", workstream's (docs/decisions/box-addons.md).
 	Addons []string `protobuf:"bytes,3,rep,name=addons,proto3" json:"addons,omitempty"`
 	// An explicit base image, which skips the first checkout's devcontainer.
+	// At most one of image and image_build is set.
 	Image string `protobuf:"bytes,4,opt,name=image,proto3" json:"image,omitempty"`
-	// A Secret in the same project whose values reach every command run in
-	// the box, as environment variables; empty is not privileged. The values
-	// never enter a spec of a lower layer (docs/decisions/secrets.md).
-	PrivilegedSecret string `protobuf:"bytes,5,opt,name=privileged_secret,json=privilegedSecret,proto3" json:"privileged_secret,omitempty"`
 	// Never stopped for idleness while set: workstream's keep_box. A box
 	// with a process running (EnvironmentService.StartProcess) is not either.
 	Keep bool `protobuf:"varint,6,opt,name=keep,proto3" json:"keep,omitempty"`
 	// RUN_STATE_STOPPED when workstream hibernates the box. Stopping it ends
 	// every process running in it.
-	RunState      RunState   `protobuf:"varint,8,opt,name=run_state,json=runState,proto3,enum=tower.environments.v1alpha1.RunState" json:"run_state,omitempty"`
-	Resources     *Resources `protobuf:"bytes,9,opt,name=resources,proto3" json:"resources,omitempty"`
+	RunState  RunState   `protobuf:"varint,8,opt,name=run_state,json=runState,proto3,enum=tower.environments.v1alpha1.RunState" json:"run_state,omitempty"`
+	Resources *Resources `protobuf:"bytes,9,opt,name=resources,proto3" json:"resources,omitempty"`
+	// Values of Secrets in the same project that reach every command and
+	// process run in the box, as environment variables named by their as;
+	// none is not privileged. The values never enter a spec of a lower layer
+	// (docs/decisions/secrets.md).
+	PrivilegedSecrets []*SecretRef `protobuf:"bytes,10,rep,name=privileged_secrets,json=privilegedSecrets,proto3" json:"privileged_secrets,omitempty"`
+	// Values of Secrets in the same project written into the box as files,
+	// at each start of its instance and before any command runs in it.
+	SecretFiles []*SecretFile `protobuf:"bytes,11,rep,name=secret_files,json=secretFiles,proto3" json:"secret_files,omitempty"`
+	// An image built for the box from a Dockerfile, with its add-ons layered
+	// on, as a container blueprint is, which skips the first checkout's
+	// devcontainer. At most one of image and image_build is set.
+	ImageBuild *ImageBuild `protobuf:"bytes,12,opt,name=image_build,json=imageBuild,proto3" json:"image_build,omitempty"`
+	// The image the box is made of when its first checkout has no
+	// devcontainer at its ref, or one tower cannot make a box of (its
+	// DevcontainerFellBack condition says why), with its add-ons layered on:
+	// workstream sends the repository's boxImage or its own default, as its
+	// setup "auto" falls back to them. Empty is tower's --default-box-image;
+	// a box with neither fails. Not with image or image_build.
+	FallbackImage string `protobuf:"bytes,13,opt,name=fallback_image,json=fallbackImage,proto3" json:"fallback_image,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -262,13 +281,6 @@ func (x *BoxSpec) GetImage() string {
 	return ""
 }
 
-func (x *BoxSpec) GetPrivilegedSecret() string {
-	if x != nil {
-		return x.PrivilegedSecret
-	}
-	return ""
-}
-
 func (x *BoxSpec) GetKeep() bool {
 	if x != nil {
 		return x.Keep
@@ -290,6 +302,164 @@ func (x *BoxSpec) GetResources() *Resources {
 	return nil
 }
 
+func (x *BoxSpec) GetPrivilegedSecrets() []*SecretRef {
+	if x != nil {
+		return x.PrivilegedSecrets
+	}
+	return nil
+}
+
+func (x *BoxSpec) GetSecretFiles() []*SecretFile {
+	if x != nil {
+		return x.SecretFiles
+	}
+	return nil
+}
+
+func (x *BoxSpec) GetImageBuild() *ImageBuild {
+	if x != nil {
+		return x.ImageBuild
+	}
+	return nil
+}
+
+func (x *BoxSpec) GetFallbackImage() string {
+	if x != nil {
+		return x.FallbackImage
+	}
+	return ""
+}
+
+// SecretFile is one value of a Secret written into a box as a file. The
+// value enters no object, status, log or event, nor any disk: it is held
+// in memory in the box, its path a link to it (docs/decisions/secrets.md).
+type SecretFile struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A Secret in the same project.
+	Secret string `protobuf:"bytes,1,opt,name=secret,proto3" json:"secret,omitempty"`
+	Key    string `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	// Where in the box, an absolute path.
+	Path string `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
+	// The file's permission bits; 0 is 0600.
+	Mode          uint32 `protobuf:"varint,4,opt,name=mode,proto3" json:"mode,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SecretFile) Reset() {
+	*x = SecretFile{}
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SecretFile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SecretFile) ProtoMessage() {}
+
+func (x *SecretFile) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SecretFile.ProtoReflect.Descriptor instead.
+func (*SecretFile) Descriptor() ([]byte, []int) {
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *SecretFile) GetSecret() string {
+	if x != nil {
+		return x.Secret
+	}
+	return ""
+}
+
+func (x *SecretFile) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *SecretFile) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *SecretFile) GetMode() uint32 {
+	if x != nil {
+		return x.Mode
+	}
+	return 0
+}
+
+// ImageBuild is a box image's own build: a Dockerfile and the files its
+// context holds beside it, 16 MiB in all at most.
+type ImageBuild struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Dockerfile string                 `protobuf:"bytes,1,opt,name=dockerfile,proto3" json:"dockerfile,omitempty"`
+	// The context's files by their relative path, such as "etc/app.conf";
+	// never "Dockerfile".
+	Files         map[string][]byte `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ImageBuild) Reset() {
+	*x = ImageBuild{}
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ImageBuild) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ImageBuild) ProtoMessage() {}
+
+func (x *ImageBuild) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ImageBuild.ProtoReflect.Descriptor instead.
+func (*ImageBuild) Descriptor() ([]byte, []int) {
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ImageBuild) GetDockerfile() string {
+	if x != nil {
+		return x.Dockerfile
+	}
+	return ""
+}
+
+func (x *ImageBuild) GetFiles() map[string][]byte {
+	if x != nil {
+		return x.Files
+	}
+	return nil
+}
+
 // Checkout is one repository checked out in a box.
 type Checkout struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -303,7 +473,7 @@ type Checkout struct {
 
 func (x *Checkout) Reset() {
 	*x = Checkout{}
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[2]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -315,7 +485,7 @@ func (x *Checkout) String() string {
 func (*Checkout) ProtoMessage() {}
 
 func (x *Checkout) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[2]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -328,7 +498,7 @@ func (x *Checkout) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Checkout.ProtoReflect.Descriptor instead.
 func (*Checkout) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{2}
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Checkout) GetRepository() string {
@@ -349,7 +519,10 @@ func (x *Checkout) GetRef() string {
 type BoxStatus struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	ObservedGeneration int64                  `protobuf:"varint,1,opt,name=observed_generation,json=observedGeneration,proto3" json:"observed_generation,omitempty"`
-	// Ready, with ImageBuilt and Materialized on the way to it.
+	// Ready, with ImageBuilt and Materialized on the way to it; SetUp,
+	// which says whether its devcontainer's setup steps passed: one that did
+	// not leaves the box READY; and DevcontainerFellBack, true when its image
+	// is the one to fall back to, saying why.
 	Conditions []*v1.Condition `protobuf:"bytes,2,rep,name=conditions,proto3" json:"conditions,omitempty"`
 	Phase      BoxPhase        `protobuf:"varint,3,opt,name=phase,proto3,enum=tower.environments.v1alpha1.BoxPhase" json:"phase,omitempty"`
 	// Why a STOPPED box stopped: "Requested" (run_state) or "Idle".
@@ -373,7 +546,7 @@ type BoxStatus struct {
 
 func (x *BoxStatus) Reset() {
 	*x = BoxStatus{}
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[3]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -385,7 +558,7 @@ func (x *BoxStatus) String() string {
 func (*BoxStatus) ProtoMessage() {}
 
 func (x *BoxStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[3]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -398,7 +571,7 @@ func (x *BoxStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoxStatus.ProtoReflect.Descriptor instead.
 func (*BoxStatus) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{3}
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *BoxStatus) GetObservedGeneration() int64 {
@@ -481,7 +654,7 @@ type GetBoxRequest struct {
 
 func (x *GetBoxRequest) Reset() {
 	*x = GetBoxRequest{}
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[4]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -493,7 +666,7 @@ func (x *GetBoxRequest) String() string {
 func (*GetBoxRequest) ProtoMessage() {}
 
 func (x *GetBoxRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[4]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -506,7 +679,7 @@ func (x *GetBoxRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBoxRequest.ProtoReflect.Descriptor instead.
 func (*GetBoxRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{4}
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetBoxRequest) GetProject() string {
@@ -532,7 +705,7 @@ type GetBoxResponse struct {
 
 func (x *GetBoxResponse) Reset() {
 	*x = GetBoxResponse{}
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[5]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -544,7 +717,7 @@ func (x *GetBoxResponse) String() string {
 func (*GetBoxResponse) ProtoMessage() {}
 
 func (x *GetBoxResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[5]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -557,7 +730,7 @@ func (x *GetBoxResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBoxResponse.ProtoReflect.Descriptor instead.
 func (*GetBoxResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{5}
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetBoxResponse) GetBox() *Box {
@@ -580,7 +753,7 @@ type ListBoxesRequest struct {
 
 func (x *ListBoxesRequest) Reset() {
 	*x = ListBoxesRequest{}
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[6]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -592,7 +765,7 @@ func (x *ListBoxesRequest) String() string {
 func (*ListBoxesRequest) ProtoMessage() {}
 
 func (x *ListBoxesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[6]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -605,7 +778,7 @@ func (x *ListBoxesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBoxesRequest.ProtoReflect.Descriptor instead.
 func (*ListBoxesRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{6}
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListBoxesRequest) GetProject() string {
@@ -647,7 +820,7 @@ type ListBoxesResponse struct {
 
 func (x *ListBoxesResponse) Reset() {
 	*x = ListBoxesResponse{}
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[7]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -659,7 +832,7 @@ func (x *ListBoxesResponse) String() string {
 func (*ListBoxesResponse) ProtoMessage() {}
 
 func (x *ListBoxesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[7]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -672,7 +845,7 @@ func (x *ListBoxesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBoxesResponse.ProtoReflect.Descriptor instead.
 func (*ListBoxesResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{7}
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListBoxesResponse) GetItems() []*Box {
@@ -708,7 +881,7 @@ type WatchBoxesRequest struct {
 
 func (x *WatchBoxesRequest) Reset() {
 	*x = WatchBoxesRequest{}
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[8]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -720,7 +893,7 @@ func (x *WatchBoxesRequest) String() string {
 func (*WatchBoxesRequest) ProtoMessage() {}
 
 func (x *WatchBoxesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[8]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -733,7 +906,7 @@ func (x *WatchBoxesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchBoxesRequest.ProtoReflect.Descriptor instead.
 func (*WatchBoxesRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{8}
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *WatchBoxesRequest) GetProject() string {
@@ -768,7 +941,7 @@ type WatchBoxesResponse struct {
 
 func (x *WatchBoxesResponse) Reset() {
 	*x = WatchBoxesResponse{}
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[9]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -780,7 +953,7 @@ func (x *WatchBoxesResponse) String() string {
 func (*WatchBoxesResponse) ProtoMessage() {}
 
 func (x *WatchBoxesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[9]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -793,7 +966,7 @@ func (x *WatchBoxesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchBoxesResponse.ProtoReflect.Descriptor instead.
 func (*WatchBoxesResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{9}
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *WatchBoxesResponse) GetType() v1.EventType {
@@ -828,7 +1001,7 @@ type ApplyBoxRequest struct {
 
 func (x *ApplyBoxRequest) Reset() {
 	*x = ApplyBoxRequest{}
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[10]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -840,7 +1013,7 @@ func (x *ApplyBoxRequest) String() string {
 func (*ApplyBoxRequest) ProtoMessage() {}
 
 func (x *ApplyBoxRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[10]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -853,7 +1026,7 @@ func (x *ApplyBoxRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyBoxRequest.ProtoReflect.Descriptor instead.
 func (*ApplyBoxRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{10}
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ApplyBoxRequest) GetBox() *Box {
@@ -881,7 +1054,7 @@ type ApplyBoxResponse struct {
 
 func (x *ApplyBoxResponse) Reset() {
 	*x = ApplyBoxResponse{}
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[11]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -893,7 +1066,7 @@ func (x *ApplyBoxResponse) String() string {
 func (*ApplyBoxResponse) ProtoMessage() {}
 
 func (x *ApplyBoxResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[11]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -906,7 +1079,7 @@ func (x *ApplyBoxResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyBoxResponse.ProtoReflect.Descriptor instead.
 func (*ApplyBoxResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{11}
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ApplyBoxResponse) GetBox() *Box {
@@ -941,7 +1114,7 @@ type DeleteBoxRequest struct {
 
 func (x *DeleteBoxRequest) Reset() {
 	*x = DeleteBoxRequest{}
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[12]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -953,7 +1126,7 @@ func (x *DeleteBoxRequest) String() string {
 func (*DeleteBoxRequest) ProtoMessage() {}
 
 func (x *DeleteBoxRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[12]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -966,7 +1139,7 @@ func (x *DeleteBoxRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteBoxRequest.ProtoReflect.Descriptor instead.
 func (*DeleteBoxRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{12}
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DeleteBoxRequest) GetProject() string {
@@ -999,7 +1172,7 @@ type DeleteBoxResponse struct {
 
 func (x *DeleteBoxResponse) Reset() {
 	*x = DeleteBoxResponse{}
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[13]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1011,7 +1184,7 @@ func (x *DeleteBoxResponse) String() string {
 func (*DeleteBoxResponse) ProtoMessage() {}
 
 func (x *DeleteBoxResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[13]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1024,7 +1197,7 @@ func (x *DeleteBoxResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteBoxResponse.ProtoReflect.Descriptor instead.
 func (*DeleteBoxResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{13}
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *DeleteBoxResponse) GetBox() *Box {
@@ -1046,7 +1219,7 @@ type UpdateBoxStatusRequest struct {
 
 func (x *UpdateBoxStatusRequest) Reset() {
 	*x = UpdateBoxStatusRequest{}
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[14]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1058,7 +1231,7 @@ func (x *UpdateBoxStatusRequest) String() string {
 func (*UpdateBoxStatusRequest) ProtoMessage() {}
 
 func (x *UpdateBoxStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[14]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1071,7 +1244,7 @@ func (x *UpdateBoxStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateBoxStatusRequest.ProtoReflect.Descriptor instead.
 func (*UpdateBoxStatusRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{14}
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *UpdateBoxStatusRequest) GetProject() string {
@@ -1111,7 +1284,7 @@ type UpdateBoxStatusResponse struct {
 
 func (x *UpdateBoxStatusResponse) Reset() {
 	*x = UpdateBoxStatusResponse{}
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[15]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1123,7 +1296,7 @@ func (x *UpdateBoxStatusResponse) String() string {
 func (*UpdateBoxStatusResponse) ProtoMessage() {}
 
 func (x *UpdateBoxStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[15]
+	mi := &file_tower_environments_v1alpha1_box_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1136,7 +1309,7 @@ func (x *UpdateBoxStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateBoxStatusResponse.ProtoReflect.Descriptor instead.
 func (*UpdateBoxStatusResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{15}
+	return file_tower_environments_v1alpha1_box_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *UpdateBoxStatusResponse) GetBox() *Box {
@@ -1150,7 +1323,7 @@ var File_tower_environments_v1alpha1_box_proto protoreflect.FileDescriptor
 
 const file_tower_environments_v1alpha1_box_proto_rawDesc = "" +
 	"\n" +
-	"%tower/environments/v1alpha1/box.proto\x12\x1btower.environments.v1alpha1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a(tower/environments/v1alpha1/common.proto\x1a\x18tower/meta/v1/meta.proto\x1a\x1btower/meta/v1/options.proto\"\x83\x02\n" +
+	"%tower/environments/v1alpha1/box.proto\x12\x1btower.environments.v1alpha1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a(tower/environments/v1alpha1/common.proto\x1a)tower/environments/v1alpha1/machine.proto\x1a\x18tower/meta/v1/meta.proto\x1a\x1btower/meta/v1/options.proto\"\x83\x02\n" +
 	"\x03Box\x12\x1f\n" +
 	"\vapi_version\x18\x01 \x01(\tR\n" +
 	"apiVersion\x12\x12\n" +
@@ -1158,18 +1331,39 @@ const file_tower_environments_v1alpha1_box_proto_rawDesc = "" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x128\n" +
 	"\x04spec\x18\x04 \x01(\v2$.tower.environments.v1alpha1.BoxSpecR\x04spec\x12>\n" +
 	"\x06status\x18\x05 \x01(\v2&.tower.environments.v1alpha1.BoxStatusR\x06status:\x16\x8a\xb5\x18\x12\n" +
-	"\x03Box\x12\x05boxes\x1a\x02bx \x01\"\xa6\x03\n" +
+	"\x03Box\x12\x05boxes\x1a\x02bx \x01\"\xbe\x05\n" +
 	"\aBoxSpec\x12&\n" +
 	"\n" +
 	"workstream\x18\x01 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\n" +
 	"workstream\x12K\n" +
 	"\tcheckouts\x18\x02 \x03(\v2%.tower.environments.v1alpha1.CheckoutB\x06\x8a\xb5\x18\x02\b\x01R\tcheckouts\x12\x1e\n" +
 	"\x06addons\x18\x03 \x03(\tB\x06\x8a\xb5\x18\x02\b\x01R\x06addons\x12\x1c\n" +
-	"\x05image\x18\x04 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\x05image\x123\n" +
-	"\x11privileged_secret\x18\x05 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\x10privilegedSecret\x12\x12\n" +
+	"\x05image\x18\x04 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\x05image\x12\x12\n" +
 	"\x04keep\x18\x06 \x01(\bR\x04keep\x12B\n" +
 	"\trun_state\x18\b \x01(\x0e2%.tower.environments.v1alpha1.RunStateR\brunState\x12D\n" +
-	"\tresources\x18\t \x01(\v2&.tower.environments.v1alpha1.ResourcesR\tresourcesJ\x04\b\a\x10\bR\x0fbackground_work\"<\n" +
+	"\tresources\x18\t \x01(\v2&.tower.environments.v1alpha1.ResourcesR\tresources\x12]\n" +
+	"\x12privileged_secrets\x18\n" +
+	" \x03(\v2&.tower.environments.v1alpha1.SecretRefB\x06\x8a\xb5\x18\x02\b\x01R\x11privilegedSecrets\x12R\n" +
+	"\fsecret_files\x18\v \x03(\v2'.tower.environments.v1alpha1.SecretFileB\x06\x8a\xb5\x18\x02\b\x01R\vsecretFiles\x12P\n" +
+	"\vimage_build\x18\f \x01(\v2'.tower.environments.v1alpha1.ImageBuildB\x06\x8a\xb5\x18\x02\b\x01R\n" +
+	"imageBuild\x12-\n" +
+	"\x0efallback_image\x18\r \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\rfallbackImageJ\x04\b\a\x10\bJ\x04\b\x05\x10\x06R\x0fbackground_workR\x11privileged_secret\"^\n" +
+	"\n" +
+	"SecretFile\x12\x16\n" +
+	"\x06secret\x18\x01 \x01(\tR\x06secret\x12\x10\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x12\x12\n" +
+	"\x04path\x18\x03 \x01(\tR\x04path\x12\x12\n" +
+	"\x04mode\x18\x04 \x01(\rR\x04mode\"\xb0\x01\n" +
+	"\n" +
+	"ImageBuild\x12\x1e\n" +
+	"\n" +
+	"dockerfile\x18\x01 \x01(\tR\n" +
+	"dockerfile\x12H\n" +
+	"\x05files\x18\x02 \x03(\v22.tower.environments.v1alpha1.ImageBuild.FilesEntryR\x05files\x1a8\n" +
+	"\n" +
+	"FilesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"<\n" +
 	"\bCheckout\x12\x1e\n" +
 	"\n" +
 	"repository\x18\x01 \x01(\tR\n" +
@@ -1269,68 +1463,76 @@ func file_tower_environments_v1alpha1_box_proto_rawDescGZIP() []byte {
 }
 
 var file_tower_environments_v1alpha1_box_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_tower_environments_v1alpha1_box_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_tower_environments_v1alpha1_box_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_tower_environments_v1alpha1_box_proto_goTypes = []any{
 	(BoxPhase)(0),                   // 0: tower.environments.v1alpha1.BoxPhase
 	(*Box)(nil),                     // 1: tower.environments.v1alpha1.Box
 	(*BoxSpec)(nil),                 // 2: tower.environments.v1alpha1.BoxSpec
-	(*Checkout)(nil),                // 3: tower.environments.v1alpha1.Checkout
-	(*BoxStatus)(nil),               // 4: tower.environments.v1alpha1.BoxStatus
-	(*GetBoxRequest)(nil),           // 5: tower.environments.v1alpha1.GetBoxRequest
-	(*GetBoxResponse)(nil),          // 6: tower.environments.v1alpha1.GetBoxResponse
-	(*ListBoxesRequest)(nil),        // 7: tower.environments.v1alpha1.ListBoxesRequest
-	(*ListBoxesResponse)(nil),       // 8: tower.environments.v1alpha1.ListBoxesResponse
-	(*WatchBoxesRequest)(nil),       // 9: tower.environments.v1alpha1.WatchBoxesRequest
-	(*WatchBoxesResponse)(nil),      // 10: tower.environments.v1alpha1.WatchBoxesResponse
-	(*ApplyBoxRequest)(nil),         // 11: tower.environments.v1alpha1.ApplyBoxRequest
-	(*ApplyBoxResponse)(nil),        // 12: tower.environments.v1alpha1.ApplyBoxResponse
-	(*DeleteBoxRequest)(nil),        // 13: tower.environments.v1alpha1.DeleteBoxRequest
-	(*DeleteBoxResponse)(nil),       // 14: tower.environments.v1alpha1.DeleteBoxResponse
-	(*UpdateBoxStatusRequest)(nil),  // 15: tower.environments.v1alpha1.UpdateBoxStatusRequest
-	(*UpdateBoxStatusResponse)(nil), // 16: tower.environments.v1alpha1.UpdateBoxStatusResponse
-	(*v1.ObjectMeta)(nil),           // 17: tower.meta.v1.ObjectMeta
-	(RunState)(0),                   // 18: tower.environments.v1alpha1.RunState
-	(*Resources)(nil),               // 19: tower.environments.v1alpha1.Resources
-	(*v1.Condition)(nil),            // 20: tower.meta.v1.Condition
-	(*timestamppb.Timestamp)(nil),   // 21: google.protobuf.Timestamp
-	(v1.EventType)(0),               // 22: tower.meta.v1.EventType
+	(*SecretFile)(nil),              // 3: tower.environments.v1alpha1.SecretFile
+	(*ImageBuild)(nil),              // 4: tower.environments.v1alpha1.ImageBuild
+	(*Checkout)(nil),                // 5: tower.environments.v1alpha1.Checkout
+	(*BoxStatus)(nil),               // 6: tower.environments.v1alpha1.BoxStatus
+	(*GetBoxRequest)(nil),           // 7: tower.environments.v1alpha1.GetBoxRequest
+	(*GetBoxResponse)(nil),          // 8: tower.environments.v1alpha1.GetBoxResponse
+	(*ListBoxesRequest)(nil),        // 9: tower.environments.v1alpha1.ListBoxesRequest
+	(*ListBoxesResponse)(nil),       // 10: tower.environments.v1alpha1.ListBoxesResponse
+	(*WatchBoxesRequest)(nil),       // 11: tower.environments.v1alpha1.WatchBoxesRequest
+	(*WatchBoxesResponse)(nil),      // 12: tower.environments.v1alpha1.WatchBoxesResponse
+	(*ApplyBoxRequest)(nil),         // 13: tower.environments.v1alpha1.ApplyBoxRequest
+	(*ApplyBoxResponse)(nil),        // 14: tower.environments.v1alpha1.ApplyBoxResponse
+	(*DeleteBoxRequest)(nil),        // 15: tower.environments.v1alpha1.DeleteBoxRequest
+	(*DeleteBoxResponse)(nil),       // 16: tower.environments.v1alpha1.DeleteBoxResponse
+	(*UpdateBoxStatusRequest)(nil),  // 17: tower.environments.v1alpha1.UpdateBoxStatusRequest
+	(*UpdateBoxStatusResponse)(nil), // 18: tower.environments.v1alpha1.UpdateBoxStatusResponse
+	nil,                             // 19: tower.environments.v1alpha1.ImageBuild.FilesEntry
+	(*v1.ObjectMeta)(nil),           // 20: tower.meta.v1.ObjectMeta
+	(RunState)(0),                   // 21: tower.environments.v1alpha1.RunState
+	(*Resources)(nil),               // 22: tower.environments.v1alpha1.Resources
+	(*SecretRef)(nil),               // 23: tower.environments.v1alpha1.SecretRef
+	(*v1.Condition)(nil),            // 24: tower.meta.v1.Condition
+	(*timestamppb.Timestamp)(nil),   // 25: google.protobuf.Timestamp
+	(v1.EventType)(0),               // 26: tower.meta.v1.EventType
 }
 var file_tower_environments_v1alpha1_box_proto_depIdxs = []int32{
-	17, // 0: tower.environments.v1alpha1.Box.metadata:type_name -> tower.meta.v1.ObjectMeta
+	20, // 0: tower.environments.v1alpha1.Box.metadata:type_name -> tower.meta.v1.ObjectMeta
 	2,  // 1: tower.environments.v1alpha1.Box.spec:type_name -> tower.environments.v1alpha1.BoxSpec
-	4,  // 2: tower.environments.v1alpha1.Box.status:type_name -> tower.environments.v1alpha1.BoxStatus
-	3,  // 3: tower.environments.v1alpha1.BoxSpec.checkouts:type_name -> tower.environments.v1alpha1.Checkout
-	18, // 4: tower.environments.v1alpha1.BoxSpec.run_state:type_name -> tower.environments.v1alpha1.RunState
-	19, // 5: tower.environments.v1alpha1.BoxSpec.resources:type_name -> tower.environments.v1alpha1.Resources
-	20, // 6: tower.environments.v1alpha1.BoxStatus.conditions:type_name -> tower.meta.v1.Condition
-	0,  // 7: tower.environments.v1alpha1.BoxStatus.phase:type_name -> tower.environments.v1alpha1.BoxPhase
-	21, // 8: tower.environments.v1alpha1.BoxStatus.last_use_time:type_name -> google.protobuf.Timestamp
-	1,  // 9: tower.environments.v1alpha1.GetBoxResponse.box:type_name -> tower.environments.v1alpha1.Box
-	1,  // 10: tower.environments.v1alpha1.ListBoxesResponse.items:type_name -> tower.environments.v1alpha1.Box
-	22, // 11: tower.environments.v1alpha1.WatchBoxesResponse.type:type_name -> tower.meta.v1.EventType
-	1,  // 12: tower.environments.v1alpha1.WatchBoxesResponse.box:type_name -> tower.environments.v1alpha1.Box
-	1,  // 13: tower.environments.v1alpha1.ApplyBoxRequest.box:type_name -> tower.environments.v1alpha1.Box
-	1,  // 14: tower.environments.v1alpha1.ApplyBoxResponse.box:type_name -> tower.environments.v1alpha1.Box
-	1,  // 15: tower.environments.v1alpha1.DeleteBoxResponse.box:type_name -> tower.environments.v1alpha1.Box
-	4,  // 16: tower.environments.v1alpha1.UpdateBoxStatusRequest.status:type_name -> tower.environments.v1alpha1.BoxStatus
-	1,  // 17: tower.environments.v1alpha1.UpdateBoxStatusResponse.box:type_name -> tower.environments.v1alpha1.Box
-	5,  // 18: tower.environments.v1alpha1.BoxService.GetBox:input_type -> tower.environments.v1alpha1.GetBoxRequest
-	7,  // 19: tower.environments.v1alpha1.BoxService.ListBoxes:input_type -> tower.environments.v1alpha1.ListBoxesRequest
-	9,  // 20: tower.environments.v1alpha1.BoxService.WatchBoxes:input_type -> tower.environments.v1alpha1.WatchBoxesRequest
-	11, // 21: tower.environments.v1alpha1.BoxService.ApplyBox:input_type -> tower.environments.v1alpha1.ApplyBoxRequest
-	13, // 22: tower.environments.v1alpha1.BoxService.DeleteBox:input_type -> tower.environments.v1alpha1.DeleteBoxRequest
-	15, // 23: tower.environments.v1alpha1.BoxService.UpdateBoxStatus:input_type -> tower.environments.v1alpha1.UpdateBoxStatusRequest
-	6,  // 24: tower.environments.v1alpha1.BoxService.GetBox:output_type -> tower.environments.v1alpha1.GetBoxResponse
-	8,  // 25: tower.environments.v1alpha1.BoxService.ListBoxes:output_type -> tower.environments.v1alpha1.ListBoxesResponse
-	10, // 26: tower.environments.v1alpha1.BoxService.WatchBoxes:output_type -> tower.environments.v1alpha1.WatchBoxesResponse
-	12, // 27: tower.environments.v1alpha1.BoxService.ApplyBox:output_type -> tower.environments.v1alpha1.ApplyBoxResponse
-	14, // 28: tower.environments.v1alpha1.BoxService.DeleteBox:output_type -> tower.environments.v1alpha1.DeleteBoxResponse
-	16, // 29: tower.environments.v1alpha1.BoxService.UpdateBoxStatus:output_type -> tower.environments.v1alpha1.UpdateBoxStatusResponse
-	24, // [24:30] is the sub-list for method output_type
-	18, // [18:24] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	6,  // 2: tower.environments.v1alpha1.Box.status:type_name -> tower.environments.v1alpha1.BoxStatus
+	5,  // 3: tower.environments.v1alpha1.BoxSpec.checkouts:type_name -> tower.environments.v1alpha1.Checkout
+	21, // 4: tower.environments.v1alpha1.BoxSpec.run_state:type_name -> tower.environments.v1alpha1.RunState
+	22, // 5: tower.environments.v1alpha1.BoxSpec.resources:type_name -> tower.environments.v1alpha1.Resources
+	23, // 6: tower.environments.v1alpha1.BoxSpec.privileged_secrets:type_name -> tower.environments.v1alpha1.SecretRef
+	3,  // 7: tower.environments.v1alpha1.BoxSpec.secret_files:type_name -> tower.environments.v1alpha1.SecretFile
+	4,  // 8: tower.environments.v1alpha1.BoxSpec.image_build:type_name -> tower.environments.v1alpha1.ImageBuild
+	19, // 9: tower.environments.v1alpha1.ImageBuild.files:type_name -> tower.environments.v1alpha1.ImageBuild.FilesEntry
+	24, // 10: tower.environments.v1alpha1.BoxStatus.conditions:type_name -> tower.meta.v1.Condition
+	0,  // 11: tower.environments.v1alpha1.BoxStatus.phase:type_name -> tower.environments.v1alpha1.BoxPhase
+	25, // 12: tower.environments.v1alpha1.BoxStatus.last_use_time:type_name -> google.protobuf.Timestamp
+	1,  // 13: tower.environments.v1alpha1.GetBoxResponse.box:type_name -> tower.environments.v1alpha1.Box
+	1,  // 14: tower.environments.v1alpha1.ListBoxesResponse.items:type_name -> tower.environments.v1alpha1.Box
+	26, // 15: tower.environments.v1alpha1.WatchBoxesResponse.type:type_name -> tower.meta.v1.EventType
+	1,  // 16: tower.environments.v1alpha1.WatchBoxesResponse.box:type_name -> tower.environments.v1alpha1.Box
+	1,  // 17: tower.environments.v1alpha1.ApplyBoxRequest.box:type_name -> tower.environments.v1alpha1.Box
+	1,  // 18: tower.environments.v1alpha1.ApplyBoxResponse.box:type_name -> tower.environments.v1alpha1.Box
+	1,  // 19: tower.environments.v1alpha1.DeleteBoxResponse.box:type_name -> tower.environments.v1alpha1.Box
+	6,  // 20: tower.environments.v1alpha1.UpdateBoxStatusRequest.status:type_name -> tower.environments.v1alpha1.BoxStatus
+	1,  // 21: tower.environments.v1alpha1.UpdateBoxStatusResponse.box:type_name -> tower.environments.v1alpha1.Box
+	7,  // 22: tower.environments.v1alpha1.BoxService.GetBox:input_type -> tower.environments.v1alpha1.GetBoxRequest
+	9,  // 23: tower.environments.v1alpha1.BoxService.ListBoxes:input_type -> tower.environments.v1alpha1.ListBoxesRequest
+	11, // 24: tower.environments.v1alpha1.BoxService.WatchBoxes:input_type -> tower.environments.v1alpha1.WatchBoxesRequest
+	13, // 25: tower.environments.v1alpha1.BoxService.ApplyBox:input_type -> tower.environments.v1alpha1.ApplyBoxRequest
+	15, // 26: tower.environments.v1alpha1.BoxService.DeleteBox:input_type -> tower.environments.v1alpha1.DeleteBoxRequest
+	17, // 27: tower.environments.v1alpha1.BoxService.UpdateBoxStatus:input_type -> tower.environments.v1alpha1.UpdateBoxStatusRequest
+	8,  // 28: tower.environments.v1alpha1.BoxService.GetBox:output_type -> tower.environments.v1alpha1.GetBoxResponse
+	10, // 29: tower.environments.v1alpha1.BoxService.ListBoxes:output_type -> tower.environments.v1alpha1.ListBoxesResponse
+	12, // 30: tower.environments.v1alpha1.BoxService.WatchBoxes:output_type -> tower.environments.v1alpha1.WatchBoxesResponse
+	14, // 31: tower.environments.v1alpha1.BoxService.ApplyBox:output_type -> tower.environments.v1alpha1.ApplyBoxResponse
+	16, // 32: tower.environments.v1alpha1.BoxService.DeleteBox:output_type -> tower.environments.v1alpha1.DeleteBoxResponse
+	18, // 33: tower.environments.v1alpha1.BoxService.UpdateBoxStatus:output_type -> tower.environments.v1alpha1.UpdateBoxStatusResponse
+	28, // [28:34] is the sub-list for method output_type
+	22, // [22:28] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_tower_environments_v1alpha1_box_proto_init() }
@@ -1339,15 +1541,16 @@ func file_tower_environments_v1alpha1_box_proto_init() {
 		return
 	}
 	file_tower_environments_v1alpha1_common_proto_init()
-	file_tower_environments_v1alpha1_box_proto_msgTypes[12].OneofWrappers = []any{}
+	file_tower_environments_v1alpha1_machine_proto_init()
 	file_tower_environments_v1alpha1_box_proto_msgTypes[14].OneofWrappers = []any{}
+	file_tower_environments_v1alpha1_box_proto_msgTypes[16].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tower_environments_v1alpha1_box_proto_rawDesc), len(file_tower_environments_v1alpha1_box_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   16,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

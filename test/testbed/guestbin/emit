@@ -1,0 +1,13 @@
+#!/bin/sh
+# emit ARG...: each "out:text" or "err:text" writes a line of text to stdout
+# or stderr, in order, as the fake guests' emit does
+# (internal/hostd/driver/fake/shell.go). A real guest's stdout and stderr
+# are two pipes, whose reader cannot tell which of two writes made a moment
+# apart came first: each line is given a moment of its own.
+for a in "$@"; do
+	case "$a" in
+	err:*) printf '%s\n' "${a#err:}" >&2 ;;
+	*) printf '%s\n' "${a#out:}" ;;
+	esac
+	sleep 0.05
+done

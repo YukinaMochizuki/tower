@@ -78,8 +78,12 @@ type Config struct {
 	// TicketTTL is how long a ticket lasts; zero is DefaultTicketTTL.
 	TicketTTL time.Duration
 	// Resolver says what boxes' images and warm checkouts are made of; nil
-	// is devcontainer.Fake.
+	// is devcontainer.Real, which reads a repository's devcontainer as
+	// workstream does. Tests give devcontainer.Fake.
 	Resolver devcontainer.Resolver
+	// DefaultBoxImage is what a box of a repository without a devcontainer
+	// is made of when it names no fallback_image; empty fails such a box.
+	DefaultBoxImage string
 	// GoldenPruneAfter is how long a golden nothing was made from, and
 	// nothing references, is kept; zero is DefaultGoldenPruneAfter.
 	GoldenPruneAfter time.Duration
@@ -105,8 +109,10 @@ type Server struct {
 	tokenSecrets keyLocks
 	// tokenUses queues service tokens' uses to record in their status.
 	tokenUses chan tokenUse
-	// gc is how far garbage collection has come.
-	gc gcProgress
+	// gc is how far garbage collection has come, and ownerIdx the index of
+	// owner references it keeps.
+	gc       gcProgress
+	ownerIdx ownerIndex
 	// The policy controllers, and the slow work they start.
 	controllers                                   []*controller.Controller
 	placementCtrl, repositoryCtrl, boxCtrl        *controller.Controller
@@ -153,7 +159,7 @@ func New(cfg Config) *Server {
 		cfg.SweepInterval = 5 * time.Minute
 	}
 	if cfg.Resolver == nil {
-		cfg.Resolver = devcontainer.Fake{}
+		cfg.Resolver = devcontainer.Real{}
 	}
 	if cfg.GoldenPruneAfter == 0 {
 		cfg.GoldenPruneAfter = DefaultGoldenPruneAfter

@@ -14,8 +14,9 @@ planned; the code is the authority wherever it exists.
      │ hangar API (client)          │ objects hostd watches  │
      ▼                              ▼                        │
   hangar A, hangar B             hostd on host C ◀───────────┘
-  (Containers, VMs,              (docker, qemu, ZFS;
-   Disks, CustomImages)           dials tower, keeps no state)
+  (Containers, VMs,              (Docker, Cloud Hypervisor,
+   Disks, CustomImages)           ZFS; dials tower, keeps
+                                  no state)
                     \            /
                      registry (shared, beside tower)
 ```

@@ -65,7 +65,10 @@ type Host struct {
 	free       *uint64
 	health     string
 	onExec     func(guest string, spec driver.ExecSpec) (int, bool)
-	execs      []Exec
+	// holdPulls, while set, holds every pull of its references until it
+	// is closed.
+	holdPulls map[string]chan struct{}
+	execs     []Exec
 	// changed wakes the reads following a process, by guest and id.
 	changed map[string]chan struct{}
 }
@@ -79,9 +82,11 @@ type state struct {
 	Networks map[string]*network
 	Guests   map[string]*guest
 	Registry map[string]bool
-	Pulled   map[string]bool
-	Mirrors  map[string]*repo
-	Remotes  map[string]*repo
+	// Users are the users images of the registry run as, "" for root.
+	Users   map[string]string `json:",omitempty"`
+	Pulled  map[string]bool
+	Mirrors map[string]*repo
+	Remotes map[string]*repo
 	// Addresses counts the addresses given out.
 	Addresses int
 }
@@ -115,6 +120,8 @@ type guest struct {
 	Created   time.Time
 	// Files are a container's outside /workspace, which its disk holds.
 	Files map[string][]byte
+	// Env is a container's environment, every command's in it.
+	Env map[string]string `json:",omitempty"`
 	// Procs are its processes, oldest first; ProcN numbers them, and Keep
 	// is how many finished ones it keeps.
 	Procs []*proc
@@ -255,6 +262,26 @@ func (h *Host) FailStart(name, why string) {
 // from what it holds again.
 func (h *Host) SetFree(free *uint64) { h.mu.Lock(); h.free = free; h.mu.Unlock() }
 
+// HoldPulls holds every pull of ref, as a slow registry does, until the
+// returned release is called.
+func (h *Host) HoldPulls(ref string) (release func()) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.holdPulls == nil {
+		h.holdPulls = map[string]chan struct{}{}
+	}
+	c := make(chan struct{})
+	h.holdPulls[ref] = c
+	return func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if h.holdPulls[ref] == c {
+			delete(h.holdPulls, ref)
+			close(c)
+		}
+	}
+}
+
 // SetHealth sets the pool's health.
 func (h *Host) SetHealth(health string) { h.mu.Lock(); h.health = health; h.mu.Unlock() }
 
@@ -282,6 +309,18 @@ func (h *Host) OnExec(fn func(guest string, spec driver.ExecSpec) (int, bool)) {
 // AddImage puts a reference in the registry.
 func (h *Host) AddImage(ref string) {
 	_ = h.change("", func() error { h.st.Registry[ref] = true; return nil })
+}
+
+// SetImageUser puts a reference in the registry, running as user.
+func (h *Host) SetImageUser(ref, user string) {
+	_ = h.change("", func() error {
+		h.st.Registry[ref] = true
+		if h.st.Users == nil {
+			h.st.Users = map[string]string{}
+		}
+		h.st.Users[ref] = user
+		return nil
+	})
 }
 
 // SetRemote makes a repository at url with commits on branch, oldest

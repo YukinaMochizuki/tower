@@ -9,7 +9,7 @@
           "type": "string"
         },
         "content": {
-          "description": "The converge body (an ansible playbook). tower hashes it.",
+          "description": "The converge body (an ansible playbook). tower hashes it. Its golden phase is every task but those tagged configure; its configure phase, run in each machine with its own vars and secrets, is those tagged configure (docs/decisions/machine-blueprints.md).",
           "type": "string"
         },
         "exposePorts": {
@@ -31,6 +31,10 @@
         "netAlias": {
           "description": "Its name on the workstream's network; empty is the blueprint's name.",
           "type": "string"
+        },
+        "readyCheck": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.ReadyCheck",
+          "description": "What says the machine is ready, which its configure phase finishing does not: a service it starts may take a while to come up after (k3s reports its node Ready only after the playbook ends). workstream's blueprints declare one as readyCheck. None is ready once configured."
         }
       },
       "type": "object"
@@ -117,6 +121,26 @@
           "type": "string"
         },
         "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.ReadyCheck": {
+      "additionalProperties": false,
+      "description": "ReadyCheck is a shell command run in the machine after its configure phase, every 5 seconds until it exits 0. It is checked again after each start of the machine, since what it checks starts again with it.",
+      "properties": {
+        "command": {
+          "description": "Run as sh -c command, as root, without the machine's secrets.",
+          "type": "string"
+        },
+        "timeout": {
+          "description": "How long it may take to pass before the machine fails; unset is 200 seconds, as workstream allows (40 tries, 5 seconds apart).",
+          "examples": [
+            "30s",
+            "1.5s"
+          ],
+          "pattern": "^-?[0-9]+(\\.[0-9]{1,9})?s$",
           "type": "string"
         }
       },

@@ -1,6 +1,7 @@
 // Package hostdtest runs an apiserver with a hostd target realized by a
 // real hostd over a fake host, and the providertest harness over it, for
-// hostd's tests and for tower's provider of a hostd target.
+// hostd's tests and for tower's provider of a hostd target; or over a
+// host's real drivers, as the testbed does (Options.Real).
 package hostdtest
 
 import (
@@ -25,6 +26,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/apiserver/apiservertest"
 	"github.com/YukinaMochizuki/tower/internal/client"
 	"github.com/YukinaMochizuki/tower/internal/hostd"
+	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver/fake"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/provider/providertest"
@@ -52,14 +54,30 @@ type Options struct {
 	// Transport, if set, wraps what hostd calls tower through, as a test
 	// that answers some calls itself does.
 	Transport func(http.RoundTripper) http.RoundTripper
+	// Images are more references by digest the fake registry holds, beside
+	// Image.
+	Images []string
+	// Real, if set, runs hostd over a host's real drivers instead of the
+	// fake; World.Fake is nil.
+	Real *Real
+}
+
+// Real is a host's real drivers, and what the harness boots and fetches
+// there (providertest.Harness's fields of the same names).
+type Real struct {
+	Drivers                                      driver.Drivers
+	Image, BaseImage                             string
+	Remote, Branch, RemoteHead, RemoteDockerfile string
 }
 
 // World is an apiserver with the hostd target Target, realized by Host
 // over Fake.
 type World struct {
-	Env  *apiservertest.Env
+	Env *apiservertest.Env
+	// Fake is the host, unless Options.Real gave real drivers.
 	Fake *fake.Host
 	Host *hostd.Host
+	real *Real
 	// Secret is the target's ROLE_HOSTD token's; Signer signs tickets
 	// Host takes.
 	Secret string
@@ -100,11 +118,20 @@ func New(t *testing.T, opts Options) *World {
 // a hostd on it until the test ends or Stop.
 func (w *World) start(t *testing.T, opts Options) {
 	t.Helper()
-	var err error
-	if w.Fake, err = fake.New(fake.Options{Path: opts.StatePath, Images: []string{Image}}); err != nil {
-		t.Fatal(err)
+	w.real = opts.Real
+	var drivers driver.Drivers
+	if w.real != nil {
+		drivers = w.real.Drivers
+	} else {
+		var err error
+		if w.Fake, err = fake.New(fake.Options{Path: opts.StatePath, Images: append([]string{Image}, opts.Images...)}); err != nil {
+			t.Fatal(err)
+		}
+		w.Fake.SetRemote(Remote, "main", map[string]string{
+			"go.mod": "module x\n", "docker/Dockerfile": "FROM registry.tower.internal/base@sha256:00\nCOPY go.mod /go.mod\n",
+		}, "c1", "c2", "c3")
+		drivers = w.Fake.Drivers()
 	}
-	w.Fake.SetRemote(Remote, "main", map[string]string{"go.mod": "module x\n"}, "c1", "c2", "c3")
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -112,7 +139,7 @@ func (w *World) start(t *testing.T, opts Options) {
 	}
 	w.Streams = "http://" + ln.Addr().String()
 	cfg := hostd.Config{
-		Target: Target, Drivers: w.Fake.Drivers(), Client: w.client(opts),
+		Target: Target, Drivers: drivers, Client: w.client(opts),
 		TicketKey: w.Signer.PublicKey(), StreamURL: w.Streams,
 		ReportEvery: 200 * time.Millisecond, SweepEvery: 200 * time.Millisecond, SweepGrace: time.Hour,
 	}
@@ -219,7 +246,7 @@ func (w *World) Apply(t *testing.T, name string, spec *envv1alpha1.InstanceSpec)
 // Harness is the providertest harness of the world, through p, which
 // carries hostd's work some way or is hostd itself.
 func (w *World) Harness(p provider.Provider) providertest.Harness {
-	return providertest.Harness{
+	h := providertest.Harness{
 		Provider: p, Target: Target, Image: Image, BaseImage: "ubuntu-24.04",
 		// hostd starts its processes with them: through a tunnel too.
 		ProcessLimits: func(logCap int64, finished int) { w.Host.SetProcessLimits(logCap, finished) },
@@ -254,6 +281,16 @@ func (w *World) Harness(p provider.Provider) providertest.Harness {
 			}); err != nil {
 				t.Fatal(err)
 			}
+			// tower fails it, as nothing it is built from is recorded; it is
+			// made ready once that is said, or the failure would undo it.
+			testutil.Eventually(t, "golden "+key.Name+" failed", func() (bool, string) {
+				o, err := w.Env.AsSystem().Get(t.Context(), registry.Golden, key)
+				if err != nil {
+					return false, err.Error()
+				}
+				phase := o.(*envv1alpha1.Golden).GetStatus().GetPhase()
+				return phase == envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED, phase.String()
+			})
 			if _, err := w.Env.AsSystem().UpdateStatus(t.Context(), registry.Golden, key, &envv1alpha1.GoldenStatus{
 				Phase: envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY, Artifact: art.Name,
 			}, nil); err != nil {
@@ -261,6 +298,11 @@ func (w *World) Harness(p provider.Provider) providertest.Harness {
 			}
 			return key.Name
 		},
-		Remote: Remote, Branch: "main", RemoteHead: "c3",
+		Remote: Remote, Branch: "main", RemoteHead: "c3", RemoteDockerfile: "docker/Dockerfile",
 	}
+	if r := w.real; r != nil {
+		h.Image, h.BaseImage = r.Image, r.BaseImage
+		h.Remote, h.Branch, h.RemoteHead, h.RemoteDockerfile = r.Remote, r.Branch, r.RemoteHead, r.RemoteDockerfile
+	}
+	return h
 }

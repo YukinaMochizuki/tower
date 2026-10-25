@@ -42,6 +42,30 @@ func container(network string) *envv1alpha1.InstanceSpec {
 	}
 }
 
+// TestAPullHoldsUpNoOtherInstance: an image pulled slowly keeps its own
+// instance pending, pulling, while another instance is made meanwhile:
+// pulls run apart from the host lock. Once its pull ends, it runs.
+func TestAPullHoldsUpNoOtherInstance(t *testing.T) {
+	const slow = "registry.tower.internal/web/slow@sha256:5105"
+	w := hostdtest.New(t, hostdtest.Options{Images: []string{slow}})
+	release := w.Fake.HoldPulls(slow)
+	defer release()
+	held := container("")
+	held.Image = slow
+	w.Apply(t, "held", held)
+	testutil.Eventually(t, "the held instance pending, pulling", func() (bool, string) {
+		c := conditions.Find(w.Instance(t, "held").GetStatus().GetConditions(), hostd.InstanceReady)
+		return c.GetReason() == "Pulling", fmt.Sprintf("%v", c)
+	})
+	w.Apply(t, "other", container(""))
+	w.WaitPhase(t, "other", envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING)
+	if p := w.Instance(t, "held").GetStatus().GetPhase(); p != envv1alpha1.InstancePhase_INSTANCE_PHASE_PENDING {
+		t.Errorf("the held instance is %v while its pull is held", p)
+	}
+	release()
+	w.WaitPhase(t, "held", envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING)
+}
+
 // TestConformance holds hostd's provider, over the fake host, to the
 // provider contract: the seam real drivers plug into.
 func TestConformance(t *testing.T) {
@@ -218,6 +242,16 @@ func TestGoldensOnTheHost(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// tower fails it, as nothing it is built from is recorded; it is made
+	// ready once that is said, or the failure would undo it.
+	testutil.Eventually(t, "the golden failed", func() (bool, string) {
+		o, err := w.Env.AsSystem().Get(t.Context(), registry.Golden, client.Key{Project: apiservertest.Project, Name: "named"})
+		if err != nil {
+			return false, err.Error()
+		}
+		phase := o.(*envv1alpha1.Golden).GetStatus().GetPhase()
+		return phase == envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED, phase.String()
+	})
 	if _, err := w.Env.AsSystem().UpdateStatus(t.Context(), registry.Golden, client.Key{Project: apiservertest.Project, Name: "named"},
 		&envv1alpha1.GoldenStatus{Phase: envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY, Artifact: "golden-named"}, nil); err != nil {
 		t.Fatal(err)
@@ -296,6 +330,52 @@ func TestAFailedListStopsTheSweep(t *testing.T) {
 		disks, _ := d.Storage.Disks(t.Context())
 		return len(disks) == 0
 	})
+}
+
+// TestAnImageNothingNamesIsSwept: an image of tower's registry no
+// Instance or Golden of the target names goes once it has gone unnamed for
+// the grace; one an instance names stays; what the images hold is
+// reported in the target's usage.
+func TestAnImageNothingNamesIsSwept(t *testing.T) {
+	w := hostdtest.New(t, hostdtest.Options{Host: func(c *hostd.Config) { c.SweepGrace = 50 * time.Millisecond }})
+	w.Apply(t, "kept", container("net-a"))
+	w.WaitPhase(t, "kept", envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING)
+	const stale = fake.Registry + "/web/box@sha256:5a"
+	w.Fake.AddImage(stale)
+	d := w.Fake.Drivers()
+	if err := d.Images.Pull(t.Context(), stale); err != nil {
+		t.Fatal(err)
+	}
+	listed := func(ref string) bool {
+		list, _ := d.Images.List(t.Context())
+		return slices.ContainsFunc(list, func(i driver.HostImage) bool { return slices.Contains(i.Refs, ref) })
+	}
+	// Seen unnamed, then kept for the grace.
+	if err := w.Host.Sweep(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if !listed(stale) {
+		t.Fatal("an image was swept before its grace")
+	}
+	testutil.Eventually(t, "the image nothing names swept", func() (bool, string) {
+		if err := w.Host.Sweep(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		return !listed(stale), ""
+	})
+	if !listed(hostdtest.Image) {
+		t.Error("the image an instance names was swept")
+	}
+	if err := w.Host.Report(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	o, err := w.Env.AsSystem().Get(t.Context(), registry.Target, client.Key{Name: target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := o.(*targetsv1alpha1.Target).GetStatus().GetUsage().GetImages(); got == "" || got == "0" {
+		t.Errorf("the target's images hold %q", got)
+	}
 }
 
 // TestWhatTheHostDoesIsReported: a guest that does not start, a full pool

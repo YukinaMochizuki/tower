@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -17,6 +18,7 @@ import (
 	tenancyv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/tenancy/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/auth"
+	"github.com/YukinaMochizuki/tower/internal/controller/controllertest"
 	"github.com/YukinaMochizuki/tower/internal/secrets"
 	"github.com/YukinaMochizuki/tower/internal/store"
 	"github.com/YukinaMochizuki/tower/internal/store/sqlite"
@@ -41,6 +43,28 @@ func runningWith(t *testing.T, configure func(*Config)) (s *Server, system, admi
 // says otherwise.
 func runningAt(t *testing.T, db string, configure func(*Config)) (s *Server, system, admin context.Context) {
 	t.Helper()
+	s, system, admin, _ = stoppableAt(t, db, configure)
+	return s, system, admin
+}
+
+// stoppableAt is runningAt, and returns what stops the server before the
+// test ends, as for a restart on the same database file (serve).
+func stoppableAt(t *testing.T, db string, configure func(*Config)) (s *Server, system, admin context.Context, stop func()) {
+	t.Helper()
+	s, ctx, stop := serve(t, db, configure)
+	system = auth.WithPrincipal(ctx, auth.SystemPrincipal)
+	admin = serviceToken(t, s, system, "admin", iamv1alpha1.Role_ROLE_ADMIN, "")
+	if _, err := s.backend(registry.Project).Apply(admin, &tenancyv1alpha1.Project{Metadata: &metav1.ObjectMeta{Name: "web"}}); err != nil {
+		t.Fatal(err)
+	}
+	return s, system, admin, stop
+}
+
+// serve runs a server on the database file db until the test ends, or until
+// stop, and returns it with a context that ends with it. The server has a
+// KEK and keeps credentials in the store, unless configure says otherwise.
+func serve(t *testing.T, db string, configure func(*Config)) (s *Server, ctx context.Context, stop func()) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	st, err := sqlite.Open(ctx, db)
 	if err != nil {
@@ -55,17 +79,22 @@ func runningAt(t *testing.T, db string, configure func(*Config)) (s *Server, sys
 	s = New(cfg)
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
-	t.Cleanup(func() {
+	stop = sync.OnceFunc(func() {
 		cancel()
 		<-done
 		_ = st.Close()
 	})
-	system = auth.WithPrincipal(ctx, auth.SystemPrincipal)
-	admin = serviceToken(t, s, system, "admin", iamv1alpha1.Role_ROLE_ADMIN, "")
-	if _, err := s.backend(registry.Project).Apply(admin, &tenancyv1alpha1.Project{Metadata: &metav1.ObjectMeta{Name: "web"}}); err != nil {
-		t.Fatal(err)
-	}
-	return s, system, admin
+	t.Cleanup(stop)
+	return s, ctx, stop
+}
+
+// waitSettled waits until s's controllers, jobs and garbage collector have
+// finished reacting to every write so far, and returns the keys still
+// waiting on something outside them (see controllertest.WaitSettled). The
+// clock is fake: a retry after a failure comes only once a test advances it.
+func waitSettled(t *testing.T, s *Server) []controllertest.Waiting {
+	t.Helper()
+	return controllertest.WaitSettled(t, s.store.Revision, s.ControllerStatus)
 }
 
 // serviceToken makes a ServiceToken of the role, as the system, and
@@ -102,6 +131,7 @@ func sec(name string) *secretsv1alpha1.Secret {
 }
 
 func TestFinalizers(t *testing.T) {
+	t.Parallel()
 	s, system, admin := running(t)
 	b := s.backend(registry.Secret)
 	key := resource.Key{Project: "web", Name: "api"}
@@ -144,6 +174,7 @@ func deleted(b *backend, ctx context.Context, key resource.Key) func() (bool, st
 }
 
 func TestReservedLabelsSurviveUserApply(t *testing.T) {
+	t.Parallel()
 	s, system, admin := running(t)
 	b := s.backend(registry.Secret)
 
@@ -178,6 +209,7 @@ func TestReservedLabelsSurviveUserApply(t *testing.T) {
 }
 
 func TestReservedAnnotationsSurviveAndEchoBack(t *testing.T) {
+	t.Parallel()
 	s, system, admin := running(t)
 	b := s.backend(registry.Project)
 	p := &tenancyv1alpha1.Project{Metadata: &metav1.ObjectMeta{Name: "api", Annotations: map[string]string{"tower.hangarlab.cloud/env": "e-1"}}}
@@ -208,6 +240,7 @@ func TestReservedAnnotationsSurviveAndEchoBack(t *testing.T) {
 }
 
 func TestSweepCollectsOrphans(t *testing.T) {
+	t.Parallel()
 	s, system, admin := running(t)
 	b := s.backend(registry.Secret)
 
@@ -258,6 +291,7 @@ func TestSweepCollectsOrphans(t *testing.T) {
 }
 
 func TestStoredBytesCarryNoResourceVersion(t *testing.T) {
+	t.Parallel()
 	s, system, _ := running(t)
 	if _, err := s.backend(registry.Secret).Apply(system, sec("api")); err != nil {
 		t.Fatal(err)

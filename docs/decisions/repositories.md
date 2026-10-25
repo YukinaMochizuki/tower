@@ -14,9 +14,10 @@ versions at a given ref.
 ## Decision
 
 - **tower holds its own forge credentials and keeps a git mirror on each
-  target.** It resolves devcontainers, builds images, and may bake a recent
-  checkout with its dependencies installed into a golden, so a new box only
-  fetches what changed.
+  target.** It resolves devcontainers (`devcontainers.md`), builds images,
+  and may bake a recent checkout into a golden, so a new box only fetches
+  what changed; what a box installs it installs itself, as
+  `devcontainers.md` says.
 - **workstream applies a `Repository` per product repository** (its URL and
   which credential reads it), so tower knows them before any box asks and can
   pre-warm.

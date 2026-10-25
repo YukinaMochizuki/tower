@@ -1,0 +1,7 @@
+#!/bin/sh
+# children: how many children spawn started are alive.
+n=0
+for c in /proc/[0-9]*/comm; do
+	[ "$(cat "$c" 2>/dev/null)" = dtchild ] && n=$((n + 1))
+done
+echo "$n"

@@ -37,3 +37,12 @@ Traffic is split by who needs the bytes, not by size:
 - hangar serves no port-forward to an arbitrary port yet, and its service
   tokens are project-wide and long-lived, so a ticket scoped to one
   environment exists only on hostd for now.
+- **A guest's egress is not limited on hostd.** A box (a container on its
+  workstream's Docker bridge) and a VM (behind its launcher's NAT, on the
+  same bridge) reach every port the host listens on through their bridge's
+  gateway, and the tailnet, tower and its registry included, through
+  Docker's masquerade. Accepted for the pilot, where one product is on a
+  host and its boxes are its agents' anyway; before several products share
+  a host, a firewall step is needed: each workstream's bridge dropped to
+  the host's own addresses but what a guest must reach, and to the tailnet
+  and the other bridges.
