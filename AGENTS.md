@@ -73,6 +73,7 @@ Every other tool is pinned in the repo (`go.mod`, `tools/tools.mod`, or
 | `docs/runbook/deploy.md` | You install tower, its registry or hostd on a host |
 | `docs/conventions/comments.md` | You write or review a code comment |
 | hangar's `docs/conventions/testing.md` | You write or change a test: its tools and examples hold here (`docs/decisions/testing-strategy.md`) |
+| `docs/conventions/testing.md` | You run tests: how tower's runs differ from hangar's |
 | hangar's `docs/checklists/new-resource.md` and `new-controller.md` | You add a kind or a controller; read "tower" for "hangar" |
 | hangar's `docs/checklists/review.md` | You review a change, or before you ask for one; its node and guest sections do not apply |
 
