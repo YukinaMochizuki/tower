@@ -24,9 +24,19 @@ type images struct{ h *Host }
 
 func (i images) Version(context.Context) (string, error) { return Version, nil }
 
-func (i images) Pull(_ context.Context, ref string) error {
+func (i images) Pull(ctx context.Context, ref string) error {
 	if !strings.Contains(ref, "@sha256:") {
 		return fmt.Errorf("%s is no reference by digest", ref)
+	}
+	i.h.mu.Lock()
+	hold := i.h.holdPulls[ref]
+	i.h.mu.Unlock()
+	if hold != nil {
+		select {
+		case <-hold:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	return i.h.change("images.Pull", func() error {
 		if i.h.st.Pulled[ref] {

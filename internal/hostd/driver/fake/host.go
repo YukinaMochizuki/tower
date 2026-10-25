@@ -65,7 +65,10 @@ type Host struct {
 	free       *uint64
 	health     string
 	onExec     func(guest string, spec driver.ExecSpec) (int, bool)
-	execs      []Exec
+	// holdPulls, while set, holds every pull of its references until it
+	// is closed.
+	holdPulls map[string]chan struct{}
+	execs     []Exec
 	// changed wakes the reads following a process, by guest and id.
 	changed map[string]chan struct{}
 }
@@ -254,6 +257,26 @@ func (h *Host) FailStart(name, why string) {
 // SetFree fixes what the pool has free, as a full pool does; nil counts it
 // from what it holds again.
 func (h *Host) SetFree(free *uint64) { h.mu.Lock(); h.free = free; h.mu.Unlock() }
+
+// HoldPulls holds every pull of ref, as a slow registry does, until the
+// returned release is called.
+func (h *Host) HoldPulls(ref string) (release func()) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.holdPulls == nil {
+		h.holdPulls = map[string]chan struct{}{}
+	}
+	c := make(chan struct{})
+	h.holdPulls[ref] = c
+	return func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if h.holdPulls[ref] == c {
+			delete(h.holdPulls, ref)
+			close(c)
+		}
+	}
+}
 
 // SetHealth sets the pool's health.
 func (h *Host) SetHealth(health string) { h.mu.Lock(); h.health = health; h.mu.Unlock() }

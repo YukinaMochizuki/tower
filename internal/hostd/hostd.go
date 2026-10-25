@@ -80,6 +80,7 @@ type Host struct {
 	// limits are SetProcessLimits'; nil is provider's defaults.
 	limits  atomic.Pointer[processLimits]
 	streams streamCount
+	pulls   *pulls
 }
 
 var _ provider.Provider = (*Host)(nil)
@@ -97,6 +98,7 @@ func New(cfg Config) *Host {
 		h.log = slog.New(slog.DiscardHandler)
 	}
 	h.ctrl = h.newController()
+	h.pulls = newPulls(cfg.Drivers.Images, h.clock, func(k controller.Key) { h.ctrl.Enqueue(k) })
 	return h
 }
 
@@ -107,6 +109,7 @@ func (h *Host) Run(ctx context.Context) error {
 		return err
 	}
 	g, ctx := errgroup.WithContext(ctx)
+	h.pulls.start(ctx)
 	g.Go(func() error { return h.ctrl.Run(ctx) })
 	g.Go(func() error { h.every(ctx, h.cfg.ReportEvery, "report", h.Report); return nil })
 	g.Go(func() error { h.every(ctx, h.cfg.SweepEvery, "sweep", h.Sweep); return nil })

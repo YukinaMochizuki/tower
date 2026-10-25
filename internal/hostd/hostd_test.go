@@ -42,6 +42,30 @@ func container(network string) *envv1alpha1.InstanceSpec {
 	}
 }
 
+// TestAPullHoldsUpNoOtherInstance: an image pulled slowly keeps its own
+// instance pending, pulling, while another instance is made meanwhile:
+// pulls run apart from the host lock. Once its pull ends, it runs.
+func TestAPullHoldsUpNoOtherInstance(t *testing.T) {
+	const slow = "registry.tower.internal/web/slow@sha256:5105"
+	w := hostdtest.New(t, hostdtest.Options{Images: []string{slow}})
+	release := w.Fake.HoldPulls(slow)
+	defer release()
+	held := container("")
+	held.Image = slow
+	w.Apply(t, "held", held)
+	testutil.Eventually(t, "the held instance pending, pulling", func() (bool, string) {
+		c := conditions.Find(w.Instance(t, "held").GetStatus().GetConditions(), hostd.InstanceReady)
+		return c.GetReason() == "Pulling", fmt.Sprintf("%v", c)
+	})
+	w.Apply(t, "other", container(""))
+	w.WaitPhase(t, "other", envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING)
+	if p := w.Instance(t, "held").GetStatus().GetPhase(); p != envv1alpha1.InstancePhase_INSTANCE_PHASE_PENDING {
+		t.Errorf("the held instance is %v while its pull is held", p)
+	}
+	release()
+	w.WaitPhase(t, "held", envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING)
+}
+
 // TestConformance holds hostd's provider, over the fake host, to the
 // provider contract: the seam real drivers plug into.
 func TestConformance(t *testing.T) {

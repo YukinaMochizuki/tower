@@ -169,12 +169,23 @@ func (h *Host) converge(ctx context.Context, in *envv1alpha1.Instance) (observed
 		if vm {
 			err = h.d.VMs.Create(ctx, driver.VMSpec{GuestSpec: gs, BaseImage: spec.GetImage()})
 		} else {
-			if err := h.d.Images.Pull(ctx, spec.GetImage()); errors.Is(err, driver.ErrNotFound) || errors.Is(err, driver.ErrNoSpace) {
+			// Pulled apart from the host lock, which this reconcile holds.
+			var pulled bool
+			pulled, err = h.pulls.get(spec.GetImage(), controller.Key{Project: ref.GetProject(), Name: ref.GetName()})
+			switch {
+			case errors.Is(err, driver.ErrNotFound) || errors.Is(err, driver.ErrNoSpace):
 				return failed("PullFailed", err), nil
-			} else if err != nil {
+			case err != nil:
 				return observed{}, err
+			case !pulled:
+				return observed{phase: envv1alpha1.InstancePhase_INSTANCE_PHASE_PENDING, reason: "Pulling", msg: "its image " + spec.GetImage() + " is being pulled"}, nil
 			}
 			err = h.d.Containers.Create(ctx, driver.ContainerSpec{GuestSpec: gs, Image: spec.GetImage()})
+			if errors.Is(err, driver.ErrNotFound) {
+				// Gone from the host since it was pulled: pulled again.
+				h.pulls.forget(spec.GetImage())
+				return observed{}, err
+			}
 		}
 		if errors.Is(err, driver.ErrConflict) {
 			return failed("Conflict", err), nil

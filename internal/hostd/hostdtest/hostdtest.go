@@ -52,6 +52,9 @@ type Options struct {
 	// Transport, if set, wraps what hostd calls tower through, as a test
 	// that answers some calls itself does.
 	Transport func(http.RoundTripper) http.RoundTripper
+	// Images are more references by digest the fake registry holds, beside
+	// Image.
+	Images []string
 }
 
 // World is an apiserver with the hostd target Target, realized by Host
@@ -101,7 +104,7 @@ func New(t *testing.T, opts Options) *World {
 func (w *World) start(t *testing.T, opts Options) {
 	t.Helper()
 	var err error
-	if w.Fake, err = fake.New(fake.Options{Path: opts.StatePath, Images: []string{Image}}); err != nil {
+	if w.Fake, err = fake.New(fake.Options{Path: opts.StatePath, Images: append([]string{Image}, opts.Images...)}); err != nil {
 		t.Fatal(err)
 	}
 	w.Fake.SetRemote(Remote, "main", map[string]string{"go.mod": "module x\n"}, "c1", "c2", "c3")
