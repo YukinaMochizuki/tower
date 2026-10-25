@@ -138,6 +138,9 @@ func (d *Driver) auth(_ context.Context, host string, _ []string, _ authprovider
 	return types.AuthConfig{Username: d.cfg.Username, Password: d.cfg.Password, ServerAddress: host}, nil
 }
 
+// maxQuoted is how much of a failed build's output its error quotes.
+const maxQuoted = 600
+
 // inContext is a path of a build's tar, "" its root; one leaving it is
 // none.
 func inContext(p string) (string, error) {
@@ -223,6 +226,25 @@ func (d *Driver) Build(ctx context.Context, spec driver.BuildSpec) (string, erro
 	}
 	defer func() { _ = c.Close() }()
 	name := d.cfg.Registry + "/" + repository
+	// What the build's steps write, the end of which a failure quotes: a
+	// RUN that failed says why there, not in BuildKit's error.
+	status := make(chan *client.SolveStatus)
+	logged := make(chan string, 1)
+	go func() {
+		var tail []byte
+		for s := range status {
+			for _, l := range s.Logs {
+				tail = append(tail, l.Data...)
+				if len(tail) > 2*maxQuoted {
+					tail = tail[len(tail)-maxQuoted:]
+				}
+			}
+		}
+		if len(tail) > maxQuoted {
+			tail = tail[len(tail)-maxQuoted:]
+		}
+		logged <- strings.TrimSpace(string(tail))
+	}()
 	resp, err := c.Solve(ctx, nil, client.SolveOpt{
 		Frontend:      "dockerfile.v0",
 		FrontendAttrs: map[string]string{"build-arg:SOURCE_DATE_EPOCH": "0", "filename": path.Base(dockerfile)},
@@ -231,10 +253,14 @@ func (d *Driver) Build(ctx context.Context, spec driver.BuildSpec) (string, erro
 			"name": name, "push": "true", "rewrite-timestamp": "true",
 		}}},
 		Session: []session.Attachable{authprovider.NewDockerAuthProvider(authprovider.DockerAuthProviderConfig{AuthConfigProvider: d.auth})},
-	}, nil)
+	}, status)
+	tail := <-logged // Solve closes status as it returns
 	if err != nil {
 		if strings.Contains(err.Error(), "no space left") {
 			return "", fmt.Errorf("building %s: %w: %w", repository, err, driver.ErrNoSpace)
+		}
+		if tail != "" {
+			return "", fmt.Errorf("building %s: %w; it last wrote: %s", repository, err, tail)
 		}
 		return "", fmt.Errorf("building %s: %w", repository, err)
 	}
