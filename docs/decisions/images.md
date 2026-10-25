@@ -27,3 +27,17 @@ carry toolchain configuration that has no reason to leave the tailnet.
 - Providers need two primitives for images, build-and-push and run-from-the-
   registry, and policy does not branch.
 - The registry is one more service to run and back up.
+- **Known gap: one project can reach another's images.** Every hostd signs
+  in to the registry as one user, which reads and writes every repository,
+  and a box may name any image (`BoxSpec.image`, `fallback_image`, a
+  devcontainer's `image`, a Dockerfile's `FROM`), so a project's box can be
+  made of another project's image, or a build of one can push over
+  another's repository. Accepted for the pilot, where one product is on a
+  target; it must be closed before a second project shares a target, one
+  of two ways:
+  - the apiserver limits which of the registry's repositories a project
+    may name (its own `<project>/` alone) in what it builds and runs, and
+    names nothing else of tower's registry; or
+  - each project has registry credentials of its own, scoped to its
+    repositories, which hostd uses for that project's pulls and builds
+    alone.
