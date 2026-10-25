@@ -34,9 +34,12 @@ func (g git) Fetch(_ context.Context, spec driver.FetchSpec) (string, error) {
 	err := g.h.change("git.Fetch", func() error {
 		r := g.h.st.Remotes[spec.URL]
 		if r == nil {
-			// A repository the test said nothing of has one commit.
+			// A repository the test said nothing of has one commit, and a
+			// devcontainer of a public image.
 			sum := sha256.Sum256([]byte(spec.URL))
-			r = &repo{Branch: spec.Branch, Commits: []string{hex.EncodeToString(sum[:])[:12]}, Files: map[string][]byte{"README": []byte(spec.URL)}}
+			r = &repo{Branch: spec.Branch, Commits: []string{hex.EncodeToString(sum[:])[:12]}, Files: map[string][]byte{
+				"README": []byte(spec.URL), ".devcontainer.json": []byte(`{"image": "debian:13"}`),
+			}}
 			if r.Branch == "" {
 				r.Branch = "main"
 			}
@@ -196,8 +199,8 @@ func (g git) Archive(_ context.Context, mirror, ref string, w io.Writer) (string
 func object(parts ...[]byte) string {
 	h := sha256.New()
 	for _, p := range parts {
-		fmt.Fprintf(h, "%d:", len(p))
-		h.Write(p)
+		_, _ = fmt.Fprintf(h, "%d:", len(p))
+		_, _ = h.Write(p)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:40]
 }

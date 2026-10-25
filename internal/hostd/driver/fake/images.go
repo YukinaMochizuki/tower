@@ -125,12 +125,13 @@ func (i images) Build(_ context.Context, spec driver.BuildSpec) (string, error) 
 	return ref, err
 }
 
-// Resolve answers for what the registry holds: a reference by digest, its
+// Resolve answers for what tower's registry holds, and for any image of
+// another registry, as a public one holds them: a reference by digest, its
 // digest, a tag the hash of its name.
 func (i images) Resolve(_ context.Context, ref string) (driver.ImageConfig, error) {
 	var cfg driver.ImageConfig
 	err := i.h.read("images.Resolve", func() error {
-		if !i.h.st.Registry[ref] {
+		if !i.h.st.Registry[ref] && strings.HasPrefix(ref, Registry+"/") {
 			return fmt.Errorf("image %s: %w", ref, driver.ErrNotFound)
 		}
 		cfg.User = i.h.st.Users[ref]
