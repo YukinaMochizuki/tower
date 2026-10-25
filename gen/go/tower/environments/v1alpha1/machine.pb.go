@@ -10,6 +10,7 @@ import (
 	v1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	structpb "google.golang.org/protobuf/types/known/structpb"
 	reflect "reflect"
 	sync "sync"
@@ -276,7 +277,12 @@ type Blueprint struct {
 	// Ports a box on the network reaches it at.
 	ExposePorts []int32 `protobuf:"varint,5,rep,packed,name=expose_ports,json=exposePorts,proto3" json:"expose_ports,omitempty"`
 	// Its name on the workstream's network; empty is the blueprint's name.
-	NetAlias      string `protobuf:"bytes,6,opt,name=net_alias,json=netAlias,proto3" json:"net_alias,omitempty"`
+	NetAlias string `protobuf:"bytes,6,opt,name=net_alias,json=netAlias,proto3" json:"net_alias,omitempty"`
+	// What says the machine is ready, which its configure phase finishing
+	// does not: a service it starts may take a while to come up after (k3s
+	// reports its node Ready only after the playbook ends). workstream's
+	// blueprints declare one as readyCheck. None is ready once configured.
+	ReadyCheck    *ReadyCheck `protobuf:"bytes,7,opt,name=ready_check,json=readyCheck,proto3" json:"ready_check,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -353,6 +359,71 @@ func (x *Blueprint) GetNetAlias() string {
 	return ""
 }
 
+func (x *Blueprint) GetReadyCheck() *ReadyCheck {
+	if x != nil {
+		return x.ReadyCheck
+	}
+	return nil
+}
+
+// ReadyCheck is a shell command run in the machine after its configure
+// phase, every 5 seconds until it exits 0. It is checked again after each
+// start of the machine, since what it checks starts again with it.
+type ReadyCheck struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Run as sh -c command, as root, without the machine's secrets.
+	Command string `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
+	// How long it may take to pass before the machine fails; unset is 200
+	// seconds, as workstream allows (40 tries, 5 seconds apart).
+	Timeout       *durationpb.Duration `protobuf:"bytes,2,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadyCheck) Reset() {
+	*x = ReadyCheck{}
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadyCheck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadyCheck) ProtoMessage() {}
+
+func (x *ReadyCheck) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadyCheck.ProtoReflect.Descriptor instead.
+func (*ReadyCheck) Descriptor() ([]byte, []int) {
+	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ReadyCheck) GetCommand() string {
+	if x != nil {
+		return x.Command
+	}
+	return ""
+}
+
+func (x *ReadyCheck) GetTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.Timeout
+	}
+	return nil
+}
+
 // SecretRef names one value of a Secret and what to call it.
 type SecretRef struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -367,7 +438,7 @@ type SecretRef struct {
 
 func (x *SecretRef) Reset() {
 	*x = SecretRef{}
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[3]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -379,7 +450,7 @@ func (x *SecretRef) String() string {
 func (*SecretRef) ProtoMessage() {}
 
 func (x *SecretRef) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[3]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -392,7 +463,7 @@ func (x *SecretRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecretRef.ProtoReflect.Descriptor instead.
 func (*SecretRef) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{3}
+	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SecretRef) GetSecret() string {
@@ -434,7 +505,7 @@ type MachineStatus struct {
 
 func (x *MachineStatus) Reset() {
 	*x = MachineStatus{}
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[4]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -446,7 +517,7 @@ func (x *MachineStatus) String() string {
 func (*MachineStatus) ProtoMessage() {}
 
 func (x *MachineStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[4]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -459,7 +530,7 @@ func (x *MachineStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MachineStatus.ProtoReflect.Descriptor instead.
 func (*MachineStatus) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{4}
+	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *MachineStatus) GetObservedGeneration() int64 {
@@ -528,7 +599,7 @@ type GetMachineRequest struct {
 
 func (x *GetMachineRequest) Reset() {
 	*x = GetMachineRequest{}
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[5]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -540,7 +611,7 @@ func (x *GetMachineRequest) String() string {
 func (*GetMachineRequest) ProtoMessage() {}
 
 func (x *GetMachineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[5]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -553,7 +624,7 @@ func (x *GetMachineRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMachineRequest.ProtoReflect.Descriptor instead.
 func (*GetMachineRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{5}
+	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetMachineRequest) GetProject() string {
@@ -579,7 +650,7 @@ type GetMachineResponse struct {
 
 func (x *GetMachineResponse) Reset() {
 	*x = GetMachineResponse{}
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[6]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -591,7 +662,7 @@ func (x *GetMachineResponse) String() string {
 func (*GetMachineResponse) ProtoMessage() {}
 
 func (x *GetMachineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[6]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -604,7 +675,7 @@ func (x *GetMachineResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMachineResponse.ProtoReflect.Descriptor instead.
 func (*GetMachineResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{6}
+	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetMachineResponse) GetMachine() *Machine {
@@ -627,7 +698,7 @@ type ListMachinesRequest struct {
 
 func (x *ListMachinesRequest) Reset() {
 	*x = ListMachinesRequest{}
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[7]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -639,7 +710,7 @@ func (x *ListMachinesRequest) String() string {
 func (*ListMachinesRequest) ProtoMessage() {}
 
 func (x *ListMachinesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[7]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -652,7 +723,7 @@ func (x *ListMachinesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMachinesRequest.ProtoReflect.Descriptor instead.
 func (*ListMachinesRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{7}
+	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListMachinesRequest) GetProject() string {
@@ -694,7 +765,7 @@ type ListMachinesResponse struct {
 
 func (x *ListMachinesResponse) Reset() {
 	*x = ListMachinesResponse{}
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[8]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -706,7 +777,7 @@ func (x *ListMachinesResponse) String() string {
 func (*ListMachinesResponse) ProtoMessage() {}
 
 func (x *ListMachinesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[8]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -719,7 +790,7 @@ func (x *ListMachinesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMachinesResponse.ProtoReflect.Descriptor instead.
 func (*ListMachinesResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{8}
+	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListMachinesResponse) GetItems() []*Machine {
@@ -755,7 +826,7 @@ type WatchMachinesRequest struct {
 
 func (x *WatchMachinesRequest) Reset() {
 	*x = WatchMachinesRequest{}
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[9]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -767,7 +838,7 @@ func (x *WatchMachinesRequest) String() string {
 func (*WatchMachinesRequest) ProtoMessage() {}
 
 func (x *WatchMachinesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[9]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -780,7 +851,7 @@ func (x *WatchMachinesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchMachinesRequest.ProtoReflect.Descriptor instead.
 func (*WatchMachinesRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{9}
+	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *WatchMachinesRequest) GetProject() string {
@@ -815,7 +886,7 @@ type WatchMachinesResponse struct {
 
 func (x *WatchMachinesResponse) Reset() {
 	*x = WatchMachinesResponse{}
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[10]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -827,7 +898,7 @@ func (x *WatchMachinesResponse) String() string {
 func (*WatchMachinesResponse) ProtoMessage() {}
 
 func (x *WatchMachinesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[10]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -840,7 +911,7 @@ func (x *WatchMachinesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchMachinesResponse.ProtoReflect.Descriptor instead.
 func (*WatchMachinesResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{10}
+	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *WatchMachinesResponse) GetType() v1.EventType {
@@ -875,7 +946,7 @@ type ApplyMachineRequest struct {
 
 func (x *ApplyMachineRequest) Reset() {
 	*x = ApplyMachineRequest{}
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[11]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -887,7 +958,7 @@ func (x *ApplyMachineRequest) String() string {
 func (*ApplyMachineRequest) ProtoMessage() {}
 
 func (x *ApplyMachineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[11]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -900,7 +971,7 @@ func (x *ApplyMachineRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyMachineRequest.ProtoReflect.Descriptor instead.
 func (*ApplyMachineRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{11}
+	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ApplyMachineRequest) GetMachine() *Machine {
@@ -928,7 +999,7 @@ type ApplyMachineResponse struct {
 
 func (x *ApplyMachineResponse) Reset() {
 	*x = ApplyMachineResponse{}
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[12]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -940,7 +1011,7 @@ func (x *ApplyMachineResponse) String() string {
 func (*ApplyMachineResponse) ProtoMessage() {}
 
 func (x *ApplyMachineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[12]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -953,7 +1024,7 @@ func (x *ApplyMachineResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyMachineResponse.ProtoReflect.Descriptor instead.
 func (*ApplyMachineResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{12}
+	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ApplyMachineResponse) GetMachine() *Machine {
@@ -988,7 +1059,7 @@ type DeleteMachineRequest struct {
 
 func (x *DeleteMachineRequest) Reset() {
 	*x = DeleteMachineRequest{}
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[13]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1000,7 +1071,7 @@ func (x *DeleteMachineRequest) String() string {
 func (*DeleteMachineRequest) ProtoMessage() {}
 
 func (x *DeleteMachineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[13]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1013,7 +1084,7 @@ func (x *DeleteMachineRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMachineRequest.ProtoReflect.Descriptor instead.
 func (*DeleteMachineRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{13}
+	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DeleteMachineRequest) GetProject() string {
@@ -1046,7 +1117,7 @@ type DeleteMachineResponse struct {
 
 func (x *DeleteMachineResponse) Reset() {
 	*x = DeleteMachineResponse{}
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[14]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1058,7 +1129,7 @@ func (x *DeleteMachineResponse) String() string {
 func (*DeleteMachineResponse) ProtoMessage() {}
 
 func (x *DeleteMachineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[14]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1071,7 +1142,7 @@ func (x *DeleteMachineResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMachineResponse.ProtoReflect.Descriptor instead.
 func (*DeleteMachineResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{14}
+	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *DeleteMachineResponse) GetMachine() *Machine {
@@ -1093,7 +1164,7 @@ type UpdateMachineStatusRequest struct {
 
 func (x *UpdateMachineStatusRequest) Reset() {
 	*x = UpdateMachineStatusRequest{}
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[15]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1105,7 +1176,7 @@ func (x *UpdateMachineStatusRequest) String() string {
 func (*UpdateMachineStatusRequest) ProtoMessage() {}
 
 func (x *UpdateMachineStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[15]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1118,7 +1189,7 @@ func (x *UpdateMachineStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMachineStatusRequest.ProtoReflect.Descriptor instead.
 func (*UpdateMachineStatusRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{15}
+	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *UpdateMachineStatusRequest) GetProject() string {
@@ -1158,7 +1229,7 @@ type UpdateMachineStatusResponse struct {
 
 func (x *UpdateMachineStatusResponse) Reset() {
 	*x = UpdateMachineStatusResponse{}
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[16]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1170,7 +1241,7 @@ func (x *UpdateMachineStatusResponse) String() string {
 func (*UpdateMachineStatusResponse) ProtoMessage() {}
 
 func (x *UpdateMachineStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[16]
+	mi := &file_tower_environments_v1alpha1_machine_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1183,7 +1254,7 @@ func (x *UpdateMachineStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMachineStatusResponse.ProtoReflect.Descriptor instead.
 func (*UpdateMachineStatusResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{16}
+	return file_tower_environments_v1alpha1_machine_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *UpdateMachineStatusResponse) GetMachine() *Machine {
@@ -1197,7 +1268,7 @@ var File_tower_environments_v1alpha1_machine_proto protoreflect.FileDescriptor
 
 const file_tower_environments_v1alpha1_machine_proto_rawDesc = "" +
 	"\n" +
-	")tower/environments/v1alpha1/machine.proto\x12\x1btower.environments.v1alpha1\x1a\x1cgoogle/protobuf/struct.proto\x1a(tower/environments/v1alpha1/common.proto\x1a\x18tower/meta/v1/meta.proto\x1a\x1btower/meta/v1/options.proto\"\x96\x02\n" +
+	")tower/environments/v1alpha1/machine.proto\x12\x1btower.environments.v1alpha1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a(tower/environments/v1alpha1/common.proto\x1a\x18tower/meta/v1/meta.proto\x1a\x1btower/meta/v1/options.proto\"\x96\x02\n" +
 	"\aMachine\x12\x1f\n" +
 	"\vapi_version\x18\x01 \x01(\tR\n" +
 	"apiVersion\x12\x12\n" +
@@ -1214,7 +1285,7 @@ const file_tower_environments_v1alpha1_machine_proto_rawDesc = "" +
 	"\x04vars\x18\x03 \x01(\v2\x17.google.protobuf.StructB\x06\x8a\xb5\x18\x02\b\x01R\x04vars\x12D\n" +
 	"\tresources\x18\x04 \x01(\v2&.tower.environments.v1alpha1.ResourcesR\tresources\x12H\n" +
 	"\asecrets\x18\x05 \x03(\v2&.tower.environments.v1alpha1.SecretRefB\x06\x8a\xb5\x18\x02\b\x01R\asecrets\x12B\n" +
-	"\trun_state\x18\x06 \x01(\x0e2%.tower.environments.v1alpha1.RunStateR\brunState\"\xd2\x01\n" +
+	"\trun_state\x18\x06 \x01(\x0e2%.tower.environments.v1alpha1.RunStateR\brunState\"\x9c\x02\n" +
 	"\tBlueprint\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x1d\n" +
@@ -1223,7 +1294,13 @@ const file_tower_environments_v1alpha1_machine_proto_rawDesc = "" +
 	"\vgolden_vars\x18\x04 \x01(\v2\x17.google.protobuf.StructR\n" +
 	"goldenVars\x12!\n" +
 	"\fexpose_ports\x18\x05 \x03(\x05R\vexposePorts\x12\x1b\n" +
-	"\tnet_alias\x18\x06 \x01(\tR\bnetAlias\"E\n" +
+	"\tnet_alias\x18\x06 \x01(\tR\bnetAlias\x12H\n" +
+	"\vready_check\x18\a \x01(\v2'.tower.environments.v1alpha1.ReadyCheckR\n" +
+	"readyCheck\"[\n" +
+	"\n" +
+	"ReadyCheck\x12\x18\n" +
+	"\acommand\x18\x01 \x01(\tR\acommand\x123\n" +
+	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"E\n" +
 	"\tSecretRef\x12\x16\n" +
 	"\x06secret\x18\x01 \x01(\tR\x06secret\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x0e\n" +
@@ -1317,71 +1394,75 @@ func file_tower_environments_v1alpha1_machine_proto_rawDescGZIP() []byte {
 }
 
 var file_tower_environments_v1alpha1_machine_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_tower_environments_v1alpha1_machine_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_tower_environments_v1alpha1_machine_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_tower_environments_v1alpha1_machine_proto_goTypes = []any{
 	(MachinePhase)(0),                   // 0: tower.environments.v1alpha1.MachinePhase
 	(*Machine)(nil),                     // 1: tower.environments.v1alpha1.Machine
 	(*MachineSpec)(nil),                 // 2: tower.environments.v1alpha1.MachineSpec
 	(*Blueprint)(nil),                   // 3: tower.environments.v1alpha1.Blueprint
-	(*SecretRef)(nil),                   // 4: tower.environments.v1alpha1.SecretRef
-	(*MachineStatus)(nil),               // 5: tower.environments.v1alpha1.MachineStatus
-	(*GetMachineRequest)(nil),           // 6: tower.environments.v1alpha1.GetMachineRequest
-	(*GetMachineResponse)(nil),          // 7: tower.environments.v1alpha1.GetMachineResponse
-	(*ListMachinesRequest)(nil),         // 8: tower.environments.v1alpha1.ListMachinesRequest
-	(*ListMachinesResponse)(nil),        // 9: tower.environments.v1alpha1.ListMachinesResponse
-	(*WatchMachinesRequest)(nil),        // 10: tower.environments.v1alpha1.WatchMachinesRequest
-	(*WatchMachinesResponse)(nil),       // 11: tower.environments.v1alpha1.WatchMachinesResponse
-	(*ApplyMachineRequest)(nil),         // 12: tower.environments.v1alpha1.ApplyMachineRequest
-	(*ApplyMachineResponse)(nil),        // 13: tower.environments.v1alpha1.ApplyMachineResponse
-	(*DeleteMachineRequest)(nil),        // 14: tower.environments.v1alpha1.DeleteMachineRequest
-	(*DeleteMachineResponse)(nil),       // 15: tower.environments.v1alpha1.DeleteMachineResponse
-	(*UpdateMachineStatusRequest)(nil),  // 16: tower.environments.v1alpha1.UpdateMachineStatusRequest
-	(*UpdateMachineStatusResponse)(nil), // 17: tower.environments.v1alpha1.UpdateMachineStatusResponse
-	(*v1.ObjectMeta)(nil),               // 18: tower.meta.v1.ObjectMeta
-	(*structpb.Struct)(nil),             // 19: google.protobuf.Struct
-	(*Resources)(nil),                   // 20: tower.environments.v1alpha1.Resources
-	(RunState)(0),                       // 21: tower.environments.v1alpha1.RunState
-	(*v1.Condition)(nil),                // 22: tower.meta.v1.Condition
-	(v1.EventType)(0),                   // 23: tower.meta.v1.EventType
+	(*ReadyCheck)(nil),                  // 4: tower.environments.v1alpha1.ReadyCheck
+	(*SecretRef)(nil),                   // 5: tower.environments.v1alpha1.SecretRef
+	(*MachineStatus)(nil),               // 6: tower.environments.v1alpha1.MachineStatus
+	(*GetMachineRequest)(nil),           // 7: tower.environments.v1alpha1.GetMachineRequest
+	(*GetMachineResponse)(nil),          // 8: tower.environments.v1alpha1.GetMachineResponse
+	(*ListMachinesRequest)(nil),         // 9: tower.environments.v1alpha1.ListMachinesRequest
+	(*ListMachinesResponse)(nil),        // 10: tower.environments.v1alpha1.ListMachinesResponse
+	(*WatchMachinesRequest)(nil),        // 11: tower.environments.v1alpha1.WatchMachinesRequest
+	(*WatchMachinesResponse)(nil),       // 12: tower.environments.v1alpha1.WatchMachinesResponse
+	(*ApplyMachineRequest)(nil),         // 13: tower.environments.v1alpha1.ApplyMachineRequest
+	(*ApplyMachineResponse)(nil),        // 14: tower.environments.v1alpha1.ApplyMachineResponse
+	(*DeleteMachineRequest)(nil),        // 15: tower.environments.v1alpha1.DeleteMachineRequest
+	(*DeleteMachineResponse)(nil),       // 16: tower.environments.v1alpha1.DeleteMachineResponse
+	(*UpdateMachineStatusRequest)(nil),  // 17: tower.environments.v1alpha1.UpdateMachineStatusRequest
+	(*UpdateMachineStatusResponse)(nil), // 18: tower.environments.v1alpha1.UpdateMachineStatusResponse
+	(*v1.ObjectMeta)(nil),               // 19: tower.meta.v1.ObjectMeta
+	(*structpb.Struct)(nil),             // 20: google.protobuf.Struct
+	(*Resources)(nil),                   // 21: tower.environments.v1alpha1.Resources
+	(RunState)(0),                       // 22: tower.environments.v1alpha1.RunState
+	(*durationpb.Duration)(nil),         // 23: google.protobuf.Duration
+	(*v1.Condition)(nil),                // 24: tower.meta.v1.Condition
+	(v1.EventType)(0),                   // 25: tower.meta.v1.EventType
 }
 var file_tower_environments_v1alpha1_machine_proto_depIdxs = []int32{
-	18, // 0: tower.environments.v1alpha1.Machine.metadata:type_name -> tower.meta.v1.ObjectMeta
+	19, // 0: tower.environments.v1alpha1.Machine.metadata:type_name -> tower.meta.v1.ObjectMeta
 	2,  // 1: tower.environments.v1alpha1.Machine.spec:type_name -> tower.environments.v1alpha1.MachineSpec
-	5,  // 2: tower.environments.v1alpha1.Machine.status:type_name -> tower.environments.v1alpha1.MachineStatus
+	6,  // 2: tower.environments.v1alpha1.Machine.status:type_name -> tower.environments.v1alpha1.MachineStatus
 	3,  // 3: tower.environments.v1alpha1.MachineSpec.blueprint:type_name -> tower.environments.v1alpha1.Blueprint
-	19, // 4: tower.environments.v1alpha1.MachineSpec.vars:type_name -> google.protobuf.Struct
-	20, // 5: tower.environments.v1alpha1.MachineSpec.resources:type_name -> tower.environments.v1alpha1.Resources
-	4,  // 6: tower.environments.v1alpha1.MachineSpec.secrets:type_name -> tower.environments.v1alpha1.SecretRef
-	21, // 7: tower.environments.v1alpha1.MachineSpec.run_state:type_name -> tower.environments.v1alpha1.RunState
-	19, // 8: tower.environments.v1alpha1.Blueprint.golden_vars:type_name -> google.protobuf.Struct
-	22, // 9: tower.environments.v1alpha1.MachineStatus.conditions:type_name -> tower.meta.v1.Condition
-	0,  // 10: tower.environments.v1alpha1.MachineStatus.phase:type_name -> tower.environments.v1alpha1.MachinePhase
-	1,  // 11: tower.environments.v1alpha1.GetMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
-	1,  // 12: tower.environments.v1alpha1.ListMachinesResponse.items:type_name -> tower.environments.v1alpha1.Machine
-	23, // 13: tower.environments.v1alpha1.WatchMachinesResponse.type:type_name -> tower.meta.v1.EventType
-	1,  // 14: tower.environments.v1alpha1.WatchMachinesResponse.machine:type_name -> tower.environments.v1alpha1.Machine
-	1,  // 15: tower.environments.v1alpha1.ApplyMachineRequest.machine:type_name -> tower.environments.v1alpha1.Machine
-	1,  // 16: tower.environments.v1alpha1.ApplyMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
-	1,  // 17: tower.environments.v1alpha1.DeleteMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
-	5,  // 18: tower.environments.v1alpha1.UpdateMachineStatusRequest.status:type_name -> tower.environments.v1alpha1.MachineStatus
-	1,  // 19: tower.environments.v1alpha1.UpdateMachineStatusResponse.machine:type_name -> tower.environments.v1alpha1.Machine
-	6,  // 20: tower.environments.v1alpha1.MachineService.GetMachine:input_type -> tower.environments.v1alpha1.GetMachineRequest
-	8,  // 21: tower.environments.v1alpha1.MachineService.ListMachines:input_type -> tower.environments.v1alpha1.ListMachinesRequest
-	10, // 22: tower.environments.v1alpha1.MachineService.WatchMachines:input_type -> tower.environments.v1alpha1.WatchMachinesRequest
-	12, // 23: tower.environments.v1alpha1.MachineService.ApplyMachine:input_type -> tower.environments.v1alpha1.ApplyMachineRequest
-	14, // 24: tower.environments.v1alpha1.MachineService.DeleteMachine:input_type -> tower.environments.v1alpha1.DeleteMachineRequest
-	16, // 25: tower.environments.v1alpha1.MachineService.UpdateMachineStatus:input_type -> tower.environments.v1alpha1.UpdateMachineStatusRequest
-	7,  // 26: tower.environments.v1alpha1.MachineService.GetMachine:output_type -> tower.environments.v1alpha1.GetMachineResponse
-	9,  // 27: tower.environments.v1alpha1.MachineService.ListMachines:output_type -> tower.environments.v1alpha1.ListMachinesResponse
-	11, // 28: tower.environments.v1alpha1.MachineService.WatchMachines:output_type -> tower.environments.v1alpha1.WatchMachinesResponse
-	13, // 29: tower.environments.v1alpha1.MachineService.ApplyMachine:output_type -> tower.environments.v1alpha1.ApplyMachineResponse
-	15, // 30: tower.environments.v1alpha1.MachineService.DeleteMachine:output_type -> tower.environments.v1alpha1.DeleteMachineResponse
-	17, // 31: tower.environments.v1alpha1.MachineService.UpdateMachineStatus:output_type -> tower.environments.v1alpha1.UpdateMachineStatusResponse
-	26, // [26:32] is the sub-list for method output_type
-	20, // [20:26] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	20, // 4: tower.environments.v1alpha1.MachineSpec.vars:type_name -> google.protobuf.Struct
+	21, // 5: tower.environments.v1alpha1.MachineSpec.resources:type_name -> tower.environments.v1alpha1.Resources
+	5,  // 6: tower.environments.v1alpha1.MachineSpec.secrets:type_name -> tower.environments.v1alpha1.SecretRef
+	22, // 7: tower.environments.v1alpha1.MachineSpec.run_state:type_name -> tower.environments.v1alpha1.RunState
+	20, // 8: tower.environments.v1alpha1.Blueprint.golden_vars:type_name -> google.protobuf.Struct
+	4,  // 9: tower.environments.v1alpha1.Blueprint.ready_check:type_name -> tower.environments.v1alpha1.ReadyCheck
+	23, // 10: tower.environments.v1alpha1.ReadyCheck.timeout:type_name -> google.protobuf.Duration
+	24, // 11: tower.environments.v1alpha1.MachineStatus.conditions:type_name -> tower.meta.v1.Condition
+	0,  // 12: tower.environments.v1alpha1.MachineStatus.phase:type_name -> tower.environments.v1alpha1.MachinePhase
+	1,  // 13: tower.environments.v1alpha1.GetMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
+	1,  // 14: tower.environments.v1alpha1.ListMachinesResponse.items:type_name -> tower.environments.v1alpha1.Machine
+	25, // 15: tower.environments.v1alpha1.WatchMachinesResponse.type:type_name -> tower.meta.v1.EventType
+	1,  // 16: tower.environments.v1alpha1.WatchMachinesResponse.machine:type_name -> tower.environments.v1alpha1.Machine
+	1,  // 17: tower.environments.v1alpha1.ApplyMachineRequest.machine:type_name -> tower.environments.v1alpha1.Machine
+	1,  // 18: tower.environments.v1alpha1.ApplyMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
+	1,  // 19: tower.environments.v1alpha1.DeleteMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
+	6,  // 20: tower.environments.v1alpha1.UpdateMachineStatusRequest.status:type_name -> tower.environments.v1alpha1.MachineStatus
+	1,  // 21: tower.environments.v1alpha1.UpdateMachineStatusResponse.machine:type_name -> tower.environments.v1alpha1.Machine
+	7,  // 22: tower.environments.v1alpha1.MachineService.GetMachine:input_type -> tower.environments.v1alpha1.GetMachineRequest
+	9,  // 23: tower.environments.v1alpha1.MachineService.ListMachines:input_type -> tower.environments.v1alpha1.ListMachinesRequest
+	11, // 24: tower.environments.v1alpha1.MachineService.WatchMachines:input_type -> tower.environments.v1alpha1.WatchMachinesRequest
+	13, // 25: tower.environments.v1alpha1.MachineService.ApplyMachine:input_type -> tower.environments.v1alpha1.ApplyMachineRequest
+	15, // 26: tower.environments.v1alpha1.MachineService.DeleteMachine:input_type -> tower.environments.v1alpha1.DeleteMachineRequest
+	17, // 27: tower.environments.v1alpha1.MachineService.UpdateMachineStatus:input_type -> tower.environments.v1alpha1.UpdateMachineStatusRequest
+	8,  // 28: tower.environments.v1alpha1.MachineService.GetMachine:output_type -> tower.environments.v1alpha1.GetMachineResponse
+	10, // 29: tower.environments.v1alpha1.MachineService.ListMachines:output_type -> tower.environments.v1alpha1.ListMachinesResponse
+	12, // 30: tower.environments.v1alpha1.MachineService.WatchMachines:output_type -> tower.environments.v1alpha1.WatchMachinesResponse
+	14, // 31: tower.environments.v1alpha1.MachineService.ApplyMachine:output_type -> tower.environments.v1alpha1.ApplyMachineResponse
+	16, // 32: tower.environments.v1alpha1.MachineService.DeleteMachine:output_type -> tower.environments.v1alpha1.DeleteMachineResponse
+	18, // 33: tower.environments.v1alpha1.MachineService.UpdateMachineStatus:output_type -> tower.environments.v1alpha1.UpdateMachineStatusResponse
+	28, // [28:34] is the sub-list for method output_type
+	22, // [22:28] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_tower_environments_v1alpha1_machine_proto_init() }
@@ -1390,15 +1471,15 @@ func file_tower_environments_v1alpha1_machine_proto_init() {
 		return
 	}
 	file_tower_environments_v1alpha1_common_proto_init()
-	file_tower_environments_v1alpha1_machine_proto_msgTypes[13].OneofWrappers = []any{}
-	file_tower_environments_v1alpha1_machine_proto_msgTypes[15].OneofWrappers = []any{}
+	file_tower_environments_v1alpha1_machine_proto_msgTypes[14].OneofWrappers = []any{}
+	file_tower_environments_v1alpha1_machine_proto_msgTypes[16].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tower_environments_v1alpha1_machine_proto_rawDesc), len(file_tower_environments_v1alpha1_machine_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   17,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package tower.environments.v1alpha1;
 
+import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
 import "tower/environments/v1alpha1/common.proto";
 import "tower/meta/v1/meta.proto";
@@ -56,6 +57,22 @@ message Blueprint {
   repeated int32 expose_ports = 5;
   // Its name on the workstream's network; empty is the blueprint's name.
   string net_alias = 6;
+  // What says the machine is ready, which its configure phase finishing
+  // does not: a service it starts may take a while to come up after (k3s
+  // reports its node Ready only after the playbook ends). workstream's
+  // blueprints declare one as readyCheck. None is ready once configured.
+  ReadyCheck ready_check = 7;
+}
+
+// ReadyCheck is a shell command run in the machine after its configure
+// phase, every 5 seconds until it exits 0. It is checked again after each
+// start of the machine, since what it checks starts again with it.
+message ReadyCheck {
+  // Run as sh -c command, as root, without the machine's secrets.
+  string command = 1;
+  // How long it may take to pass before the machine fails; unset is 200
+  // seconds, as workstream allows (40 tries, 5 seconds apart).
+  google.protobuf.Duration timeout = 2;
 }
 
 // SecretRef names one value of a Secret and what to call it.
