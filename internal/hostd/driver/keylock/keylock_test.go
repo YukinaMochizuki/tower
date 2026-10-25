@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/YukinaMochizuki/hangar/internal/node/driver/keylock"
+	"github.com/YukinaMochizuki/tower/internal/hostd/driver/keylock"
 )
 
 // TestOneHolderPerKey: a key is held by one at a time, other keys are not
