@@ -3,6 +3,7 @@ package devcontainer_test
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"slices"
@@ -264,6 +265,36 @@ func TestARepositoryWithoutADevcontainerFallsBack(t *testing.T) {
 	mreq.FallbackImage = "gone:1"
 	if _, err := r.Image(ctx, missing, mreq); !errors.Is(err, devcontainer.ErrUnresolvable) || !strings.Contains(err.Error(), "the fallback image gone:1 is not in its registry") {
 		t.Errorf("a fallback image not in its registry: %v", err)
+	}
+}
+
+// noRegistry is a provider whose registry is never asked: each ask is
+// counted and refused.
+type noRegistry struct {
+	*fake.Fake
+	asked int
+}
+
+func (n *noRegistry) ResolveImage(context.Context, string) (provider.ImageConfig, error) {
+	n.asked++
+	return provider.ImageConfig{}, provider.ErrUnavailable
+}
+
+// TestABoxsSetupAsksNoRegistry: what a box sets up once checked out is
+// read from its repository alone: the image is its golden's already.
+func TestABoxsSetupAsksNoRegistry(t *testing.T) {
+	r, ctx := devcontainer.Real{}, t.Context()
+	f, req := repo(t, map[string]string{".devcontainer.json": `{"image": "node:22", "postCreateCommand": "npm ci"}`})
+	p := &noRegistry{Fake: f}
+	steps, err := r.Setup(ctx, p, req)
+	if err != nil || len(steps) != 1 || p.asked != 0 {
+		t.Errorf("set up with %v, %v, asking the registry %d times", steps, err, p.asked)
+	}
+	plain, preq := repo(t, map[string]string{"README": "x"})
+	preq.FallbackImage = "ubuntu:24.04"
+	q := &noRegistry{Fake: plain}
+	if steps, err := r.Setup(ctx, q, preq); err != nil || steps != nil || q.asked != 0 {
+		t.Errorf("a fallback set up with %v, %v, asking the registry %d times", steps, err, q.asked)
 	}
 }
 

@@ -85,7 +85,10 @@ func inTree(dir, rel string) (string, bool) {
 	return p, true
 }
 
-func (Real) resolve(ctx context.Context, p provider.Provider, req Request) (resolved, error) {
+// resolve resolves req. For a box's setup alone, forSetup, it asks no
+// registry: the image is the golden's already, and its setup is read from
+// the repository.
+func (Real) resolve(ctx context.Context, p provider.Provider, req Request, forSetup bool) (resolved, error) {
 	var r resolved
 	for _, id := range req.Addons {
 		a, err := loadAddon(id)
@@ -132,6 +135,9 @@ func (Real) resolve(ctx context.Context, p provider.Provider, req Request) (reso
 		// What workstream's setup "auto" does: the image it falls back
 		// to, which sets nothing up.
 		if req.FallbackImage != "" {
+			if forSetup {
+				return r, nil
+			}
 			err := r.explicit(ctx, p, req.FallbackImage, "the fallback image")
 			return r, err
 		}
@@ -151,6 +157,7 @@ func (Real) resolve(ctx context.Context, p provider.Provider, req Request) (reso
 	part(cfg.Path)
 	part(string(read.Entries[cfg.Path].Content))
 	switch {
+	case cfg.Image != "" && forSetup:
 	case cfg.Image != "":
 		ic, err := p.ResolveImage(ctx, cfg.Image)
 		if errors.Is(err, provider.ErrNotFound) {
@@ -220,7 +227,7 @@ func short(commit string) string {
 
 // Image resolves the image's inputs.
 func (re Real) Image(ctx context.Context, p provider.Provider, req Request) (Image, error) {
-	r, err := re.resolve(ctx, p, req)
+	r, err := re.resolve(ctx, p, req, false)
 	return r.img, err
 }
 
@@ -231,7 +238,7 @@ func (re Real) Image(ctx context.Context, p provider.Provider, req Request) (Ima
 // explicit or a devcontainer image is the one img names by digest, which
 // is what the golden was made for.
 func (re Real) Build(ctx context.Context, p provider.Provider, req Request, img Image, repository string) (string, error) {
-	r, err := re.resolve(ctx, p, req)
+	r, err := re.resolve(ctx, p, req, false)
 	if err != nil {
 		return "", err
 	}
@@ -288,7 +295,7 @@ func (re Real) Setup(ctx context.Context, p provider.Provider, req Request) ([]S
 	if req.Image != "" || req.Build != nil {
 		return nil, nil
 	}
-	r, err := re.resolve(ctx, p, Request{Target: req.Target, Mirror: req.Mirror, Commit: req.Commit, FallbackImage: req.FallbackImage})
+	r, err := re.resolve(ctx, p, Request{Target: req.Target, Mirror: req.Mirror, Commit: req.Commit, FallbackImage: req.FallbackImage}, true)
 	if err != nil || r.cfg == nil {
 		return nil, err
 	}
