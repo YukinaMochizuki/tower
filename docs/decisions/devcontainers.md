@@ -66,13 +66,20 @@ target (`repositories.md`), and builds on the target (`images.md`).
   mise's tools and the devcontainer's commands, reaches outside
   `/workspace` (mise's tools live in the user's home), which a warm golden,
   a disk of `/workspace`, does not hold, so every box runs its own setup.
-- **A devcontainer tower cannot make an image of fails the box at once**
-  (`DevcontainerUnresolvable`), saying why: none in the repository, one
-  that does not parse, one that names neither `image` nor
-  `build.dockerfile`, an image its registry lacks, a build from outside the
-  repository. Where workstream falls back to a plain image, tower does
-  not: the box asked for this one, and workstream asks for a plain image
-  itself (`BoxSpec.image`) when it wants one.
+- **A repository without a devcontainer falls back, as workstream's setup
+  "auto" does:** to the box's `fallback_image`, which workstream sets to
+  the repository's `boxImage` or its own default, else to tower-apiserver's
+  `--default-box-image`. The image is made as a box of it named explicitly
+  would be, add-ons layered on, and sets nothing up. workstream's setup
+  "image" is `BoxSpec.image`.
+- **Any other devcontainer tower cannot make an image of fails the box at
+  once** (`DevcontainerUnresolvable`), saying why: one that does not parse,
+  one that names neither `image` nor `build.dockerfile`, an image its
+  registry lacks, a build from outside the repository, and a repository
+  without one when there is no image to fall back to. Where workstream
+  also falls back to a plain image on such failures, tower does not: the
+  repository asked for its devcontainer, and a box of another image is a
+  different box.
 
 Not workstream's code run by tower: tower is Go and builds on a target it
 reaches through a provider, and workstream's builder runs Docker on its own

@@ -233,6 +233,9 @@ func validateBox(ctx context.Context, s *Server, _ authz.Caller, old, obj proto.
 	if spec.GetImage() != "" && spec.GetImageBuild() != nil {
 		return invalid("spec.image and spec.image_build are exclusive")
 	}
+	if spec.GetFallbackImage() != "" && (len(spec.GetCheckouts()) == 0 || spec.GetImage() != "" || spec.GetImageBuild() != nil) {
+		return invalid("spec.fallback_image is for a box of a repository's devcontainer: one with a checkout and neither spec.image nor spec.image_build")
+	}
 	if b := spec.GetImageBuild(); b != nil {
 		if err := validImageBuild(b); err != nil {
 			return err

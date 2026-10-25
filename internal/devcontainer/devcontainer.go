@@ -36,6 +36,9 @@ type Request struct {
 	Mirror, Commit string
 	// Image is an explicit base image, which skips the devcontainer.
 	Image string
+	// FallbackImage is the image when the checkout has no devcontainer,
+	// and only then; empty fails such a request.
+	FallbackImage string `json:",omitempty"`
 	// Build is the box's own build, which skips the devcontainer; nil
 	// for none. At most one of Image and Build is set.
 	Build *Build `json:",omitempty"`

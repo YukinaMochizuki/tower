@@ -226,6 +226,47 @@ func TestAddonsOnAnyImage(t *testing.T) {
 	}
 }
 
+// TestARepositoryWithoutADevcontainerFallsBack: a repository without a
+// devcontainer is made of the image to fall back to, as workstream's
+// setup "auto" makes a plain box of it, which sets nothing up; one with a
+// devcontainer is made of that, whatever the fallback.
+func TestARepositoryWithoutADevcontainerFallsBack(t *testing.T) {
+	r, ctx := devcontainer.Real{}, t.Context()
+	f, req := repo(t, map[string]string{"README": "plain", "mise.toml": "[tools]\ngo = '1.26'\n"})
+	f.SetImage("ubuntu:24.04", provider.ImageConfig{Digest: "sha256:dd"})
+	req.FallbackImage, req.Addons = "ubuntu:24.04", []string{"desktop"}
+	img, err := r.Image(ctx, f, req)
+	if err != nil || img.BaseImageDigest != "sha256:dd" || img.DevcontainerHash != "" || len(img.Addons) != 1 {
+		t.Fatalf("resolved to %+v, %v", img, err)
+	}
+	// The same image as a box of it named explicitly.
+	explicit, _ := r.Image(ctx, f, devcontainer.Request{Target: "t1", Image: "ubuntu:24.04", Addons: []string{"desktop"}})
+	if !slices.Equal(explicit.Addons, img.Addons) || explicit.BaseImageDigest != img.BaseImageDigest || explicit.DevcontainerHash != img.DevcontainerHash {
+		t.Errorf("a fallback resolved to %+v, the image named %+v", img, explicit)
+	}
+	ref, err := r.Build(ctx, f, req, img, "web/box")
+	if err != nil || !strings.HasPrefix(dockerfileOf(t, f, ref), "FROM ubuntu:24.04@sha256:dd\nUSER root\n") {
+		t.Errorf("a fallback built %q, %v", ref, err)
+	}
+	if steps, err := r.Setup(ctx, f, req); err != nil || steps != nil {
+		t.Errorf("a fallback sets up %v, %v", steps, err)
+	}
+
+	withOne, wreq := repo(t, map[string]string{".devcontainer.json": `{"image": "node:22"}`})
+	withOne.SetImage("node:22", provider.ImageConfig{Digest: "sha256:ee"})
+	wreq.FallbackImage = "ubuntu:24.04"
+	if img, err := r.Image(ctx, withOne, wreq); err != nil || img.BaseImageDigest != "sha256:ee" || img.DevcontainerHash == "" {
+		t.Errorf("a devcontainer with a fallback resolved to %+v, %v", img, err)
+	}
+
+	missing, mreq := repo(t, map[string]string{"README": "plain"})
+	missing.SetMissingImage("gone:1")
+	mreq.FallbackImage = "gone:1"
+	if _, err := r.Image(ctx, missing, mreq); !errors.Is(err, devcontainer.ErrUnresolvable) || !strings.Contains(err.Error(), "the fallback image gone:1 is not in its registry") {
+		t.Errorf("a fallback image not in its registry: %v", err)
+	}
+}
+
 func TestWhatCannotBeResolved(t *testing.T) {
 	r, ctx := devcontainer.Real{}, t.Context()
 	for what, tc := range map[string]struct {
@@ -234,7 +275,7 @@ func TestWhatCannotBeResolved(t *testing.T) {
 		addon string
 		says  string
 	}{
-		"no devcontainer":       {files: map[string]string{"README": "x"}, says: "has no .devcontainer/devcontainer.json or .devcontainer.json at c1; give the box an image"},
+		"no devcontainer":       {files: map[string]string{"README": "x"}, says: "has no .devcontainer/devcontainer.json or .devcontainer.json at c1, and there is no image to fall back to"},
 		"one that never parses": {files: map[string]string{".devcontainer.json": `{"image": `}, says: ".devcontainer.json does not parse"},
 		"neither image nor build": {files: map[string]string{".devcontainer.json": `{"name": "x"}`},
 			says: ".devcontainer.json declares neither image nor build.dockerfile"},

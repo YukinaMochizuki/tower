@@ -11,6 +11,9 @@ User=tower
 Group=tower
 # TOWER_LISTEN: the host's tailnet address and port, such as
 # 100.64.0.2:8080, never every interface (docs/runbook/deploy.md).
+# TOWER_DEFAULT_BOX_IMAGE: what a box of a repository without a
+# devcontainer is made of when workstream names no fallback; empty fails
+# such a box (docs/decisions/devcontainers.md).
 EnvironmentFile=/etc/tower/apiserver.env
 # Its database, key-encryption key and ticket key are in /var/lib/tower,
 # the user's alone; the admin socket, root's way in, in /run/tower.
@@ -23,7 +26,8 @@ ExecStart=/usr/local/bin/tower-apiserver \
 	--db /var/lib/tower/tower.db \
 	--admin-socket /run/tower/admin.sock \
 	--secrets-kek /var/lib/tower/secrets-kek \
-	--ticket-key /var/lib/tower/ticket-key
+	--ticket-key /var/lib/tower/ticket-key \
+	--default-box-image ${TOWER_DEFAULT_BOX_IMAGE}
 Restart=always
 RestartSec=2
 NoNewPrivileges=true

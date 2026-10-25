@@ -81,6 +81,9 @@ type Config struct {
 	// is devcontainer.Real, which reads a repository's devcontainer as
 	// workstream does. Tests give devcontainer.Fake.
 	Resolver devcontainer.Resolver
+	// DefaultBoxImage is what a box of a repository without a devcontainer
+	// is made of when it names no fallback_image; empty fails such a box.
+	DefaultBoxImage string
 	// GoldenPruneAfter is how long a golden nothing was made from, and
 	// nothing references, is kept; zero is DefaultGoldenPruneAfter.
 	GoldenPruneAfter time.Duration

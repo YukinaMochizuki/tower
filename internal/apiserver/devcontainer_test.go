@@ -131,8 +131,9 @@ func TestABoxIsMadeOfItsRepositorysDevcontainer(t *testing.T) {
 }
 
 // TestABoxWhoseDevcontainerCannotBeResolvedFails: a box of a repository
-// with no devcontainer tower can make an image of fails at once, saying
-// why; one given an explicit image is made of it and sets nothing up.
+// with no devcontainer tower can make an image of, and no image to fall
+// back to, fails at once, saying why; one given an explicit image is made
+// of it and sets nothing up.
 func TestABoxWhoseDevcontainerCannotBeResolvedFails(t *testing.T) {
 	w := newWorld(t, realResolver())
 	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{"README": "no devcontainer"}, "c1")
@@ -140,7 +141,7 @@ func TestABoxWhoseDevcontainerCannotBeResolvedFails(t *testing.T) {
 	w.mustApply(registry.Box, box("dev", "api"))
 	failed := w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_FAILED)
 	c := condition(failed.GetStatus().GetConditions(), apiserver.BoxReady)
-	if c.GetReason() != "DevcontainerUnresolvable" || c.GetMessage() != "the repository has no .devcontainer/devcontainer.json or .devcontainer.json at c1; give the box an image" {
+	if c.GetReason() != "DevcontainerUnresolvable" || c.GetMessage() != "the repository has no .devcontainer/devcontainer.json or .devcontainer.json at c1, and there is no image to fall back to" {
 		t.Errorf("Ready %v", c)
 	}
 	if len(w.fake.Builds()) != 0 {
@@ -157,5 +158,36 @@ func TestABoxWhoseDevcontainerCannotBeResolvedFails(t *testing.T) {
 	}
 	if got := setup.got(); len(got) != 0 {
 		t.Errorf("a box of an explicit image set up with %q", got)
+	}
+}
+
+// TestABoxOfARepositoryWithoutADevcontainerFallsBack: a box of a
+// repository without a devcontainer is made of its fallback_image, else
+// of tower's default box image, with its add-ons, as workstream makes a
+// plain box of it; it sets nothing up.
+func TestABoxOfARepositoryWithoutADevcontainerFallsBack(t *testing.T) {
+	w := newWorld(t, worldOption{config: func(c *apiserver.Config) {
+		c.Resolver, c.DefaultBoxImage = devcontainer.Real{}, "ghcr.io/workstream/box:1"
+	}})
+	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{"README": "no devcontainer"}, "c1")
+	w.fake.SetImage("ubuntu:24.04", provider.ImageConfig{Digest: "sha256:dd"})
+	w.fake.SetImage("ghcr.io/workstream/box:1", provider.ImageConfig{Digest: "sha256:bb"})
+	var setup setupRun
+	setup.on(w, "")
+	builtFrom := func(b *envv1alpha1.Box) string {
+		t.Helper()
+		g, _ := w.golden(b.GetStatus().GetImageGolden())
+		return strings.SplitN(dockerfileIn(t, w.fake.BuildContext(g.GetStatus().GetArtifact())), "\n", 2)[0]
+	}
+	own := w.readyBox("own", func(b *envv1alpha1.Box) { b.Spec.FallbackImage, b.Spec.Addons = "ubuntu:24.04", []string{"desktop"} })
+	if from := builtFrom(own); from != "FROM ubuntu:24.04@sha256:dd" {
+		t.Errorf("a box with a fallback_image was built %s", from)
+	}
+	defaulted := w.readyBox("defaulted")
+	if from := builtFrom(defaulted); from != "FROM ghcr.io/workstream/box:1@sha256:bb" {
+		t.Errorf("a box without one was built %s", from)
+	}
+	if got := setup.got(); len(got) != 0 {
+		t.Errorf("a box fallen back set up with %q", got)
 	}
 }

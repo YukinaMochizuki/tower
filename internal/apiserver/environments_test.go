@@ -172,6 +172,12 @@ func TestABoxNamesWhatItIsMadeOf(t *testing.T) {
 		"an add-on twice": withBox(func(b *envv1alpha1.Box) {
 			b.Spec.Addons = []string{"desktop", "desktop"}
 		}, connect.CodeInvalidArgument),
+		"a fallback image beside an image": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.Image, b.Spec.FallbackImage = "ubuntu:24.04", "debian:13"
+		}, connect.CodeInvalidArgument),
+		"a fallback image for no checkout": withBox(func(b *envv1alpha1.Box) {
+			b.Spec.Checkouts, b.Spec.Image, b.Spec.FallbackImage = nil, "ubuntu:24.04", "debian:13"
+		}, connect.CodeInvalidArgument),
 		"no workstream": {func() *envv1alpha1.Box {
 			b := box("b", "repo")
 			b.Spec.Workstream = ""

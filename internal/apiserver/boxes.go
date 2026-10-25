@@ -298,7 +298,7 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 // every box of the same inputs, returning its name; "" with a reason while
 // what it is resolved from is not there yet.
 func (s *Server) boxImageGolden(ctx context.Context, p provider.Provider, project, target string, spec *envv1alpha1.BoxSpec) (string, string, error) {
-	req := devcontainer.Request{Target: target, Image: spec.GetImage(), Addons: spec.GetAddons()}
+	req := devcontainer.Request{Target: target, Image: spec.GetImage(), FallbackImage: s.fallbackImage(spec), Addons: spec.GetAddons()}
 	if b := spec.GetImageBuild(); b != nil {
 		req.Build = &devcontainer.Build{Dockerfile: b.GetDockerfile(), Files: b.GetFiles()}
 	}
@@ -483,6 +483,15 @@ func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *en
 	return nil
 }
 
+// fallbackImage is what a box of a repository without a devcontainer is
+// made of: its own fallback_image, else tower's default.
+func (s *Server) fallbackImage(spec *envv1alpha1.BoxSpec) string {
+	if f := spec.GetFallbackImage(); f != "" {
+		return f
+	}
+	return s.cfg.DefaultBoxImage
+}
+
 // setupStepTimeout is how long one of a devcontainer's setup steps may
 // run: workstream's default for a box operation
 // (WORKSTREAM_BOX_OP_TIMEOUT_MS).
@@ -502,7 +511,7 @@ func unresolvableMessage(err error) string {
 // secrets, and the box reports it in its SetUp condition.
 func (s *Server) setUpBox(ctx context.Context, p provider.Provider, key controller.Key, box *envv1alpha1.Box, ref provider.Instance, mirror, commit string) error {
 	spec := box.GetSpec()
-	req := devcontainer.Request{Target: box.GetStatus().GetTarget(), Mirror: mirror, Commit: commit, Image: spec.GetImage()}
+	req := devcontainer.Request{Target: box.GetStatus().GetTarget(), Mirror: mirror, Commit: commit, Image: spec.GetImage(), FallbackImage: s.fallbackImage(spec)}
 	if spec.GetImageBuild() != nil {
 		req.Build = &devcontainer.Build{}
 	}

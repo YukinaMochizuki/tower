@@ -21,6 +21,9 @@ useradd --system --home-dir /var/lib/tower --shell /usr/sbin/nologin tower
 install -m 0755 bin/tower-apiserver bin/tower /usr/local/bin/
 install -d -m 0755 /etc/tower
 echo "TOWER_LISTEN=$(tailscale ip -4):8080" > /etc/tower/apiserver.env
+# What a box of a repository without a devcontainer is made of when
+# workstream names no fallback_image: workstream's own WORKSTREAM_BOX_IMAGE.
+echo "TOWER_DEFAULT_BOX_IMAGE=" >> /etc/tower/apiserver.env
 install -d -o tower -g tower -m 0700 /var/lib/tower
 ```
 

@@ -100,15 +100,8 @@ func (Real) resolve(ctx context.Context, p provider.Provider, req Request) (reso
 		r.img.BuildHash = req.Build.Hash()
 		return r, nil
 	case req.Image != "":
-		cfg, err := p.ResolveImage(ctx, req.Image)
-		if errors.Is(err, provider.ErrNotFound) {
-			return resolved{}, unresolvable("the image %s is not in its registry", req.Image)
-		}
-		if err != nil {
-			return resolved{}, err
-		}
-		r.base, r.img.BaseImageDigest = byDigest(req.Image, cfg.Digest), cfg.Digest
-		return r, nil
+		err := r.explicit(ctx, p, req.Image, "the image")
+		return r, err
 	}
 	src := provider.MirrorSource{Mirror: req.Mirror, Ref: req.Commit}
 	read, err := p.ReadMirror(ctx, provider.MirrorReadRequest{MirrorSource: src, Paths: append(slices.Clone(configCandidates), miseFiles...), Content: true})
@@ -136,7 +129,13 @@ func (Real) resolve(ctx context.Context, p provider.Provider, req Request) (reso
 		break
 	}
 	if !found {
-		return resolved{}, unresolvable("the repository has no %s at %s; give the box an image", strings.Join(configCandidates, " or "), short(r.commit))
+		// What workstream's setup "auto" does: the image it falls back
+		// to, which sets nothing up.
+		if req.FallbackImage != "" {
+			err := r.explicit(ctx, p, req.FallbackImage, "the fallback image")
+			return r, err
+		}
+		return resolved{}, unresolvable("the repository has no %s at %s, and there is no image to fall back to", strings.Join(configCandidates, " or "), short(r.commit))
 	}
 	r.cfg = &cfg
 	r.hasMise = cfg.Env["MISE_CONFIG_FILE"] != ""
@@ -189,6 +188,20 @@ func (Real) resolve(ctx context.Context, p provider.Provider, req Request) (reso
 	}
 	r.img.DevcontainerHash = hex.EncodeToString(h.Sum(nil))
 	return r, nil
+}
+
+// explicit makes ref, an image named rather than a devcontainer's, the
+// base, by its digest.
+func (r *resolved) explicit(ctx context.Context, p provider.Provider, ref, what string) error {
+	cfg, err := p.ResolveImage(ctx, ref)
+	if errors.Is(err, provider.ErrNotFound) {
+		return unresolvable("%s %s is not in its registry", what, ref)
+	}
+	if err != nil {
+		return err
+	}
+	r.base, r.img.BaseImageDigest = byDigest(ref, cfg.Digest), cfg.Digest
+	return nil
 }
 
 func cmpOr(s, or string) string {
@@ -275,8 +288,8 @@ func (re Real) Setup(ctx context.Context, p provider.Provider, req Request) ([]S
 	if req.Image != "" || req.Build != nil {
 		return nil, nil
 	}
-	r, err := re.resolve(ctx, p, Request{Target: req.Target, Mirror: req.Mirror, Commit: req.Commit})
-	if err != nil {
+	r, err := re.resolve(ctx, p, Request{Target: req.Target, Mirror: req.Mirror, Commit: req.Commit, FallbackImage: req.FallbackImage})
+	if err != nil || r.cfg == nil {
 		return nil, err
 	}
 	var steps []Step

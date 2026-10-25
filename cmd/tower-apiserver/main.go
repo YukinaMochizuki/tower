@@ -37,6 +37,7 @@ type flags struct {
 	secretsKEK   string
 	previousKEKs []string
 	ticketKey    string
+	defaultImage string
 	dev          bool
 }
 
@@ -51,6 +52,7 @@ func main() {
 		return nil
 	})
 	flag.StringVar(&f.ticketKey, "ticket-key", "", "the ed25519 key tickets for direct streams are signed with, a file only its owner reads, made if missing; its public key, which hostd verifies tickets with, is written beside it with .pub added. Empty is ticket-key beside --secrets-kek; with neither, no ticket is issued")
+	flag.StringVar(&f.defaultImage, "default-box-image", "", "the image a box of a repository without a devcontainer is made of when it names no fallback_image, as workstream's own default box image; empty fails such a box")
 	flag.BoolVar(&f.dev, "dev", false, "for local development only: trust the "+auth.DevPrincipalHeader+" header as the caller, and take the admin socket from the uid the apiserver runs as; only on a loopback IP")
 	flag.Parse()
 
@@ -96,7 +98,7 @@ func run(ctx context.Context, f flags, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	srv := apiserver.New(apiserver.Config{Store: st, Logger: log, Secrets: keys, Credentials: st, Tickets: tickets})
+	srv := apiserver.New(apiserver.Config{Store: st, Logger: log, Secrets: keys, Credentials: st, Tickets: tickets, DefaultBoxImage: f.defaultImage})
 	tokens, ok := srv.ServiceTokens()
 	if !ok {
 		return errors.New("the apiserver keeps no credentials")

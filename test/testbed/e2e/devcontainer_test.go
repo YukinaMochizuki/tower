@@ -10,6 +10,7 @@ import (
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/conditions"
 	"github.com/YukinaMochizuki/tower/internal/testutil"
+	"github.com/YukinaMochizuki/tower/test/testbed/internal/testbed"
 )
 
 // devcontainerRepos are public repositories whose devcontainers are what
@@ -27,7 +28,8 @@ var devcontainerRepos = []struct{ name, url, branch, commit string }{
 // devcontainers as workstream makes them, on a real host: a Dockerfile
 // built from the mirror, an image's remoteUser owning /workspace with the
 // browser add-on layered on, a postCreateCommand run once checked out; a
-// repository without a devcontainer fails its box, saying why.
+// repository without a devcontainer is made of the image to fall back to,
+// and with none fails its box, saying why.
 func TestBoxesOfDevcontainers(t *testing.T) {
 	w := newWorld(t)
 	m := `apiVersion: tenancy.tower.hangarlab.cloud/v1alpha1
@@ -55,6 +57,11 @@ apiVersion: environments.tower.hangarlab.cloud/v1alpha1
 kind: Box
 metadata: {name: hello}
 spec: {workstream: ws1, checkouts: [{repository: hello}]}
+---
+apiVersion: environments.tower.hangarlab.cloud/v1alpha1
+kind: Box
+metadata: {name: fallback}
+spec: {workstream: ws1, checkouts: [{repository: hello}], fallbackImage: "` + testbed.BusyBox + `"}
 `
 	for _, r := range devcontainerRepos {
 		addons := ""
@@ -83,7 +90,7 @@ spec: {workstream: ws1, checkouts: [{repository: ` + r.name + `, ref: ` + r.comm
 		return st.GetPhase() == envv1alpha1.BoxPhase_BOX_PHASE_FAILED, st.String()
 	})
 	if c := conditions.Find(w.box("hello").GetStatus().GetConditions(), "Ready"); c.GetReason() != "DevcontainerUnresolvable" ||
-		!strings.Contains(c.GetMessage(), "the repository has no .devcontainer/devcontainer.json or .devcontainer.json at ") {
+		!strings.Contains(c.GetMessage(), "the repository has no .devcontainer/devcontainer.json or .devcontainer.json at ") || !strings.Contains(c.GetMessage(), "there is no image to fall back to") {
 		t.Errorf("the box of a repository without a devcontainer: %v", c)
 	}
 
@@ -116,6 +123,9 @@ spec: {workstream: ws1, checkouts: [{repository: ` + r.name + `, ref: ` + r.comm
 		"node\nnode\nwritable\n/usr/local/bin/chromium\n", "Chrome for Testing", "no-dockerd")
 	// Its postCreateCommand installed its dependencies.
 	run("node", "test -d /workspace/node_modules && echo installed", "installed")
+	// A repository without a devcontainer, of the image to fall back to.
+	w.admin.must("", "wait", "box", "fallback", "-p", "web", "--for", "condition=Ready", "--timeout", "30m")
+	run("fallback", "test -f /workspace/README && busybox | head -1", "BusyBox")
 
 	w.admin.must("", "delete", "project", "web")
 	testutil.EventuallyWithin(t, slow, "the host empty", hostEmpty)
