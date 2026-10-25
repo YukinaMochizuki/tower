@@ -42,7 +42,7 @@ func main() {
 	flag.StringVar(&f.tokenFile, "token-file", "", "file holding the ROLE_HOSTD token's secret, only its owner may read it")
 	flag.StringVar(&f.ticketKey, "ticket-public-key", "", "tower's public key for tickets, the .pub file beside its --ticket-key; empty refuses every direct stream")
 	flag.StringVar(&f.stateDir, "state-dir", "/var/lib/hostd", "directory the drivers work in")
-	flag.StringVar(&f.directListen, "direct-listen", ":7443", "address direct streams are served on; empty serves none")
+	flag.StringVar(&f.directListen, "direct-listen", "", "address direct streams are served on, the host's tailnet address and a port, such as 100.64.0.7:7443; required, so it is never every interface by default")
 	flag.StringVar(&f.directURL, "direct-url", "", "where clients reach --direct-listen, such as http://host.tailnet:7443; empty is the address listened on, this host's name for every interface's")
 	flag.DurationVar(&f.reportEvery, "report-every", hostd.DefaultReportEvery, "how often the target is reported and every instance read back")
 	flag.DurationVar(&f.sweepEvery, "sweep-every", hostd.DefaultSweepEvery, "how often what nothing accounts for is swept")
@@ -60,8 +60,8 @@ func main() {
 }
 
 func run(ctx context.Context, f flags, log *slog.Logger) error {
-	if f.tower == "" || f.target == "" || f.tokenFile == "" {
-		return errors.New("--tower, --target and --token-file are required")
+	if f.tower == "" || f.target == "" || f.tokenFile == "" || f.directListen == "" {
+		return errors.New("--tower, --target, --token-file and --direct-listen are required")
 	}
 	secret, err := readSecret(f.tokenFile)
 	if err != nil {
@@ -80,15 +80,13 @@ func run(ctx context.Context, f flags, log *slog.Logger) error {
 			return fmt.Errorf("--ticket-public-key: %w", err)
 		}
 	}
-	var direct net.Listener
-	if f.directListen != "" {
-		if direct, err = (&net.ListenConfig{}).Listen(ctx, "tcp", f.directListen); err != nil {
-			return fmt.Errorf("--direct-listen: %w", err)
-		}
-		defer func() { _ = direct.Close() }()
-		if cfg.StreamURL, err = streamURL(f.directURL, direct.Addr()); err != nil {
-			return err
-		}
+	direct, err := (&net.ListenConfig{}).Listen(ctx, "tcp", f.directListen)
+	if err != nil {
+		return fmt.Errorf("--direct-listen: %w", err)
+	}
+	defer func() { _ = direct.Close() }()
+	if cfg.StreamURL, err = streamURL(f.directURL, direct.Addr()); err != nil {
+		return err
 	}
 	h := hostd.New(cfg)
 	agent, err := hostd.Agent(f.tower, secret, h.Handler(), log)
@@ -102,21 +100,19 @@ func run(ctx context.Context, f flags, log *slog.Logger) error {
 		agent.Run(ctx)
 		return nil
 	})
-	if direct != nil {
-		srv := &http.Server{Handler: h.Streams(), ReadHeaderTimeout: 10 * time.Second}
-		g.Go(func() error {
-			log.Info("serving direct streams", "address", direct.Addr().String(), "url", cfg.StreamURL)
-			if err := srv.Serve(direct); !errors.Is(err, http.ErrServerClosed) {
-				return err
-			}
-			return nil
-		})
-		g.Go(func() error {
-			<-ctx.Done()
-			// Open streams end with hostd; their clients dial again.
-			return srv.Close()
-		})
-	}
+	srv := &http.Server{Handler: h.Streams(), ReadHeaderTimeout: 10 * time.Second}
+	g.Go(func() error {
+		log.Info("serving direct streams", "address", direct.Addr().String(), "url", cfg.StreamURL)
+		if err := srv.Serve(direct); !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	})
+	g.Go(func() error {
+		<-ctx.Done()
+		// Open streams end with hostd; their clients dial again.
+		return srv.Close()
+	})
 	return g.Wait()
 }
 
