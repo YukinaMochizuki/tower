@@ -20,11 +20,27 @@ import (
 // its names relative to p's parent, as docker cp does: regular files,
 // directories and links, with their modes.
 func Write(w io.Writer, p string) error {
+	p = filepath.Clean(p)
+	return write(w, p, filepath.Dir(p), true)
+}
+
+// WriteDir writes a tar of what dir holds, its names relative to dir:
+// what, extracted into a directory, makes it hold the same.
+func WriteDir(w io.Writer, dir string) error {
+	dir = filepath.Clean(dir)
+	return write(w, dir, dir, false)
+}
+
+// write writes a tar of root's tree, named relative to base, root itself
+// with it or not.
+func write(w io.Writer, root, base string, withRoot bool) error {
 	tw := tar.NewWriter(w)
-	parent := filepath.Dir(filepath.Clean(p))
-	err := filepath.WalkDir(p, func(file string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(file string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if file == root && !withRoot {
+			return nil
 		}
 		info, err := d.Info()
 		if err != nil {
@@ -43,7 +59,7 @@ func Write(w io.Writer, p string) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(parent, file)
+		rel, err := filepath.Rel(base, file)
 		if err != nil {
 			return err
 		}
