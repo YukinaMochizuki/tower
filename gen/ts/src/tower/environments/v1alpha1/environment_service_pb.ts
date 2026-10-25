@@ -2,8 +2,8 @@
 // @generated from file tower/environments/v1alpha1/environment_service.proto (package tower.environments.v1alpha1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Duration, Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_duration, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tower/environments/v1alpha1/environment_service.proto.
  */
 export const file_tower_environments_v1alpha1_environment_service: GenFile = /*@__PURE__*/
-  fileDesc("CjV0b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTEvZW52aXJvbm1lbnRfc2VydmljZS5wcm90bxIbdG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExIkgKC0Vudmlyb25tZW50Eg8KB3Byb2plY3QYASABKAkSDQoDYm94GAIgASgJSAASEQoHbWFjaGluZRgDIAEoCUgAQgYKBGtpbmQiwAIKC0V4ZWNSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EjEKBGFyZ3YYAiABKAsyIS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXJndkgAEg8KBXNoZWxsGAMgASgJSAASCwoDZGlyGAQgASgJEj4KA2VudhgFIAMoCzIxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FeGVjUmVxdWVzdC5FbnZFbnRyeRIqCgd0aW1lb3V0GAYgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCCQoHY29tbWFuZCIUCgRBcmd2EgwKBGFyZ3MYASADKAkidQoMRXhlY1Jlc3BvbnNlEhAKBnN0ZG91dBgBIAEoDEgAEhAKBnN0ZGVychgCIAEoDEgAEjUKBGV4aXQYAyABKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRXhlY0V4aXRIAEIKCghyZXNwb25zZSIrCghFeGVjRXhpdBIMCgRjb2RlGAEgASgFEhEKCXRpbWVkX291dBgCIAEoCCJ9Cg9SZWFkRmlsZVJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSDAoEcGF0aBgCIAEoCRIOCgZvZmZzZXQYAyABKAMSDQoFbGltaXQYBCABKAMiZwoQUmVhZEZpbGVSZXNwb25zZRIOCgRkYXRhGAEgASgMSAASNwoDZW5kGAIgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJlYWRGaWxlRW5kSABCCgoIcmVzcG9uc2UiGgoLUmVhZEZpbGVFbmQSCwoDZW9mGAEgASgIIosBChBXcml0ZUZpbGVSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EgwKBHBhdGgYAiABKAkSDAoEZGF0YRgDIAEoDBIOCgZvZmZzZXQYBCABKAMSDAoEbW9kZRgFIAEoDSITChFXcml0ZUZpbGVSZXNwb25zZSKjAQoPQ29weUZpbGVSZXF1ZXN0EjYKBGZyb20YASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSEQoJZnJvbV9wYXRoGAIgASgJEjQKAnRvGAMgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50Eg8KB3RvX3BhdGgYBCABKAkiEgoQQ29weUZpbGVSZXNwb25zZSJTChJGZXRjaE9yaWdpblJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQiVgoTRmV0Y2hPcmlnaW5SZXNwb25zZRI/CgljaGVja291dHMYASADKAsyLC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRmV0Y2hlZENoZWNrb3V0IjMKD0ZldGNoZWRDaGVja291dBISCgpyZXBvc2l0b3J5GAEgASgJEgwKBGhlYWQYAiABKAkifwoLUHVzaFJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSEgoKcmVwb3NpdG9yeRgCIAEoCRIOCgZicmFuY2gYAyABKAkSDQoFbGVhc2UYBCABKAkiDgoMUHVzaFJlc3BvbnNlImEKEklzc3VlVGlja2V0UmVxdWVzdBI9CgtlbnZpcm9ubWVudBgBIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FbnZpcm9ubWVudBIMCgRwb3J0GAIgASgFImMKE0lzc3VlVGlja2V0UmVzcG9uc2USCwoDdXJsGAEgASgJEg4KBnRpY2tldBgCIAEoCRIvCgtleHBpcmVfdGltZRgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAy9AUKEkVudmlyb25tZW50U2VydmljZRJdCgRFeGVjEigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkV4ZWNSZXF1ZXN0GikudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkV4ZWNSZXNwb25zZTABEmkKCFJlYWRGaWxlEiwudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJlYWRGaWxlUmVxdWVzdBotLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5SZWFkRmlsZVJlc3BvbnNlMAESagoJV3JpdGVGaWxlEi0udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLldyaXRlRmlsZVJlcXVlc3QaLi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuV3JpdGVGaWxlUmVzcG9uc2USZwoIQ29weUZpbGUSLC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQ29weUZpbGVSZXF1ZXN0Gi0udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkNvcHlGaWxlUmVzcG9uc2UScAoLRmV0Y2hPcmlnaW4SLy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRmV0Y2hPcmlnaW5SZXF1ZXN0GjAudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkZldGNoT3JpZ2luUmVzcG9uc2USWwoEUHVzaBIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5QdXNoUmVxdWVzdBopLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5QdXNoUmVzcG9uc2UScAoLSXNzdWVUaWNrZXQSLy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSXNzdWVUaWNrZXRSZXF1ZXN0GjAudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLklzc3VlVGlja2V0UmVzcG9uc2VCogIKH2NvbS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTFCF0Vudmlyb25tZW50U2VydmljZVByb3RvUAFaWGdpdGh1Yi5jb20vWXVraW5hTW9jaGl6dWtpL3Rvd2VyL2dlbi9nby90b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTE7ZW52aXJvbm1lbnRzdjFhbHBoYTGiAgNURViqAhtUb3dlci5FbnZpcm9ubWVudHMuVjFhbHBoYTHKAhtUb3dlclxFbnZpcm9ubWVudHNcVjFhbHBoYTHiAidUb3dlclxFbnZpcm9ubWVudHNcVjFhbHBoYTFcR1BCTWV0YWRhdGHqAh1Ub3dlcjo6RW52aXJvbm1lbnRzOjpWMWFscGhhMWIGcHJvdG8z", [file_google_protobuf_duration, file_google_protobuf_timestamp]);
+  fileDesc("CjV0b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTEvZW52aXJvbm1lbnRfc2VydmljZS5wcm90bxIbdG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExIkgKC0Vudmlyb25tZW50Eg8KB3Byb2plY3QYASABKAkSDQoDYm94GAIgASgJSAASEQoHbWFjaGluZRgDIAEoCUgAQgYKBGtpbmQiwAIKC0V4ZWNSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EjEKBGFyZ3YYAiABKAsyIS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXJndkgAEg8KBXNoZWxsGAMgASgJSAASCwoDZGlyGAQgASgJEj4KA2VudhgFIAMoCzIxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FeGVjUmVxdWVzdC5FbnZFbnRyeRIqCgd0aW1lb3V0GAYgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCCQoHY29tbWFuZCIUCgRBcmd2EgwKBGFyZ3MYASADKAkidQoMRXhlY1Jlc3BvbnNlEhAKBnN0ZG91dBgBIAEoDEgAEhAKBnN0ZGVychgCIAEoDEgAEjUKBGV4aXQYAyABKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRXhlY0V4aXRIAEIKCghyZXNwb25zZSIrCghFeGVjRXhpdBIMCgRjb2RlGAEgASgFEhEKCXRpbWVkX291dBgCIAEoCCJ9Cg9SZWFkRmlsZVJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSDAoEcGF0aBgCIAEoCRIOCgZvZmZzZXQYAyABKAMSDQoFbGltaXQYBCABKAMiZwoQUmVhZEZpbGVSZXNwb25zZRIOCgRkYXRhGAEgASgMSAASNwoDZW5kGAIgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJlYWRGaWxlRW5kSABCCgoIcmVzcG9uc2UiGgoLUmVhZEZpbGVFbmQSCwoDZW9mGAEgASgIIosBChBXcml0ZUZpbGVSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EgwKBHBhdGgYAiABKAkSDAoEZGF0YRgDIAEoDBIOCgZvZmZzZXQYBCABKAMSDAoEbW9kZRgFIAEoDSITChFXcml0ZUZpbGVSZXNwb25zZSKjAQoPQ29weUZpbGVSZXF1ZXN0EjYKBGZyb20YASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSEQoJZnJvbV9wYXRoGAIgASgJEjQKAnRvGAMgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50Eg8KB3RvX3BhdGgYBCABKAkiEgoQQ29weUZpbGVSZXNwb25zZSJTChJGZXRjaE9yaWdpblJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQiVgoTRmV0Y2hPcmlnaW5SZXNwb25zZRI/CgljaGVja291dHMYASADKAsyLC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRmV0Y2hlZENoZWNrb3V0IjMKD0ZldGNoZWRDaGVja291dBISCgpyZXBvc2l0b3J5GAEgASgJEgwKBGhlYWQYAiABKAkifwoLUHVzaFJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSEgoKcmVwb3NpdG9yeRgCIAEoCRIOCgZicmFuY2gYAyABKAkSDQoFbGVhc2UYBCABKAkiDgoMUHVzaFJlc3BvbnNlImEKEklzc3VlVGlja2V0UmVxdWVzdBI9CgtlbnZpcm9ubWVudBgBIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FbnZpcm9ubWVudBIMCgRwb3J0GAIgASgFIrICChNTdGFydFByb2Nlc3NSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EjEKBGFyZ3YYAiABKAsyIS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXJndkgAEg8KBXNoZWxsGAMgASgJSAASCwoDZGlyGAQgASgJEkYKA2VudhgFIAMoCzI5LnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5TdGFydFByb2Nlc3NSZXF1ZXN0LkVudkVudHJ5EgwKBG5hbWUYBiABKAkaKgoIRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4AUIJCgdjb21tYW5kIicKFFN0YXJ0UHJvY2Vzc1Jlc3BvbnNlEg8KB3Byb2Nlc3MYASABKAkihgEKFEF0dGFjaFByb2Nlc3NSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50Eg8KB3Byb2Nlc3MYAiABKAkSDgoGb2Zmc2V0GAMgASgDEg4KBmZvbGxvdxgEIAEoCCKZAQoVQXR0YWNoUHJvY2Vzc1Jlc3BvbnNlEjwKBm91dHB1dBgBIAEoCzIqLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Qcm9jZXNzT3V0cHV0SAASNgoDZW5kGAIgASgLMicudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlByb2Nlc3NFbmRIAEIKCghyZXNwb25zZSJoCg1Qcm9jZXNzT3V0cHV0EjkKBnN0cmVhbRgBIAEoDjIpLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5PdXRwdXRTdHJlYW0SDgoGb2Zmc2V0GAIgASgDEgwKBGRhdGEYAyABKAwibAoKUHJvY2Vzc0VuZBIRCgloZWxkX2Zyb20YASABKAMSEwoLbmV4dF9vZmZzZXQYAiABKAMSNgoEZXhpdBgDIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Qcm9jZXNzRXhpdCJQCgtQcm9jZXNzRXhpdBIMCgRjb2RlGAEgASgFEjMKBnNpZ25hbBgCIAEoDjIjLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5TaWduYWwimwEKFFNpZ25hbFByb2Nlc3NSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50Eg8KB3Byb2Nlc3MYAiABKAkSMwoGc2lnbmFsGAMgASgOMiMudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlNpZ25hbCIXChVTaWduYWxQcm9jZXNzUmVzcG9uc2UiVQoUTGlzdFByb2Nlc3Nlc1JlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQiVAoVTGlzdFByb2Nlc3Nlc1Jlc3BvbnNlEjsKCXByb2Nlc3NlcxgBIAMoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Qcm9jZXNzSW5mbyK2AQoLUHJvY2Vzc0luZm8SDwoHcHJvY2VzcxgBIAEoCRIMCgRuYW1lGAIgASgJEg8KB2NvbW1hbmQYAyABKAkSLgoKc3RhcnRfdGltZRgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDwoHcnVubmluZxgFIAEoCBI2CgRleGl0GAYgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlByb2Nlc3NFeGl0ImMKE0lzc3VlVGlja2V0UmVzcG9uc2USCwoDdXJsGAEgASgJEg4KBnRpY2tldBgCIAEoCRIvCgtleHBpcmVfdGltZRgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAqYQoMT3V0cHV0U3RyZWFtEh0KGU9VVFBVVF9TVFJFQU1fVU5TUEVDSUZJRUQQABIYChRPVVRQVVRfU1RSRUFNX1NURE9VVBABEhgKFE9VVFBVVF9TVFJFQU1fU1RERVJSEAIqUgoGU2lnbmFsEhYKElNJR05BTF9VTlNQRUNJRklFRBAAEg8KC1NJR05BTF9URVJNEAESDwoLU0lHTkFMX0tJTEwQAhIOCgpTSUdOQUxfSU5UEAMy0wkKEkVudmlyb25tZW50U2VydmljZRJdCgRFeGVjEigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkV4ZWNSZXF1ZXN0GikudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkV4ZWNSZXNwb25zZTABEmkKCFJlYWRGaWxlEiwudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJlYWRGaWxlUmVxdWVzdBotLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5SZWFkRmlsZVJlc3BvbnNlMAESagoJV3JpdGVGaWxlEi0udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLldyaXRlRmlsZVJlcXVlc3QaLi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuV3JpdGVGaWxlUmVzcG9uc2USZwoIQ29weUZpbGUSLC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQ29weUZpbGVSZXF1ZXN0Gi0udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkNvcHlGaWxlUmVzcG9uc2UScAoLRmV0Y2hPcmlnaW4SLy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRmV0Y2hPcmlnaW5SZXF1ZXN0GjAudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkZldGNoT3JpZ2luUmVzcG9uc2USWwoEUHVzaBIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5QdXNoUmVxdWVzdBopLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5QdXNoUmVzcG9uc2UScAoLSXNzdWVUaWNrZXQSLy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSXNzdWVUaWNrZXRSZXF1ZXN0GjAudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLklzc3VlVGlja2V0UmVzcG9uc2UScwoMU3RhcnRQcm9jZXNzEjAudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlN0YXJ0UHJvY2Vzc1JlcXVlc3QaMS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuU3RhcnRQcm9jZXNzUmVzcG9uc2USeAoNQXR0YWNoUHJvY2VzcxIxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5BdHRhY2hQcm9jZXNzUmVxdWVzdBoyLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5BdHRhY2hQcm9jZXNzUmVzcG9uc2UwARJ2Cg1TaWduYWxQcm9jZXNzEjEudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlNpZ25hbFByb2Nlc3NSZXF1ZXN0GjIudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlNpZ25hbFByb2Nlc3NSZXNwb25zZRJ2Cg1MaXN0UHJvY2Vzc2VzEjEudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkxpc3RQcm9jZXNzZXNSZXF1ZXN0GjIudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkxpc3RQcm9jZXNzZXNSZXNwb25zZUKiAgofY29tLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMUIXRW52aXJvbm1lbnRTZXJ2aWNlUHJvdG9QAVpYZ2l0aHViLmNvbS9ZdWtpbmFNb2NoaXp1a2kvdG93ZXIvZ2VuL2dvL3Rvd2VyL2Vudmlyb25tZW50cy92MWFscGhhMTtlbnZpcm9ubWVudHN2MWFscGhhMaICA1RFWKoCG1Rvd2VyLkVudmlyb25tZW50cy5WMWFscGhhMcoCG1Rvd2VyXEVudmlyb25tZW50c1xWMWFscGhhMeICJ1Rvd2VyXEVudmlyb25tZW50c1xWMWFscGhhMVxHUEJNZXRhZGF0YeoCHVRvd2VyOjpFbnZpcm9ubWVudHM6OlYxYWxwaGExYgZwcm90bzM", [file_google_protobuf_duration, file_google_protobuf_timestamp]);
 
 /**
  * Environment names a box or a machine.
@@ -520,6 +520,384 @@ export const IssueTicketRequestSchema: GenMessage<IssueTicketRequest> = /*@__PUR
   messageDesc(file_tower_environments_v1alpha1_environment_service, 17);
 
 /**
+ * @generated from message tower.environments.v1alpha1.StartProcessRequest
+ */
+export type StartProcessRequest = Message<"tower.environments.v1alpha1.StartProcessRequest"> & {
+  /**
+   * A box.
+   *
+   * @generated from field: tower.environments.v1alpha1.Environment environment = 1;
+   */
+  environment?: Environment | undefined;
+
+  /**
+   * @generated from oneof tower.environments.v1alpha1.StartProcessRequest.command
+   */
+  command: {
+    /**
+     * The program and its arguments, run without a shell.
+     *
+     * @generated from field: tower.environments.v1alpha1.Argv argv = 2;
+     */
+    value: Argv;
+    case: "argv";
+  } | {
+    /**
+     * A line run by /bin/sh -c.
+     *
+     * @generated from field: string shell = 3;
+     */
+    value: string;
+    case: "shell";
+  } | { case: undefined; value?: undefined };
+
+  /**
+   * The working directory; empty is the box's default.
+   *
+   * @generated from field: string dir = 4;
+   */
+  dir: string;
+
+  /**
+   * Added to the box's own environment for this process alone.
+   *
+   * @generated from field: map<string, string> env = 5;
+   */
+  env: { [key: string]: string };
+
+  /**
+   * A name for people, such as "dev server"; tower does not read it.
+   *
+   * @generated from field: string name = 6;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.StartProcessRequest.
+ * Use `create(StartProcessRequestSchema)` to create a new message.
+ */
+export const StartProcessRequestSchema: GenMessage<StartProcessRequest> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 18);
+
+/**
+ * @generated from message tower.environments.v1alpha1.StartProcessResponse
+ */
+export type StartProcessResponse = Message<"tower.environments.v1alpha1.StartProcessResponse"> & {
+  /**
+   * The process's id in its box.
+   *
+   * @generated from field: string process = 1;
+   */
+  process: string;
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.StartProcessResponse.
+ * Use `create(StartProcessResponseSchema)` to create a new message.
+ */
+export const StartProcessResponseSchema: GenMessage<StartProcessResponse> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 19);
+
+/**
+ * @generated from message tower.environments.v1alpha1.AttachProcessRequest
+ */
+export type AttachProcessRequest = Message<"tower.environments.v1alpha1.AttachProcessRequest"> & {
+  /**
+   * A box.
+   *
+   * @generated from field: tower.environments.v1alpha1.Environment environment = 1;
+   */
+  environment?: Environment | undefined;
+
+  /**
+   * @generated from field: string process = 2;
+   */
+  process: string;
+
+  /**
+   * Where in the process's output to start: an offset a previous attach
+   * ended at, or 0 for everything held.
+   *
+   * @generated from field: int64 offset = 3;
+   */
+  offset: bigint;
+
+  /**
+   * Go on as the process writes, until it ends; without it, send what is
+   * there and end, as a client that polls does.
+   *
+   * @generated from field: bool follow = 4;
+   */
+  follow: boolean;
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.AttachProcessRequest.
+ * Use `create(AttachProcessRequestSchema)` to create a new message.
+ */
+export const AttachProcessRequestSchema: GenMessage<AttachProcessRequest> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 20);
+
+/**
+ * @generated from message tower.environments.v1alpha1.AttachProcessResponse
+ */
+export type AttachProcessResponse = Message<"tower.environments.v1alpha1.AttachProcessResponse"> & {
+  /**
+   * @generated from oneof tower.environments.v1alpha1.AttachProcessResponse.response
+   */
+  response: {
+    /**
+     * @generated from field: tower.environments.v1alpha1.ProcessOutput output = 1;
+     */
+    value: ProcessOutput;
+    case: "output";
+  } | {
+    /**
+     * The last response.
+     *
+     * @generated from field: tower.environments.v1alpha1.ProcessEnd end = 2;
+     */
+    value: ProcessEnd;
+    case: "end";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.AttachProcessResponse.
+ * Use `create(AttachProcessResponseSchema)` to create a new message.
+ */
+export const AttachProcessResponseSchema: GenMessage<AttachProcessResponse> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 21);
+
+/**
+ * ProcessOutput is a chunk of a process's output.
+ *
+ * @generated from message tower.environments.v1alpha1.ProcessOutput
+ */
+export type ProcessOutput = Message<"tower.environments.v1alpha1.ProcessOutput"> & {
+  /**
+   * @generated from field: tower.environments.v1alpha1.OutputStream stream = 1;
+   */
+  stream: OutputStream;
+
+  /**
+   * Where the chunk starts in the process's output, stdout and stderr
+   * counted together.
+   *
+   * @generated from field: int64 offset = 2;
+   */
+  offset: bigint;
+
+  /**
+   * @generated from field: bytes data = 3;
+   */
+  data: Uint8Array;
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.ProcessOutput.
+ * Use `create(ProcessOutputSchema)` to create a new message.
+ */
+export const ProcessOutputSchema: GenMessage<ProcessOutput> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 22);
+
+/**
+ * ProcessEnd is how an attach ended.
+ *
+ * @generated from message tower.environments.v1alpha1.ProcessEnd
+ */
+export type ProcessEnd = Message<"tower.environments.v1alpha1.ProcessEnd"> & {
+  /**
+   * The oldest offset the target still holds: a process's log is capped on
+   * the target (64 MiB unless the target says otherwise), its oldest
+   * output dropped first. Output before it is gone.
+   *
+   * @generated from field: int64 held_from = 1;
+   */
+  heldFrom: bigint;
+
+  /**
+   * Where to attach again to read what comes next.
+   *
+   * @generated from field: int64 next_offset = 2;
+   */
+  nextOffset: bigint;
+
+  /**
+   * How the process ended; unset while it runs.
+   *
+   * @generated from field: tower.environments.v1alpha1.ProcessExit exit = 3;
+   */
+  exit?: ProcessExit | undefined;
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.ProcessEnd.
+ * Use `create(ProcessEndSchema)` to create a new message.
+ */
+export const ProcessEndSchema: GenMessage<ProcessEnd> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 23);
+
+/**
+ * ProcessExit is how a process ended.
+ *
+ * @generated from message tower.environments.v1alpha1.ProcessExit
+ */
+export type ProcessExit = Message<"tower.environments.v1alpha1.ProcessExit"> & {
+  /**
+   * Its exit code; 128 plus the signal's number when a signal ended it.
+   *
+   * @generated from field: int32 code = 1;
+   */
+  code: number;
+
+  /**
+   * The signal that ended it, unset if it exited.
+   *
+   * @generated from field: tower.environments.v1alpha1.Signal signal = 2;
+   */
+  signal: Signal;
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.ProcessExit.
+ * Use `create(ProcessExitSchema)` to create a new message.
+ */
+export const ProcessExitSchema: GenMessage<ProcessExit> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 24);
+
+/**
+ * @generated from message tower.environments.v1alpha1.SignalProcessRequest
+ */
+export type SignalProcessRequest = Message<"tower.environments.v1alpha1.SignalProcessRequest"> & {
+  /**
+   * A box.
+   *
+   * @generated from field: tower.environments.v1alpha1.Environment environment = 1;
+   */
+  environment?: Environment | undefined;
+
+  /**
+   * @generated from field: string process = 2;
+   */
+  process: string;
+
+  /**
+   * @generated from field: tower.environments.v1alpha1.Signal signal = 3;
+   */
+  signal: Signal;
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.SignalProcessRequest.
+ * Use `create(SignalProcessRequestSchema)` to create a new message.
+ */
+export const SignalProcessRequestSchema: GenMessage<SignalProcessRequest> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 25);
+
+/**
+ * @generated from message tower.environments.v1alpha1.SignalProcessResponse
+ */
+export type SignalProcessResponse = Message<"tower.environments.v1alpha1.SignalProcessResponse"> & {
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.SignalProcessResponse.
+ * Use `create(SignalProcessResponseSchema)` to create a new message.
+ */
+export const SignalProcessResponseSchema: GenMessage<SignalProcessResponse> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 26);
+
+/**
+ * @generated from message tower.environments.v1alpha1.ListProcessesRequest
+ */
+export type ListProcessesRequest = Message<"tower.environments.v1alpha1.ListProcessesRequest"> & {
+  /**
+   * A box.
+   *
+   * @generated from field: tower.environments.v1alpha1.Environment environment = 1;
+   */
+  environment?: Environment | undefined;
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.ListProcessesRequest.
+ * Use `create(ListProcessesRequestSchema)` to create a new message.
+ */
+export const ListProcessesRequestSchema: GenMessage<ListProcessesRequest> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 27);
+
+/**
+ * @generated from message tower.environments.v1alpha1.ListProcessesResponse
+ */
+export type ListProcessesResponse = Message<"tower.environments.v1alpha1.ListProcessesResponse"> & {
+  /**
+   * Oldest first. A finished process is kept until its box is deleted, or
+   * until the box holds more finished processes than its target keeps (100
+   * unless the target says otherwise), the oldest going first.
+   *
+   * @generated from field: repeated tower.environments.v1alpha1.ProcessInfo processes = 1;
+   */
+  processes: ProcessInfo[];
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.ListProcessesResponse.
+ * Use `create(ListProcessesResponseSchema)` to create a new message.
+ */
+export const ListProcessesResponseSchema: GenMessage<ListProcessesResponse> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 28);
+
+/**
+ * ProcessInfo is one process of a box.
+ *
+ * @generated from message tower.environments.v1alpha1.ProcessInfo
+ */
+export type ProcessInfo = Message<"tower.environments.v1alpha1.ProcessInfo"> & {
+  /**
+   * @generated from field: string process = 1;
+   */
+  process: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * Its command line, cut short.
+   *
+   * @generated from field: string command = 3;
+   */
+  command: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp start_time = 4;
+   */
+  startTime?: Timestamp | undefined;
+
+  /**
+   * @generated from field: bool running = 5;
+   */
+  running: boolean;
+
+  /**
+   * How it ended; unset while it runs.
+   *
+   * @generated from field: tower.environments.v1alpha1.ProcessExit exit = 6;
+   */
+  exit?: ProcessExit | undefined;
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.ProcessInfo.
+ * Use `create(ProcessInfoSchema)` to create a new message.
+ */
+export const ProcessInfoSchema: GenMessage<ProcessInfo> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 29);
+
+/**
  * @generated from message tower.environments.v1alpha1.IssueTicketResponse
  */
 export type IssueTicketResponse = Message<"tower.environments.v1alpha1.IssueTicketResponse"> & {
@@ -548,7 +926,68 @@ export type IssueTicketResponse = Message<"tower.environments.v1alpha1.IssueTick
  * Use `create(IssueTicketResponseSchema)` to create a new message.
  */
 export const IssueTicketResponseSchema: GenMessage<IssueTicketResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 18);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 30);
+
+/**
+ * OutputStream is which of a process's outputs a chunk was written to.
+ *
+ * @generated from enum tower.environments.v1alpha1.OutputStream
+ */
+export enum OutputStream {
+  /**
+   * @generated from enum value: OUTPUT_STREAM_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: OUTPUT_STREAM_STDOUT = 1;
+   */
+  STDOUT = 1,
+
+  /**
+   * @generated from enum value: OUTPUT_STREAM_STDERR = 2;
+   */
+  STDERR = 2,
+}
+
+/**
+ * Describes the enum tower.environments.v1alpha1.OutputStream.
+ */
+export const OutputStreamSchema: GenEnum<OutputStream> = /*@__PURE__*/
+  enumDesc(file_tower_environments_v1alpha1_environment_service, 0);
+
+/**
+ * Signal is a signal a process's group can be sent.
+ *
+ * @generated from enum tower.environments.v1alpha1.Signal
+ */
+export enum Signal {
+  /**
+   * @generated from enum value: SIGNAL_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: SIGNAL_TERM = 1;
+   */
+  TERM = 1,
+
+  /**
+   * @generated from enum value: SIGNAL_KILL = 2;
+   */
+  KILL = 2,
+
+  /**
+   * @generated from enum value: SIGNAL_INT = 3;
+   */
+  INT = 3,
+}
+
+/**
+ * Describes the enum tower.environments.v1alpha1.Signal.
+ */
+export const SignalSchema: GenEnum<Signal> = /*@__PURE__*/
+  enumDesc(file_tower_environments_v1alpha1_environment_service, 1);
 
 /**
  * EnvironmentService is what workstream does in a box or a machine: run a
@@ -641,6 +1080,55 @@ export const EnvironmentService: GenService<{
     methodKind: "unary";
     input: typeof IssueTicketRequestSchema;
     output: typeof IssueTicketResponseSchema;
+  },
+  /**
+   * StartProcess starts a process in a box and returns its id at once: a
+   * background job or a service, which outlives the call, unlike Exec's
+   * command. In a privileged box, tower adds its Secret's values to the
+   * process's environment. While a process runs, the box is never stopped
+   * for idleness; stopping the box ends it. Processes are a box's alone: in
+   * a machine this is UNIMPLEMENTED.
+   *
+   * @generated from rpc tower.environments.v1alpha1.EnvironmentService.StartProcess
+   */
+  startProcess: {
+    methodKind: "unary";
+    input: typeof StartProcessRequestSchema;
+    output: typeof StartProcessResponseSchema;
+  },
+  /**
+   * AttachProcess streams a process's output from an offset, stdout and
+   * stderr in the order written. With follow it goes on until the process
+   * ends; it ends with where output is held from and resumes, and the
+   * process's exit once it has one. Attaching again from the offset it
+   * ended at loses nothing the log still holds.
+   *
+   * @generated from rpc tower.environments.v1alpha1.EnvironmentService.AttachProcess
+   */
+  attachProcess: {
+    methodKind: "server_streaming";
+    input: typeof AttachProcessRequestSchema;
+    output: typeof AttachProcessResponseSchema;
+  },
+  /**
+   * SignalProcess sends a signal to a process's group.
+   *
+   * @generated from rpc tower.environments.v1alpha1.EnvironmentService.SignalProcess
+   */
+  signalProcess: {
+    methodKind: "unary";
+    input: typeof SignalProcessRequestSchema;
+    output: typeof SignalProcessResponseSchema;
+  },
+  /**
+   * ListProcesses lists a box's processes, running and finished.
+   *
+   * @generated from rpc tower.environments.v1alpha1.EnvironmentService.ListProcesses
+   */
+  listProcesses: {
+    methodKind: "unary";
+    input: typeof ListProcessesRequestSchema;
+    output: typeof ListProcessesResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_tower_environments_v1alpha1_environment_service, 0);

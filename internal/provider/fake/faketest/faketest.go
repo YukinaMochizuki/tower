@@ -132,6 +132,7 @@ func (w World) Harness(p provider.Provider) providertest.Harness {
 			}
 			return key.Name
 		},
-		Remote: Remote, Branch: "main", RemoteHead: "c3",
+		ProcessLimits: w.Fake.SetProcessLimits,
+		Remote:        Remote, Branch: "main", RemoteHead: "c3",
 	}
 }

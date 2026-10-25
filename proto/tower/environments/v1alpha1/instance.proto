@@ -73,6 +73,9 @@ message InstanceStatus {
   // What its disk holds beyond the golden it was cloned from.
   string used_disk = 5;
   google.protobuf.Timestamp start_time = 6;
+  // How many processes started in it (StartProcess) are running. tower
+  // never stops for idleness a box whose instance runs one.
+  int32 processes_running = 7;
 }
 
 // InstanceService manages instances.

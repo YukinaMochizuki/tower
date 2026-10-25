@@ -10,8 +10,8 @@
 // kind of provider error rides in its error's metadata. See
 // docs/decisions/traffic.md.
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
@@ -20,7 +20,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tower/hostd/v1/host.proto.
  */
 export const file_tower_hostd_v1_host: GenFile = /*@__PURE__*/
-  fileDesc("Chl0b3dlci9ob3N0ZC92MS9ob3N0LnByb3RvEg50b3dlci5ob3N0ZC52MSIpCghJbnN0YW5jZRIPCgdwcm9qZWN0GAEgASgJEgwKBG5hbWUYAiABKAkiVQoLRXhlY1JlcXVlc3QSKgoFc3RhcnQYASABKAsyGS50b3dlci5ob3N0ZC52MS5FeGVjU3RhcnRIABIPCgVzdGRpbhgCIAEoDEgAQgkKB3JlcXVlc3QiwQEKCUV4ZWNTdGFydBIqCghpbnN0YW5jZRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEg8KB2NvbW1hbmQYAiADKAkSLwoDZW52GAMgAygLMiIudG93ZXIuaG9zdGQudjEuRXhlY1N0YXJ0LkVudkVudHJ5EgsKA2RpchgEIAEoCRINCgVzdGRpbhgFIAEoCBoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIlMKDEV4ZWNSZXNwb25zZRIQCgZzdGRvdXQYASABKAxIABIQCgZzdGRlcnIYAiABKAxIABITCglleGl0X2NvZGUYAyABKAVIAEIKCghyZXNwb25zZSJLCg9SZWFkRmlsZVJlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRIMCgRwYXRoGAIgASgJIiAKEFJlYWRGaWxlUmVzcG9uc2USDAoEZGF0YRgBIAEoDCJeChBXcml0ZUZpbGVSZXF1ZXN0Ei8KBXN0YXJ0GAEgASgLMh4udG93ZXIuaG9zdGQudjEuV3JpdGVGaWxlU3RhcnRIABIOCgRkYXRhGAIgASgMSABCCQoHcmVxdWVzdCJoCg5Xcml0ZUZpbGVTdGFydBIqCghpbnN0YW5jZRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEgwKBHBhdGgYAiABKAkSDAoEbW9kZRgDIAEoDRIOCgZvZmZzZXQYBCABKAMiEwoRV3JpdGVGaWxlUmVzcG9uc2UifwoLQ29weVJlcXVlc3QSJgoEZnJvbRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEhEKCWZyb21fcGF0aBgCIAEoCRIkCgJ0bxgDIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEg8KB3RvX3BhdGgYBCABKAkiDgoMQ29weVJlc3BvbnNlImMKEUJ1aWxkSW1hZ2VSZXF1ZXN0EjAKBXN0YXJ0GAEgASgLMh8udG93ZXIuaG9zdGQudjEuQnVpbGRJbWFnZVN0YXJ0SAASEQoHY29udGV4dBgCIAEoDEgAQgkKB3JlcXVlc3QiJQoPQnVpbGRJbWFnZVN0YXJ0EhIKCnJlcG9zaXRvcnkYASABKAkiIwoSQnVpbGRJbWFnZVJlc3BvbnNlEg0KBWltYWdlGAEgASgJIjwKDkNhcHR1cmVSZXF1ZXN0EioKCGluc3RhbmNlGAEgASgLMhgudG93ZXIuaG9zdGQudjEuSW5zdGFuY2UiMQoPQ2FwdHVyZVJlc3BvbnNlEhAKCGFydGlmYWN0GAEgASgJEgwKBHNpemUYAiABKAQiKQoVRGVsZXRlQXJ0aWZhY3RSZXF1ZXN0EhAKCGFydGlmYWN0GAEgASgJIhgKFkRlbGV0ZUFydGlmYWN0UmVzcG9uc2UiSgoMRmV0Y2hSZXF1ZXN0Eg4KBm1pcnJvchgBIAEoCRILCgN1cmwYAiABKAkSDQoFdG9rZW4YAyABKAkSDgoGYnJhbmNoGAQgASgJIh0KDUZldGNoUmVzcG9uc2USDAoEaGVhZBgBIAEoCSJnCg9DaGVja291dFJlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRIOCgZtaXJyb3IYAiABKAkSCwoDcmVmGAMgASgJEgsKA2RpchgEIAEoCSIiChBDaGVja291dFJlc3BvbnNlEg4KBmNvbW1pdBgBIAEoCSJeChNVcGRhdGVPcmlnaW5SZXF1ZXN0EioKCGluc3RhbmNlGAEgASgLMhgudG93ZXIuaG9zdGQudjEuSW5zdGFuY2USDgoGbWlycm9yGAIgASgJEgsKA2RpchgDIAEoCSIWChRVcGRhdGVPcmlnaW5SZXNwb25zZSJGChRDb21taXRzQmVoaW5kUmVxdWVzdBIOCgZtaXJyb3IYASABKAkSDgoGY29tbWl0GAIgASgJEg4KBmJyYW5jaBgDIAEoCSIoChVDb21taXRzQmVoaW5kUmVzcG9uc2USDwoHY29tbWl0cxgBIAEoBSKRAQoLUHVzaFJlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRILCgNkaXIYAiABKAkSDgoGbWlycm9yGAMgASgJEgsKA3VybBgEIAEoCRINCgV0b2tlbhgFIAEoCRIOCgZicmFuY2gYBiABKAkSDQoFbGVhc2UYByABKAkiDgoMUHVzaFJlc3BvbnNlIkkKDVRpY2tldFJlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRIMCgRwb3J0GAIgASgFIk4KDlRpY2tldFJlc3BvbnNlEgsKA3VybBgBIAEoCRIvCgtleHBpcmVfdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAymggKC0hvc3RTZXJ2aWNlEkUKBEV4ZWMSGy50b3dlci5ob3N0ZC52MS5FeGVjUmVxdWVzdBocLnRvd2VyLmhvc3RkLnYxLkV4ZWNSZXNwb25zZSgBMAESTwoIUmVhZEZpbGUSHy50b3dlci5ob3N0ZC52MS5SZWFkRmlsZVJlcXVlc3QaIC50b3dlci5ob3N0ZC52MS5SZWFkRmlsZVJlc3BvbnNlMAESUgoJV3JpdGVGaWxlEiAudG93ZXIuaG9zdGQudjEuV3JpdGVGaWxlUmVxdWVzdBohLnRvd2VyLmhvc3RkLnYxLldyaXRlRmlsZVJlc3BvbnNlKAESQQoEQ29weRIbLnRvd2VyLmhvc3RkLnYxLkNvcHlSZXF1ZXN0GhwudG93ZXIuaG9zdGQudjEuQ29weVJlc3BvbnNlElUKCkJ1aWxkSW1hZ2USIS50b3dlci5ob3N0ZC52MS5CdWlsZEltYWdlUmVxdWVzdBoiLnRvd2VyLmhvc3RkLnYxLkJ1aWxkSW1hZ2VSZXNwb25zZSgBEkoKB0NhcHR1cmUSHi50b3dlci5ob3N0ZC52MS5DYXB0dXJlUmVxdWVzdBofLnRvd2VyLmhvc3RkLnYxLkNhcHR1cmVSZXNwb25zZRJfCg5EZWxldGVBcnRpZmFjdBIlLnRvd2VyLmhvc3RkLnYxLkRlbGV0ZUFydGlmYWN0UmVxdWVzdBomLnRvd2VyLmhvc3RkLnYxLkRlbGV0ZUFydGlmYWN0UmVzcG9uc2USRAoFRmV0Y2gSHC50b3dlci5ob3N0ZC52MS5GZXRjaFJlcXVlc3QaHS50b3dlci5ob3N0ZC52MS5GZXRjaFJlc3BvbnNlEk0KCENoZWNrb3V0Eh8udG93ZXIuaG9zdGQudjEuQ2hlY2tvdXRSZXF1ZXN0GiAudG93ZXIuaG9zdGQudjEuQ2hlY2tvdXRSZXNwb25zZRJZCgxVcGRhdGVPcmlnaW4SIy50b3dlci5ob3N0ZC52MS5VcGRhdGVPcmlnaW5SZXF1ZXN0GiQudG93ZXIuaG9zdGQudjEuVXBkYXRlT3JpZ2luUmVzcG9uc2USXAoNQ29tbWl0c0JlaGluZBIkLnRvd2VyLmhvc3RkLnYxLkNvbW1pdHNCZWhpbmRSZXF1ZXN0GiUudG93ZXIuaG9zdGQudjEuQ29tbWl0c0JlaGluZFJlc3BvbnNlEkEKBFB1c2gSGy50b3dlci5ob3N0ZC52MS5QdXNoUmVxdWVzdBocLnRvd2VyLmhvc3RkLnYxLlB1c2hSZXNwb25zZRJHCgZUaWNrZXQSHS50b3dlci5ob3N0ZC52MS5UaWNrZXRSZXF1ZXN0Gh4udG93ZXIuaG9zdGQudjEuVGlja2V0UmVzcG9uc2VCuQEKEmNvbS50b3dlci5ob3N0ZC52MUIJSG9zdFByb3RvUAFaPmdpdGh1Yi5jb20vWXVraW5hTW9jaGl6dWtpL3Rvd2VyL2dlbi9nby90b3dlci9ob3N0ZC92MTtob3N0ZHYxogIDVEhYqgIOVG93ZXIuSG9zdGQuVjHKAg5Ub3dlclxIb3N0ZFxWMeICGlRvd2VyXEhvc3RkXFYxXEdQQk1ldGFkYXRh6gIQVG93ZXI6Okhvc3RkOjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("Chl0b3dlci9ob3N0ZC92MS9ob3N0LnByb3RvEg50b3dlci5ob3N0ZC52MSIpCghJbnN0YW5jZRIPCgdwcm9qZWN0GAEgASgJEgwKBG5hbWUYAiABKAkiVQoLRXhlY1JlcXVlc3QSKgoFc3RhcnQYASABKAsyGS50b3dlci5ob3N0ZC52MS5FeGVjU3RhcnRIABIPCgVzdGRpbhgCIAEoDEgAQgkKB3JlcXVlc3QiwQEKCUV4ZWNTdGFydBIqCghpbnN0YW5jZRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEg8KB2NvbW1hbmQYAiADKAkSLwoDZW52GAMgAygLMiIudG93ZXIuaG9zdGQudjEuRXhlY1N0YXJ0LkVudkVudHJ5EgsKA2RpchgEIAEoCRINCgVzdGRpbhgFIAEoCBoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIlMKDEV4ZWNSZXNwb25zZRIQCgZzdGRvdXQYASABKAxIABIQCgZzdGRlcnIYAiABKAxIABITCglleGl0X2NvZGUYAyABKAVIAEIKCghyZXNwb25zZSJLCg9SZWFkRmlsZVJlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRIMCgRwYXRoGAIgASgJIiAKEFJlYWRGaWxlUmVzcG9uc2USDAoEZGF0YRgBIAEoDCJeChBXcml0ZUZpbGVSZXF1ZXN0Ei8KBXN0YXJ0GAEgASgLMh4udG93ZXIuaG9zdGQudjEuV3JpdGVGaWxlU3RhcnRIABIOCgRkYXRhGAIgASgMSABCCQoHcmVxdWVzdCJoCg5Xcml0ZUZpbGVTdGFydBIqCghpbnN0YW5jZRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEgwKBHBhdGgYAiABKAkSDAoEbW9kZRgDIAEoDRIOCgZvZmZzZXQYBCABKAMiEwoRV3JpdGVGaWxlUmVzcG9uc2UifwoLQ29weVJlcXVlc3QSJgoEZnJvbRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEhEKCWZyb21fcGF0aBgCIAEoCRIkCgJ0bxgDIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEg8KB3RvX3BhdGgYBCABKAkiDgoMQ29weVJlc3BvbnNlImMKEUJ1aWxkSW1hZ2VSZXF1ZXN0EjAKBXN0YXJ0GAEgASgLMh8udG93ZXIuaG9zdGQudjEuQnVpbGRJbWFnZVN0YXJ0SAASEQoHY29udGV4dBgCIAEoDEgAQgkKB3JlcXVlc3QiJQoPQnVpbGRJbWFnZVN0YXJ0EhIKCnJlcG9zaXRvcnkYASABKAkiIwoSQnVpbGRJbWFnZVJlc3BvbnNlEg0KBWltYWdlGAEgASgJIjwKDkNhcHR1cmVSZXF1ZXN0EioKCGluc3RhbmNlGAEgASgLMhgudG93ZXIuaG9zdGQudjEuSW5zdGFuY2UiMQoPQ2FwdHVyZVJlc3BvbnNlEhAKCGFydGlmYWN0GAEgASgJEgwKBHNpemUYAiABKAQiKQoVRGVsZXRlQXJ0aWZhY3RSZXF1ZXN0EhAKCGFydGlmYWN0GAEgASgJIhgKFkRlbGV0ZUFydGlmYWN0UmVzcG9uc2UiSgoMRmV0Y2hSZXF1ZXN0Eg4KBm1pcnJvchgBIAEoCRILCgN1cmwYAiABKAkSDQoFdG9rZW4YAyABKAkSDgoGYnJhbmNoGAQgASgJIh0KDUZldGNoUmVzcG9uc2USDAoEaGVhZBgBIAEoCSJnCg9DaGVja291dFJlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRIOCgZtaXJyb3IYAiABKAkSCwoDcmVmGAMgASgJEgsKA2RpchgEIAEoCSIiChBDaGVja291dFJlc3BvbnNlEg4KBmNvbW1pdBgBIAEoCSJeChNVcGRhdGVPcmlnaW5SZXF1ZXN0EioKCGluc3RhbmNlGAEgASgLMhgudG93ZXIuaG9zdGQudjEuSW5zdGFuY2USDgoGbWlycm9yGAIgASgJEgsKA2RpchgDIAEoCSIWChRVcGRhdGVPcmlnaW5SZXNwb25zZSJGChRDb21taXRzQmVoaW5kUmVxdWVzdBIOCgZtaXJyb3IYASABKAkSDgoGY29tbWl0GAIgASgJEg4KBmJyYW5jaBgDIAEoCSIoChVDb21taXRzQmVoaW5kUmVzcG9uc2USDwoHY29tbWl0cxgBIAEoBSKRAQoLUHVzaFJlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRILCgNkaXIYAiABKAkSDgoGbWlycm9yGAMgASgJEgsKA3VybBgEIAEoCRINCgV0b2tlbhgFIAEoCRIOCgZicmFuY2gYBiABKAkSDQoFbGVhc2UYByABKAkiDgoMUHVzaFJlc3BvbnNlIkkKDVRpY2tldFJlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRIMCgRwb3J0GAIgASgFItQBChNTdGFydFByb2Nlc3NSZXF1ZXN0EioKCGluc3RhbmNlGAEgASgLMhgudG93ZXIuaG9zdGQudjEuSW5zdGFuY2USDwoHY29tbWFuZBgCIAMoCRI5CgNlbnYYAyADKAsyLC50b3dlci5ob3N0ZC52MS5TdGFydFByb2Nlc3NSZXF1ZXN0LkVudkVudHJ5EgsKA2RpchgEIAEoCRIMCgRuYW1lGAUgASgJGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiJwoUU3RhcnRQcm9jZXNzUmVzcG9uc2USDwoHcHJvY2VzcxgBIAEoCSJzChRBdHRhY2hQcm9jZXNzUmVxdWVzdBIqCghpbnN0YW5jZRgBIAEoCzIYLnRvd2VyLmhvc3RkLnYxLkluc3RhbmNlEg8KB3Byb2Nlc3MYAiABKAkSDgoGb2Zmc2V0GAMgASgDEg4KBmZvbGxvdxgEIAEoCCJ/ChVBdHRhY2hQcm9jZXNzUmVzcG9uc2USLwoGb3V0cHV0GAEgASgLMh0udG93ZXIuaG9zdGQudjEuUHJvY2Vzc091dHB1dEgAEikKA2VuZBgCIAEoCzIaLnRvd2VyLmhvc3RkLnYxLlByb2Nlc3NFbmRIAEIKCghyZXNwb25zZSJbCg1Qcm9jZXNzT3V0cHV0EiwKBnN0cmVhbRgBIAEoDjIcLnRvd2VyLmhvc3RkLnYxLk91dHB1dFN0cmVhbRIOCgZvZmZzZXQYAiABKAMSDAoEZGF0YRgDIAEoDCJfCgpQcm9jZXNzRW5kEhEKCWhlbGRfZnJvbRgBIAEoAxITCgtuZXh0X29mZnNldBgCIAEoAxIpCgRleGl0GAMgASgLMhsudG93ZXIuaG9zdGQudjEuUHJvY2Vzc0V4aXQiQwoLUHJvY2Vzc0V4aXQSDAoEY29kZRgBIAEoBRImCgZzaWduYWwYAiABKA4yFi50b3dlci5ob3N0ZC52MS5TaWduYWwiewoUU2lnbmFsUHJvY2Vzc1JlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZRIPCgdwcm9jZXNzGAIgASgJEiYKBnNpZ25hbBgDIAEoDjIWLnRvd2VyLmhvc3RkLnYxLlNpZ25hbCIXChVTaWduYWxQcm9jZXNzUmVzcG9uc2UiQgoUTGlzdFByb2Nlc3Nlc1JlcXVlc3QSKgoIaW5zdGFuY2UYASABKAsyGC50b3dlci5ob3N0ZC52MS5JbnN0YW5jZSJDChVMaXN0UHJvY2Vzc2VzUmVzcG9uc2USKgoJcHJvY2Vzc2VzGAEgAygLMhcudG93ZXIuaG9zdGQudjEuUHJvY2VzcyKUAQoHUHJvY2VzcxIPCgdwcm9jZXNzGAEgASgJEgwKBG5hbWUYAiABKAkSDwoHY29tbWFuZBgDIAMoCRIuCgpzdGFydF90aW1lGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIpCgRleGl0GAUgASgLMhsudG93ZXIuaG9zdGQudjEuUHJvY2Vzc0V4aXQiTgoOVGlja2V0UmVzcG9uc2USCwoDdXJsGAEgASgJEi8KC2V4cGlyZV90aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCphCgxPdXRwdXRTdHJlYW0SHQoZT1VUUFVUX1NUUkVBTV9VTlNQRUNJRklFRBAAEhgKFE9VVFBVVF9TVFJFQU1fU1RET1VUEAESGAoUT1VUUFVUX1NUUkVBTV9TVERFUlIQAipSCgZTaWduYWwSFgoSU0lHTkFMX1VOU1BFQ0lGSUVEEAASDwoLU0lHTkFMX1RFUk0QARIPCgtTSUdOQUxfS0lMTBACEg4KClNJR05BTF9JTlQQAzKRCwoLSG9zdFNlcnZpY2USRQoERXhlYxIbLnRvd2VyLmhvc3RkLnYxLkV4ZWNSZXF1ZXN0GhwudG93ZXIuaG9zdGQudjEuRXhlY1Jlc3BvbnNlKAEwARJPCghSZWFkRmlsZRIfLnRvd2VyLmhvc3RkLnYxLlJlYWRGaWxlUmVxdWVzdBogLnRvd2VyLmhvc3RkLnYxLlJlYWRGaWxlUmVzcG9uc2UwARJSCglXcml0ZUZpbGUSIC50b3dlci5ob3N0ZC52MS5Xcml0ZUZpbGVSZXF1ZXN0GiEudG93ZXIuaG9zdGQudjEuV3JpdGVGaWxlUmVzcG9uc2UoARJBCgRDb3B5EhsudG93ZXIuaG9zdGQudjEuQ29weVJlcXVlc3QaHC50b3dlci5ob3N0ZC52MS5Db3B5UmVzcG9uc2USVQoKQnVpbGRJbWFnZRIhLnRvd2VyLmhvc3RkLnYxLkJ1aWxkSW1hZ2VSZXF1ZXN0GiIudG93ZXIuaG9zdGQudjEuQnVpbGRJbWFnZVJlc3BvbnNlKAESSgoHQ2FwdHVyZRIeLnRvd2VyLmhvc3RkLnYxLkNhcHR1cmVSZXF1ZXN0Gh8udG93ZXIuaG9zdGQudjEuQ2FwdHVyZVJlc3BvbnNlEl8KDkRlbGV0ZUFydGlmYWN0EiUudG93ZXIuaG9zdGQudjEuRGVsZXRlQXJ0aWZhY3RSZXF1ZXN0GiYudG93ZXIuaG9zdGQudjEuRGVsZXRlQXJ0aWZhY3RSZXNwb25zZRJECgVGZXRjaBIcLnRvd2VyLmhvc3RkLnYxLkZldGNoUmVxdWVzdBodLnRvd2VyLmhvc3RkLnYxLkZldGNoUmVzcG9uc2USTQoIQ2hlY2tvdXQSHy50b3dlci5ob3N0ZC52MS5DaGVja291dFJlcXVlc3QaIC50b3dlci5ob3N0ZC52MS5DaGVja291dFJlc3BvbnNlElkKDFVwZGF0ZU9yaWdpbhIjLnRvd2VyLmhvc3RkLnYxLlVwZGF0ZU9yaWdpblJlcXVlc3QaJC50b3dlci5ob3N0ZC52MS5VcGRhdGVPcmlnaW5SZXNwb25zZRJcCg1Db21taXRzQmVoaW5kEiQudG93ZXIuaG9zdGQudjEuQ29tbWl0c0JlaGluZFJlcXVlc3QaJS50b3dlci5ob3N0ZC52MS5Db21taXRzQmVoaW5kUmVzcG9uc2USQQoEUHVzaBIbLnRvd2VyLmhvc3RkLnYxLlB1c2hSZXF1ZXN0GhwudG93ZXIuaG9zdGQudjEuUHVzaFJlc3BvbnNlEkcKBlRpY2tldBIdLnRvd2VyLmhvc3RkLnYxLlRpY2tldFJlcXVlc3QaHi50b3dlci5ob3N0ZC52MS5UaWNrZXRSZXNwb25zZRJZCgxTdGFydFByb2Nlc3MSIy50b3dlci5ob3N0ZC52MS5TdGFydFByb2Nlc3NSZXF1ZXN0GiQudG93ZXIuaG9zdGQudjEuU3RhcnRQcm9jZXNzUmVzcG9uc2USXgoNQXR0YWNoUHJvY2VzcxIkLnRvd2VyLmhvc3RkLnYxLkF0dGFjaFByb2Nlc3NSZXF1ZXN0GiUudG93ZXIuaG9zdGQudjEuQXR0YWNoUHJvY2Vzc1Jlc3BvbnNlMAESXAoNU2lnbmFsUHJvY2VzcxIkLnRvd2VyLmhvc3RkLnYxLlNpZ25hbFByb2Nlc3NSZXF1ZXN0GiUudG93ZXIuaG9zdGQudjEuU2lnbmFsUHJvY2Vzc1Jlc3BvbnNlElwKDUxpc3RQcm9jZXNzZXMSJC50b3dlci5ob3N0ZC52MS5MaXN0UHJvY2Vzc2VzUmVxdWVzdBolLnRvd2VyLmhvc3RkLnYxLkxpc3RQcm9jZXNzZXNSZXNwb25zZUK5AQoSY29tLnRvd2VyLmhvc3RkLnYxQglIb3N0UHJvdG9QAVo+Z2l0aHViLmNvbS9ZdWtpbmFNb2NoaXp1a2kvdG93ZXIvZ2VuL2dvL3Rvd2VyL2hvc3RkL3YxO2hvc3RkdjGiAgNUSFiqAg5Ub3dlci5Ib3N0ZC5WMcoCDlRvd2VyXEhvc3RkXFYx4gIaVG93ZXJcSG9zdGRcVjFcR1BCTWV0YWRhdGHqAhBUb3dlcjo6SG9zdGQ6OlYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
  * Instance names an Instance object of the target.
@@ -760,6 +760,343 @@ export const TicketRequestSchema: GenMessage<TicketRequest> = /*@__PURE__*/
   messageDesc(file_tower_hostd_v1_host, 28);
 
 /**
+ * @generated from message tower.hostd.v1.StartProcessRequest
+ */
+export type StartProcessRequest = Message<"tower.hostd.v1.StartProcessRequest"> & {
+  /**
+   * @generated from field: tower.hostd.v1.Instance instance = 1;
+   */
+  instance?: Instance | undefined;
+
+  /**
+   * The program and its arguments, run without a shell.
+   *
+   * @generated from field: repeated string command = 2;
+   */
+  command: string[];
+
+  /**
+   * Added to the instance's environment for this process alone. It may
+   * hold secret values: the host never writes or logs them.
+   *
+   * @generated from field: map<string, string> env = 3;
+   */
+  env: { [key: string]: string };
+
+  /**
+   * Empty is the instance's default.
+   *
+   * @generated from field: string dir = 4;
+   */
+  dir: string;
+
+  /**
+   * A name for people.
+   *
+   * @generated from field: string name = 5;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message tower.hostd.v1.StartProcessRequest.
+ * Use `create(StartProcessRequestSchema)` to create a new message.
+ */
+export const StartProcessRequestSchema: GenMessage<StartProcessRequest> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 29);
+
+/**
+ * @generated from message tower.hostd.v1.StartProcessResponse
+ */
+export type StartProcessResponse = Message<"tower.hostd.v1.StartProcessResponse"> & {
+  /**
+   * Its id, unique in its instance.
+   *
+   * @generated from field: string process = 1;
+   */
+  process: string;
+};
+
+/**
+ * Describes the message tower.hostd.v1.StartProcessResponse.
+ * Use `create(StartProcessResponseSchema)` to create a new message.
+ */
+export const StartProcessResponseSchema: GenMessage<StartProcessResponse> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 30);
+
+/**
+ * @generated from message tower.hostd.v1.AttachProcessRequest
+ */
+export type AttachProcessRequest = Message<"tower.hostd.v1.AttachProcessRequest"> & {
+  /**
+   * @generated from field: tower.hostd.v1.Instance instance = 1;
+   */
+  instance?: Instance | undefined;
+
+  /**
+   * @generated from field: string process = 2;
+   */
+  process: string;
+
+  /**
+   * @generated from field: int64 offset = 3;
+   */
+  offset: bigint;
+
+  /**
+   * @generated from field: bool follow = 4;
+   */
+  follow: boolean;
+};
+
+/**
+ * Describes the message tower.hostd.v1.AttachProcessRequest.
+ * Use `create(AttachProcessRequestSchema)` to create a new message.
+ */
+export const AttachProcessRequestSchema: GenMessage<AttachProcessRequest> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 31);
+
+/**
+ * @generated from message tower.hostd.v1.AttachProcessResponse
+ */
+export type AttachProcessResponse = Message<"tower.hostd.v1.AttachProcessResponse"> & {
+  /**
+   * @generated from oneof tower.hostd.v1.AttachProcessResponse.response
+   */
+  response: {
+    /**
+     * @generated from field: tower.hostd.v1.ProcessOutput output = 1;
+     */
+    value: ProcessOutput;
+    case: "output";
+  } | {
+    /**
+     * The last response.
+     *
+     * @generated from field: tower.hostd.v1.ProcessEnd end = 2;
+     */
+    value: ProcessEnd;
+    case: "end";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message tower.hostd.v1.AttachProcessResponse.
+ * Use `create(AttachProcessResponseSchema)` to create a new message.
+ */
+export const AttachProcessResponseSchema: GenMessage<AttachProcessResponse> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 32);
+
+/**
+ * ProcessOutput is a chunk of a process's log.
+ *
+ * @generated from message tower.hostd.v1.ProcessOutput
+ */
+export type ProcessOutput = Message<"tower.hostd.v1.ProcessOutput"> & {
+  /**
+   * @generated from field: tower.hostd.v1.OutputStream stream = 1;
+   */
+  stream: OutputStream;
+
+  /**
+   * Where it starts in the log, stdout and stderr counted together.
+   *
+   * @generated from field: int64 offset = 2;
+   */
+  offset: bigint;
+
+  /**
+   * @generated from field: bytes data = 3;
+   */
+  data: Uint8Array;
+};
+
+/**
+ * Describes the message tower.hostd.v1.ProcessOutput.
+ * Use `create(ProcessOutputSchema)` to create a new message.
+ */
+export const ProcessOutputSchema: GenMessage<ProcessOutput> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 33);
+
+/**
+ * ProcessEnd is how an attach ended.
+ *
+ * @generated from message tower.hostd.v1.ProcessEnd
+ */
+export type ProcessEnd = Message<"tower.hostd.v1.ProcessEnd"> & {
+  /**
+   * The oldest offset the log holds.
+   *
+   * @generated from field: int64 held_from = 1;
+   */
+  heldFrom: bigint;
+
+  /**
+   * Where the next attach starts to read what comes next.
+   *
+   * @generated from field: int64 next_offset = 2;
+   */
+  nextOffset: bigint;
+
+  /**
+   * Unset while the process runs.
+   *
+   * @generated from field: tower.hostd.v1.ProcessExit exit = 3;
+   */
+  exit?: ProcessExit | undefined;
+};
+
+/**
+ * Describes the message tower.hostd.v1.ProcessEnd.
+ * Use `create(ProcessEndSchema)` to create a new message.
+ */
+export const ProcessEndSchema: GenMessage<ProcessEnd> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 34);
+
+/**
+ * ProcessExit is how a process ended.
+ *
+ * @generated from message tower.hostd.v1.ProcessExit
+ */
+export type ProcessExit = Message<"tower.hostd.v1.ProcessExit"> & {
+  /**
+   * 128 plus the signal's number when a signal ended it.
+   *
+   * @generated from field: int32 code = 1;
+   */
+  code: number;
+
+  /**
+   * Unset if it exited.
+   *
+   * @generated from field: tower.hostd.v1.Signal signal = 2;
+   */
+  signal: Signal;
+};
+
+/**
+ * Describes the message tower.hostd.v1.ProcessExit.
+ * Use `create(ProcessExitSchema)` to create a new message.
+ */
+export const ProcessExitSchema: GenMessage<ProcessExit> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 35);
+
+/**
+ * @generated from message tower.hostd.v1.SignalProcessRequest
+ */
+export type SignalProcessRequest = Message<"tower.hostd.v1.SignalProcessRequest"> & {
+  /**
+   * @generated from field: tower.hostd.v1.Instance instance = 1;
+   */
+  instance?: Instance | undefined;
+
+  /**
+   * @generated from field: string process = 2;
+   */
+  process: string;
+
+  /**
+   * @generated from field: tower.hostd.v1.Signal signal = 3;
+   */
+  signal: Signal;
+};
+
+/**
+ * Describes the message tower.hostd.v1.SignalProcessRequest.
+ * Use `create(SignalProcessRequestSchema)` to create a new message.
+ */
+export const SignalProcessRequestSchema: GenMessage<SignalProcessRequest> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 36);
+
+/**
+ * @generated from message tower.hostd.v1.SignalProcessResponse
+ */
+export type SignalProcessResponse = Message<"tower.hostd.v1.SignalProcessResponse"> & {
+};
+
+/**
+ * Describes the message tower.hostd.v1.SignalProcessResponse.
+ * Use `create(SignalProcessResponseSchema)` to create a new message.
+ */
+export const SignalProcessResponseSchema: GenMessage<SignalProcessResponse> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 37);
+
+/**
+ * @generated from message tower.hostd.v1.ListProcessesRequest
+ */
+export type ListProcessesRequest = Message<"tower.hostd.v1.ListProcessesRequest"> & {
+  /**
+   * @generated from field: tower.hostd.v1.Instance instance = 1;
+   */
+  instance?: Instance | undefined;
+};
+
+/**
+ * Describes the message tower.hostd.v1.ListProcessesRequest.
+ * Use `create(ListProcessesRequestSchema)` to create a new message.
+ */
+export const ListProcessesRequestSchema: GenMessage<ListProcessesRequest> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 38);
+
+/**
+ * @generated from message tower.hostd.v1.ListProcessesResponse
+ */
+export type ListProcessesResponse = Message<"tower.hostd.v1.ListProcessesResponse"> & {
+  /**
+   * @generated from field: repeated tower.hostd.v1.Process processes = 1;
+   */
+  processes: Process[];
+};
+
+/**
+ * Describes the message tower.hostd.v1.ListProcessesResponse.
+ * Use `create(ListProcessesResponseSchema)` to create a new message.
+ */
+export const ListProcessesResponseSchema: GenMessage<ListProcessesResponse> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 39);
+
+/**
+ * Process is one process of an instance.
+ *
+ * @generated from message tower.hostd.v1.Process
+ */
+export type Process = Message<"tower.hostd.v1.Process"> & {
+  /**
+   * @generated from field: string process = 1;
+   */
+  process: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: repeated string command = 3;
+   */
+  command: string[];
+
+  /**
+   * @generated from field: google.protobuf.Timestamp start_time = 4;
+   */
+  startTime?: Timestamp | undefined;
+
+  /**
+   * Unset while it runs.
+   *
+   * @generated from field: tower.hostd.v1.ProcessExit exit = 5;
+   */
+  exit?: ProcessExit | undefined;
+};
+
+/**
+ * Describes the message tower.hostd.v1.Process.
+ * Use `create(ProcessSchema)` to create a new message.
+ */
+export const ProcessSchema: GenMessage<Process> = /*@__PURE__*/
+  messageDesc(file_tower_hostd_v1_host, 40);
+
+/**
  * @generated from message tower.hostd.v1.TicketResponse
  */
 export type TicketResponse = Message<"tower.hostd.v1.TicketResponse"> & {
@@ -783,7 +1120,68 @@ export type TicketResponse = Message<"tower.hostd.v1.TicketResponse"> & {
  * Use `create(TicketResponseSchema)` to create a new message.
  */
 export const TicketResponseSchema: GenMessage<TicketResponse> = /*@__PURE__*/
-  messageDesc(file_tower_hostd_v1_host, 29);
+  messageDesc(file_tower_hostd_v1_host, 41);
+
+/**
+ * OutputStream is which output a chunk was written to.
+ *
+ * @generated from enum tower.hostd.v1.OutputStream
+ */
+export enum OutputStream {
+  /**
+   * @generated from enum value: OUTPUT_STREAM_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: OUTPUT_STREAM_STDOUT = 1;
+   */
+  STDOUT = 1,
+
+  /**
+   * @generated from enum value: OUTPUT_STREAM_STDERR = 2;
+   */
+  STDERR = 2,
+}
+
+/**
+ * Describes the enum tower.hostd.v1.OutputStream.
+ */
+export const OutputStreamSchema: GenEnum<OutputStream> = /*@__PURE__*/
+  enumDesc(file_tower_hostd_v1_host, 0);
+
+/**
+ * Signal is what a process's group can be sent.
+ *
+ * @generated from enum tower.hostd.v1.Signal
+ */
+export enum Signal {
+  /**
+   * @generated from enum value: SIGNAL_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: SIGNAL_TERM = 1;
+   */
+  TERM = 1,
+
+  /**
+   * @generated from enum value: SIGNAL_KILL = 2;
+   */
+  KILL = 2,
+
+  /**
+   * @generated from enum value: SIGNAL_INT = 3;
+   */
+  INT = 3,
+}
+
+/**
+ * Describes the enum tower.hostd.v1.Signal.
+ */
+export const SignalSchema: GenEnum<Signal> = /*@__PURE__*/
+  enumDesc(file_tower_hostd_v1_host, 1);
 
 /**
  * HostService is what tower asks of the host of one target. Every call may
@@ -933,6 +1331,57 @@ export const HostService: GenService<{
     methodKind: "unary";
     input: typeof TicketRequestSchema;
     output: typeof TicketResponseSchema;
+  },
+  /**
+   * StartProcess starts a process in a running instance, supervised on
+   * the host or in the instance, not by the call: it runs until it exits,
+   * is signalled, or its instance stops, which ends every process of it.
+   * Its output goes to a log of its own on the host, capped (64 MiB unless
+   * the host is set otherwise), the oldest output dropped first. A finished
+   * process is kept, log and exit, until its instance is deleted or the
+   * instance holds more finished processes than the host keeps (100 unless
+   * set otherwise), the oldest going first. The instance's status reports
+   * how many run.
+   *
+   * @generated from rpc tower.hostd.v1.HostService.StartProcess
+   */
+  startProcess: {
+    methodKind: "unary";
+    input: typeof StartProcessRequestSchema;
+    output: typeof StartProcessResponseSchema;
+  },
+  /**
+   * AttachProcess streams a process's log from an offset, then, with
+   * follow, what it writes until it ends; last, where the log is held from
+   * and resumes, and the exit once there is one.
+   *
+   * @generated from rpc tower.hostd.v1.HostService.AttachProcess
+   */
+  attachProcess: {
+    methodKind: "server_streaming";
+    input: typeof AttachProcessRequestSchema;
+    output: typeof AttachProcessResponseSchema;
+  },
+  /**
+   * SignalProcess signals a process's group.
+   *
+   * @generated from rpc tower.hostd.v1.HostService.SignalProcess
+   */
+  signalProcess: {
+    methodKind: "unary";
+    input: typeof SignalProcessRequestSchema;
+    output: typeof SignalProcessResponseSchema;
+  },
+  /**
+   * ListProcesses lists an instance's processes, running and finished,
+   * oldest first.
+   *
+   * @generated from rpc tower.hostd.v1.HostService.ListProcesses
+   */
+  listProcesses: {
+    methodKind: "unary";
+    input: typeof ListProcessesRequestSchema;
+    output: typeof ListProcessesResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_tower_hostd_v1_host, 0);

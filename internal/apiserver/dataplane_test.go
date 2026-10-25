@@ -129,6 +129,22 @@ func TestOnlyWorkstreamUsesEnvironments(t *testing.T) {
 			_, err := c.Push(ctx, connect.NewRequest(&envv1alpha1.PushRequest{Environment: env, Repository: "api", Branch: "main"}))
 			return err
 		},
+		"StartProcess": func(c environmentsv1alpha1connect.EnvironmentServiceClient, env *envv1alpha1.Environment) error {
+			_, err := c.StartProcess(ctx, connect.NewRequest(&envv1alpha1.StartProcessRequest{Environment: env, Command: &envv1alpha1.StartProcessRequest_Shell{Shell: "true"}}))
+			return err
+		},
+		"AttachProcess": func(c environmentsv1alpha1connect.EnvironmentServiceClient, env *envv1alpha1.Environment) error {
+			_, _, err := attachProcess(ctx, c, &envv1alpha1.AttachProcessRequest{Environment: env, Process: "p1"})
+			return err
+		},
+		"SignalProcess": func(c environmentsv1alpha1connect.EnvironmentServiceClient, env *envv1alpha1.Environment) error {
+			_, err := c.SignalProcess(ctx, connect.NewRequest(&envv1alpha1.SignalProcessRequest{Environment: env, Process: "p1", Signal: envv1alpha1.Signal_SIGNAL_TERM}))
+			return err
+		},
+		"ListProcesses": func(c environmentsv1alpha1connect.EnvironmentServiceClient, env *envv1alpha1.Environment) error {
+			_, err := c.ListProcesses(ctx, connect.NewRequest(&envv1alpha1.ListProcessesRequest{Environment: env}))
+			return err
+		},
 		"IssueTicket": func(c environmentsv1alpha1connect.EnvironmentServiceClient, env *envv1alpha1.Environment) error {
 			_, err := c.IssueTicket(ctx, connect.NewRequest(&envv1alpha1.IssueTicketRequest{Environment: env, Port: 8080}))
 			return err

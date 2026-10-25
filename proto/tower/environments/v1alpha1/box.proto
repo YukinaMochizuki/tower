@@ -29,6 +29,10 @@ message Box {
 // BoxSpec is what workstream wants. What the box is made of cannot change:
 // a different recipe is a different box.
 message BoxSpec {
+  // background_work: tower sees a box's processes itself (StartProcess).
+  reserved 7;
+  reserved "background_work";
+
   // The workstream the box belongs to, by id. A workstream's boxes and
   // machines share a network and reach each other by alias.
   string workstream = 1 [(tower.meta.v1.field).immutable = true];
@@ -43,13 +47,11 @@ message BoxSpec {
   // the box, as environment variables; empty is not privileged. The values
   // never enter a spec of a lower layer (docs/decisions/secrets.md).
   string privileged_secret = 5 [(tower.meta.v1.field).immutable = true];
-  // Never stopped for idleness while set: workstream's keep_box.
+  // Never stopped for idleness while set: workstream's keep_box. A box
+  // with a process running (EnvironmentService.StartProcess) is not either.
   bool keep = 6;
-  // A job or a service runs in the box, which tower cannot see from the
-  // commands it relays. While set the box is never stopped for idleness, as
-  // if kept. workstream sets it while it holds a job or a service there.
-  bool background_work = 7;
-  // RUN_STATE_STOPPED when workstream hibernates the box.
+  // RUN_STATE_STOPPED when workstream hibernates the box. Stopping it ends
+  // every process running in it.
   RunState run_state = 8;
   Resources resources = 9;
 }

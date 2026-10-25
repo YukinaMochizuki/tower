@@ -85,6 +85,11 @@
           ],
           "type": "string"
         },
+        "processesRunning": {
+          "description": "How many processes started in it (StartProcess) are running. tower never stops for idleness a box whose instance runs one.",
+          "format": "int32",
+          "type": "integer"
+        },
         "startTime": {
           "format": "date-time",
           "type": "string"

@@ -52,6 +52,25 @@ service HostService {
   // Ticket says where a direct stream to a port of a running instance
   // connects. tower signs the ticket the stream presents there.
   rpc Ticket(TicketRequest) returns (TicketResponse);
+  // StartProcess starts a process in a running instance, supervised on
+  // the host or in the instance, not by the call: it runs until it exits,
+  // is signalled, or its instance stops, which ends every process of it.
+  // Its output goes to a log of its own on the host, capped (64 MiB unless
+  // the host is set otherwise), the oldest output dropped first. A finished
+  // process is kept, log and exit, until its instance is deleted or the
+  // instance holds more finished processes than the host keeps (100 unless
+  // set otherwise), the oldest going first. The instance's status reports
+  // how many run.
+  rpc StartProcess(StartProcessRequest) returns (StartProcessResponse);
+  // AttachProcess streams a process's log from an offset, then, with
+  // follow, what it writes until it ends; last, where the log is held from
+  // and resumes, and the exit once there is one.
+  rpc AttachProcess(AttachProcessRequest) returns (stream AttachProcessResponse);
+  // SignalProcess signals a process's group.
+  rpc SignalProcess(SignalProcessRequest) returns (SignalProcessResponse);
+  // ListProcesses lists an instance's processes, running and finished,
+  // oldest first.
+  rpc ListProcesses(ListProcessesRequest) returns (ListProcessesResponse);
 }
 
 // Instance names an Instance object of the target.
@@ -234,6 +253,106 @@ message PushResponse {}
 message TicketRequest {
   Instance instance = 1;
   int32 port = 2;
+}
+
+message StartProcessRequest {
+  Instance instance = 1;
+  // The program and its arguments, run without a shell.
+  repeated string command = 2;
+  // Added to the instance's environment for this process alone. It may
+  // hold secret values: the host never writes or logs them.
+  map<string, string> env = 3;
+  // Empty is the instance's default.
+  string dir = 4;
+  // A name for people.
+  string name = 5;
+}
+
+message StartProcessResponse {
+  // Its id, unique in its instance.
+  string process = 1;
+}
+
+message AttachProcessRequest {
+  Instance instance = 1;
+  string process = 2;
+  int64 offset = 3;
+  bool follow = 4;
+}
+
+message AttachProcessResponse {
+  oneof response {
+    ProcessOutput output = 1;
+    // The last response.
+    ProcessEnd end = 2;
+  }
+}
+
+// OutputStream is which output a chunk was written to.
+enum OutputStream {
+  OUTPUT_STREAM_UNSPECIFIED = 0;
+  OUTPUT_STREAM_STDOUT = 1;
+  OUTPUT_STREAM_STDERR = 2;
+}
+
+// ProcessOutput is a chunk of a process's log.
+message ProcessOutput {
+  OutputStream stream = 1;
+  // Where it starts in the log, stdout and stderr counted together.
+  int64 offset = 2;
+  bytes data = 3;
+}
+
+// ProcessEnd is how an attach ended.
+message ProcessEnd {
+  // The oldest offset the log holds.
+  int64 held_from = 1;
+  // Where the next attach starts to read what comes next.
+  int64 next_offset = 2;
+  // Unset while the process runs.
+  ProcessExit exit = 3;
+}
+
+// Signal is what a process's group can be sent.
+enum Signal {
+  SIGNAL_UNSPECIFIED = 0;
+  SIGNAL_TERM = 1;
+  SIGNAL_KILL = 2;
+  SIGNAL_INT = 3;
+}
+
+// ProcessExit is how a process ended.
+message ProcessExit {
+  // 128 plus the signal's number when a signal ended it.
+  int32 code = 1;
+  // Unset if it exited.
+  Signal signal = 2;
+}
+
+message SignalProcessRequest {
+  Instance instance = 1;
+  string process = 2;
+  Signal signal = 3;
+}
+
+message SignalProcessResponse {}
+
+message ListProcessesRequest {
+  Instance instance = 1;
+}
+
+message ListProcessesResponse {
+  repeated Process processes = 1;
+}
+
+// Process is one process of an instance.
+message Process {
+  string process = 1;
+  string name = 2;
+  repeated string command = 3;
+  google.protobuf.Timestamp start_time = 4;
+  // Unset while it runs.
+  ProcessExit exit = 5;
 }
 
 message TicketResponse {

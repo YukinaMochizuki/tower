@@ -30,6 +30,109 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// OutputStream is which output a chunk was written to.
+type OutputStream int32
+
+const (
+	OutputStream_OUTPUT_STREAM_UNSPECIFIED OutputStream = 0
+	OutputStream_OUTPUT_STREAM_STDOUT      OutputStream = 1
+	OutputStream_OUTPUT_STREAM_STDERR      OutputStream = 2
+)
+
+// Enum value maps for OutputStream.
+var (
+	OutputStream_name = map[int32]string{
+		0: "OUTPUT_STREAM_UNSPECIFIED",
+		1: "OUTPUT_STREAM_STDOUT",
+		2: "OUTPUT_STREAM_STDERR",
+	}
+	OutputStream_value = map[string]int32{
+		"OUTPUT_STREAM_UNSPECIFIED": 0,
+		"OUTPUT_STREAM_STDOUT":      1,
+		"OUTPUT_STREAM_STDERR":      2,
+	}
+)
+
+func (x OutputStream) Enum() *OutputStream {
+	p := new(OutputStream)
+	*p = x
+	return p
+}
+
+func (x OutputStream) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (OutputStream) Descriptor() protoreflect.EnumDescriptor {
+	return file_tower_hostd_v1_host_proto_enumTypes[0].Descriptor()
+}
+
+func (OutputStream) Type() protoreflect.EnumType {
+	return &file_tower_hostd_v1_host_proto_enumTypes[0]
+}
+
+func (x OutputStream) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use OutputStream.Descriptor instead.
+func (OutputStream) EnumDescriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{0}
+}
+
+// Signal is what a process's group can be sent.
+type Signal int32
+
+const (
+	Signal_SIGNAL_UNSPECIFIED Signal = 0
+	Signal_SIGNAL_TERM        Signal = 1
+	Signal_SIGNAL_KILL        Signal = 2
+	Signal_SIGNAL_INT         Signal = 3
+)
+
+// Enum value maps for Signal.
+var (
+	Signal_name = map[int32]string{
+		0: "SIGNAL_UNSPECIFIED",
+		1: "SIGNAL_TERM",
+		2: "SIGNAL_KILL",
+		3: "SIGNAL_INT",
+	}
+	Signal_value = map[string]int32{
+		"SIGNAL_UNSPECIFIED": 0,
+		"SIGNAL_TERM":        1,
+		"SIGNAL_KILL":        2,
+		"SIGNAL_INT":         3,
+	}
+)
+
+func (x Signal) Enum() *Signal {
+	p := new(Signal)
+	*p = x
+	return p
+}
+
+func (x Signal) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Signal) Descriptor() protoreflect.EnumDescriptor {
+	return file_tower_hostd_v1_host_proto_enumTypes[1].Descriptor()
+}
+
+func (Signal) Type() protoreflect.EnumType {
+	return &file_tower_hostd_v1_host_proto_enumTypes[1]
+}
+
+func (x Signal) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Signal.Descriptor instead.
+func (Signal) EnumDescriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{1}
+}
+
 // Instance names an Instance object of the target.
 type Instance struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1707,6 +1810,726 @@ func (x *TicketRequest) GetPort() int32 {
 	return 0
 }
 
+type StartProcessRequest struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Instance *Instance              `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
+	// The program and its arguments, run without a shell.
+	Command []string `protobuf:"bytes,2,rep,name=command,proto3" json:"command,omitempty"`
+	// Added to the instance's environment for this process alone. It may
+	// hold secret values: the host never writes or logs them.
+	Env map[string]string `protobuf:"bytes,3,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Empty is the instance's default.
+	Dir string `protobuf:"bytes,4,opt,name=dir,proto3" json:"dir,omitempty"`
+	// A name for people.
+	Name          string `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartProcessRequest) Reset() {
+	*x = StartProcessRequest{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartProcessRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartProcessRequest) ProtoMessage() {}
+
+func (x *StartProcessRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartProcessRequest.ProtoReflect.Descriptor instead.
+func (*StartProcessRequest) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *StartProcessRequest) GetInstance() *Instance {
+	if x != nil {
+		return x.Instance
+	}
+	return nil
+}
+
+func (x *StartProcessRequest) GetCommand() []string {
+	if x != nil {
+		return x.Command
+	}
+	return nil
+}
+
+func (x *StartProcessRequest) GetEnv() map[string]string {
+	if x != nil {
+		return x.Env
+	}
+	return nil
+}
+
+func (x *StartProcessRequest) GetDir() string {
+	if x != nil {
+		return x.Dir
+	}
+	return ""
+}
+
+func (x *StartProcessRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type StartProcessResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Its id, unique in its instance.
+	Process       string `protobuf:"bytes,1,opt,name=process,proto3" json:"process,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartProcessResponse) Reset() {
+	*x = StartProcessResponse{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartProcessResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartProcessResponse) ProtoMessage() {}
+
+func (x *StartProcessResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartProcessResponse.ProtoReflect.Descriptor instead.
+func (*StartProcessResponse) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *StartProcessResponse) GetProcess() string {
+	if x != nil {
+		return x.Process
+	}
+	return ""
+}
+
+type AttachProcessRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Instance      *Instance              `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
+	Process       string                 `protobuf:"bytes,2,opt,name=process,proto3" json:"process,omitempty"`
+	Offset        int64                  `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
+	Follow        bool                   `protobuf:"varint,4,opt,name=follow,proto3" json:"follow,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AttachProcessRequest) Reset() {
+	*x = AttachProcessRequest{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AttachProcessRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AttachProcessRequest) ProtoMessage() {}
+
+func (x *AttachProcessRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AttachProcessRequest.ProtoReflect.Descriptor instead.
+func (*AttachProcessRequest) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *AttachProcessRequest) GetInstance() *Instance {
+	if x != nil {
+		return x.Instance
+	}
+	return nil
+}
+
+func (x *AttachProcessRequest) GetProcess() string {
+	if x != nil {
+		return x.Process
+	}
+	return ""
+}
+
+func (x *AttachProcessRequest) GetOffset() int64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *AttachProcessRequest) GetFollow() bool {
+	if x != nil {
+		return x.Follow
+	}
+	return false
+}
+
+type AttachProcessResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Response:
+	//
+	//	*AttachProcessResponse_Output
+	//	*AttachProcessResponse_End
+	Response      isAttachProcessResponse_Response `protobuf_oneof:"response"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AttachProcessResponse) Reset() {
+	*x = AttachProcessResponse{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AttachProcessResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AttachProcessResponse) ProtoMessage() {}
+
+func (x *AttachProcessResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AttachProcessResponse.ProtoReflect.Descriptor instead.
+func (*AttachProcessResponse) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *AttachProcessResponse) GetResponse() isAttachProcessResponse_Response {
+	if x != nil {
+		return x.Response
+	}
+	return nil
+}
+
+func (x *AttachProcessResponse) GetOutput() *ProcessOutput {
+	if x != nil {
+		if x, ok := x.Response.(*AttachProcessResponse_Output); ok {
+			return x.Output
+		}
+	}
+	return nil
+}
+
+func (x *AttachProcessResponse) GetEnd() *ProcessEnd {
+	if x != nil {
+		if x, ok := x.Response.(*AttachProcessResponse_End); ok {
+			return x.End
+		}
+	}
+	return nil
+}
+
+type isAttachProcessResponse_Response interface {
+	isAttachProcessResponse_Response()
+}
+
+type AttachProcessResponse_Output struct {
+	Output *ProcessOutput `protobuf:"bytes,1,opt,name=output,proto3,oneof"`
+}
+
+type AttachProcessResponse_End struct {
+	// The last response.
+	End *ProcessEnd `protobuf:"bytes,2,opt,name=end,proto3,oneof"`
+}
+
+func (*AttachProcessResponse_Output) isAttachProcessResponse_Response() {}
+
+func (*AttachProcessResponse_End) isAttachProcessResponse_Response() {}
+
+// ProcessOutput is a chunk of a process's log.
+type ProcessOutput struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Stream OutputStream           `protobuf:"varint,1,opt,name=stream,proto3,enum=tower.hostd.v1.OutputStream" json:"stream,omitempty"`
+	// Where it starts in the log, stdout and stderr counted together.
+	Offset        int64  `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"`
+	Data          []byte `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProcessOutput) Reset() {
+	*x = ProcessOutput{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProcessOutput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProcessOutput) ProtoMessage() {}
+
+func (x *ProcessOutput) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProcessOutput.ProtoReflect.Descriptor instead.
+func (*ProcessOutput) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *ProcessOutput) GetStream() OutputStream {
+	if x != nil {
+		return x.Stream
+	}
+	return OutputStream_OUTPUT_STREAM_UNSPECIFIED
+}
+
+func (x *ProcessOutput) GetOffset() int64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *ProcessOutput) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+// ProcessEnd is how an attach ended.
+type ProcessEnd struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The oldest offset the log holds.
+	HeldFrom int64 `protobuf:"varint,1,opt,name=held_from,json=heldFrom,proto3" json:"held_from,omitempty"`
+	// Where the next attach starts to read what comes next.
+	NextOffset int64 `protobuf:"varint,2,opt,name=next_offset,json=nextOffset,proto3" json:"next_offset,omitempty"`
+	// Unset while the process runs.
+	Exit          *ProcessExit `protobuf:"bytes,3,opt,name=exit,proto3" json:"exit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProcessEnd) Reset() {
+	*x = ProcessEnd{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProcessEnd) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProcessEnd) ProtoMessage() {}
+
+func (x *ProcessEnd) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProcessEnd.ProtoReflect.Descriptor instead.
+func (*ProcessEnd) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *ProcessEnd) GetHeldFrom() int64 {
+	if x != nil {
+		return x.HeldFrom
+	}
+	return 0
+}
+
+func (x *ProcessEnd) GetNextOffset() int64 {
+	if x != nil {
+		return x.NextOffset
+	}
+	return 0
+}
+
+func (x *ProcessEnd) GetExit() *ProcessExit {
+	if x != nil {
+		return x.Exit
+	}
+	return nil
+}
+
+// ProcessExit is how a process ended.
+type ProcessExit struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 128 plus the signal's number when a signal ended it.
+	Code int32 `protobuf:"varint,1,opt,name=code,proto3" json:"code,omitempty"`
+	// Unset if it exited.
+	Signal        Signal `protobuf:"varint,2,opt,name=signal,proto3,enum=tower.hostd.v1.Signal" json:"signal,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProcessExit) Reset() {
+	*x = ProcessExit{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProcessExit) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProcessExit) ProtoMessage() {}
+
+func (x *ProcessExit) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProcessExit.ProtoReflect.Descriptor instead.
+func (*ProcessExit) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *ProcessExit) GetCode() int32 {
+	if x != nil {
+		return x.Code
+	}
+	return 0
+}
+
+func (x *ProcessExit) GetSignal() Signal {
+	if x != nil {
+		return x.Signal
+	}
+	return Signal_SIGNAL_UNSPECIFIED
+}
+
+type SignalProcessRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Instance      *Instance              `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
+	Process       string                 `protobuf:"bytes,2,opt,name=process,proto3" json:"process,omitempty"`
+	Signal        Signal                 `protobuf:"varint,3,opt,name=signal,proto3,enum=tower.hostd.v1.Signal" json:"signal,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignalProcessRequest) Reset() {
+	*x = SignalProcessRequest{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignalProcessRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignalProcessRequest) ProtoMessage() {}
+
+func (x *SignalProcessRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignalProcessRequest.ProtoReflect.Descriptor instead.
+func (*SignalProcessRequest) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *SignalProcessRequest) GetInstance() *Instance {
+	if x != nil {
+		return x.Instance
+	}
+	return nil
+}
+
+func (x *SignalProcessRequest) GetProcess() string {
+	if x != nil {
+		return x.Process
+	}
+	return ""
+}
+
+func (x *SignalProcessRequest) GetSignal() Signal {
+	if x != nil {
+		return x.Signal
+	}
+	return Signal_SIGNAL_UNSPECIFIED
+}
+
+type SignalProcessResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignalProcessResponse) Reset() {
+	*x = SignalProcessResponse{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignalProcessResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignalProcessResponse) ProtoMessage() {}
+
+func (x *SignalProcessResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignalProcessResponse.ProtoReflect.Descriptor instead.
+func (*SignalProcessResponse) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{37}
+}
+
+type ListProcessesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Instance      *Instance              `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListProcessesRequest) Reset() {
+	*x = ListProcessesRequest{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListProcessesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListProcessesRequest) ProtoMessage() {}
+
+func (x *ListProcessesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListProcessesRequest.ProtoReflect.Descriptor instead.
+func (*ListProcessesRequest) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *ListProcessesRequest) GetInstance() *Instance {
+	if x != nil {
+		return x.Instance
+	}
+	return nil
+}
+
+type ListProcessesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Processes     []*Process             `protobuf:"bytes,1,rep,name=processes,proto3" json:"processes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListProcessesResponse) Reset() {
+	*x = ListProcessesResponse{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListProcessesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListProcessesResponse) ProtoMessage() {}
+
+func (x *ListProcessesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListProcessesResponse.ProtoReflect.Descriptor instead.
+func (*ListProcessesResponse) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *ListProcessesResponse) GetProcesses() []*Process {
+	if x != nil {
+		return x.Processes
+	}
+	return nil
+}
+
+// Process is one process of an instance.
+type Process struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Process   string                 `protobuf:"bytes,1,opt,name=process,proto3" json:"process,omitempty"`
+	Name      string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Command   []string               `protobuf:"bytes,3,rep,name=command,proto3" json:"command,omitempty"`
+	StartTime *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
+	// Unset while it runs.
+	Exit          *ProcessExit `protobuf:"bytes,5,opt,name=exit,proto3" json:"exit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Process) Reset() {
+	*x = Process{}
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Process) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Process) ProtoMessage() {}
+
+func (x *Process) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Process.ProtoReflect.Descriptor instead.
+func (*Process) Descriptor() ([]byte, []int) {
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *Process) GetProcess() string {
+	if x != nil {
+		return x.Process
+	}
+	return ""
+}
+
+func (x *Process) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Process) GetCommand() []string {
+	if x != nil {
+		return x.Command
+	}
+	return nil
+}
+
+func (x *Process) GetStartTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartTime
+	}
+	return nil
+}
+
+func (x *Process) GetExit() *ProcessExit {
+	if x != nil {
+		return x.Exit
+	}
+	return nil
+}
+
 type TicketResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Where the stream connects, presenting tower's ticket.
@@ -1719,7 +2542,7 @@ type TicketResponse struct {
 
 func (x *TicketResponse) Reset() {
 	*x = TicketResponse{}
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[29]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1731,7 +2554,7 @@ func (x *TicketResponse) String() string {
 func (*TicketResponse) ProtoMessage() {}
 
 func (x *TicketResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_hostd_v1_host_proto_msgTypes[29]
+	mi := &file_tower_hostd_v1_host_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1744,7 +2567,7 @@ func (x *TicketResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TicketResponse.ProtoReflect.Descriptor instead.
 func (*TicketResponse) Descriptor() ([]byte, []int) {
-	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{29}
+	return file_tower_hostd_v1_host_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *TicketResponse) GetUrl() string {
@@ -1863,11 +2686,71 @@ const file_tower_hostd_v1_host_proto_rawDesc = "" +
 	"\fPushResponse\"Y\n" +
 	"\rTicketRequest\x124\n" +
 	"\binstance\x18\x01 \x01(\v2\x18.tower.hostd.v1.InstanceR\binstance\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\"_\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\"\x83\x02\n" +
+	"\x13StartProcessRequest\x124\n" +
+	"\binstance\x18\x01 \x01(\v2\x18.tower.hostd.v1.InstanceR\binstance\x12\x18\n" +
+	"\acommand\x18\x02 \x03(\tR\acommand\x12>\n" +
+	"\x03env\x18\x03 \x03(\v2,.tower.hostd.v1.StartProcessRequest.EnvEntryR\x03env\x12\x10\n" +
+	"\x03dir\x18\x04 \x01(\tR\x03dir\x12\x12\n" +
+	"\x04name\x18\x05 \x01(\tR\x04name\x1a6\n" +
+	"\bEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"0\n" +
+	"\x14StartProcessResponse\x12\x18\n" +
+	"\aprocess\x18\x01 \x01(\tR\aprocess\"\x96\x01\n" +
+	"\x14AttachProcessRequest\x124\n" +
+	"\binstance\x18\x01 \x01(\v2\x18.tower.hostd.v1.InstanceR\binstance\x12\x18\n" +
+	"\aprocess\x18\x02 \x01(\tR\aprocess\x12\x16\n" +
+	"\x06offset\x18\x03 \x01(\x03R\x06offset\x12\x16\n" +
+	"\x06follow\x18\x04 \x01(\bR\x06follow\"\x8c\x01\n" +
+	"\x15AttachProcessResponse\x127\n" +
+	"\x06output\x18\x01 \x01(\v2\x1d.tower.hostd.v1.ProcessOutputH\x00R\x06output\x12.\n" +
+	"\x03end\x18\x02 \x01(\v2\x1a.tower.hostd.v1.ProcessEndH\x00R\x03endB\n" +
+	"\n" +
+	"\bresponse\"q\n" +
+	"\rProcessOutput\x124\n" +
+	"\x06stream\x18\x01 \x01(\x0e2\x1c.tower.hostd.v1.OutputStreamR\x06stream\x12\x16\n" +
+	"\x06offset\x18\x02 \x01(\x03R\x06offset\x12\x12\n" +
+	"\x04data\x18\x03 \x01(\fR\x04data\"{\n" +
+	"\n" +
+	"ProcessEnd\x12\x1b\n" +
+	"\theld_from\x18\x01 \x01(\x03R\bheldFrom\x12\x1f\n" +
+	"\vnext_offset\x18\x02 \x01(\x03R\n" +
+	"nextOffset\x12/\n" +
+	"\x04exit\x18\x03 \x01(\v2\x1b.tower.hostd.v1.ProcessExitR\x04exit\"Q\n" +
+	"\vProcessExit\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\x05R\x04code\x12.\n" +
+	"\x06signal\x18\x02 \x01(\x0e2\x16.tower.hostd.v1.SignalR\x06signal\"\x96\x01\n" +
+	"\x14SignalProcessRequest\x124\n" +
+	"\binstance\x18\x01 \x01(\v2\x18.tower.hostd.v1.InstanceR\binstance\x12\x18\n" +
+	"\aprocess\x18\x02 \x01(\tR\aprocess\x12.\n" +
+	"\x06signal\x18\x03 \x01(\x0e2\x16.tower.hostd.v1.SignalR\x06signal\"\x17\n" +
+	"\x15SignalProcessResponse\"L\n" +
+	"\x14ListProcessesRequest\x124\n" +
+	"\binstance\x18\x01 \x01(\v2\x18.tower.hostd.v1.InstanceR\binstance\"N\n" +
+	"\x15ListProcessesResponse\x125\n" +
+	"\tprocesses\x18\x01 \x03(\v2\x17.tower.hostd.v1.ProcessR\tprocesses\"\xbd\x01\n" +
+	"\aProcess\x12\x18\n" +
+	"\aprocess\x18\x01 \x01(\tR\aprocess\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
+	"\acommand\x18\x03 \x03(\tR\acommand\x129\n" +
+	"\n" +
+	"start_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x12/\n" +
+	"\x04exit\x18\x05 \x01(\v2\x1b.tower.hostd.v1.ProcessExitR\x04exit\"_\n" +
 	"\x0eTicketResponse\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12;\n" +
 	"\vexpire_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"expireTime2\x9a\b\n" +
+	"expireTime*a\n" +
+	"\fOutputStream\x12\x1d\n" +
+	"\x19OUTPUT_STREAM_UNSPECIFIED\x10\x00\x12\x18\n" +
+	"\x14OUTPUT_STREAM_STDOUT\x10\x01\x12\x18\n" +
+	"\x14OUTPUT_STREAM_STDERR\x10\x02*R\n" +
+	"\x06Signal\x12\x16\n" +
+	"\x12SIGNAL_UNSPECIFIED\x10\x00\x12\x0f\n" +
+	"\vSIGNAL_TERM\x10\x01\x12\x0f\n" +
+	"\vSIGNAL_KILL\x10\x02\x12\x0e\n" +
+	"\n" +
+	"SIGNAL_INT\x10\x032\x91\v\n" +
 	"\vHostService\x12E\n" +
 	"\x04Exec\x12\x1b.tower.hostd.v1.ExecRequest\x1a\x1c.tower.hostd.v1.ExecResponse(\x010\x01\x12O\n" +
 	"\bReadFile\x12\x1f.tower.hostd.v1.ReadFileRequest\x1a .tower.hostd.v1.ReadFileResponse0\x01\x12R\n" +
@@ -1882,7 +2765,11 @@ const file_tower_hostd_v1_host_proto_rawDesc = "" +
 	"\fUpdateOrigin\x12#.tower.hostd.v1.UpdateOriginRequest\x1a$.tower.hostd.v1.UpdateOriginResponse\x12\\\n" +
 	"\rCommitsBehind\x12$.tower.hostd.v1.CommitsBehindRequest\x1a%.tower.hostd.v1.CommitsBehindResponse\x12A\n" +
 	"\x04Push\x12\x1b.tower.hostd.v1.PushRequest\x1a\x1c.tower.hostd.v1.PushResponse\x12G\n" +
-	"\x06Ticket\x12\x1d.tower.hostd.v1.TicketRequest\x1a\x1e.tower.hostd.v1.TicketResponseB\xb9\x01\n" +
+	"\x06Ticket\x12\x1d.tower.hostd.v1.TicketRequest\x1a\x1e.tower.hostd.v1.TicketResponse\x12Y\n" +
+	"\fStartProcess\x12#.tower.hostd.v1.StartProcessRequest\x1a$.tower.hostd.v1.StartProcessResponse\x12^\n" +
+	"\rAttachProcess\x12$.tower.hostd.v1.AttachProcessRequest\x1a%.tower.hostd.v1.AttachProcessResponse0\x01\x12\\\n" +
+	"\rSignalProcess\x12$.tower.hostd.v1.SignalProcessRequest\x1a%.tower.hostd.v1.SignalProcessResponse\x12\\\n" +
+	"\rListProcesses\x12$.tower.hostd.v1.ListProcessesRequest\x1a%.tower.hostd.v1.ListProcessesResponseB\xb9\x01\n" +
 	"\x12com.tower.hostd.v1B\tHostProtoP\x01Z>github.com/YukinaMochizuki/tower/gen/go/tower/hostd/v1;hostdv1\xa2\x02\x03THX\xaa\x02\x0eTower.Hostd.V1\xca\x02\x0eTower\\Hostd\\V1\xe2\x02\x1aTower\\Hostd\\V1\\GPBMetadata\xea\x02\x10Tower::Hostd::V1b\x06proto3"
 
 var (
@@ -1897,88 +2784,126 @@ func file_tower_hostd_v1_host_proto_rawDescGZIP() []byte {
 	return file_tower_hostd_v1_host_proto_rawDescData
 }
 
-var file_tower_hostd_v1_host_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
+var file_tower_hostd_v1_host_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_tower_hostd_v1_host_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
 var file_tower_hostd_v1_host_proto_goTypes = []any{
-	(*Instance)(nil),               // 0: tower.hostd.v1.Instance
-	(*ExecRequest)(nil),            // 1: tower.hostd.v1.ExecRequest
-	(*ExecStart)(nil),              // 2: tower.hostd.v1.ExecStart
-	(*ExecResponse)(nil),           // 3: tower.hostd.v1.ExecResponse
-	(*ReadFileRequest)(nil),        // 4: tower.hostd.v1.ReadFileRequest
-	(*ReadFileResponse)(nil),       // 5: tower.hostd.v1.ReadFileResponse
-	(*WriteFileRequest)(nil),       // 6: tower.hostd.v1.WriteFileRequest
-	(*WriteFileStart)(nil),         // 7: tower.hostd.v1.WriteFileStart
-	(*WriteFileResponse)(nil),      // 8: tower.hostd.v1.WriteFileResponse
-	(*CopyRequest)(nil),            // 9: tower.hostd.v1.CopyRequest
-	(*CopyResponse)(nil),           // 10: tower.hostd.v1.CopyResponse
-	(*BuildImageRequest)(nil),      // 11: tower.hostd.v1.BuildImageRequest
-	(*BuildImageStart)(nil),        // 12: tower.hostd.v1.BuildImageStart
-	(*BuildImageResponse)(nil),     // 13: tower.hostd.v1.BuildImageResponse
-	(*CaptureRequest)(nil),         // 14: tower.hostd.v1.CaptureRequest
-	(*CaptureResponse)(nil),        // 15: tower.hostd.v1.CaptureResponse
-	(*DeleteArtifactRequest)(nil),  // 16: tower.hostd.v1.DeleteArtifactRequest
-	(*DeleteArtifactResponse)(nil), // 17: tower.hostd.v1.DeleteArtifactResponse
-	(*FetchRequest)(nil),           // 18: tower.hostd.v1.FetchRequest
-	(*FetchResponse)(nil),          // 19: tower.hostd.v1.FetchResponse
-	(*CheckoutRequest)(nil),        // 20: tower.hostd.v1.CheckoutRequest
-	(*CheckoutResponse)(nil),       // 21: tower.hostd.v1.CheckoutResponse
-	(*UpdateOriginRequest)(nil),    // 22: tower.hostd.v1.UpdateOriginRequest
-	(*UpdateOriginResponse)(nil),   // 23: tower.hostd.v1.UpdateOriginResponse
-	(*CommitsBehindRequest)(nil),   // 24: tower.hostd.v1.CommitsBehindRequest
-	(*CommitsBehindResponse)(nil),  // 25: tower.hostd.v1.CommitsBehindResponse
-	(*PushRequest)(nil),            // 26: tower.hostd.v1.PushRequest
-	(*PushResponse)(nil),           // 27: tower.hostd.v1.PushResponse
-	(*TicketRequest)(nil),          // 28: tower.hostd.v1.TicketRequest
-	(*TicketResponse)(nil),         // 29: tower.hostd.v1.TicketResponse
-	nil,                            // 30: tower.hostd.v1.ExecStart.EnvEntry
-	(*timestamppb.Timestamp)(nil),  // 31: google.protobuf.Timestamp
+	(OutputStream)(0),              // 0: tower.hostd.v1.OutputStream
+	(Signal)(0),                    // 1: tower.hostd.v1.Signal
+	(*Instance)(nil),               // 2: tower.hostd.v1.Instance
+	(*ExecRequest)(nil),            // 3: tower.hostd.v1.ExecRequest
+	(*ExecStart)(nil),              // 4: tower.hostd.v1.ExecStart
+	(*ExecResponse)(nil),           // 5: tower.hostd.v1.ExecResponse
+	(*ReadFileRequest)(nil),        // 6: tower.hostd.v1.ReadFileRequest
+	(*ReadFileResponse)(nil),       // 7: tower.hostd.v1.ReadFileResponse
+	(*WriteFileRequest)(nil),       // 8: tower.hostd.v1.WriteFileRequest
+	(*WriteFileStart)(nil),         // 9: tower.hostd.v1.WriteFileStart
+	(*WriteFileResponse)(nil),      // 10: tower.hostd.v1.WriteFileResponse
+	(*CopyRequest)(nil),            // 11: tower.hostd.v1.CopyRequest
+	(*CopyResponse)(nil),           // 12: tower.hostd.v1.CopyResponse
+	(*BuildImageRequest)(nil),      // 13: tower.hostd.v1.BuildImageRequest
+	(*BuildImageStart)(nil),        // 14: tower.hostd.v1.BuildImageStart
+	(*BuildImageResponse)(nil),     // 15: tower.hostd.v1.BuildImageResponse
+	(*CaptureRequest)(nil),         // 16: tower.hostd.v1.CaptureRequest
+	(*CaptureResponse)(nil),        // 17: tower.hostd.v1.CaptureResponse
+	(*DeleteArtifactRequest)(nil),  // 18: tower.hostd.v1.DeleteArtifactRequest
+	(*DeleteArtifactResponse)(nil), // 19: tower.hostd.v1.DeleteArtifactResponse
+	(*FetchRequest)(nil),           // 20: tower.hostd.v1.FetchRequest
+	(*FetchResponse)(nil),          // 21: tower.hostd.v1.FetchResponse
+	(*CheckoutRequest)(nil),        // 22: tower.hostd.v1.CheckoutRequest
+	(*CheckoutResponse)(nil),       // 23: tower.hostd.v1.CheckoutResponse
+	(*UpdateOriginRequest)(nil),    // 24: tower.hostd.v1.UpdateOriginRequest
+	(*UpdateOriginResponse)(nil),   // 25: tower.hostd.v1.UpdateOriginResponse
+	(*CommitsBehindRequest)(nil),   // 26: tower.hostd.v1.CommitsBehindRequest
+	(*CommitsBehindResponse)(nil),  // 27: tower.hostd.v1.CommitsBehindResponse
+	(*PushRequest)(nil),            // 28: tower.hostd.v1.PushRequest
+	(*PushResponse)(nil),           // 29: tower.hostd.v1.PushResponse
+	(*TicketRequest)(nil),          // 30: tower.hostd.v1.TicketRequest
+	(*StartProcessRequest)(nil),    // 31: tower.hostd.v1.StartProcessRequest
+	(*StartProcessResponse)(nil),   // 32: tower.hostd.v1.StartProcessResponse
+	(*AttachProcessRequest)(nil),   // 33: tower.hostd.v1.AttachProcessRequest
+	(*AttachProcessResponse)(nil),  // 34: tower.hostd.v1.AttachProcessResponse
+	(*ProcessOutput)(nil),          // 35: tower.hostd.v1.ProcessOutput
+	(*ProcessEnd)(nil),             // 36: tower.hostd.v1.ProcessEnd
+	(*ProcessExit)(nil),            // 37: tower.hostd.v1.ProcessExit
+	(*SignalProcessRequest)(nil),   // 38: tower.hostd.v1.SignalProcessRequest
+	(*SignalProcessResponse)(nil),  // 39: tower.hostd.v1.SignalProcessResponse
+	(*ListProcessesRequest)(nil),   // 40: tower.hostd.v1.ListProcessesRequest
+	(*ListProcessesResponse)(nil),  // 41: tower.hostd.v1.ListProcessesResponse
+	(*Process)(nil),                // 42: tower.hostd.v1.Process
+	(*TicketResponse)(nil),         // 43: tower.hostd.v1.TicketResponse
+	nil,                            // 44: tower.hostd.v1.ExecStart.EnvEntry
+	nil,                            // 45: tower.hostd.v1.StartProcessRequest.EnvEntry
+	(*timestamppb.Timestamp)(nil),  // 46: google.protobuf.Timestamp
 }
 var file_tower_hostd_v1_host_proto_depIdxs = []int32{
-	2,  // 0: tower.hostd.v1.ExecRequest.start:type_name -> tower.hostd.v1.ExecStart
-	0,  // 1: tower.hostd.v1.ExecStart.instance:type_name -> tower.hostd.v1.Instance
-	30, // 2: tower.hostd.v1.ExecStart.env:type_name -> tower.hostd.v1.ExecStart.EnvEntry
-	0,  // 3: tower.hostd.v1.ReadFileRequest.instance:type_name -> tower.hostd.v1.Instance
-	7,  // 4: tower.hostd.v1.WriteFileRequest.start:type_name -> tower.hostd.v1.WriteFileStart
-	0,  // 5: tower.hostd.v1.WriteFileStart.instance:type_name -> tower.hostd.v1.Instance
-	0,  // 6: tower.hostd.v1.CopyRequest.from:type_name -> tower.hostd.v1.Instance
-	0,  // 7: tower.hostd.v1.CopyRequest.to:type_name -> tower.hostd.v1.Instance
-	12, // 8: tower.hostd.v1.BuildImageRequest.start:type_name -> tower.hostd.v1.BuildImageStart
-	0,  // 9: tower.hostd.v1.CaptureRequest.instance:type_name -> tower.hostd.v1.Instance
-	0,  // 10: tower.hostd.v1.CheckoutRequest.instance:type_name -> tower.hostd.v1.Instance
-	0,  // 11: tower.hostd.v1.UpdateOriginRequest.instance:type_name -> tower.hostd.v1.Instance
-	0,  // 12: tower.hostd.v1.PushRequest.instance:type_name -> tower.hostd.v1.Instance
-	0,  // 13: tower.hostd.v1.TicketRequest.instance:type_name -> tower.hostd.v1.Instance
-	31, // 14: tower.hostd.v1.TicketResponse.expire_time:type_name -> google.protobuf.Timestamp
-	1,  // 15: tower.hostd.v1.HostService.Exec:input_type -> tower.hostd.v1.ExecRequest
-	4,  // 16: tower.hostd.v1.HostService.ReadFile:input_type -> tower.hostd.v1.ReadFileRequest
-	6,  // 17: tower.hostd.v1.HostService.WriteFile:input_type -> tower.hostd.v1.WriteFileRequest
-	9,  // 18: tower.hostd.v1.HostService.Copy:input_type -> tower.hostd.v1.CopyRequest
-	11, // 19: tower.hostd.v1.HostService.BuildImage:input_type -> tower.hostd.v1.BuildImageRequest
-	14, // 20: tower.hostd.v1.HostService.Capture:input_type -> tower.hostd.v1.CaptureRequest
-	16, // 21: tower.hostd.v1.HostService.DeleteArtifact:input_type -> tower.hostd.v1.DeleteArtifactRequest
-	18, // 22: tower.hostd.v1.HostService.Fetch:input_type -> tower.hostd.v1.FetchRequest
-	20, // 23: tower.hostd.v1.HostService.Checkout:input_type -> tower.hostd.v1.CheckoutRequest
-	22, // 24: tower.hostd.v1.HostService.UpdateOrigin:input_type -> tower.hostd.v1.UpdateOriginRequest
-	24, // 25: tower.hostd.v1.HostService.CommitsBehind:input_type -> tower.hostd.v1.CommitsBehindRequest
-	26, // 26: tower.hostd.v1.HostService.Push:input_type -> tower.hostd.v1.PushRequest
-	28, // 27: tower.hostd.v1.HostService.Ticket:input_type -> tower.hostd.v1.TicketRequest
-	3,  // 28: tower.hostd.v1.HostService.Exec:output_type -> tower.hostd.v1.ExecResponse
-	5,  // 29: tower.hostd.v1.HostService.ReadFile:output_type -> tower.hostd.v1.ReadFileResponse
-	8,  // 30: tower.hostd.v1.HostService.WriteFile:output_type -> tower.hostd.v1.WriteFileResponse
-	10, // 31: tower.hostd.v1.HostService.Copy:output_type -> tower.hostd.v1.CopyResponse
-	13, // 32: tower.hostd.v1.HostService.BuildImage:output_type -> tower.hostd.v1.BuildImageResponse
-	15, // 33: tower.hostd.v1.HostService.Capture:output_type -> tower.hostd.v1.CaptureResponse
-	17, // 34: tower.hostd.v1.HostService.DeleteArtifact:output_type -> tower.hostd.v1.DeleteArtifactResponse
-	19, // 35: tower.hostd.v1.HostService.Fetch:output_type -> tower.hostd.v1.FetchResponse
-	21, // 36: tower.hostd.v1.HostService.Checkout:output_type -> tower.hostd.v1.CheckoutResponse
-	23, // 37: tower.hostd.v1.HostService.UpdateOrigin:output_type -> tower.hostd.v1.UpdateOriginResponse
-	25, // 38: tower.hostd.v1.HostService.CommitsBehind:output_type -> tower.hostd.v1.CommitsBehindResponse
-	27, // 39: tower.hostd.v1.HostService.Push:output_type -> tower.hostd.v1.PushResponse
-	29, // 40: tower.hostd.v1.HostService.Ticket:output_type -> tower.hostd.v1.TicketResponse
-	28, // [28:41] is the sub-list for method output_type
-	15, // [15:28] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	4,  // 0: tower.hostd.v1.ExecRequest.start:type_name -> tower.hostd.v1.ExecStart
+	2,  // 1: tower.hostd.v1.ExecStart.instance:type_name -> tower.hostd.v1.Instance
+	44, // 2: tower.hostd.v1.ExecStart.env:type_name -> tower.hostd.v1.ExecStart.EnvEntry
+	2,  // 3: tower.hostd.v1.ReadFileRequest.instance:type_name -> tower.hostd.v1.Instance
+	9,  // 4: tower.hostd.v1.WriteFileRequest.start:type_name -> tower.hostd.v1.WriteFileStart
+	2,  // 5: tower.hostd.v1.WriteFileStart.instance:type_name -> tower.hostd.v1.Instance
+	2,  // 6: tower.hostd.v1.CopyRequest.from:type_name -> tower.hostd.v1.Instance
+	2,  // 7: tower.hostd.v1.CopyRequest.to:type_name -> tower.hostd.v1.Instance
+	14, // 8: tower.hostd.v1.BuildImageRequest.start:type_name -> tower.hostd.v1.BuildImageStart
+	2,  // 9: tower.hostd.v1.CaptureRequest.instance:type_name -> tower.hostd.v1.Instance
+	2,  // 10: tower.hostd.v1.CheckoutRequest.instance:type_name -> tower.hostd.v1.Instance
+	2,  // 11: tower.hostd.v1.UpdateOriginRequest.instance:type_name -> tower.hostd.v1.Instance
+	2,  // 12: tower.hostd.v1.PushRequest.instance:type_name -> tower.hostd.v1.Instance
+	2,  // 13: tower.hostd.v1.TicketRequest.instance:type_name -> tower.hostd.v1.Instance
+	2,  // 14: tower.hostd.v1.StartProcessRequest.instance:type_name -> tower.hostd.v1.Instance
+	45, // 15: tower.hostd.v1.StartProcessRequest.env:type_name -> tower.hostd.v1.StartProcessRequest.EnvEntry
+	2,  // 16: tower.hostd.v1.AttachProcessRequest.instance:type_name -> tower.hostd.v1.Instance
+	35, // 17: tower.hostd.v1.AttachProcessResponse.output:type_name -> tower.hostd.v1.ProcessOutput
+	36, // 18: tower.hostd.v1.AttachProcessResponse.end:type_name -> tower.hostd.v1.ProcessEnd
+	0,  // 19: tower.hostd.v1.ProcessOutput.stream:type_name -> tower.hostd.v1.OutputStream
+	37, // 20: tower.hostd.v1.ProcessEnd.exit:type_name -> tower.hostd.v1.ProcessExit
+	1,  // 21: tower.hostd.v1.ProcessExit.signal:type_name -> tower.hostd.v1.Signal
+	2,  // 22: tower.hostd.v1.SignalProcessRequest.instance:type_name -> tower.hostd.v1.Instance
+	1,  // 23: tower.hostd.v1.SignalProcessRequest.signal:type_name -> tower.hostd.v1.Signal
+	2,  // 24: tower.hostd.v1.ListProcessesRequest.instance:type_name -> tower.hostd.v1.Instance
+	42, // 25: tower.hostd.v1.ListProcessesResponse.processes:type_name -> tower.hostd.v1.Process
+	46, // 26: tower.hostd.v1.Process.start_time:type_name -> google.protobuf.Timestamp
+	37, // 27: tower.hostd.v1.Process.exit:type_name -> tower.hostd.v1.ProcessExit
+	46, // 28: tower.hostd.v1.TicketResponse.expire_time:type_name -> google.protobuf.Timestamp
+	3,  // 29: tower.hostd.v1.HostService.Exec:input_type -> tower.hostd.v1.ExecRequest
+	6,  // 30: tower.hostd.v1.HostService.ReadFile:input_type -> tower.hostd.v1.ReadFileRequest
+	8,  // 31: tower.hostd.v1.HostService.WriteFile:input_type -> tower.hostd.v1.WriteFileRequest
+	11, // 32: tower.hostd.v1.HostService.Copy:input_type -> tower.hostd.v1.CopyRequest
+	13, // 33: tower.hostd.v1.HostService.BuildImage:input_type -> tower.hostd.v1.BuildImageRequest
+	16, // 34: tower.hostd.v1.HostService.Capture:input_type -> tower.hostd.v1.CaptureRequest
+	18, // 35: tower.hostd.v1.HostService.DeleteArtifact:input_type -> tower.hostd.v1.DeleteArtifactRequest
+	20, // 36: tower.hostd.v1.HostService.Fetch:input_type -> tower.hostd.v1.FetchRequest
+	22, // 37: tower.hostd.v1.HostService.Checkout:input_type -> tower.hostd.v1.CheckoutRequest
+	24, // 38: tower.hostd.v1.HostService.UpdateOrigin:input_type -> tower.hostd.v1.UpdateOriginRequest
+	26, // 39: tower.hostd.v1.HostService.CommitsBehind:input_type -> tower.hostd.v1.CommitsBehindRequest
+	28, // 40: tower.hostd.v1.HostService.Push:input_type -> tower.hostd.v1.PushRequest
+	30, // 41: tower.hostd.v1.HostService.Ticket:input_type -> tower.hostd.v1.TicketRequest
+	31, // 42: tower.hostd.v1.HostService.StartProcess:input_type -> tower.hostd.v1.StartProcessRequest
+	33, // 43: tower.hostd.v1.HostService.AttachProcess:input_type -> tower.hostd.v1.AttachProcessRequest
+	38, // 44: tower.hostd.v1.HostService.SignalProcess:input_type -> tower.hostd.v1.SignalProcessRequest
+	40, // 45: tower.hostd.v1.HostService.ListProcesses:input_type -> tower.hostd.v1.ListProcessesRequest
+	5,  // 46: tower.hostd.v1.HostService.Exec:output_type -> tower.hostd.v1.ExecResponse
+	7,  // 47: tower.hostd.v1.HostService.ReadFile:output_type -> tower.hostd.v1.ReadFileResponse
+	10, // 48: tower.hostd.v1.HostService.WriteFile:output_type -> tower.hostd.v1.WriteFileResponse
+	12, // 49: tower.hostd.v1.HostService.Copy:output_type -> tower.hostd.v1.CopyResponse
+	15, // 50: tower.hostd.v1.HostService.BuildImage:output_type -> tower.hostd.v1.BuildImageResponse
+	17, // 51: tower.hostd.v1.HostService.Capture:output_type -> tower.hostd.v1.CaptureResponse
+	19, // 52: tower.hostd.v1.HostService.DeleteArtifact:output_type -> tower.hostd.v1.DeleteArtifactResponse
+	21, // 53: tower.hostd.v1.HostService.Fetch:output_type -> tower.hostd.v1.FetchResponse
+	23, // 54: tower.hostd.v1.HostService.Checkout:output_type -> tower.hostd.v1.CheckoutResponse
+	25, // 55: tower.hostd.v1.HostService.UpdateOrigin:output_type -> tower.hostd.v1.UpdateOriginResponse
+	27, // 56: tower.hostd.v1.HostService.CommitsBehind:output_type -> tower.hostd.v1.CommitsBehindResponse
+	29, // 57: tower.hostd.v1.HostService.Push:output_type -> tower.hostd.v1.PushResponse
+	43, // 58: tower.hostd.v1.HostService.Ticket:output_type -> tower.hostd.v1.TicketResponse
+	32, // 59: tower.hostd.v1.HostService.StartProcess:output_type -> tower.hostd.v1.StartProcessResponse
+	34, // 60: tower.hostd.v1.HostService.AttachProcess:output_type -> tower.hostd.v1.AttachProcessResponse
+	39, // 61: tower.hostd.v1.HostService.SignalProcess:output_type -> tower.hostd.v1.SignalProcessResponse
+	41, // 62: tower.hostd.v1.HostService.ListProcesses:output_type -> tower.hostd.v1.ListProcessesResponse
+	46, // [46:63] is the sub-list for method output_type
+	29, // [29:46] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_tower_hostd_v1_host_proto_init() }
@@ -2003,18 +2928,23 @@ func file_tower_hostd_v1_host_proto_init() {
 		(*BuildImageRequest_Start)(nil),
 		(*BuildImageRequest_Context)(nil),
 	}
+	file_tower_hostd_v1_host_proto_msgTypes[32].OneofWrappers = []any{
+		(*AttachProcessResponse_Output)(nil),
+		(*AttachProcessResponse_End)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tower_hostd_v1_host_proto_rawDesc), len(file_tower_hostd_v1_host_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   31,
+			NumEnums:      2,
+			NumMessages:   44,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_tower_hostd_v1_host_proto_goTypes,
 		DependencyIndexes: file_tower_hostd_v1_host_proto_depIdxs,
+		EnumInfos:         file_tower_hostd_v1_host_proto_enumTypes,
 		MessageInfos:      file_tower_hostd_v1_host_proto_msgTypes,
 	}.Build()
 	File_tower_hostd_v1_host_proto = out.File

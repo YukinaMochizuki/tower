@@ -52,6 +52,18 @@ const (
 	// EnvironmentServiceIssueTicketProcedure is the fully-qualified name of the EnvironmentService's
 	// IssueTicket RPC.
 	EnvironmentServiceIssueTicketProcedure = "/tower.environments.v1alpha1.EnvironmentService/IssueTicket"
+	// EnvironmentServiceStartProcessProcedure is the fully-qualified name of the EnvironmentService's
+	// StartProcess RPC.
+	EnvironmentServiceStartProcessProcedure = "/tower.environments.v1alpha1.EnvironmentService/StartProcess"
+	// EnvironmentServiceAttachProcessProcedure is the fully-qualified name of the EnvironmentService's
+	// AttachProcess RPC.
+	EnvironmentServiceAttachProcessProcedure = "/tower.environments.v1alpha1.EnvironmentService/AttachProcess"
+	// EnvironmentServiceSignalProcessProcedure is the fully-qualified name of the EnvironmentService's
+	// SignalProcess RPC.
+	EnvironmentServiceSignalProcessProcedure = "/tower.environments.v1alpha1.EnvironmentService/SignalProcess"
+	// EnvironmentServiceListProcessesProcedure is the fully-qualified name of the EnvironmentService's
+	// ListProcesses RPC.
+	EnvironmentServiceListProcessesProcedure = "/tower.environments.v1alpha1.EnvironmentService/ListProcesses"
 )
 
 // EnvironmentServiceClient is a client for the tower.environments.v1alpha1.EnvironmentService
@@ -80,6 +92,23 @@ type EnvironmentServiceClient interface {
 	// directly, and the ticket to present there. On a hangar target it is
 	// UNIMPLEMENTED: hangar forwards no port yet.
 	IssueTicket(context.Context, *connect.Request[v1alpha1.IssueTicketRequest]) (*connect.Response[v1alpha1.IssueTicketResponse], error)
+	// StartProcess starts a process in a box and returns its id at once: a
+	// background job or a service, which outlives the call, unlike Exec's
+	// command. In a privileged box, tower adds its Secret's values to the
+	// process's environment. While a process runs, the box is never stopped
+	// for idleness; stopping the box ends it. Processes are a box's alone: in
+	// a machine this is UNIMPLEMENTED.
+	StartProcess(context.Context, *connect.Request[v1alpha1.StartProcessRequest]) (*connect.Response[v1alpha1.StartProcessResponse], error)
+	// AttachProcess streams a process's output from an offset, stdout and
+	// stderr in the order written. With follow it goes on until the process
+	// ends; it ends with where output is held from and resumes, and the
+	// process's exit once it has one. Attaching again from the offset it
+	// ended at loses nothing the log still holds.
+	AttachProcess(context.Context, *connect.Request[v1alpha1.AttachProcessRequest]) (*connect.ServerStreamForClient[v1alpha1.AttachProcessResponse], error)
+	// SignalProcess sends a signal to a process's group.
+	SignalProcess(context.Context, *connect.Request[v1alpha1.SignalProcessRequest]) (*connect.Response[v1alpha1.SignalProcessResponse], error)
+	// ListProcesses lists a box's processes, running and finished.
+	ListProcesses(context.Context, *connect.Request[v1alpha1.ListProcessesRequest]) (*connect.Response[v1alpha1.ListProcessesResponse], error)
 }
 
 // NewEnvironmentServiceClient constructs a client for the
@@ -136,18 +165,46 @@ func NewEnvironmentServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(environmentServiceMethods.ByName("IssueTicket")),
 			connect.WithClientOptions(opts...),
 		),
+		startProcess: connect.NewClient[v1alpha1.StartProcessRequest, v1alpha1.StartProcessResponse](
+			httpClient,
+			baseURL+EnvironmentServiceStartProcessProcedure,
+			connect.WithSchema(environmentServiceMethods.ByName("StartProcess")),
+			connect.WithClientOptions(opts...),
+		),
+		attachProcess: connect.NewClient[v1alpha1.AttachProcessRequest, v1alpha1.AttachProcessResponse](
+			httpClient,
+			baseURL+EnvironmentServiceAttachProcessProcedure,
+			connect.WithSchema(environmentServiceMethods.ByName("AttachProcess")),
+			connect.WithClientOptions(opts...),
+		),
+		signalProcess: connect.NewClient[v1alpha1.SignalProcessRequest, v1alpha1.SignalProcessResponse](
+			httpClient,
+			baseURL+EnvironmentServiceSignalProcessProcedure,
+			connect.WithSchema(environmentServiceMethods.ByName("SignalProcess")),
+			connect.WithClientOptions(opts...),
+		),
+		listProcesses: connect.NewClient[v1alpha1.ListProcessesRequest, v1alpha1.ListProcessesResponse](
+			httpClient,
+			baseURL+EnvironmentServiceListProcessesProcedure,
+			connect.WithSchema(environmentServiceMethods.ByName("ListProcesses")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // environmentServiceClient implements EnvironmentServiceClient.
 type environmentServiceClient struct {
-	exec        *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
-	readFile    *connect.Client[v1alpha1.ReadFileRequest, v1alpha1.ReadFileResponse]
-	writeFile   *connect.Client[v1alpha1.WriteFileRequest, v1alpha1.WriteFileResponse]
-	copyFile    *connect.Client[v1alpha1.CopyFileRequest, v1alpha1.CopyFileResponse]
-	fetchOrigin *connect.Client[v1alpha1.FetchOriginRequest, v1alpha1.FetchOriginResponse]
-	push        *connect.Client[v1alpha1.PushRequest, v1alpha1.PushResponse]
-	issueTicket *connect.Client[v1alpha1.IssueTicketRequest, v1alpha1.IssueTicketResponse]
+	exec          *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
+	readFile      *connect.Client[v1alpha1.ReadFileRequest, v1alpha1.ReadFileResponse]
+	writeFile     *connect.Client[v1alpha1.WriteFileRequest, v1alpha1.WriteFileResponse]
+	copyFile      *connect.Client[v1alpha1.CopyFileRequest, v1alpha1.CopyFileResponse]
+	fetchOrigin   *connect.Client[v1alpha1.FetchOriginRequest, v1alpha1.FetchOriginResponse]
+	push          *connect.Client[v1alpha1.PushRequest, v1alpha1.PushResponse]
+	issueTicket   *connect.Client[v1alpha1.IssueTicketRequest, v1alpha1.IssueTicketResponse]
+	startProcess  *connect.Client[v1alpha1.StartProcessRequest, v1alpha1.StartProcessResponse]
+	attachProcess *connect.Client[v1alpha1.AttachProcessRequest, v1alpha1.AttachProcessResponse]
+	signalProcess *connect.Client[v1alpha1.SignalProcessRequest, v1alpha1.SignalProcessResponse]
+	listProcesses *connect.Client[v1alpha1.ListProcessesRequest, v1alpha1.ListProcessesResponse]
 }
 
 // Exec calls tower.environments.v1alpha1.EnvironmentService.Exec.
@@ -185,6 +242,26 @@ func (c *environmentServiceClient) IssueTicket(ctx context.Context, req *connect
 	return c.issueTicket.CallUnary(ctx, req)
 }
 
+// StartProcess calls tower.environments.v1alpha1.EnvironmentService.StartProcess.
+func (c *environmentServiceClient) StartProcess(ctx context.Context, req *connect.Request[v1alpha1.StartProcessRequest]) (*connect.Response[v1alpha1.StartProcessResponse], error) {
+	return c.startProcess.CallUnary(ctx, req)
+}
+
+// AttachProcess calls tower.environments.v1alpha1.EnvironmentService.AttachProcess.
+func (c *environmentServiceClient) AttachProcess(ctx context.Context, req *connect.Request[v1alpha1.AttachProcessRequest]) (*connect.ServerStreamForClient[v1alpha1.AttachProcessResponse], error) {
+	return c.attachProcess.CallServerStream(ctx, req)
+}
+
+// SignalProcess calls tower.environments.v1alpha1.EnvironmentService.SignalProcess.
+func (c *environmentServiceClient) SignalProcess(ctx context.Context, req *connect.Request[v1alpha1.SignalProcessRequest]) (*connect.Response[v1alpha1.SignalProcessResponse], error) {
+	return c.signalProcess.CallUnary(ctx, req)
+}
+
+// ListProcesses calls tower.environments.v1alpha1.EnvironmentService.ListProcesses.
+func (c *environmentServiceClient) ListProcesses(ctx context.Context, req *connect.Request[v1alpha1.ListProcessesRequest]) (*connect.Response[v1alpha1.ListProcessesResponse], error) {
+	return c.listProcesses.CallUnary(ctx, req)
+}
+
 // EnvironmentServiceHandler is an implementation of the
 // tower.environments.v1alpha1.EnvironmentService service.
 type EnvironmentServiceHandler interface {
@@ -211,6 +288,23 @@ type EnvironmentServiceHandler interface {
 	// directly, and the ticket to present there. On a hangar target it is
 	// UNIMPLEMENTED: hangar forwards no port yet.
 	IssueTicket(context.Context, *connect.Request[v1alpha1.IssueTicketRequest]) (*connect.Response[v1alpha1.IssueTicketResponse], error)
+	// StartProcess starts a process in a box and returns its id at once: a
+	// background job or a service, which outlives the call, unlike Exec's
+	// command. In a privileged box, tower adds its Secret's values to the
+	// process's environment. While a process runs, the box is never stopped
+	// for idleness; stopping the box ends it. Processes are a box's alone: in
+	// a machine this is UNIMPLEMENTED.
+	StartProcess(context.Context, *connect.Request[v1alpha1.StartProcessRequest]) (*connect.Response[v1alpha1.StartProcessResponse], error)
+	// AttachProcess streams a process's output from an offset, stdout and
+	// stderr in the order written. With follow it goes on until the process
+	// ends; it ends with where output is held from and resumes, and the
+	// process's exit once it has one. Attaching again from the offset it
+	// ended at loses nothing the log still holds.
+	AttachProcess(context.Context, *connect.Request[v1alpha1.AttachProcessRequest], *connect.ServerStream[v1alpha1.AttachProcessResponse]) error
+	// SignalProcess sends a signal to a process's group.
+	SignalProcess(context.Context, *connect.Request[v1alpha1.SignalProcessRequest]) (*connect.Response[v1alpha1.SignalProcessResponse], error)
+	// ListProcesses lists a box's processes, running and finished.
+	ListProcesses(context.Context, *connect.Request[v1alpha1.ListProcessesRequest]) (*connect.Response[v1alpha1.ListProcessesResponse], error)
 }
 
 // NewEnvironmentServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -262,6 +356,30 @@ func NewEnvironmentServiceHandler(svc EnvironmentServiceHandler, opts ...connect
 		connect.WithSchema(environmentServiceMethods.ByName("IssueTicket")),
 		connect.WithHandlerOptions(opts...),
 	)
+	environmentServiceStartProcessHandler := connect.NewUnaryHandler(
+		EnvironmentServiceStartProcessProcedure,
+		svc.StartProcess,
+		connect.WithSchema(environmentServiceMethods.ByName("StartProcess")),
+		connect.WithHandlerOptions(opts...),
+	)
+	environmentServiceAttachProcessHandler := connect.NewServerStreamHandler(
+		EnvironmentServiceAttachProcessProcedure,
+		svc.AttachProcess,
+		connect.WithSchema(environmentServiceMethods.ByName("AttachProcess")),
+		connect.WithHandlerOptions(opts...),
+	)
+	environmentServiceSignalProcessHandler := connect.NewUnaryHandler(
+		EnvironmentServiceSignalProcessProcedure,
+		svc.SignalProcess,
+		connect.WithSchema(environmentServiceMethods.ByName("SignalProcess")),
+		connect.WithHandlerOptions(opts...),
+	)
+	environmentServiceListProcessesHandler := connect.NewUnaryHandler(
+		EnvironmentServiceListProcessesProcedure,
+		svc.ListProcesses,
+		connect.WithSchema(environmentServiceMethods.ByName("ListProcesses")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/tower.environments.v1alpha1.EnvironmentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EnvironmentServiceExecProcedure:
@@ -278,6 +396,14 @@ func NewEnvironmentServiceHandler(svc EnvironmentServiceHandler, opts ...connect
 			environmentServicePushHandler.ServeHTTP(w, r)
 		case EnvironmentServiceIssueTicketProcedure:
 			environmentServiceIssueTicketHandler.ServeHTTP(w, r)
+		case EnvironmentServiceStartProcessProcedure:
+			environmentServiceStartProcessHandler.ServeHTTP(w, r)
+		case EnvironmentServiceAttachProcessProcedure:
+			environmentServiceAttachProcessHandler.ServeHTTP(w, r)
+		case EnvironmentServiceSignalProcessProcedure:
+			environmentServiceSignalProcessHandler.ServeHTTP(w, r)
+		case EnvironmentServiceListProcessesProcedure:
+			environmentServiceListProcessesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -313,4 +439,20 @@ func (UnimplementedEnvironmentServiceHandler) Push(context.Context, *connect.Req
 
 func (UnimplementedEnvironmentServiceHandler) IssueTicket(context.Context, *connect.Request[v1alpha1.IssueTicketRequest]) (*connect.Response[v1alpha1.IssueTicketResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.environments.v1alpha1.EnvironmentService.IssueTicket is not implemented"))
+}
+
+func (UnimplementedEnvironmentServiceHandler) StartProcess(context.Context, *connect.Request[v1alpha1.StartProcessRequest]) (*connect.Response[v1alpha1.StartProcessResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.environments.v1alpha1.EnvironmentService.StartProcess is not implemented"))
+}
+
+func (UnimplementedEnvironmentServiceHandler) AttachProcess(context.Context, *connect.Request[v1alpha1.AttachProcessRequest], *connect.ServerStream[v1alpha1.AttachProcessResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("tower.environments.v1alpha1.EnvironmentService.AttachProcess is not implemented"))
+}
+
+func (UnimplementedEnvironmentServiceHandler) SignalProcess(context.Context, *connect.Request[v1alpha1.SignalProcessRequest]) (*connect.Response[v1alpha1.SignalProcessResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.environments.v1alpha1.EnvironmentService.SignalProcess is not implemented"))
+}
+
+func (UnimplementedEnvironmentServiceHandler) ListProcesses(context.Context, *connect.Request[v1alpha1.ListProcessesRequest]) (*connect.Response[v1alpha1.ListProcessesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.environments.v1alpha1.EnvironmentService.ListProcesses is not implemented"))
 }

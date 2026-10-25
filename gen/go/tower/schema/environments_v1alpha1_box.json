@@ -11,10 +11,6 @@
           },
           "type": "array"
         },
-        "backgroundWork": {
-          "description": "A job or a service runs in the box, which tower cannot see from the commands it relays. While set the box is never stopped for idleness, as if kept. workstream sets it while it holds a job or a service there.",
-          "type": "boolean"
-        },
         "checkouts": {
           "description": "The repositories to check out: the first at /workspace, each other at /repos/<repository>. Empty is an empty box, which needs image.",
           "items": {
@@ -27,7 +23,7 @@
           "type": "string"
         },
         "keep": {
-          "description": "Never stopped for idleness while set: workstream's keep_box.",
+          "description": "Never stopped for idleness while set: workstream's keep_box. A box with a process running (EnvironmentService.StartProcess) is not either.",
           "type": "boolean"
         },
         "privilegedSecret": {
@@ -38,7 +34,7 @@
           "$ref": "#/$defs/tower.environments.v1alpha1.Resources"
         },
         "runState": {
-          "description": "RUN_STATE_STOPPED when workstream hibernates the box.",
+          "description": "RUN_STATE_STOPPED when workstream hibernates the box. Stopping it ends every process running in it.",
           "enum": [
             "RUN_STATE_RUNNING",
             "RUN_STATE_STOPPED"

@@ -236,26 +236,23 @@ func TestUseKeepsABoxRunning(t *testing.T) {
 	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_STOPPED)
 }
 
-// TestKeepAndBackgroundWorkPreventIdleStop: a box workstream keeps, or one
-// running background work, is never stopped for idleness.
-func TestKeepAndBackgroundWorkPreventIdleStop(t *testing.T) {
+// TestKeepPreventsIdleStop: a box workstream keeps is never stopped for
+// idleness; once let go, it is idle as any other. A box running a process
+// is not either: TestARunningProcessKeepsABox.
+func TestKeepPreventsIdleStop(t *testing.T) {
 	w := newWorld(t, idleAfter(time.Hour))
 	w.readyBox("kept", func(b *envv1alpha1.Box) { b.Spec.Keep = true })
-	w.readyBox("busy", func(b *envv1alpha1.Box) { b.Spec.BackgroundWork = true })
 	w.readyBox("idle")
 	w.advance(2 * time.Hour)
 	w.waitBox("idle", envv1alpha1.BoxPhase_BOX_PHASE_STOPPED)
-	for _, name := range []string{"kept", "busy"} {
-		if p := w.box(name).GetStatus().GetPhase(); p != envv1alpha1.BoxPhase_BOX_PHASE_READY {
-			t.Errorf("box %s is %v after two idle hours", name, p)
-		}
+	if p := w.box("kept").GetStatus().GetPhase(); p != envv1alpha1.BoxPhase_BOX_PHASE_READY {
+		t.Errorf("a kept box is %v after two idle hours", p)
 	}
-	// Once workstream lets it go, it is idle as any other.
-	busy := w.box("busy")
-	busy.Spec.BackgroundWork = false
-	w.mustApply(registry.Box, busy)
+	kept := w.box("kept")
+	kept.Spec.Keep = false
+	w.mustApply(registry.Box, kept)
 	w.advance(time.Minute)
-	w.waitBox("busy", envv1alpha1.BoxPhase_BOX_PHASE_STOPPED)
+	w.waitBox("kept", envv1alpha1.BoxPhase_BOX_PHASE_STOPPED)
 }
 
 // TestARequestedStopStays: a box workstream stops is STOPPED for

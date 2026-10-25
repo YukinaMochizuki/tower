@@ -193,13 +193,11 @@ type BoxSpec struct {
 	// the box, as environment variables; empty is not privileged. The values
 	// never enter a spec of a lower layer (docs/decisions/secrets.md).
 	PrivilegedSecret string `protobuf:"bytes,5,opt,name=privileged_secret,json=privilegedSecret,proto3" json:"privileged_secret,omitempty"`
-	// Never stopped for idleness while set: workstream's keep_box.
+	// Never stopped for idleness while set: workstream's keep_box. A box
+	// with a process running (EnvironmentService.StartProcess) is not either.
 	Keep bool `protobuf:"varint,6,opt,name=keep,proto3" json:"keep,omitempty"`
-	// A job or a service runs in the box, which tower cannot see from the
-	// commands it relays. While set the box is never stopped for idleness, as
-	// if kept. workstream sets it while it holds a job or a service there.
-	BackgroundWork bool `protobuf:"varint,7,opt,name=background_work,json=backgroundWork,proto3" json:"background_work,omitempty"`
-	// RUN_STATE_STOPPED when workstream hibernates the box.
+	// RUN_STATE_STOPPED when workstream hibernates the box. Stopping it ends
+	// every process running in it.
 	RunState      RunState   `protobuf:"varint,8,opt,name=run_state,json=runState,proto3,enum=tower.environments.v1alpha1.RunState" json:"run_state,omitempty"`
 	Resources     *Resources `protobuf:"bytes,9,opt,name=resources,proto3" json:"resources,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -274,13 +272,6 @@ func (x *BoxSpec) GetPrivilegedSecret() string {
 func (x *BoxSpec) GetKeep() bool {
 	if x != nil {
 		return x.Keep
-	}
-	return false
-}
-
-func (x *BoxSpec) GetBackgroundWork() bool {
-	if x != nil {
-		return x.BackgroundWork
 	}
 	return false
 }
@@ -1167,7 +1158,7 @@ const file_tower_environments_v1alpha1_box_proto_rawDesc = "" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x128\n" +
 	"\x04spec\x18\x04 \x01(\v2$.tower.environments.v1alpha1.BoxSpecR\x04spec\x12>\n" +
 	"\x06status\x18\x05 \x01(\v2&.tower.environments.v1alpha1.BoxStatusR\x06status:\x16\x8a\xb5\x18\x12\n" +
-	"\x03Box\x12\x05boxes\x1a\x02bx \x01\"\xb8\x03\n" +
+	"\x03Box\x12\x05boxes\x1a\x02bx \x01\"\xa6\x03\n" +
 	"\aBoxSpec\x12&\n" +
 	"\n" +
 	"workstream\x18\x01 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\n" +
@@ -1176,10 +1167,9 @@ const file_tower_environments_v1alpha1_box_proto_rawDesc = "" +
 	"\x06addons\x18\x03 \x03(\tB\x06\x8a\xb5\x18\x02\b\x01R\x06addons\x12\x1c\n" +
 	"\x05image\x18\x04 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\x05image\x123\n" +
 	"\x11privileged_secret\x18\x05 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\x10privilegedSecret\x12\x12\n" +
-	"\x04keep\x18\x06 \x01(\bR\x04keep\x12'\n" +
-	"\x0fbackground_work\x18\a \x01(\bR\x0ebackgroundWork\x12B\n" +
+	"\x04keep\x18\x06 \x01(\bR\x04keep\x12B\n" +
 	"\trun_state\x18\b \x01(\x0e2%.tower.environments.v1alpha1.RunStateR\brunState\x12D\n" +
-	"\tresources\x18\t \x01(\v2&.tower.environments.v1alpha1.ResourcesR\tresources\"<\n" +
+	"\tresources\x18\t \x01(\v2&.tower.environments.v1alpha1.ResourcesR\tresourcesJ\x04\b\a\x10\bR\x0fbackground_work\"<\n" +
 	"\bCheckout\x12\x1e\n" +
 	"\n" +
 	"repository\x18\x01 \x01(\tR\n" +

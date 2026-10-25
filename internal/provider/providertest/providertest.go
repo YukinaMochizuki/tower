@@ -36,6 +36,10 @@ type Harness struct {
 	Golden func(t *testing.T, artifact provider.Artifact) string
 	// Image and BaseImage are what a container and a VM boot from.
 	Image, BaseImage string
+	// ProcessLimits, if set, sets the provider's cap of a process's log and
+	// how many finished processes an instance keeps; nil skips the test of
+	// them.
+	ProcessLimits func(logCap int64, finished int)
 	// Remote is a repository the provider can fetch and push to, on
 	// Branch; RemoteHead is the commit Branch is at.
 	Remote, Branch, RemoteHead string
@@ -58,6 +62,11 @@ func Run(t *testing.T, h Harness) {
 		{"MirrorAndCheckout", testMirrorAndCheckout},
 		{"PushNeedsItsLease", testPushNeedsItsLease},
 		{"Ticket", testTicket},
+		{"ProcessOutput", testProcessOutput},
+		{"ProcessReattach", testProcessReattach},
+		{"ProcessSignalAndList", testProcessSignalAndList},
+		{"ProcessesDieWithTheirInstance", testProcessesDieWithTheirInstance},
+		{"ProcessLimits", testProcessLimits},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) { tt.fn(t, h) })

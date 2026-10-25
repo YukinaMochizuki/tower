@@ -198,6 +198,8 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 	}
 	st.Instance, st.Alias = name, key.Name
 
+	s.processesSeen(key, in.GetStatus().GetProcessesRunning())
+
 	// Whether it runs.
 	desired, reason := envv1alpha1.RunState_RUN_STATE_RUNNING, ""
 	switch {
@@ -206,7 +208,7 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 	case st.StoppedReason == stoppedIdle:
 		desired, reason = envv1alpha1.RunState_RUN_STATE_STOPPED, stoppedIdle
 	case st.Phase == envv1alpha1.BoxPhase_BOX_PHASE_READY:
-		if idle, epoch := s.idle(key, box, target); idle {
+		if idle, epoch := s.idle(key, box, in, target); idle {
 			// Decided here, written by reconcileBox unless the box is used
 			// meanwhile; its instance stops on the next reconcile.
 			st.StoppedReason, bs.idleStop, bs.idleEpoch = stoppedIdle, true, epoch
@@ -472,10 +474,11 @@ func (s *Server) setRunState(ctx context.Context, in *envv1alpha1.Instance, rs e
 
 // idle reports whether a box has gone unused for its target's
 // idle_stop_after, measured from its last use or from when it last became
-// ready. A box workstream keeps, or that runs background work, never is.
-func (s *Server) idle(key controller.Key, box *envv1alpha1.Box, target *targetsv1alpha1.Target) (bool, uint64) {
+// ready. A box workstream keeps, one a call is under way in, and one whose
+// instance reports a process running, never is.
+func (s *Server) idle(key controller.Key, box *envv1alpha1.Box, in *envv1alpha1.Instance, target *targetsv1alpha1.Target) (bool, uint64) {
 	touched, epoch, busy := s.useOf(key)
-	if busy || box.GetSpec().GetKeep() || box.GetSpec().GetBackgroundWork() {
+	if busy || box.GetSpec().GetKeep() || in.GetStatus().GetProcessesRunning() > 0 {
 		return false, epoch
 	}
 	var last time.Time

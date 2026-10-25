@@ -120,6 +120,84 @@ type Ticket struct {
 	Expires time.Time
 }
 
+// Defaults a provider keeps processes by, unless its target is set
+// otherwise: the most a process's log holds, its oldest output dropped
+// first, and how many finished processes an instance keeps, its oldest
+// going first.
+const (
+	DefaultProcessLogCap     = 64 << 20
+	DefaultFinishedProcesses = 100
+)
+
+// ProcessRequest is a process started in an instance.
+type ProcessRequest struct {
+	Instance Instance
+	// Command is the program and its arguments, run without a shell.
+	Command []string
+	// Env is added to the instance's environment for this process alone.
+	Env map[string]string
+	Dir string
+	// Name is for people.
+	Name string
+}
+
+// Signal is a signal a process's group can be sent.
+type Signal int
+
+// The signals, by their numbers.
+const (
+	SignalInt  Signal = 2
+	SignalKill Signal = 9
+	SignalTerm Signal = 15
+)
+
+// ProcessExit is how a process ended: its code, which is 128 plus the
+// signal's number when a signal ended it, and that signal, 0 if it
+// exited.
+type ProcessExit struct {
+	Code   int
+	Signal Signal
+}
+
+// Killed is the exit of a process ended by sig.
+func Killed(sig Signal) *ProcessExit { return &ProcessExit{Code: 128 + int(sig), Signal: sig} }
+
+// Process is one process of an instance.
+type Process struct {
+	ID      string
+	Name    string
+	Command []string
+	Started time.Time
+	// Exit is nil while it runs.
+	Exit *ProcessExit
+}
+
+// OutputStream is which output a chunk was written to.
+type OutputStream int
+
+// The outputs.
+const (
+	Stdout OutputStream = 1
+	Stderr OutputStream = 2
+)
+
+// OutputChunk is a chunk of a process's log, at its offset, stdout and
+// stderr counted together.
+type OutputChunk struct {
+	Stream OutputStream
+	Offset int64
+	Data   []byte
+}
+
+// Attached is how an attach to a process ended.
+type Attached struct {
+	// HeldFrom is the oldest offset the log holds; Next is where to attach
+	// again to read what comes next.
+	HeldFrom, Next int64
+	// Exit is nil while the process runs.
+	Exit *ProcessExit
+}
+
 // Provider is the imperative work tower asks of one target. Every method
 // may return ErrUnavailable; one naming an instance or an artifact that is
 // not there returns ErrNotFound.
@@ -164,4 +242,22 @@ type Provider interface {
 	// Ticket says where a direct stream to one port of a running instance
 	// connects.
 	Ticket(ctx context.Context, in Instance, port int32) (Ticket, error)
+
+	// StartProcess starts a process in a running instance and returns its
+	// id, unique in the instance. The process does not end with ctx: it
+	// runs until it exits, is signalled, or the instance stops, which ends
+	// every process of it. Its output goes to a log of its own, capped at
+	// DefaultProcessLogCap; an instance keeps DefaultFinishedProcesses
+	// finished ones. The instance's status reports how many run.
+	StartProcess(ctx context.Context, req ProcessRequest) (string, error)
+	// AttachProcess gives out the process's log from offset from (from the
+	// oldest offset held, if from is older), then, with follow, what it
+	// writes until it ends or ctx is done. A process not there is
+	// ErrNotFound.
+	AttachProcess(ctx context.Context, in Instance, id string, from int64, follow bool, out func(OutputChunk) error) (Attached, error)
+	// SignalProcess signals a process's group; one that has ended is no
+	// error.
+	SignalProcess(ctx context.Context, in Instance, id string, sig Signal) error
+	// ListProcesses lists the instance's processes, oldest first.
+	ListProcesses(ctx context.Context, in Instance) ([]Process, error)
 }

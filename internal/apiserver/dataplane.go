@@ -258,6 +258,29 @@ func (o output) Write(p []byte) (int, error) {
 	return n, nil
 }
 
+// commandLine is the command a request names: argv, or a shell line run
+// by /bin/sh -c.
+func commandLine(argv *envv1alpha1.Argv, shell string) ([]string, error) {
+	switch {
+	case len(argv.GetArgs()) > 0:
+		return argv.GetArgs(), nil
+	case shell != "":
+		return []string{"/bin/sh", "-c", shell}, nil
+	}
+	return nil, invalid("a command is argv or a shell line")
+}
+
+// commandEnv is the environment a command in e is given: what the caller
+// gave, and a privileged box's Secret's values, which win.
+func (e *environment) commandEnv(given map[string]string) map[string]string {
+	env := maps.Clone(given)
+	if env == nil {
+		env = map[string]string{}
+	}
+	maps.Copy(env, e.secretEnv)
+	return env
+}
+
 func (h environmentService) Exec(ctx context.Context, req *connect.Request[envv1alpha1.ExecRequest], stream *connect.ServerStream[envv1alpha1.ExecResponse]) error {
 	m := req.Msg
 	c, err := h.begin(ctx, m.GetEnvironment())
@@ -265,14 +288,9 @@ func (h environmentService) Exec(ctx context.Context, req *connect.Request[envv1
 		return err
 	}
 	h.held(ctx)
-	var command []string
-	switch {
-	case len(m.GetArgv().GetArgs()) > 0:
-		command = m.GetArgv().GetArgs()
-	case m.GetShell() != "":
-		command = []string{"/bin/sh", "-c", m.GetShell()}
-	default:
-		return invalid("a command is argv or a shell line")
+	command, err := commandLine(m.GetArgv(), m.GetShell())
+	if err != nil {
+		return err
 	}
 	var timeout time.Duration
 	if m.Timeout != nil {
@@ -286,12 +304,7 @@ func (h environmentService) Exec(ctx context.Context, req *connect.Request[envv1
 		return err
 	}
 	defer e.release()
-	env := maps.Clone(m.GetEnv())
-	if env == nil {
-		env = map[string]string{}
-	}
-	// The secret's values win over what the caller gave.
-	maps.Copy(env, e.secretEnv)
+	env := e.commandEnv(m.GetEnv())
 	runCtx, cancel := ctx, context.CancelFunc(func() {})
 	if timeout > 0 {
 		runCtx, cancel = context.WithTimeout(ctx, timeout)

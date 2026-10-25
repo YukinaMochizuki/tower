@@ -69,6 +69,18 @@ const (
 	HostServicePushProcedure = "/tower.hostd.v1.HostService/Push"
 	// HostServiceTicketProcedure is the fully-qualified name of the HostService's Ticket RPC.
 	HostServiceTicketProcedure = "/tower.hostd.v1.HostService/Ticket"
+	// HostServiceStartProcessProcedure is the fully-qualified name of the HostService's StartProcess
+	// RPC.
+	HostServiceStartProcessProcedure = "/tower.hostd.v1.HostService/StartProcess"
+	// HostServiceAttachProcessProcedure is the fully-qualified name of the HostService's AttachProcess
+	// RPC.
+	HostServiceAttachProcessProcedure = "/tower.hostd.v1.HostService/AttachProcess"
+	// HostServiceSignalProcessProcedure is the fully-qualified name of the HostService's SignalProcess
+	// RPC.
+	HostServiceSignalProcessProcedure = "/tower.hostd.v1.HostService/SignalProcess"
+	// HostServiceListProcessesProcedure is the fully-qualified name of the HostService's ListProcesses
+	// RPC.
+	HostServiceListProcessesProcedure = "/tower.hostd.v1.HostService/ListProcesses"
 )
 
 // HostServiceClient is a client for the tower.hostd.v1.HostService service.
@@ -111,6 +123,25 @@ type HostServiceClient interface {
 	// Ticket says where a direct stream to a port of a running instance
 	// connects. tower signs the ticket the stream presents there.
 	Ticket(context.Context, *connect.Request[v1.TicketRequest]) (*connect.Response[v1.TicketResponse], error)
+	// StartProcess starts a process in a running instance, supervised on
+	// the host or in the instance, not by the call: it runs until it exits,
+	// is signalled, or its instance stops, which ends every process of it.
+	// Its output goes to a log of its own on the host, capped (64 MiB unless
+	// the host is set otherwise), the oldest output dropped first. A finished
+	// process is kept, log and exit, until its instance is deleted or the
+	// instance holds more finished processes than the host keeps (100 unless
+	// set otherwise), the oldest going first. The instance's status reports
+	// how many run.
+	StartProcess(context.Context, *connect.Request[v1.StartProcessRequest]) (*connect.Response[v1.StartProcessResponse], error)
+	// AttachProcess streams a process's log from an offset, then, with
+	// follow, what it writes until it ends; last, where the log is held from
+	// and resumes, and the exit once there is one.
+	AttachProcess(context.Context, *connect.Request[v1.AttachProcessRequest]) (*connect.ServerStreamForClient[v1.AttachProcessResponse], error)
+	// SignalProcess signals a process's group.
+	SignalProcess(context.Context, *connect.Request[v1.SignalProcessRequest]) (*connect.Response[v1.SignalProcessResponse], error)
+	// ListProcesses lists an instance's processes, running and finished,
+	// oldest first.
+	ListProcesses(context.Context, *connect.Request[v1.ListProcessesRequest]) (*connect.Response[v1.ListProcessesResponse], error)
 }
 
 // NewHostServiceClient constructs a client for the tower.hostd.v1.HostService service. By default,
@@ -202,6 +233,30 @@ func NewHostServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(hostServiceMethods.ByName("Ticket")),
 			connect.WithClientOptions(opts...),
 		),
+		startProcess: connect.NewClient[v1.StartProcessRequest, v1.StartProcessResponse](
+			httpClient,
+			baseURL+HostServiceStartProcessProcedure,
+			connect.WithSchema(hostServiceMethods.ByName("StartProcess")),
+			connect.WithClientOptions(opts...),
+		),
+		attachProcess: connect.NewClient[v1.AttachProcessRequest, v1.AttachProcessResponse](
+			httpClient,
+			baseURL+HostServiceAttachProcessProcedure,
+			connect.WithSchema(hostServiceMethods.ByName("AttachProcess")),
+			connect.WithClientOptions(opts...),
+		),
+		signalProcess: connect.NewClient[v1.SignalProcessRequest, v1.SignalProcessResponse](
+			httpClient,
+			baseURL+HostServiceSignalProcessProcedure,
+			connect.WithSchema(hostServiceMethods.ByName("SignalProcess")),
+			connect.WithClientOptions(opts...),
+		),
+		listProcesses: connect.NewClient[v1.ListProcessesRequest, v1.ListProcessesResponse](
+			httpClient,
+			baseURL+HostServiceListProcessesProcedure,
+			connect.WithSchema(hostServiceMethods.ByName("ListProcesses")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -220,6 +275,10 @@ type hostServiceClient struct {
 	commitsBehind  *connect.Client[v1.CommitsBehindRequest, v1.CommitsBehindResponse]
 	push           *connect.Client[v1.PushRequest, v1.PushResponse]
 	ticket         *connect.Client[v1.TicketRequest, v1.TicketResponse]
+	startProcess   *connect.Client[v1.StartProcessRequest, v1.StartProcessResponse]
+	attachProcess  *connect.Client[v1.AttachProcessRequest, v1.AttachProcessResponse]
+	signalProcess  *connect.Client[v1.SignalProcessRequest, v1.SignalProcessResponse]
+	listProcesses  *connect.Client[v1.ListProcessesRequest, v1.ListProcessesResponse]
 }
 
 // Exec calls tower.hostd.v1.HostService.Exec.
@@ -287,6 +346,26 @@ func (c *hostServiceClient) Ticket(ctx context.Context, req *connect.Request[v1.
 	return c.ticket.CallUnary(ctx, req)
 }
 
+// StartProcess calls tower.hostd.v1.HostService.StartProcess.
+func (c *hostServiceClient) StartProcess(ctx context.Context, req *connect.Request[v1.StartProcessRequest]) (*connect.Response[v1.StartProcessResponse], error) {
+	return c.startProcess.CallUnary(ctx, req)
+}
+
+// AttachProcess calls tower.hostd.v1.HostService.AttachProcess.
+func (c *hostServiceClient) AttachProcess(ctx context.Context, req *connect.Request[v1.AttachProcessRequest]) (*connect.ServerStreamForClient[v1.AttachProcessResponse], error) {
+	return c.attachProcess.CallServerStream(ctx, req)
+}
+
+// SignalProcess calls tower.hostd.v1.HostService.SignalProcess.
+func (c *hostServiceClient) SignalProcess(ctx context.Context, req *connect.Request[v1.SignalProcessRequest]) (*connect.Response[v1.SignalProcessResponse], error) {
+	return c.signalProcess.CallUnary(ctx, req)
+}
+
+// ListProcesses calls tower.hostd.v1.HostService.ListProcesses.
+func (c *hostServiceClient) ListProcesses(ctx context.Context, req *connect.Request[v1.ListProcessesRequest]) (*connect.Response[v1.ListProcessesResponse], error) {
+	return c.listProcesses.CallUnary(ctx, req)
+}
+
 // HostServiceHandler is an implementation of the tower.hostd.v1.HostService service.
 type HostServiceHandler interface {
 	// Exec runs a command in a running instance for as long as the call
@@ -327,6 +406,25 @@ type HostServiceHandler interface {
 	// Ticket says where a direct stream to a port of a running instance
 	// connects. tower signs the ticket the stream presents there.
 	Ticket(context.Context, *connect.Request[v1.TicketRequest]) (*connect.Response[v1.TicketResponse], error)
+	// StartProcess starts a process in a running instance, supervised on
+	// the host or in the instance, not by the call: it runs until it exits,
+	// is signalled, or its instance stops, which ends every process of it.
+	// Its output goes to a log of its own on the host, capped (64 MiB unless
+	// the host is set otherwise), the oldest output dropped first. A finished
+	// process is kept, log and exit, until its instance is deleted or the
+	// instance holds more finished processes than the host keeps (100 unless
+	// set otherwise), the oldest going first. The instance's status reports
+	// how many run.
+	StartProcess(context.Context, *connect.Request[v1.StartProcessRequest]) (*connect.Response[v1.StartProcessResponse], error)
+	// AttachProcess streams a process's log from an offset, then, with
+	// follow, what it writes until it ends; last, where the log is held from
+	// and resumes, and the exit once there is one.
+	AttachProcess(context.Context, *connect.Request[v1.AttachProcessRequest], *connect.ServerStream[v1.AttachProcessResponse]) error
+	// SignalProcess signals a process's group.
+	SignalProcess(context.Context, *connect.Request[v1.SignalProcessRequest]) (*connect.Response[v1.SignalProcessResponse], error)
+	// ListProcesses lists an instance's processes, running and finished,
+	// oldest first.
+	ListProcesses(context.Context, *connect.Request[v1.ListProcessesRequest]) (*connect.Response[v1.ListProcessesResponse], error)
 }
 
 // NewHostServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -414,6 +512,30 @@ func NewHostServiceHandler(svc HostServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(hostServiceMethods.ByName("Ticket")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hostServiceStartProcessHandler := connect.NewUnaryHandler(
+		HostServiceStartProcessProcedure,
+		svc.StartProcess,
+		connect.WithSchema(hostServiceMethods.ByName("StartProcess")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hostServiceAttachProcessHandler := connect.NewServerStreamHandler(
+		HostServiceAttachProcessProcedure,
+		svc.AttachProcess,
+		connect.WithSchema(hostServiceMethods.ByName("AttachProcess")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hostServiceSignalProcessHandler := connect.NewUnaryHandler(
+		HostServiceSignalProcessProcedure,
+		svc.SignalProcess,
+		connect.WithSchema(hostServiceMethods.ByName("SignalProcess")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hostServiceListProcessesHandler := connect.NewUnaryHandler(
+		HostServiceListProcessesProcedure,
+		svc.ListProcesses,
+		connect.WithSchema(hostServiceMethods.ByName("ListProcesses")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/tower.hostd.v1.HostService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case HostServiceExecProcedure:
@@ -442,6 +564,14 @@ func NewHostServiceHandler(svc HostServiceHandler, opts ...connect.HandlerOption
 			hostServicePushHandler.ServeHTTP(w, r)
 		case HostServiceTicketProcedure:
 			hostServiceTicketHandler.ServeHTTP(w, r)
+		case HostServiceStartProcessProcedure:
+			hostServiceStartProcessHandler.ServeHTTP(w, r)
+		case HostServiceAttachProcessProcedure:
+			hostServiceAttachProcessHandler.ServeHTTP(w, r)
+		case HostServiceSignalProcessProcedure:
+			hostServiceSignalProcessHandler.ServeHTTP(w, r)
+		case HostServiceListProcessesProcedure:
+			hostServiceListProcessesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -501,4 +631,20 @@ func (UnimplementedHostServiceHandler) Push(context.Context, *connect.Request[v1
 
 func (UnimplementedHostServiceHandler) Ticket(context.Context, *connect.Request[v1.TicketRequest]) (*connect.Response[v1.TicketResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.hostd.v1.HostService.Ticket is not implemented"))
+}
+
+func (UnimplementedHostServiceHandler) StartProcess(context.Context, *connect.Request[v1.StartProcessRequest]) (*connect.Response[v1.StartProcessResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.hostd.v1.HostService.StartProcess is not implemented"))
+}
+
+func (UnimplementedHostServiceHandler) AttachProcess(context.Context, *connect.Request[v1.AttachProcessRequest], *connect.ServerStream[v1.AttachProcessResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("tower.hostd.v1.HostService.AttachProcess is not implemented"))
+}
+
+func (UnimplementedHostServiceHandler) SignalProcess(context.Context, *connect.Request[v1.SignalProcessRequest]) (*connect.Response[v1.SignalProcessResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.hostd.v1.HostService.SignalProcess is not implemented"))
+}
+
+func (UnimplementedHostServiceHandler) ListProcesses(context.Context, *connect.Request[v1.ListProcessesRequest]) (*connect.Response[v1.ListProcessesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.hostd.v1.HostService.ListProcesses is not implemented"))
 }

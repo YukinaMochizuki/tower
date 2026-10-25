@@ -53,6 +53,9 @@ type lastUses struct {
 	// moved is not written (commitIdleStop).
 	epoch map[controller.Key]uint64
 	fetch map[controller.Key]bool
+	// running is each box's processes running, as its instance last
+	// reported them.
+	running map[controller.Key]int32
 }
 
 // Touch records that the box was used now, as the data plane does on every
@@ -74,6 +77,26 @@ func (s *Server) touchLocked(key controller.Key) {
 	}
 	s.uses.touched[key] = s.clock.Now()
 	s.uses.epoch[key]++
+}
+
+// processesSeen hears how many processes the box's instance reports
+// running. A process running is a use of the box, and so is the last one
+// ending: the idle clock starts again when it ends, so the box is not
+// stopped the moment a long job is done, before its output is read.
+func (s *Server) processesSeen(key controller.Key, n int32) {
+	s.uses.mu.Lock()
+	defer s.uses.mu.Unlock()
+	if n > 0 || s.uses.running[key] > 0 {
+		s.touchLocked(key)
+	}
+	if n == 0 {
+		delete(s.uses.running, key)
+		return
+	}
+	if s.uses.running == nil {
+		s.uses.running = map[controller.Key]int32{}
+	}
+	s.uses.running[key] = n
 }
 
 // beginUse counts a call into the box under way: while one is, the box is

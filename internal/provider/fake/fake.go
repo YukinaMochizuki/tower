@@ -95,6 +95,10 @@ type Fake struct {
 	diskFree     *uint64
 	captureSize  func(provider.Instance) uint64
 	onExec       func(provider.ExecRequest) (code int, handled bool)
+	// The process limits: a log's cap and the finished processes kept.
+	processLogCap     int64
+	finishedProcesses int
+	following         atomic.Int32
 
 	// ctrl is set once Run starts.
 	ctrl atomic.Pointer[controller.Controller]
@@ -110,6 +114,9 @@ type instance struct {
 	// base is the size of the golden its disk was cloned from, which
 	// used_disk leaves out.
 	base int
+	// processes are its processes, oldest first.
+	processes []*process
+	processN  int
 }
 
 type artifact struct {
@@ -139,6 +146,9 @@ type Exec struct {
 	Command  []string
 	Env      map[string]string
 	ExitCode int
+	// Process says it was started as a process (StartProcess), whose
+	// exit ListProcesses tells.
+	Process bool
 }
 
 // New returns a fake provider of target, on clock.
@@ -148,6 +158,7 @@ func New(target string, clock clockwork.Clock) *Fake {
 		instances: map[provider.Instance]*instance{}, artifacts: map[string]*artifact{}, images: map[string]bool{},
 		mirrors: map[string]*repo{}, remotes: map[string]*repo{}, seen: map[provider.Instance]bool{},
 		bootFailures: map[string]string{}, vanished: map[string]bool{}, diskTotal: DefaultDiskTotal,
+		processLogCap: provider.DefaultProcessLogCap, finishedProcesses: provider.DefaultFinishedProcesses,
 	}
 }
 
@@ -272,6 +283,11 @@ func (f *Fake) realize(in *envv1alpha1.Instance, base *artifact) (envv1alpha1.In
 	}
 	if in.GetSpec().GetRunState() == envv1alpha1.RunState_RUN_STATE_STOPPED {
 		local.running = false
+		// Stopping an instance ends its processes.
+		for _, p := range local.processes {
+			p.end(provider.Killed(provider.SignalKill))
+		}
+		f.pruneProcesses(local)
 		return envv1alpha1.InstancePhase_INSTANCE_PHASE_STOPPED, "Stopped", ""
 	}
 	if !local.running {
@@ -298,8 +314,9 @@ func (f *Fake) report(ctx context.Context, c *client.Client, in *envv1alpha1.Ins
 		} else {
 			st.StartTime = nil
 		}
+		st.ProcessesRunning = int32(local.processesRunning())
 	} else {
-		st.Address, st.UsedDisk, st.StartTime = "", "", nil
+		st.Address, st.UsedDisk, st.StartTime, st.ProcessesRunning = "", "", nil, 0
 	}
 	f.mu.Unlock()
 	ready := &metav1.Condition{Type: InstanceReady, Status: metav1.ConditionStatus_CONDITION_STATUS_FALSE, Reason: reason, Message: msg, ObservedGeneration: st.ObservedGeneration}

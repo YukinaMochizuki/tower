@@ -16,6 +16,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/provider/fake"
 	"github.com/YukinaMochizuki/tower/internal/provider/fake/faketest"
 	"github.com/YukinaMochizuki/tower/internal/provider/providertest"
+	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
 const target = faketest.Target
@@ -145,4 +146,31 @@ func TestFaults(t *testing.T) {
 			t.Errorf("a failing command: %d, %v", code, err)
 		}
 	})
+}
+
+// TestAFollowWaitsForItsProcess: an attach that follows a running process
+// waits, and ends with its exit once it ends.
+func TestAFollowWaitsForItsProcess(t *testing.T) {
+	w := newWorld(t)
+	ref, _ := w.harness().Start(t, "follow", &envv1alpha1.InstanceSpec{Target: target, Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, Image: "img"})
+	id, err := w.fake.StartProcess(t.Context(), provider.ProcessRequest{Instance: ref, Command: []string{"sleep"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan provider.Attached, 1)
+	go func() {
+		at, _ := w.fake.AttachProcess(t.Context(), ref, id, 0, true, func(provider.OutputChunk) error { return nil })
+		done <- at
+	}()
+	testutil.Eventually(t, "the attach following", func() bool { return w.fake.Following() == 1 })
+	if err := w.fake.WriteProcess(ref, id, provider.Stdout, "listening\n"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Eventually(t, "the attach following again past the output", func() bool { return w.fake.Following() == 1 })
+	if err := w.fake.EndProcess(ref, id, 7); err != nil {
+		t.Fatal(err)
+	}
+	if at := <-done; at.Exit == nil || at.Exit.Code != 7 || at.Next != int64(len("listening\n")) {
+		t.Errorf("the follow ended %+v", at)
+	}
 }
