@@ -190,12 +190,20 @@ func (d *Driver) Fetch(ctx context.Context, spec driver.FetchSpec) (string, erro
 	return strings.TrimSpace(head), err
 }
 
-// redact takes a token out of an error, should git have quoted it.
+// redact takes a token out of an error, should git have quoted it, as
+// itself or as the header it is sent in.
 func redact(err error, token string) error {
-	if err == nil || token == "" || !strings.Contains(err.Error(), token) {
+	if err == nil || token == "" {
 		return err
 	}
-	return errors.New(strings.ReplaceAll(err.Error(), token, "[token]"))
+	msg := err.Error()
+	for _, s := range []string{token, base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))} {
+		msg = strings.ReplaceAll(msg, s, "[token]")
+	}
+	if msg == err.Error() {
+		return err
+	}
+	return errors.New(msg)
 }
 
 // commitOf resolves ref in the mirror: a branch, a tag or a commit; empty
@@ -384,7 +392,10 @@ func takeObjects(gitDir io.Reader, repo string) error {
 			if !ok {
 				continue
 			}
-			keep := name == "HEAD" || name == "packed-refs" || strings.HasPrefix(name, "objects/") || strings.HasPrefix(name, "refs/")
+			// Not objects/info: its alternates and http-alternates would
+			// have git read objects from wherever the guest names.
+			keep := name == "HEAD" || name == "packed-refs" || strings.HasPrefix(name, "refs/") ||
+				(strings.HasPrefix(name, "objects/") && name != "objects/info" && !strings.HasPrefix(name, "objects/info/"))
 			if !keep || (hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeDir) {
 				continue
 			}

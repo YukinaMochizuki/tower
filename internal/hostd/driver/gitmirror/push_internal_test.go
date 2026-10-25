@@ -3,6 +3,7 @@ package gitmirror
 import (
 	"archive/tar"
 	"bytes"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,6 +38,8 @@ func TestAPushTakesObjectsAndRefsAlone(t *testing.T) {
 	add(".git/config", "[core]\n\tfsmonitor = touch /tmp/pwned\n", tar.TypeReg)
 	add(".git/hooks/post-checkout", "#!/bin/sh\n", tar.TypeReg)
 	add(".git/objects/info/alternates", "", tar.TypeSymlink)
+	add(".git/objects/info/http-alternates", "https://elsewhere.example/objects\n", tar.TypeReg)
+	add(".git/objects/info/packs", "P pack-1.pack\n", tar.TypeReg)
 	add("README", "outside .git", tar.TypeReg)
 	if err := tw.Close(); err != nil {
 		t.Fatal(err)
@@ -50,7 +53,7 @@ func TestAPushTakesObjectsAndRefsAlone(t *testing.T) {
 			t.Errorf("%s was not taken: %v", kept, err)
 		}
 	}
-	for _, dropped := range []string{"config", "hooks/post-checkout", "objects/info/alternates", "README"} {
+	for _, dropped := range []string{"config", "hooks/post-checkout", "objects/info/alternates", "objects/info/http-alternates", "objects/info/packs", "README"} {
 		if _, err := os.Lstat(filepath.Join(repo, dropped)); err == nil {
 			t.Errorf("%s was taken", dropped)
 		}
@@ -73,6 +76,12 @@ func TestATokenIsAHeader(t *testing.T) {
 	err := redact(errBox("fetch https://x-access-token:tok-1234@example/r failed"), "tok-1234")
 	if bytes.Contains([]byte(err.Error()), []byte("tok-1234")) {
 		t.Errorf("an error still quotes the token: %v", err)
+	}
+	// As the header it is sent in.
+	header := "Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:tok-1234"))
+	err = redact(errBox("git: bad config value "+header), "tok-1234")
+	if bytes.Contains([]byte(err.Error()), []byte(header[len("Authorization: Basic "):])) {
+		t.Errorf("an error still quotes the token's header: %v", err)
 	}
 }
 
