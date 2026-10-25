@@ -3,6 +3,7 @@ package apiserver_test
 import (
 	"archive/tar"
 	"bytes"
+	"encoding/json"
 	"io"
 	"slices"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/apiserver"
 	"github.com/YukinaMochizuki/tower/internal/devcontainer"
 	"github.com/YukinaMochizuki/tower/internal/provider"
+	"github.com/YukinaMochizuki/tower/internal/store"
 )
 
 // realResolver is a world whose boxes are made of their repositories'
@@ -127,6 +129,25 @@ func TestABoxIsMadeOfItsRepositorysDevcontainer(t *testing.T) {
 	if c.GetStatus() != metav1.ConditionStatus_CONDITION_STATUS_FALSE || c.GetReason() != "SetupFailed" ||
 		c.GetMessage() != "postCreate: exit 2: make: *** No rule to make target 'deps'." {
 		t.Errorf("a box whose postCreate failed: SetUp %v", c)
+	}
+}
+
+// TestAnImageIsBuiltFromTheCommitRead: a box checking out a branch has its
+// image built from the commit its devcontainer was read at, not from the
+// branch read again when the build runs.
+func TestAnImageIsBuiltFromTheCommitRead(t *testing.T) {
+	w := newWorld(t, realResolver())
+	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{".devcontainer.json": `{"image": "node:22"}`}, "c1", "c2")
+	b := w.readyBox("dev", func(b *envv1alpha1.Box) { b.Spec.Checkouts[0].Ref = "main" })
+	o, err := w.store.Get(t.Context(), store.Key{Kind: "GoldenBuild", Project: "web", Name: b.GetStatus().GetImageGolden()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var build struct {
+		Image struct{ Commit string }
+	}
+	if err := json.Unmarshal(o.Data, &build); err != nil || build.Image.Commit != "c2" {
+		t.Errorf("the image's build reads the repository at %q, %v; want the commit c2", build.Image.Commit, err)
 	}
 }
 

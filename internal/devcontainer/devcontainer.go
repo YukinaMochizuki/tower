@@ -114,6 +114,9 @@ type Image struct {
 	Addons           []string
 	// Context is Fake's build context, a tar with its Dockerfile.
 	Context []byte
+	// Commit is the commit the devcontainer was read at, "" for none: what
+	// its image is built from, though the ref asked for moves.
+	Commit string
 }
 
 // Step is a command a box runs once, after its repositories are checked

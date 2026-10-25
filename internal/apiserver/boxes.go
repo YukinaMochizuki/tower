@@ -325,6 +325,10 @@ func (s *Server) boxImageGolden(ctx context.Context, p provider.Provider, projec
 	if err != nil {
 		return "", "", err
 	}
+	// Built from the commit read, not from a branch read again later.
+	if img.Commit != "" {
+		req.Commit = img.Commit
+	}
 	inputs := &envv1alpha1.BoxImageInputs{BaseImageDigest: img.BaseImageDigest, DevcontainerHash: img.DevcontainerHash, BuildHash: img.BuildHash, Addons: img.Addons}
 	hash := inputHash(append([]string{"box-image", target, img.BaseImageDigest, img.DevcontainerHash}, img.Addons...)...)
 	if img.BuildHash != "" {

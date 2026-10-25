@@ -228,6 +228,7 @@ func short(commit string) string {
 // Image resolves the image's inputs.
 func (re Real) Image(ctx context.Context, p provider.Provider, req Request) (Image, error) {
 	r, err := re.resolve(ctx, p, req, false)
+	r.img.Commit = r.commit
 	return r.img, err
 }
 
