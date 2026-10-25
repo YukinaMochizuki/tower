@@ -11,6 +11,13 @@
           "description": "The Golden its disk is cloned from; empty is a blank disk.",
           "type": "string"
         },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "A container's environment, over its image's, for every command and process run in it, its values exactly as written: a devcontainer's containerEnv, as workstream gives it with docker run -e. Never a secret's value (docs/decisions/secrets.md).",
+          "type": "object"
+        },
         "exposePorts": {
           "description": "Ports others on its network reach it at.",
           "items": {
