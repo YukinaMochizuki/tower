@@ -157,6 +157,47 @@ func TestAnImageIsBuiltFromTheCommitRead(t *testing.T) {
 	}
 }
 
+// TestABoxFallsBackFromADevcontainerItCannotMake: as workstream does, a box
+// whose devcontainer cannot be made an image of, or whose image does not
+// build, is made of the image to fall back to, sets nothing up, and says
+// why in its DevcontainerFellBack condition.
+func TestABoxFallsBackFromADevcontainerItCannotMake(t *testing.T) {
+	w := newWorld(t, realResolver())
+	w.fake.SetImage("ubuntu:24.04", provider.ImageConfig{Digest: "sha256:dd"})
+	var setup setupRun
+	setup.on(w, "")
+	check := func(name, why string) {
+		t.Helper()
+		b := w.box(name)
+		c := condition(b.GetStatus().GetConditions(), apiserver.BoxDevcontainerFellBack)
+		if c.GetStatus() != metav1.ConditionStatus_CONDITION_STATUS_TRUE || !strings.Contains(c.GetMessage(), why) {
+			t.Errorf("%s: DevcontainerFellBack %v, want it saying %q", name, c, why)
+		}
+		g, _ := w.golden(b.GetStatus().GetImageGolden())
+		if df := dockerfileIn(t, w.fake.BuildContext(g.GetStatus().GetArtifact())); df != "FROM ubuntu:24.04@sha256:dd\n" {
+			t.Errorf("%s was built with\n%s", name, df)
+		}
+	}
+	// One that does not parse.
+	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{".devcontainer.json": `{"image": `, "Makefile": "x"}, "c1")
+	w.readyBox("unparsed", func(b *envv1alpha1.Box) { b.Spec.FallbackImage = "ubuntu:24.04" })
+	check("unparsed", ".devcontainer.json does not parse")
+	// One whose Dockerfile does not build.
+	w.fake.SetRemote("https://git.example.com/web.git", "main", map[string]string{
+		".devcontainer.json": `{"build": {"dockerfile": "Dockerfile"}, "postCreateCommand": "make deps"}`,
+		"Dockerfile":         "NOT A DOCKERFILE\n",
+	}, "c1")
+	w.mustApply(registry.Repository, repository("web"))
+	unbuilt := box("unbuilt", "web")
+	unbuilt.Spec.FallbackImage = "ubuntu:24.04"
+	w.mustApply(registry.Box, unbuilt)
+	w.waitBox("unbuilt", envv1alpha1.BoxPhase_BOX_PHASE_READY)
+	check("unbuilt", "its devcontainer's image did not build")
+	if got := setup.got(); len(got) != 0 {
+		t.Errorf("a box fallen back set up with %q", got)
+	}
+}
+
 // TestABoxWhoseDevcontainerCannotBeResolvedFails: a box of a repository
 // with no devcontainer tower can make an image of, and no image to fall
 // back to, fails at once, saying why; one given an explicit image is made

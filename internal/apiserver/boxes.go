@@ -32,10 +32,13 @@ const (
 	BoxMaterialized = "Materialized"
 	// BoxSetUp says whether its devcontainer's setup steps all passed; one
 	// that did not leaves the box READY, with a warning here.
-	BoxSetUp         = "SetUp"
-	BoxReady         = "Ready"
-	stoppedIdle      = "Idle"
-	stoppedRequested = "Requested"
+	BoxSetUp = "SetUp"
+	// BoxDevcontainerFellBack, true, says its image is the one to fall
+	// back to, its devcontainer's being one tower could not make, and why.
+	BoxDevcontainerFellBack = "DevcontainerFellBack"
+	BoxReady                = "Ready"
+	stoppedIdle             = "Idle"
+	stoppedRequested        = "Requested"
 	// materializedAnnotation marks an instance whose checkouts are made
 	// (and, on the slow path, its dependencies installed).
 	materializedAnnotation = registry.Domain + "/materialized"
@@ -149,7 +152,7 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 
 	// Its image.
 	if st.ImageGolden == "" {
-		name, reason, err := s.boxImageGolden(ctx, p, key.Project, st.Target, spec)
+		name, reason, why, err := s.boxImageGolden(ctx, p, key.Project, st.Target, spec, fellBack(st))
 		if errors.Is(err, devcontainer.ErrUnresolvable) {
 			// Resolved again at its next reconcile, as the repository may
 			// have changed.
@@ -164,6 +167,9 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		if name == "" {
 			bs.not(envv1alpha1.BoxPhase_BOX_PHASE_PENDING, reason, "")
 			return nil
+		}
+		if why != "" {
+			bs.cond(BoxDevcontainerFellBack, true, "Unresolvable", why)
 		}
 		st.ImageGolden = name
 	}
@@ -183,6 +189,25 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		msg, err := s.failedGoldenMessage(ctx, img)
 		if err != nil {
 			return err
+		}
+		// Its devcontainer's image did not build: as workstream does, the
+		// image to fall back to, saying why.
+		if img.GetSpec().GetBoxImage().GetDevcontainerHash() != "" && s.fallbackImage(spec) != "" && !fellBack(st) {
+			name, reason, _, err := s.boxImageGolden(ctx, p, key.Project, st.Target, spec, true)
+			if err != nil && !errors.Is(err, devcontainer.ErrUnresolvable) {
+				return err
+			}
+			if err == nil && name != "" {
+				bs.cond(BoxDevcontainerFellBack, true, "BuildFailed", "its devcontainer's image did not build: "+msg)
+				st.ImageGolden = name
+				bs.not(envv1alpha1.BoxPhase_BOX_PHASE_BUILDING, "Building", "the image it falls back to is being built")
+				return fmt.Errorf("box %s: falling back: %w", key, controller.ErrWaiting)
+			}
+			if err == nil {
+				bs.not(envv1alpha1.BoxPhase_BOX_PHASE_PENDING, reason, "")
+				return nil
+			}
+			msg += "; and " + devcontainer.Reason(err)
 		}
 		bs.cond(BoxImageBuilt, false, "BuildFailed", msg)
 		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_FAILED, "ImageBuildFailed", msg)
@@ -299,8 +324,11 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 // boxImageGolden resolves the box's image and makes its Golden, shared by
 // every box of the same inputs, returning its name; "" with a reason while
 // what it is resolved from is not there yet.
-func (s *Server) boxImageGolden(ctx context.Context, p provider.Provider, project, target string, spec *envv1alpha1.BoxSpec) (string, string, error) {
-	req := devcontainer.Request{Target: target, Image: spec.GetImage(), FallbackImage: s.fallbackImage(spec), Addons: spec.GetAddons()}
+//
+// useFallback asks for the image to fall back to whatever the
+// devcontainer; why, when set, is why the image is that.
+func (s *Server) boxImageGolden(ctx context.Context, p provider.Provider, project, target string, spec *envv1alpha1.BoxSpec, useFallback bool) (name, reason, why string, err error) {
+	req := devcontainer.Request{Target: target, Image: spec.GetImage(), FallbackImage: s.fallbackImage(spec), UseFallback: useFallback, Addons: spec.GetAddons()}
 	if b := spec.GetImageBuild(); b != nil {
 		req.Build = &devcontainer.Build{Dockerfile: b.GetDockerfile(), Files: b.GetFiles()}
 	}
@@ -308,15 +336,15 @@ func (s *Server) boxImageGolden(ctx context.Context, p provider.Provider, projec
 		first := spec.GetCheckouts()[0]
 		repo, ok, err := getTyped[*envv1alpha1.Repository](ctx, s, registry.Repository, resource.Key{Project: project, Name: first.GetRepository()})
 		if err != nil {
-			return "", "", err
+			return "", "", "", err
 		}
 		if !ok {
-			return "", "RepositoryMissing", nil
+			return "", "RepositoryMissing", "", nil
 		}
 		head := mirrorHead(repo, target)
 		if head == "" {
 			s.fetchNow(controller.Key{Project: project, Name: first.GetRepository()})
-			return "", "WaitingForMirror", nil
+			return "", "WaitingForMirror", "", nil
 		}
 		req.Mirror, req.Commit = mirrorName(project, first.GetRepository()), head
 		if first.GetRef() != "" {
@@ -325,7 +353,7 @@ func (s *Server) boxImageGolden(ctx context.Context, p provider.Provider, projec
 	}
 	img, err := s.cfg.Resolver.Image(ctx, p, req)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	// Built from the commit read, not from a branch read again later.
 	if img.Commit != "" {
@@ -337,14 +365,19 @@ func (s *Server) boxImageGolden(ctx context.Context, p provider.Provider, projec
 		// Its own build, add-ons and all, is the image.
 		hash = inputHash(append([]string{"box-image-build", target, img.BuildHash}, img.Addons...)...)
 	}
-	name := goldenName("img", hash)
+	name = goldenName("img", hash)
 	_, err = s.ensureGolden(ctx, project, name, &envv1alpha1.GoldenSpec{
 		Target: target, InputHash: hash, Inputs: &envv1alpha1.GoldenSpec_BoxImage{BoxImage: inputs},
 	}, buildSpec{Image: &req, Env: img.Env}, nil)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return name, "", nil
+	return name, "", img.FellBack, nil
+}
+
+// fellBack says the box's image is the fallback, not its devcontainer's.
+func fellBack(st *envv1alpha1.BoxStatus) bool {
+	return conditions.Find(st.GetConditions(), BoxDevcontainerFellBack).GetStatus() == metav1.ConditionStatus_CONDITION_STATUS_TRUE
 }
 
 // makeBoxInstance makes the box's instance from its image, with its disk
@@ -520,9 +553,7 @@ func (s *Server) fallbackImage(spec *envv1alpha1.BoxSpec) string {
 const setupStepTimeout = 3 * time.Minute
 
 // unresolvableMessage is an ErrUnresolvable's reason, for people.
-func unresolvableMessage(err error) string {
-	return strings.TrimSuffix(err.Error(), ": "+devcontainer.ErrUnresolvable.Error())
-}
+func unresolvableMessage(err error) string { return devcontainer.Reason(err) }
 
 // setUpBox runs the box's devcontainer setup steps in its instance once its
 // repositories are checked out, as workstream does: in /workspace, as the
@@ -533,6 +564,11 @@ func unresolvableMessage(err error) string {
 // secrets, and the box reports it in its SetUp condition.
 func (s *Server) setUpBox(ctx context.Context, p provider.Provider, key controller.Key, box *envv1alpha1.Box, ref provider.Instance, mirror, commit string) error {
 	spec := box.GetSpec()
+	// One fallen back is the plain box workstream would make: nothing is
+	// set up in it.
+	if fellBack(box.GetStatus()) {
+		return nil
+	}
 	req := devcontainer.Request{Target: box.GetStatus().GetTarget(), Mirror: mirror, Commit: commit, Image: spec.GetImage(), FallbackImage: s.fallbackImage(spec)}
 	if spec.GetImageBuild() != nil {
 		req.Build = &devcontainer.Build{}

@@ -40,13 +40,16 @@ target (`repositories.md`), and builds on the target (`images.md`).
   `build.dockerfile` is built from the mirror's work tree on the host, its
   context a directory of the tree and its Dockerfile anywhere in it, as
   `docker build -f` takes them, so the tree never passes through tower.
-  On that base a layer adds the add-ons (`box-addons.md`), the
-  `containerEnv`, baked in as `ENV` with `$` escaped so a value is taken as
-  written, as workstream's `docker run -e` takes it, and the `remoteUser`
-  as the image's `USER`, as workstream runs every command as it. hostd
-  gives `/workspace` to that user, a name looked up in the container's own
-  `/etc/passwd`. The layer is built even when it adds nothing, so every
-  image a box runs is in tower's registry.
+  On that base a layer adds the add-ons (`box-addons.md`) and the
+  `remoteUser` as the image's `USER`, as workstream runs every command as
+  it; a user that is not a user's name or a uid is refused before it
+  reaches a Dockerfile. hostd gives `/workspace` to that user, a name
+  looked up in the container's own `/etc/passwd`. The layer is built even
+  when it adds nothing, so every image a box runs is in tower's registry.
+- **`containerEnv` is the box's environment, as written,** as workstream's
+  `docker run -e` gives it: `InstanceSpec.env`, set on the container, not
+  an `ENV` of the image, which can write no newline. Its names must be
+  variables' names and its values hold no NUL.
 - **What identifies the image** (`BoxImageInputs`): the base by digest; the
   devcontainer file's content with the git objects of its Dockerfile and
   its build context's directory, so a change to any file the build can
@@ -72,14 +75,15 @@ target (`repositories.md`), and builds on the target (`images.md`).
   `--default-box-image`. The image is made as a box of it named explicitly
   would be, add-ons layered on, and sets nothing up. workstream's setup
   "image" is `BoxSpec.image`.
-- **Any other devcontainer tower cannot make an image of fails the box at
-  once** (`DevcontainerUnresolvable`), saying why: one that does not parse,
+- **A devcontainer tower cannot make a box of falls back too, as workstream
+  falls back:** one that does not parse or breaks what reaches a container,
   one that names neither `image` nor `build.dockerfile`, an image its
-  registry lacks, a build from outside the repository, and a repository
-  without one when there is no image to fall back to. Where workstream
-  also falls back to a plain image on such failures, tower does not: the
-  repository asked for its devcontainer, and a box of another image is a
-  different box.
+  registry lacks, a build from outside the repository, and one whose image
+  does not build. The box is made of the image to fall back to, sets
+  nothing up, and its `DevcontainerFellBack` condition says why, so a human
+  and workstream see it. Only with no image to fall back to does the box
+  fail (`DevcontainerUnresolvable`, or its image's build failure), saying
+  why.
 
 Not workstream's code run by tower: tower is Go and builds on a target it
 reaches through a provider, and workstream's builder runs Docker on its own

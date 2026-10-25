@@ -36,9 +36,12 @@ type Request struct {
 	Mirror, Commit string
 	// Image is an explicit base image, which skips the devcontainer.
 	Image string
-	// FallbackImage is the image when the checkout has no devcontainer,
-	// and only then; empty fails such a request.
+	// FallbackImage is the image when the checkout has no devcontainer, or
+	// one that cannot be made an image of; empty fails such a request.
 	FallbackImage string `json:",omitempty"`
+	// UseFallback asks for FallbackImage whatever the devcontainer: its
+	// image did not build.
+	UseFallback bool `json:",omitempty"`
 	// Build is the box's own build, which skips the devcontainer; nil
 	// for none. At most one of Image and Build is set.
 	Build *Build `json:",omitempty"`
@@ -120,6 +123,9 @@ type Image struct {
 	// Env is the devcontainer's containerEnv, which a box of the image is
 	// given as its environment (InstanceSpec.env), each value as written.
 	Env map[string]string
+	// FellBack, when set, is why the image is the fallback, not the
+	// devcontainer's.
+	FellBack string
 }
 
 // Step is a command a box runs once, after its repositories are checked

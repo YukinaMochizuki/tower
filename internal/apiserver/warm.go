@@ -389,7 +389,7 @@ func (s *Server) keepWarm(ctx context.Context, t *targetsv1alpha1.Target, set se
 		if err != nil {
 			return fmt.Errorf("warm goldens of %s: %w: %w", target, controller.ErrWaiting, err)
 		}
-		parent, _, err := s.boxImageGolden(ctx, p, c.project, target, &envv1alpha1.BoxSpec{Checkouts: []*envv1alpha1.Checkout{{Repository: c.name()}}})
+		parent, _, _, err := s.boxImageGolden(ctx, p, c.project, target, &envv1alpha1.BoxSpec{Checkouts: []*envv1alpha1.Checkout{{Repository: c.name()}}}, false)
 		if errors.Is(err, devcontainer.ErrUnresolvable) {
 			// Its boxes fail, saying why; it has no warm golden.
 			return nil

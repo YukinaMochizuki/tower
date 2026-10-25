@@ -88,7 +88,7 @@ func inTree(dir, rel string) (string, bool) {
 // resolve resolves req. For a box's setup alone, forSetup, it asks no
 // registry: the image is the golden's already, and its setup is read from
 // the repository.
-func (Real) resolve(ctx context.Context, p provider.Provider, req Request, forSetup bool) (resolved, error) {
+func (re Real) resolve(ctx context.Context, p provider.Provider, req Request, forSetup bool) (resolved, error) {
 	var r resolved
 	for _, id := range req.Addons {
 		a, err := loadAddon(id)
@@ -106,6 +106,52 @@ func (Real) resolve(ctx context.Context, p provider.Provider, req Request, forSe
 		err := r.explicit(ctx, p, req.Image, "the image")
 		return r, err
 	}
+	// A box whose devcontainer's image did not build has asked for the
+	// image to fall back to.
+	if req.UseFallback && req.FallbackImage != "" {
+		return r.fallBack(ctx, p, req.FallbackImage, forSetup)
+	}
+	d, err := re.devcontainer(ctx, p, req, forSetup, r)
+	switch {
+	case err == nil:
+		return d, nil
+	case req.FallbackImage == "":
+		return resolved{}, err
+	case errors.Is(err, errNoDevcontainer):
+		// What workstream's setup "auto" does: the image it falls back
+		// to, which sets nothing up.
+		return r.fallBack(ctx, p, req.FallbackImage, forSetup)
+	case errors.Is(err, ErrUnresolvable):
+		// What workstream does of a devcontainer it cannot make a box of,
+		// saying why.
+		f, ferr := r.fallBack(ctx, p, req.FallbackImage, forSetup)
+		f.img.FellBack = Reason(err)
+		return f, ferr
+	}
+	return resolved{}, err
+}
+
+// errNoDevcontainer is a repository without a devcontainer.
+var errNoDevcontainer = fmt.Errorf("no devcontainer: %w", ErrUnresolvable)
+
+// Reason is an ErrUnresolvable's reason, for people.
+func Reason(err error) string {
+	msg := strings.TrimSuffix(err.Error(), ": "+errNoDevcontainer.Error())
+	return strings.TrimSuffix(msg, ": "+ErrUnresolvable.Error())
+}
+
+// fallBack makes ref the image, as an explicit one is, without a
+// devcontainer and with nothing to set up.
+func (r resolved) fallBack(ctx context.Context, p provider.Provider, ref string, forSetup bool) (resolved, error) {
+	if forSetup {
+		return r, nil
+	}
+	err := r.explicit(ctx, p, ref, "the fallback image")
+	return r, err
+}
+
+// devcontainer resolves the checkout's devcontainer onto r.
+func (Real) devcontainer(ctx context.Context, p provider.Provider, req Request, forSetup bool, r resolved) (resolved, error) {
 	src := provider.MirrorSource{Mirror: req.Mirror, Ref: req.Commit}
 	read, err := p.ReadMirror(ctx, provider.MirrorReadRequest{MirrorSource: src, Paths: append(slices.Clone(configCandidates), miseFiles...), Content: true})
 	if errors.Is(err, provider.ErrNotFound) && req.Commit != "" {
@@ -132,16 +178,7 @@ func (Real) resolve(ctx context.Context, p provider.Provider, req Request, forSe
 		break
 	}
 	if !found {
-		// What workstream's setup "auto" does: the image it falls back
-		// to, which sets nothing up.
-		if req.FallbackImage != "" {
-			if forSetup {
-				return r, nil
-			}
-			err := r.explicit(ctx, p, req.FallbackImage, "the fallback image")
-			return r, err
-		}
-		return resolved{}, unresolvable("the repository has no %s at %s, and there is no image to fall back to", strings.Join(configCandidates, " or "), short(r.commit))
+		return resolved{}, fmt.Errorf("the repository has no %s at %s, and there is no image to fall back to: %w", strings.Join(configCandidates, " or "), short(r.commit), errNoDevcontainer)
 	}
 	r.cfg = &cfg
 	r.img.Env = cfg.Env

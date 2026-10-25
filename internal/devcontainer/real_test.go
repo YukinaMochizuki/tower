@@ -273,6 +273,41 @@ func TestARepositoryWithoutADevcontainerFallsBack(t *testing.T) {
 	}
 }
 
+// TestADevcontainerThatCannotBeMadeFallsBack: a devcontainer that cannot be
+// made an image of is the image to fall back to when there is one, saying
+// why, as workstream falls back; asked for, the fallback is the image
+// whatever the devcontainer.
+func TestADevcontainerThatCannotBeMadeFallsBack(t *testing.T) {
+	r, ctx := devcontainer.Real{}, t.Context()
+	f, req := repo(t, map[string]string{".devcontainer.json": `{"image": `, "README": "x"})
+	f.SetImage("ubuntu:24.04", provider.ImageConfig{Digest: "sha256:dd"})
+	if _, err := r.Image(ctx, f, req); !errors.Is(err, devcontainer.ErrUnresolvable) {
+		t.Fatalf("with no fallback: %v", err)
+	}
+	req.FallbackImage = "ubuntu:24.04"
+	img, err := r.Image(ctx, f, req)
+	if err != nil || img.BaseImageDigest != "sha256:dd" || img.DevcontainerHash != "" || !strings.Contains(img.FellBack, ".devcontainer.json does not parse") {
+		t.Errorf("fell back to %+v, %v", img, err)
+	}
+	if steps, err := r.Setup(ctx, f, req); err != nil || steps != nil {
+		t.Errorf("one fallen back sets up %v, %v", steps, err)
+	}
+	good, greq := repo(t, map[string]string{".devcontainer.json": `{"image": "node:22", "postCreateCommand": "npm ci"}`})
+	good.SetImage("ubuntu:24.04", provider.ImageConfig{Digest: "sha256:dd"})
+	greq.FallbackImage, greq.UseFallback = "ubuntu:24.04", true
+	if img, err := r.Image(ctx, good, greq); err != nil || img.BaseImageDigest != "sha256:dd" || img.DevcontainerHash != "" {
+		t.Errorf("asked to fall back: %+v, %v", img, err)
+	}
+	// Without a devcontainer at all, it falls back saying nothing: that is
+	// the plain box workstream makes.
+	plain, preq := repo(t, map[string]string{"README": "x"})
+	plain.SetImage("ubuntu:24.04", provider.ImageConfig{Digest: "sha256:dd"})
+	preq.FallbackImage = "ubuntu:24.04"
+	if img, err := r.Image(ctx, plain, preq); err != nil || img.FellBack != "" {
+		t.Errorf("no devcontainer: %+v, %v", img, err)
+	}
+}
+
 // noRegistry is a provider whose registry is never asked: each ask is
 // counted and refused.
 type noRegistry struct {
