@@ -1,868 +1,654 @@
-// Package chvm is the Hypervisor driver for Cloud Hypervisor: each VM runs
-// as a transient systemd unit, hangar-vm-<machine uid>.service, whose main
-// process is the launcher (hangar-node vmm, Launcher), so the VM outlives
-// the node agent and systemd restarts it as its restart policy says. Each
-// VM has a directory, Dir/<machine uid>, with what the launcher runs (the
-// spec file and the boot disk), its sockets, the record of how its last
-// run ended, and its console logs. The driver keeps nothing in memory: it
-// reads the units and the directories back. See
-// docs/decisions/node-agent.md.
+// Package chvm is hostd's VM driver, on Cloud Hypervisor (driver.VMs).
+// Each VM runs in a Docker container of its own, whose first process is
+// its launcher (tower-guest vm, package launcher): the container is what
+// Docker starts and stops, keeps across restarts of hostd and of Docker
+// (live-restore), bounds by cgroup, and puts on the VM's workstream
+// network under its alias, so boxes and machines reach each other by
+// alias; the launcher makes the container's network namespace the VM's
+// and runs Cloud Hypervisor on the VM's zvol, booting through the EDK2
+// firmware. A blank disk gets its base image (BaseImages/<name>.raw)
+// written before its first boot. cloud-init gives root hostd's ssh key,
+// and hostd runs everything in the VM over ssh through tower-guest, which
+// it copies in (internal/hostd/guestops), as it does in a container by
+// docker exec.
+//
+// Every VM is called machine: its hostname is no VM's own, and is the same
+// in a golden's builder and in each clone of it, as k3s writes the
+// hostname into its node's name and its etcd member
+// (docs/decisions/machine-blueprints.md). A VM is named on its network by
+// its alias.
+//
+// It started as hangar's internal/node/driver/chvm, which runs each VM
+// under a transient systemd unit with taps of hangar's network driver;
+// tower's VMs are on Docker's networks, so Docker runs their launchers.
 package chvm
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/netip"
+	"io"
+	"maps"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"golang.org/x/sys/unix"
+	cerrdefs "github.com/containerd/errdefs"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 
-	guestv1 "github.com/YukinaMochizuki/hangar/gen/go/hangar/guest/v1"
-	"github.com/YukinaMochizuki/hangar/internal/computeapi"
-	"github.com/YukinaMochizuki/hangar/internal/guest/bootdisk"
-	"github.com/YukinaMochizuki/hangar/internal/node/driver"
-	"github.com/YukinaMochizuki/hangar/internal/node/driver/chguest"
-	"github.com/YukinaMochizuki/hangar/internal/node/driver/keylock"
+	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
+	"github.com/YukinaMochizuki/tower/internal/hostd/driver/chvm/launcher"
+	"github.com/YukinaMochizuki/tower/internal/hostd/driver/docker"
+	"github.com/YukinaMochizuki/tower/internal/hostd/guestops"
 )
 
-// DefaultDir is where the VMs' directories are.
-const DefaultDir = "/var/lib/hangar/vms"
+// Hostname is every VM's (see the package's comment).
+const Hostname = "machine"
+
+// Defaults of a Config.
+const (
+	DefaultStopGrace    = 60 * time.Second
+	DefaultReadyTimeout = 5 * time.Minute
+	// memoryOverhead is what a VM's container may use beyond its guest's
+	// memory: Cloud Hypervisor and the launcher.
+	memoryOverhead = 512 << 20
+)
 
 // Config configures the driver.
 type Config struct {
-	// Dir holds a directory per VM. The driver owns it, and only it.
-	Dir string
-	// CloudHypervisor, Kernel and Initramfs are the paths of Cloud
-	// Hypervisor and of the platform's guest kernel and initramfs; Cmdline
-	// is the kernel's command line. A VM keeps those it was started with
-	// until it is started again.
-	CloudHypervisor, Kernel, Initramfs, Cmdline string
-	// Launcher is the launcher's command line, to which the driver adds
-	// --dir, --vm-user and the machine uid: hangar-node vmm. The launcher
-	// and Cloud Hypervisor must be statically linked, at absolute paths:
-	// each VM's unit has an empty root, into which only they, the kernel
-	// and the initramfs are bound.
-	Launcher []string
-	// VMUsers are the ids the VMs run as, one each; zero means
-	// DefaultVMUsers. No user or group of the host may have one, nor any
-	// subordinate range overlap them, but deploy/host's for the VMs.
-	VMUsers UserRange
-	// StopGrace is how long a guest's process has between SIGTERM and
-	// SIGKILL; zero means driver.StopGrace.
+	Docker *client.Client
+	// StateDir is hostd's state directory: each VM's directory is
+	// StateDir/vms/<name>, hostd's ssh key StateDir/vm-ssh.
+	StateDir string
+	// GuestBinary is tower-guest on the host, statically linked: each VM's
+	// launcher, and copied into the VM.
+	GuestBinary string
+	// CloudHypervisor and Firmware are Cloud Hypervisor, statically linked,
+	// and its EDK2 firmware (CLOUDHV.fd).
+	CloudHypervisor, Firmware string
+	// BaseImages holds the base images, each NAME.raw
+	// (deploy/hostd/base-image.sh).
+	BaseImages string
+	// StopGrace is how long a guest has to power off once its power button
+	// is pressed; zero means DefaultStopGrace.
 	StopGrace time.Duration
-	// StopSlack is how much longer than StopGrace a guest has to power off
-	// before its VM is killed; zero means DefaultStopSlack. A VM keeps
-	// both as it was started with: its launcher gives its guest the same
-	// when systemd stops it, as at host shutdown.
-	StopSlack time.Duration
-	// Firmware is what a VM that boots its own kernel (VMSpec.Firmware)
-	// boots through: Cloud Hypervisor's EDK2 build, at an absolute path;
-	// empty refuses such VMs. FirmwareStopGrace is how long such a guest
-	// has to power off once its power button is pressed; zero means
-	// DefaultFirmwareStopGrace.
-	Firmware          string
-	FirmwareStopGrace time.Duration
-	// ConverterInitramfs is the converter initramfs, with hangar-init and
-	// qemu-img, which converter VMs boot (Converter); empty takes no
-	// uploads. ConverterRuntime bounds how long one converter VM runs, its
-	// unit's RuntimeMaxSec, so one the agent lost track of ends; zero means
-	// DefaultConverterRuntime.
-	ConverterInitramfs string
-	ConverterRuntime   time.Duration
-	// MachineCPUs are the CPUs the VMs may use, as MachineCPUs reads them;
-	// none means every online CPU. New gives them to the VMs' slice, which a
-	// VM running already is in only from its next start.
-	MachineCPUs []int
-
-	// systemd, guest and powerButton, if set, replace systemd over D-Bus,
-	// the guests' agents and pressPowerButton, for tests.
-	systemd     systemd
-	guest       driver.Guest
-	powerButton func(ctx context.Context, socket string) error
-	// logPoll, if set, is how often a followed log is checked for more.
-	logPoll time.Duration
-	// procUsers, if set, replaces listing the ids processes run as.
-	procUsers func() (map[uint32]bool, error)
-	// dynamicOK lets the launcher and Cloud Hypervisor be dynamically
-	// linked, for tests whose units are fakes.
-	dynamicOK bool
-	// etc, if set, replaces /etc, where the host's users and groups are.
-	etc string
-	// sysfs, if set, replaces /sys, where the host's online CPUs are.
-	sysfs string
-	// removeAll, if set, replaces os.RemoveAll in removeRuntime.
-	removeAll func(string) error
-	// giveFile, if set, replaces giveFile, which a test that is not root
-	// cannot do.
-	giveFile func(path string, gid int) error
+	// ReadyTimeout bounds how long an operation in a VM just started waits
+	// for its ssh; zero means DefaultReadyTimeout.
+	ReadyTimeout time.Duration
 }
 
-// Hypervisor is the driver. It is safe for concurrent use.
-type Hypervisor struct {
-	cfg         Config
-	sd          systemd
-	guest       driver.Guest
-	powerButton func(ctx context.Context, socket string) error
-	locks       keylock.Map
-	changes     chan struct{}
-	// users is held while a Start picks its VM's id and writes it down.
-	users     sync.Mutex
-	procUsers func() (map[uint32]bool, error)
-	removeAll func(string) error
-	giveFile  func(path string, gid int) error
+// Driver is the VM driver. It is safe for concurrent use.
+type Driver struct {
+	cfg  Config
+	cli  *client.Client
+	keys sshKeys
+	// guestHash is tower-guest's sha256, which a VM's copy is checked
+	// against.
+	guestHash string
+
+	mu sync.Mutex
+	// ready are the VMs ssh reaches with tower-guest in place, by name, at
+	// the start they are ready in.
+	ready map[string]*readyVM
 }
 
-var _ driver.Hypervisor = (*Hypervisor)(nil)
+var _ driver.VMs = (*Driver)(nil)
 
-// New connects to systemd and makes Dir if need be. Close releases it.
-func New(ctx context.Context, cfg Config) (*Hypervisor, error) {
+// vmImage is the image every VM's container runs: empty, its launcher
+// bound in.
+const vmImage = "tower-vm:empty"
+
+// New checks what VMs run on, makes hostd's ssh key if there is none, and
+// the empty image of the VMs' containers.
+func New(ctx context.Context, cfg Config) (*Driver, error) {
 	if cfg.StopGrace == 0 {
-		cfg.StopGrace = driver.StopGrace
+		cfg.StopGrace = DefaultStopGrace
 	}
-	if cfg.StopSlack == 0 {
-		cfg.StopSlack = DefaultStopSlack
+	if cfg.ReadyTimeout == 0 {
+		cfg.ReadyTimeout = DefaultReadyTimeout
 	}
-	if cfg.FirmwareStopGrace == 0 {
-		cfg.FirmwareStopGrace = DefaultFirmwareStopGrace
-	}
-	if !filepath.IsAbs(cfg.Dir) || filepath.Clean(cfg.Dir) != cfg.Dir {
-		return nil, fmt.Errorf("the VMs' directory %q is not a clean absolute path", cfg.Dir)
-	}
-	// The vsock socket's path must fit a unix address, 107 bytes.
-	if n := len(filepath.Join(cfg.Dir, strings.Repeat("x", maxUID), vsockFile)); n > 107 {
-		return nil, fmt.Errorf("the VMs' directory %q is too long for their sockets", cfg.Dir)
-	}
-	if len(cfg.Launcher) == 0 {
-		return nil, errors.New("no launcher")
-	}
-	if cfg.VMUsers == (UserRange{}) {
-		cfg.VMUsers = DefaultVMUsers
-	}
-	if err := cfg.VMUsers.check(); err != nil {
-		return nil, err
-	}
-	if cfg.etc == "" {
-		cfg.etc = "/etc"
-	}
-	if err := cfg.VMUsers.checkFree(cfg.etc); err != nil {
-		return nil, err
-	}
-	paths := []string{cfg.Launcher[0], cfg.CloudHypervisor, cfg.Kernel, cfg.Initramfs}
-	if cfg.Firmware != "" {
-		paths = append(paths, cfg.Firmware)
-	}
-	if cfg.ConverterInitramfs != "" {
-		paths = append(paths, cfg.ConverterInitramfs)
-	}
-	if cfg.ConverterRuntime == 0 {
-		cfg.ConverterRuntime = DefaultConverterRuntime
-	}
-	for _, p := range paths {
-		if !filepath.IsAbs(p) {
-			return nil, fmt.Errorf("%q is not an absolute path", p)
-		}
-		if _, err := os.Stat(p); err != nil {
+	for _, p := range []string{cfg.GuestBinary, cfg.CloudHypervisor} {
+		if err := checkStatic(p); err != nil {
 			return nil, err
 		}
 	}
-	if !cfg.dynamicOK {
-		for _, p := range []string{cfg.Launcher[0], cfg.CloudHypervisor} {
-			if err := checkStatic(p); err != nil {
-				return nil, err
+	if _, err := os.Stat(cfg.Firmware); err != nil {
+		return nil, fmt.Errorf("the VMs' firmware: %w", err)
+	}
+	if _, err := os.Stat("/dev/kvm"); err != nil {
+		return nil, fmt.Errorf("KVM: %w; VMs never run without it", err)
+	}
+	if err := os.MkdirAll(filepath.Join(cfg.StateDir, "vms"), 0o700); err != nil {
+		return nil, err
+	}
+	keys, err := loadKeys(filepath.Join(cfg.StateDir, "vm-ssh"))
+	if err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(cfg.GuestBinary)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(b)
+	d := &Driver{cfg: cfg, cli: cfg.Docker, keys: keys, guestHash: hex.EncodeToString(sum[:]), ready: map[string]*readyVM{}}
+	if err := d.ensureImage(ctx); err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// ensureImage imports the VMs' empty image once.
+func (d *Driver) ensureImage(ctx context.Context) error {
+	if _, err := d.cli.ImageInspect(ctx, vmImage); err == nil {
+		return nil
+	}
+	var b bytes.Buffer
+	tw := tar.NewWriter(&b)
+	if err := tw.WriteHeader(&tar.Header{Name: "vm/", Typeflag: tar.TypeDir, Mode: 0o700}); err != nil {
+		return err
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	res, err := d.cli.ImageImport(ctx, client.ImageImportSource{Source: &b, SourceName: "-"}, vmImage, client.ImageImportOptions{})
+	if err != nil {
+		return fmt.Errorf("importing the VMs' image: %w", err)
+	}
+	defer func() { _ = res.Close() }()
+	_, err = io.Copy(io.Discard, res)
+	return err
+}
+
+func (d *Driver) Version(ctx context.Context) (string, error) {
+	out, err := exec.CommandContext(ctx, d.cfg.CloudHypervisor, "--version").Output()
+	if err != nil {
+		return "", err
+	}
+	first, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	return first, nil
+}
+
+// spec is what docker.LabelSpec holds of a VM.
+type spec struct {
+	Disk      string `json:"disk"`
+	Network   string `json:"network,omitempty"`
+	Alias     string `json:"alias,omitempty"`
+	CPUs      int    `json:"cpus,omitempty"`
+	Memory    uint64 `json:"memory,omitempty"`
+	BaseImage string `json:"baseImage"`
+}
+
+func specOf(labels map[string]string) (spec, bool) {
+	var s spec
+	if labels[docker.LabelDriver] != "vm" || json.Unmarshal([]byte(labels[docker.LabelSpec]), &s) != nil {
+		return spec{}, false
+	}
+	return s, true
+}
+
+func hostdLabels(labels map[string]string) driver.Labels {
+	out := driver.Labels{}
+	for k, v := range labels {
+		if k != docker.LabelDriver && k != docker.LabelSpec {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func (d *Driver) dir(name string) string { return filepath.Join(d.cfg.StateDir, "vms", name) }
+
+var baseImageRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+
+func (d *Driver) Create(ctx context.Context, vs driver.VMSpec) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	want := spec{Disk: vs.Disk, Network: vs.Network, Alias: vs.Alias, CPUs: vs.CPUs, Memory: vs.Memory, BaseImage: vs.BaseImage}
+	if cur, err := d.cli.ContainerInspect(ctx, vs.Name, client.ContainerInspectOptions{}); err == nil {
+		have, ours := specOf(cur.Container.Config.Labels)
+		if !ours || have.BaseImage != want.BaseImage || have.Disk != want.Disk || have.Network != want.Network || have.Alias != want.Alias {
+			return fmt.Errorf("VM %s is there, made otherwise: %w", vs.Name, driver.ErrConflict)
+		}
+		return nil
+	} else if !cerrdefs.IsNotFound(err) {
+		return err
+	}
+	if !baseImageRE.MatchString(vs.BaseImage) {
+		return fmt.Errorf("%q names no base image", vs.BaseImage)
+	}
+	if _, err := os.Stat(vs.Disk); err != nil {
+		return fmt.Errorf("disk %s: %w", vs.Disk, driver.ErrNotFound)
+	}
+	if vs.Network != "" {
+		nets, err := docker.Networks{Cli: d.cli}.List(ctx)
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(nets, func(n driver.Network) bool { return n.Name == vs.Network }) {
+			return fmt.Errorf("network %s: %w", vs.Network, driver.ErrNotFound)
+		}
+	}
+	if err := os.MkdirAll(d.dir(vs.Name), 0o700); err != nil {
+		return err
+	}
+	return d.createContainer(ctx, vs.Name, want, vs.Labels)
+}
+
+// createContainer makes a VM's container, its disk's device as it is now.
+func (d *Driver) createContainer(ctx context.Context, name string, s spec, labels driver.Labels) error {
+	dev, err := filepath.EvalSymlinks(s.Disk)
+	if err != nil {
+		return fmt.Errorf("disk %s: %w: %w", s.Disk, err, driver.ErrNotFound)
+	}
+	specJSON, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	l := maps.Clone(labels)
+	if l == nil {
+		l = map[string]string{}
+	}
+	l[docker.LabelDriver], l[docker.LabelSpec] = "vm", string(specJSON)
+	netName := s.Network
+	if netName == "" {
+		netName = docker.DefaultNetwork
+	}
+	stop := int((d.cfg.StopGrace + 15*time.Second) / time.Second)
+	memory := s.Memory
+	if memory == 0 {
+		memory = 1 << 30
+	}
+	cfg := &container.Config{
+		Image: vmImage, Labels: l, Hostname: Hostname,
+		Entrypoint: []string{"/tower-guest", "vm"}, StopTimeout: &stop,
+	}
+	host := &container.HostConfig{
+		Mounts: []mount.Mount{
+			{Type: mount.TypeBind, Source: d.dir(name), Target: launcher.Dir},
+			{Type: mount.TypeBind, Source: d.cfg.GuestBinary, Target: "/tower-guest", ReadOnly: true},
+			{Type: mount.TypeBind, Source: d.cfg.CloudHypervisor, Target: launcher.CloudHypervisor, ReadOnly: true},
+			{Type: mount.TypeBind, Source: d.cfg.Firmware, Target: launcher.Firmware, ReadOnly: true},
+		},
+		CapAdd:        []string{"NET_ADMIN"},
+		Sysctls:       map[string]string{"net.ipv4.ip_forward": "1"},
+		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
+		NetworkMode:   container.NetworkMode(netName),
+		Resources: container.Resources{
+			Memory: int64(memory) + memoryOverhead,
+			Devices: []container.DeviceMapping{
+				{PathOnHost: "/dev/kvm", PathInContainer: "/dev/kvm", CgroupPermissions: "rwm"},
+				{PathOnHost: "/dev/net/tun", PathInContainer: "/dev/net/tun", CgroupPermissions: "rwm"},
+				{PathOnHost: dev, PathInContainer: launcher.Disk, CgroupPermissions: "rwm"},
+			},
+		},
+	}
+	endpoint := &network.EndpointSettings{}
+	if s.Alias != "" && netName != docker.DefaultNetwork {
+		endpoint.Aliases = []string{s.Alias}
+	}
+	_, err = d.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Name: name, Config: cfg, HostConfig: host,
+		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{netName: endpoint}},
+	})
+	if cerrdefs.IsConflict(err) {
+		return fmt.Errorf("VM %s: %w: %w", name, err, driver.ErrConflict)
+	}
+	return err
+}
+
+// inspect reads one of the driver's VMs; one not there, or not the
+// driver's, is ErrNotFound.
+func (d *Driver) inspect(ctx context.Context, name string) (container.InspectResponse, spec, error) {
+	r, err := d.cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
+	if cerrdefs.IsNotFound(err) {
+		return container.InspectResponse{}, spec{}, fmt.Errorf("VM %s: %w", name, driver.ErrNotFound)
+	}
+	if err != nil {
+		return container.InspectResponse{}, spec{}, err
+	}
+	s, ours := specOf(r.Container.Config.Labels)
+	if !ours {
+		return container.InspectResponse{}, spec{}, fmt.Errorf("VM %s is not this driver's: %w", name, driver.ErrNotFound)
+	}
+	return r.Container, s, nil
+}
+
+func guestOf(c container.InspectResponse, s spec) driver.Guest {
+	g := driver.Guest{
+		GuestSpec: driver.GuestSpec{Name: strings.TrimPrefix(c.Name, "/"), Disk: s.Disk, Network: s.Network, Alias: s.Alias, CPUs: s.CPUs, Memory: s.Memory, Labels: hostdLabels(c.Config.Labels)},
+		Image:     s.BaseImage,
+	}
+	g.Created, _ = time.Parse(time.RFC3339Nano, c.Created)
+	if c.State != nil && c.State.Running {
+		g.Running = true
+		g.StartedAt, _ = time.Parse(time.RFC3339Nano, c.State.StartedAt)
+		netName := s.Network
+		if netName == "" {
+			netName = docker.DefaultNetwork
+		}
+		if c.NetworkSettings != nil {
+			if ep := c.NetworkSettings.Networks[netName]; ep != nil && ep.IPAddress.IsValid() {
+				g.Address = ep.IPAddress.String()
 			}
 		}
 	}
-	if err := os.MkdirAll(cfg.Dir, 0o700); err != nil {
-		return nil, err
-	}
-	h := &Hypervisor{cfg: cfg, changes: make(chan struct{}, 1), procUsers: cfg.procUsers}
-	if h.procUsers == nil {
-		h.procUsers = procUsers
-	}
-	h.removeAll = cfg.removeAll
-	if h.removeAll == nil {
-		h.removeAll = os.RemoveAll
-	}
-	h.giveFile = cfg.giveFile
-	if h.giveFile == nil {
-		h.giveFile = giveFile
-	}
-	h.guest = cfg.guest
-	if h.guest == nil {
-		h.guest = chguest.Guest{Socket: h.Socket}
-	}
-	h.powerButton = cfg.powerButton
-	if h.powerButton == nil {
-		h.powerButton = pressPowerButton
-	}
-	h.sd = cfg.systemd
-	if h.sd == nil {
-		sd, err := dialSystemd(ctx, h.signal)
-		if err != nil {
-			return nil, fmt.Errorf("systemd: %w", err)
-		}
-		h.sd = sd
-	}
-	cpus := cfg.MachineCPUs
-	if len(cpus) == 0 {
-		if cfg.sysfs == "" {
-			cfg.sysfs = "/sys"
-		}
-		var err error
-		if cpus, err = onlineCPUs(cfg.sysfs); err != nil {
-			h.sd.close()
-			return nil, err
-		}
-	}
-	if err := h.sd.slice(ctx, machinesSlice, machinesSliceDescription, sliceProps(cpus)); err != nil {
-		h.sd.close()
-		return nil, fmt.Errorf("the VMs' slice %s: %w", machinesSlice, err)
-	}
-	if err := h.clearConverters(ctx); err != nil {
-		h.sd.close()
-		return nil, fmt.Errorf("clearing what converter VMs left: %w", err)
-	}
-	return h, nil
+	return g
 }
 
-// Close releases the connection to systemd. The VMs run on.
-func (h *Hypervisor) Close() error {
-	h.sd.close()
-	return nil
-}
-
-// Guest is the guest driver for the VMs this driver starts.
-func (h *Hypervisor) Guest() driver.Guest { return h.guest }
-
-// Socket is the hybrid vsock socket of a machine's VM.
-func (h *Hypervisor) Socket(machineUID string) string {
-	if legacy := filepath.Join(h.cfg.Dir, machineUID, legacyVsockFile); isSocket(legacy) {
-		return legacy
-	}
-	return filepath.Join(h.cfg.Dir, machineUID, vsockFile)
-}
-
-// LogPath is where a machine's console log is.
-func (h *Hypervisor) LogPath(machineUID string) string {
-	return filepath.Join(h.cfg.Dir, machineUID, ConsoleLog)
-}
-
-func (h *Hypervisor) dir(uid string) string { return filepath.Join(h.cfg.Dir, uid) }
-
-func (h *Hypervisor) signal() {
-	select {
-	case h.changes <- struct{}{}:
-	default:
-	}
-}
-
-func (h *Hypervisor) Changes() <-chan struct{} { return h.changes }
-
-// restartOf is systemd's Restart= for a policy.
-func restartOf(p driver.RestartPolicy) (string, error) {
-	switch p {
-	case driver.RestartAlways:
-		return "always", nil
-	case driver.RestartOnFailure:
-		return "on-failure", nil
-	case driver.RestartNever:
-		return "no", nil
-	}
-	return "", fmt.Errorf("no restart policy %d", p)
-}
-
-// running reports a unit whose VM runs, or is about to again: a unit
-// waiting to restart is activating.
-func running(u unitState) bool {
-	switch u.Active {
-	case "active", "activating", "deactivating", "reloading", "refreshing":
-		return true
-	}
-	return false
-}
-
-// vm reads back the machine's VM: its unit, if any, and its directory.
-func (h *Hypervisor) vm(uid string, unit *unitState) (driver.VM, bool, error) {
-	dir := h.dir(uid)
-	ln, err := readLaunch(dir)
-	hasSpec := err == nil
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return driver.VM{}, false, err
-	}
-	rec, exited, err := readExit(dir)
+func (d *Driver) Inspect(ctx context.Context, name string) (driver.Guest, error) {
+	c, s, err := d.inspect(ctx, name)
 	if err != nil {
-		return driver.VM{}, false, err
+		return driver.Guest{}, err
 	}
-	vm := driver.VM{MachineUID: uid, SpecHash: ln.Hash, Run: ln.Spec.Run, Interfaces: ln.Spec.Interfaces}
-	// A guest that powered off while it was being stopped, its launcher
-	// waiting for the stop, has exited.
-	offInStop := exited && exists(filepath.Join(dir, stopFile))
-	switch {
-	case unit != nil && running(*unit) && !offInStop:
-		vm.State, vm.Started = driver.VMRunning, unit.Started
-	case hasSpec && exited:
-		vm.State, vm.ExitCode, vm.Started = driver.VMExited, rec.Code, rec.Started
-	case hasSpec && ln.Spec.Restart == driver.RestartNever && !exists(filepath.Join(dir, stopFile)):
-		// Interrupted: its unit gone with no record, as by the host
-		// rebooting or its launcher killed outright, and not by a stop.
-		// Its policy keeps it down, as if it had crashed.
-		vm.State, vm.ExitCode = driver.VMExited, ExitNoRecord
-	default:
-		// Not started, stopped, or interrupted under a policy that
-		// starts it again: the agent starts it again.
-		return driver.VM{}, false, nil
-	}
-	return vm, true, nil
+	return guestOf(c, s), nil
 }
 
-func (h *Hypervisor) VMs(ctx context.Context) ([]driver.VM, error) {
-	units, err := h.sd.list(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing units: %w", err)
-	}
-	byUID := map[string]*unitState{}
-	for i := range units {
-		if uid, ok := uidOfUnit(units[i].Name); ok {
-			byUID[uid] = &units[i]
-		}
-	}
-	entries, err := os.ReadDir(h.cfg.Dir)
+func (d *Driver) List(ctx context.Context) ([]driver.Guest, error) {
+	res, err := d.cli.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: make(client.Filters).Add("label", docker.LabelDriver+"=vm")})
 	if err != nil {
 		return nil, err
 	}
-	uids := map[string]bool{}
-	for uid := range byUID {
-		uids[uid] = true
-	}
-	for _, e := range entries {
-		if e.IsDir() && checkUID(e.Name()) == nil {
-			uids[e.Name()] = true
+	var out []driver.Guest
+	for _, c := range res.Items {
+		r, s, err := d.inspect(ctx, c.ID)
+		if errors.Is(err, driver.ErrNotFound) {
+			continue
 		}
-	}
-	// A converter VM is the driver's own, which no machine accounts for.
-	for uid := range uids {
-		if isConverter(uid) {
-			delete(uids, uid)
-		}
-	}
-	var out []driver.VM
-	for _, uid := range slices.Sorted(func(yield func(string) bool) {
-		for u := range uids {
-			if !yield(u) {
-				return
-			}
-		}
-	}) {
-		vm, ok, err := h.vm(uid, byUID[uid])
 		if err != nil {
 			return nil, err
 		}
-		if ok {
-			out = append(out, vm)
-		}
+		out = append(out, guestOf(r, s))
 	}
+	slices.SortFunc(out, func(a, b driver.Guest) int { return strings.Compare(a.Name, b.Name) })
 	return out, nil
 }
 
-// unit returns the machine's unit, nil if systemd has none.
-func (h *Hypervisor) unit(ctx context.Context, uid string) (*unitState, error) {
-	units, err := h.sd.list(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing units: %w", err)
-	}
-	for _, u := range units {
-		if u.Name == unitName(uid) {
-			return &u, nil
-		}
-	}
-	return nil, nil
-}
+// startCheck is how long a VM's container must keep running after its
+// start for the start to have taken: its launcher fails within it on a
+// network, disk or Cloud Hypervisor it cannot have.
+const startCheck = 3 * time.Second
 
-func (h *Hypervisor) Start(ctx context.Context, spec driver.VMSpec) error {
-	uid := spec.MachineUID
-	if err := checkSpec(spec); err != nil {
-		return err
-	}
-	if spec.Firmware && h.cfg.Firmware == "" {
-		return fmt.Errorf("machine %s boots through firmware, which this host has none of", uid)
-	}
-	if spec.Converter != nil && h.cfg.ConverterInitramfs == "" {
-		return fmt.Errorf("%s is a converter VM, and this host has no converter initramfs", uid)
-	}
-	restart, err := restartOf(spec.Restart)
+func (d *Driver) Start(ctx context.Context, name string) error {
+	c, s, err := d.inspect(ctx, name)
 	if err != nil {
 		return err
 	}
-	unlock := h.locks.Lock(uid)
-	defer unlock()
-	unit, err := h.unit(ctx, uid)
-	if err != nil {
-		return err
-	}
-	vm, listed, err := h.vm(uid, unit)
-	if err != nil {
-		return err
-	}
-	hash := spec.Hash()
-	if listed && vm.SpecHash != hash {
-		return fmt.Errorf("machine %s's VM runs another spec; stop it first", uid)
-	}
-	if listed && vm.State == driver.VMRunning {
-		// A stop cut short may have left its mark on the VM, which is
-		// wanted running after all: its next exit is the restart
-		// policy's again.
-		if err := os.Remove(filepath.Join(h.dir(uid), stopFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
+	if c.State != nil && c.State.Running {
 		return nil
 	}
-	if unit != nil && running(*unit) {
-		// Its launcher waits to be stopped, or it is not the driver's.
-		return fmt.Errorf("machine %s's unit %s is %s; stop it first", uid, unit.Name, unit.Active)
-	}
-	if unit != nil {
-		if err := h.sd.resetFailed(ctx, unit.Name); err != nil {
-			return err
-		}
-	}
-
-	dir := h.dir(uid)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := d.prepareBoot(ctx, name, c, s); err != nil {
 		return err
 	}
-	for _, f := range []string{exitFile, stopFile, legacyVsockFile} {
-		if err := os.Remove(filepath.Join(dir, f)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
+	d.forget(name)
+	if _, err := d.cli.ContainerStart(ctx, name, client.ContainerStartOptions{}); err != nil {
+		return fmt.Errorf("starting VM %s: %w: %w", name, err, driver.ErrStartFailed)
 	}
-	if err := os.RemoveAll(filepath.Join(dir, chDir)); err != nil {
-		return err
-	}
-	ln := launch{
-		Spec: spec, Hash: hash, CloudHypervisor: h.cfg.CloudHypervisor,
-		Kernel: h.cfg.Kernel, Initramfs: h.cfg.Initramfs, Cmdline: h.cfg.Cmdline,
-		StopGrace: h.cfg.StopGrace, StopSlack: h.cfg.StopSlack,
-	}
-	sb := sandbox{Dir: dir, Binds: []string{h.cfg.Launcher[0], h.cfg.CloudHypervisor, h.cfg.Kernel, h.cfg.Initramfs}}
-	if spec.Firmware {
-		// The guest's own kernel boots: no boot disk, no platform kernel.
-		ln.Kernel, ln.Initramfs, ln.Cmdline = "", "", ""
-		ln.Firmware, ln.StopGrace = h.cfg.Firmware, h.cfg.FirmwareStopGrace
-		sb.Binds = []string{h.cfg.Launcher[0], h.cfg.CloudHypervisor, h.cfg.Firmware}
-	} else {
-		disk, err := h.bootDisk(spec)
-		if err != nil {
-			return err
-		}
-		if err := writeAtomic(filepath.Join(dir, bootFile), disk); err != nil {
-			return err
-		}
-		if blankVDA(spec) {
-			if err := writeAtomic(filepath.Join(dir, blankFile), make([]byte, blankSize)); err != nil {
-				return err
-			}
-		}
-	}
-	if c := spec.Converter; c != nil {
-		// Its own initramfs, and the file, bound read-only into the unit.
-		ln.Initramfs = h.cfg.ConverterInitramfs
-		sb.Binds = []string{h.cfg.Launcher[0], h.cfg.CloudHypervisor, h.cfg.Kernel, h.cfg.ConverterInitramfs, c.File}
-	}
-	user, err := h.writeLaunch(dir, ln)
-	if err != nil {
-		return err
-	}
-	if c := spec.Converter; c != nil {
-		if err := h.giveFile(c.File, int(user)); err != nil {
-			return err
-		}
-	}
-	argv := append(slices.Clone(h.cfg.Launcher), "--dir", h.cfg.Dir, "--vm-user", fmt.Sprint(user), uid)
-	props := unitProps(spec, argv, restart, stopTimeout(ln.stopTimes()), sb)
-	if spec.Converter != nil {
-		props = append(props, property("RuntimeMaxUSec", usec(h.cfg.ConverterRuntime)))
-	}
-	if err := h.sd.start(ctx, unitName(uid), props); err != nil {
-		return fmt.Errorf("starting %s: %w", unitName(uid), err)
-	}
-	return nil
-}
-
-// SetBootExport renames a new boot.img, already the VM user's group's to
-// read, over the old: the next launch opens it, a launch under way reads
-// one whole. The spec file is untouched (docs/decisions/file-shares.md).
-func (h *Hypervisor) SetBootExport(ctx context.Context, uid string, export driver.ShareExport) error {
-	if err := checkUID(uid); err != nil {
-		return err
-	}
-	unlock := h.locks.Lock(uid)
-	defer unlock()
-	unit, err := h.unit(ctx, uid)
-	if err != nil {
-		return err
-	}
-	if _, listed, err := h.vm(uid, unit); err != nil {
-		return err
-	} else if !listed {
-		return fmt.Errorf("machine %s has no VM whose boot disk to rewrite", uid)
-	}
-	dir := h.dir(uid)
-	ln, err := readLaunch(dir)
-	if err != nil {
-		return err
-	}
-	if ln.Spec.FileShareServer == nil || ln.Spec.Firmware {
-		return fmt.Errorf("machine %s's VM is no file share's server", uid)
-	}
-	srv := *ln.Spec.FileShareServer
-	srv.Export = export
-	ln.Spec.FileShareServer = &srv
-	disk, err := h.bootDisk(ln.Spec)
-	if err != nil {
-		return err
-	}
-	gid := int(ln.VMUser)
-	return writeAtomicAs(filepath.Join(dir, bootFile), disk, func(f *os.File) error { return setGroup(f, gid, readableMode(gid)) })
-}
-
-// writeLaunch writes the spec file, with the VM's id, and returns the id.
-func (h *Hypervisor) writeLaunch(dir string, ln launch) (uint32, error) {
-	h.users.Lock()
-	defer h.users.Unlock()
-	// And against another driver on the same directory.
-	lock, err := os.Open(h.cfg.Dir)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = lock.Close() }()
-	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
-		return 0, err
-	}
-	user, err := h.vmUser(ln.Spec.MachineUID)
-	if err != nil {
-		return 0, err
-	}
-	ln.VMUser = user
-	b, err := json.Marshal(ln)
-	if err != nil {
-		return 0, err
-	}
-	return user, writeAtomic(filepath.Join(dir, specFile), b)
-}
-
-// checkSpec refuses a spec no VM can be started with.
-func checkSpec(s driver.VMSpec) error {
-	if err := checkUID(s.MachineUID); err != nil {
-		return err
-	}
-	if s.VCPUs < 1 || s.MemoryMiB < 1 {
-		return fmt.Errorf("machine %s: %d vCPUs and %d MiB of memory", s.MachineUID, s.VCPUs, s.MemoryMiB)
-	}
-	switch srv := s.FileShareServer; {
-	case s.Converter != nil:
-		c := s.Converter
-		if srv != nil || s.Firmware || s.Root != (driver.Disk{}) || len(s.Disks) > 0 || len(s.Mounts) > 0 || len(s.Run.Command) > 0 || len(s.Interfaces) > 0 {
-			return fmt.Errorf("machine %s: a converter has no root disk, volume, mount, process or interface", s.MachineUID)
-		}
-		if !isConverter(s.MachineUID) {
-			return fmt.Errorf("machine %s: a converter's uid starts %s", s.MachineUID, converterPrefix)
-		}
-		if !filepath.IsAbs(c.File) || filepath.Clean(c.File) != c.File || strings.ContainsAny(c.File, ",=") {
-			return fmt.Errorf("machine %s: the converter's file %q is not a clean absolute path Cloud Hypervisor takes", s.MachineUID, c.File)
-		}
-		if t := c.Target; t != "" && (!strings.HasPrefix(t, "/dev/zvol/") || filepath.Clean(t) != t) {
-			return fmt.Errorf("machine %s: the converter's target %q is not a zvol's link", s.MachineUID, t)
-		}
-	case srv != nil:
-		if s.Firmware || s.Root != (driver.Disk{}) || len(s.Disks) > 0 || len(s.Mounts) > 0 || len(s.Run.Command) > 0 {
-			return fmt.Errorf("machine %s: a file share's server has no root disk, volume, mount or process", s.MachineUID)
-		}
-		if srv.Volume.ShareUID == "" || srv.Volume.Path == "" {
-			return fmt.Errorf("machine %s: share volume %+v has no share or path", s.MachineUID, srv.Volume)
-		}
-	case s.Firmware && (s.Root != driver.Disk{} || len(s.Disks) == 0):
-		return fmt.Errorf("machine %s: a firmware VM boots its first volume, not a root disk", s.MachineUID)
-	case !s.Firmware && (s.Root.MachineUID != s.MachineUID || s.Root.Path == ""):
-		return fmt.Errorf("machine %s: root disk %+v is not its", s.MachineUID, s.Root)
-	}
-	if s.SystemSerialNumber != "" && !s.Firmware {
-		return fmt.Errorf("machine %s: only a firmware VM is given a system serial number", s.MachineUID)
-	}
-	if err := computeapi.CheckSystemSerialNumber(s.SystemSerialNumber); err != nil {
-		return fmt.Errorf("machine %s: system serial number: %w", s.MachineUID, err)
-	}
-	seen := map[string]bool{s.Root.Path: true}
-	for _, v := range s.Disks {
-		if v.DiskUID == "" || v.Path == "" || seen[v.Path] {
-			return fmt.Errorf("machine %s: volume %+v has no disk or path, or is given twice", s.MachineUID, v)
-		}
-		seen[v.Path] = true
-		if v.Serial != "" && !s.Firmware {
-			return fmt.Errorf("machine %s: only a firmware VM's volumes have serials", s.MachineUID)
-		}
-		if err := computeapi.CheckDiskSerial(v.Serial); err != nil {
-			return fmt.Errorf("machine %s: volume %s's serial: %w", s.MachineUID, v.Path, err)
-		}
-	}
-	for _, m := range s.Mounts {
-		if s.Firmware || (!m.Share.IsValid() && (m.Disk < 0 || m.Disk >= len(s.Disks))) || m.Target == "" {
-			return fmt.Errorf("machine %s: mount %+v is of no volume of its, or has no target", s.MachineUID, m)
-		}
-	}
-	for _, i := range s.Interfaces {
-		if i.MachineUID != s.MachineUID || i.Device == "" {
-			return fmt.Errorf("machine %s: interface %+v is not its, or has no device", s.MachineUID, i)
-		}
-		// A server's tap is closed to all but its clients, and only a
-		// server's: a server never runs on a tap open as any other.
-		if i.FileShareServer != (s.FileShareServer != nil) {
-			return fmt.Errorf("machine %s: interface %s is a file share's server's only if the machine is", s.MachineUID, i.Name)
-		}
-	}
-	return nil
-}
-
-// bootDisk is the boot disk of spec: what to run, or the export a file
-// share's server starts with, the network, the hostname, the resolvers and
-// the machine's uid.
-func (h *Hypervisor) bootDisk(spec driver.VMSpec) ([]byte, error) {
-	cfg := &guestv1.BootConfig{
-		Process: &guestv1.Process{
-			Args: spec.Run.Command, Env: spec.Run.Env, WorkingDir: spec.Run.WorkingDir, User: spec.Run.User,
-		},
-		Hostname:    hostname(spec),
-		Nameservers: spec.Nameservers,
-		Search:      spec.Search,
-		MachineUid:  spec.MachineUID,
-	}
-	if srv := spec.FileShareServer; srv != nil {
-		cfg.Process = nil
-		cfg.FileShareServer = &guestv1.FileShareServer{Export: chguest.ExportOf(srv.Export)}
-	}
-	if c := spec.Converter; c != nil {
-		cfg.Process = nil
-		cfg.ImageConverter = &guestv1.ImageConverter{FileOffset: c.FileOffset, FileSize: c.FileSize}
-	}
-	for n, i := range spec.Interfaces {
-		// The default route goes by the first interface; the guest takes
-		// no more than one.
-		gw := ""
-		if n == 0 && i.Gateway.IsValid() {
-			gw = i.Gateway.String()
-		}
-		nic := &guestv1.Interface{Mac: i.MAC, Address: i.Address.String(), Gateway: gw}
-		if i.IPv6.IsValid() {
-			nic.Ipv6 = netip.PrefixFrom(i.IPv6, 128).String()
-			if n == 0 {
-				nic.Ipv6Gateway = driver.GatewayIPv6.String()
-			}
-		}
-		cfg.Interfaces = append(cfg.Interfaces, nic)
-	}
-	for _, m := range spec.Mounts {
-		if m.Share.IsValid() {
-			cfg.Volumes = append(cfg.Volumes, &guestv1.Volume{
-				Target: m.Target, ReadOnly: m.ReadOnly, Subpath: m.Subpath, Name: m.Name,
-				FileShare: &guestv1.FileShareMount{Address: m.Share.String()},
-			})
-			continue
-		}
-		cfg.Volumes = append(cfg.Volumes, &guestv1.Volume{
-			Device: "/dev/" + computeapi.VirtioDevice(computeapi.FirstContainerDisk+m.Disk),
-			Target: m.Target, ReadOnly: m.ReadOnly, Nocopy: m.Nocopy, Subpath: m.Subpath, Name: m.Name,
-		})
-	}
-	var buf bytes.Buffer
-	if err := bootdisk.Write(&buf, cfg); err != nil {
-		return nil, err
-	}
-	// A disk is whole sectors; the reader takes the length from the header.
-	if r := buf.Len() % 512; r != 0 {
-		buf.Write(make([]byte, 512-r))
-	}
-	return buf.Bytes(), nil
-}
-
-// hostname is the machine's name, as a hostname takes it: the name after
-// its project, in lower case, with what a hostname cannot hold made dashes,
-// and at most 63 characters; the uid's first 12 if nothing is left.
-func hostname(spec driver.VMSpec) string {
-	name := spec.Machine
-	if i := strings.LastIndexByte(name, '/'); i >= 0 {
-		name = name[i+1:]
-	}
-	if h := asHostname(name, 63); h != "" {
-		return h
-	}
-	return asHostname(spec.MachineUID, 12)
-}
-
-func asHostname(s string, n int) string {
-	b := []byte(strings.ToLower(s))
-	for i, c := range b {
-		if (c < 'a' || c > 'z') && (c < '0' || c > '9') {
-			b[i] = '-'
-		}
-	}
-	return strings.Trim(string(b[:min(len(b), n)]), "-")
-}
-
-func (h *Hypervisor) Stop(ctx context.Context, uid string) error {
-	if err := checkUID(uid); err != nil {
-		return err
-	}
-	unlock := h.locks.Lock(uid)
-	defer unlock()
-	unit, err := h.unit(ctx, uid)
-	if err != nil {
-		return err
-	}
-	dir := h.dir(uid)
-	if unit != nil && running(*unit) {
-		if exists(dir) {
-			// From here on the launcher waits for the unit's stop once the
-			// guest is off: it never exits for systemd to restart it.
-			if err := os.WriteFile(filepath.Join(dir, stopFile), nil, 0o600); err != nil {
-				return err
-			}
-		}
-		h.stopGuest(ctx, uid)
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := h.sd.stop(ctx, unit.Name); err != nil {
-			return fmt.Errorf("stopping %s: %w", unit.Name, err)
-		}
-	}
-	if unit != nil {
-		if err := h.sd.resetFailed(ctx, unit.Name); err != nil {
-			return err
-		}
-	}
-	return h.removeRuntime(dir)
-}
-
-// stopGuest asks the guest to stop its process, or presses a firmware VM's
-// power button, and waits for the guest to power off, for the grace period
-// and the slack the VM was started with; it returns at once if the guest
-// does not take the stop.
-func (h *Hypervisor) stopGuest(ctx context.Context, uid string) {
-	grace, slack := h.cfg.StopGrace, h.cfg.StopSlack
-	ln, err := readLaunch(h.dir(uid))
-	if err == nil {
-		grace, slack = ln.stopTimes()
-	}
-	gctx, cancel := context.WithTimeout(ctx, stopAsk)
-	if ln.Spec.Firmware {
-		err = h.powerButton(gctx, filepath.Join(h.dir(uid), apiFile))
-	} else {
-		err = h.guest.Stop(gctx, uid, grace)
-	}
-	cancel()
-	if err != nil {
-		return
-	}
-	deadline := time.NewTimer(grace + slack)
-	defer deadline.Stop()
-	tick := time.NewTicker(50 * time.Millisecond)
-	defer tick.Stop()
-	for !h.poweredOff(ctx, uid) {
+	deadline := time.After(startCheck)
+	for {
 		select {
 		case <-ctx.Done():
-			return
-		case <-deadline.C:
-			return
-		case <-tick.C:
+			return ctx.Err()
+		case <-deadline:
+			return nil
+		case <-time.After(250 * time.Millisecond):
+		}
+		r, err := d.cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
+		if err != nil {
+			return err
+		}
+		if r.Container.State == nil || !r.Container.State.Running {
+			return fmt.Errorf("VM %s: %s: %w", name, d.whyEnded(name), driver.ErrStartFailed)
 		}
 	}
 }
 
-// poweredOff reports a VM whose guest is off: its run is recorded, or its
-// unit is gone.
-func (h *Hypervisor) poweredOff(ctx context.Context, uid string) bool {
-	if exists(filepath.Join(h.dir(uid), exitFile)) {
-		return true
+// whyEnded says why a VM's launcher ended, from its exit record and the
+// end of its console.
+func (d *Driver) whyEnded(name string) string {
+	var why []string
+	if b, err := os.ReadFile(filepath.Join(d.dir(name), launcher.ExitFile)); err == nil {
+		var e launcher.Exit
+		if json.Unmarshal(b, &e) == nil {
+			why = append(why, fmt.Sprintf("its launcher exited %d", e.Code))
+			if e.Error != "" {
+				why = append(why, e.Error)
+			}
+		}
 	}
-	unit, err := h.unit(ctx, uid)
-	return err == nil && (unit == nil || !running(*unit))
+	if b, err := os.ReadFile(filepath.Join(d.dir(name), launcher.ConsoleLog)); err == nil {
+		tail := strings.TrimSpace(string(b[max(0, len(b)-512):]))
+		if tail != "" {
+			why = append(why, "its console ends: "+tail)
+		}
+	}
+	if len(why) == 0 {
+		return "its container ended"
+	}
+	return strings.Join(why, "; ")
 }
 
-// removeRuntime removes what a VM's directory holds but its logs, and the
-// directory too if no log is left. The spec file goes last: while anything
-// else of the VM's is left, its id is not given to another VM.
-func (h *Hypervisor) removeRuntime(dir string) error {
-	entries, err := os.ReadDir(dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+// prepareBoot readies a VM to boot: its container made again if its
+// disk's device is another now, as after a host's reboot; its base image
+// written on a blank disk; its launcher's spec.
+func (d *Driver) prepareBoot(ctx context.Context, name string, c container.InspectResponse, s spec) error {
+	dev, err := filepath.EvalSymlinks(s.Disk)
 	if err != nil {
-		return err
+		return fmt.Errorf("disk %s: %w: %w", s.Disk, err, driver.ErrStartFailed)
 	}
-	kept := 0
-	for _, e := range entries {
-		if slices.Contains(logFiles, e.Name()) {
-			kept++
-			continue
+	if c.HostConfig != nil && !slices.ContainsFunc(c.HostConfig.Devices, func(m container.DeviceMapping) bool { return m.PathOnHost == dev }) {
+		if _, err := d.cli.ContainerRemove(ctx, name, client.ContainerRemoveOptions{Force: true}); err != nil {
+			return err
 		}
-		if e.Name() == specFile {
-			continue
-		}
-		if err := h.removeAll(filepath.Join(dir, e.Name())); err != nil {
+		if err := d.createContainer(ctx, name, s, hostdLabels(c.Config.Labels)); err != nil {
 			return err
 		}
 	}
-	if err := os.Remove(filepath.Join(dir, specFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := writeBase(s.Disk, filepath.Join(d.cfg.BaseImages, s.BaseImage+".raw")); err != nil {
+		return fmt.Errorf("VM %s: %w: %w", name, err, driver.ErrStartFailed)
+	}
+	memory := s.Memory
+	if memory == 0 {
+		memory = 1 << 30
+	}
+	ls := launcher.Spec{
+		Name: name, CPUs: max(s.CPUs, 1), MemoryMiB: int64(memory >> 20), MAC: macOf(name),
+		InstanceID: name, Hostname: Hostname, UserData: d.userData(), StopGrace: d.cfg.StopGrace,
+	}
+	b, err := json.Marshal(ls)
+	if err != nil {
 		return err
 	}
-	if kept == 0 {
-		return os.Remove(dir)
-	}
-	return nil
+	return writeAtomic(filepath.Join(d.dir(name), launcher.SpecFile), b, 0o600)
 }
 
-func (h *Hypervisor) Logs(context.Context) ([]string, error) {
-	entries, err := os.ReadDir(h.cfg.Dir)
+// macOf is a VM's MAC, locally administered, from its name.
+func macOf(name string) string {
+	sum := sha256.Sum256([]byte(name))
+	return fmt.Sprintf("02:%02x:%02x:%02x:%02x:%02x", sum[0], sum[1], sum[2], sum[3], sum[4])
+}
+
+// userData is the VMs' cloud-config: hostd's key for root, and the one
+// hostname. A root locked by its password field ("!", as Alpine's is)
+// takes no key either; it is given one that only locks its password. The
+// workstream's aliases are single labels, which systemd-resolved (as
+// Ubuntu's) sends to no DNS server unless told to: it is told to, at
+// each boot.
+func (d *Driver) userData() string {
+	return "#cloud-config\n" +
+		"hostname: " + Hostname + "\n" +
+		"preserve_hostname: false\n" +
+		"disable_root: false\n" +
+		"ssh_pwauth: false\n" +
+		"ssh_authorized_keys:\n" +
+		"  - " + d.keys.authorized + "\n" +
+		"bootcmd:\n" +
+		"  - [sh, -c, \"sed -i 's/^root:![^:]*:/root:*:/' /etc/shadow\"]\n" +
+		"  - [sh, -c, \"if [ -d /etc/systemd ]; then mkdir -p /etc/systemd/resolved.conf.d && " +
+		"printf '[Resolve]\\\\nResolveUnicastSingleLabel=yes\\\\n' > /etc/systemd/resolved.conf.d/tower.conf && " +
+		"(systemctl try-restart systemd-resolved || true); fi\"]\n"
+}
+
+func (d *Driver) Stop(ctx context.Context, name string) error {
+	c, _, err := d.inspect(ctx, name)
+	if err != nil {
+		return err
+	}
+	d.forget(name)
+	if c.State == nil || !c.State.Running {
+		return nil
+	}
+	timeout := int((d.cfg.StopGrace + 15*time.Second) / time.Second)
+	_, err = d.cli.ContainerStop(ctx, name, client.ContainerStopOptions{Timeout: &timeout})
+	return err
+}
+
+func (d *Driver) Remove(ctx context.Context, name string) error {
+	if _, _, err := d.inspect(ctx, name); errors.Is(err, driver.ErrNotFound) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	d.forget(name)
+	if _, err := d.cli.ContainerRemove(ctx, name, client.ContainerRemoveOptions{Force: true}); err != nil && !cerrdefs.IsNotFound(err) {
+		return err
+	}
+	return os.RemoveAll(d.dir(name))
+}
+
+func (d *Driver) EnsureNetwork(ctx context.Context, name string, labels driver.Labels) error {
+	return docker.Networks{Cli: d.cli}.Ensure(ctx, name, labels)
+}
+
+func (d *Driver) Networks(ctx context.Context) ([]driver.Network, error) {
+	return docker.Networks{Cli: d.cli}.List(ctx)
+}
+
+func (d *Driver) RemoveNetwork(ctx context.Context, name string) error {
+	return docker.Networks{Cli: d.cli}.Remove(ctx, name)
+}
+
+// ProcRoot is where a VM keeps its processes: a directory of the guest's
+// name, so a clone of a golden never lists its builder's.
+func ProcRoot(name string) string { return "/var/lib/tower/processes/" + name }
+
+// ops are the operations in a running VM, over ssh once it answers.
+func (d *Driver) ops(ctx context.Context, name string) (guestops.Ops, error) {
+	r, err := d.readyVM(ctx, name)
+	if err != nil {
+		return guestops.Ops{}, err
+	}
+	return guestops.Ops{R: r, ProcRoot: ProcRoot(name)}, nil
+}
+
+func (d *Driver) Exec(ctx context.Context, name string, s driver.ExecSpec) (int, error) {
+	o, err := d.ops(ctx, name)
+	if err != nil {
+		return 0, err
+	}
+	return o.Exec(ctx, s)
+}
+
+func (d *Driver) ReadFile(ctx context.Context, name, path string, w io.Writer) error {
+	o, err := d.ops(ctx, name)
+	if err != nil {
+		return err
+	}
+	return o.ReadFile(ctx, path, w)
+}
+
+func (d *Driver) WriteFile(ctx context.Context, name, path string, mode os.FileMode, offset int64, r io.Reader) error {
+	o, err := d.ops(ctx, name)
+	if err != nil {
+		return err
+	}
+	return o.WriteFile(ctx, path, mode, offset, r)
+}
+
+func (d *Driver) CopyOut(ctx context.Context, name, path string, w io.Writer) error {
+	o, err := d.ops(ctx, name)
+	if err != nil {
+		return err
+	}
+	return o.CopyOut(ctx, path, w)
+}
+
+func (d *Driver) CopyIn(ctx context.Context, name, dir string, r io.Reader) error {
+	o, err := d.ops(ctx, name)
+	if err != nil {
+		return err
+	}
+	return o.CopyIn(ctx, dir, r)
+}
+
+func (d *Driver) StartProcess(ctx context.Context, name string, s driver.ProcessSpec) (string, error) {
+	o, err := d.ops(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	return o.StartProcess(ctx, s)
+}
+
+func (d *Driver) ListProcesses(ctx context.Context, name string) ([]driver.ProcessInfo, error) {
+	o, err := d.ops(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	var out []string
-	for _, e := range entries {
-		if !e.IsDir() || checkUID(e.Name()) != nil || isConverter(e.Name()) {
-			continue
-		}
-		if slices.ContainsFunc(logFiles, func(f string) bool { return exists(filepath.Join(h.cfg.Dir, e.Name(), f)) }) {
-			out = append(out, e.Name())
-		}
-	}
-	return out, nil
+	return o.ListProcesses(ctx)
 }
 
-func (h *Hypervisor) DeleteLogs(ctx context.Context, uid string) error {
-	if err := checkUID(uid); err != nil {
-		return err
+func (d *Driver) ReadProcessLog(ctx context.Context, name, id string, from int64, follow bool, out func(driver.LogChunk) error) (driver.LogEnd, error) {
+	o, err := d.ops(ctx, name)
+	if err != nil {
+		return driver.LogEnd{}, err
 	}
-	unlock := h.locks.Lock(uid)
-	defer unlock()
-	unit, err := h.unit(ctx, uid)
+	return o.ReadProcessLog(ctx, id, from, follow, out)
+}
+
+func (d *Driver) SignalProcess(ctx context.Context, name, id string, sig int) error {
+	o, err := d.ops(ctx, name)
+	if errors.Is(err, driver.ErrNotRunning) {
+		return nil // its processes ended with it
+	}
 	if err != nil {
 		return err
 	}
-	if _, listed, err := h.vm(uid, unit); err != nil || listed {
-		if err == nil {
-			err = fmt.Errorf("machine %s's VM is listed; stop it first", uid)
+	return o.SignalProcess(ctx, id, sig)
+}
+
+// Dial connects to a port of a running VM, once it answers, waiting a
+// moment for a service that is still coming up.
+func (d *Driver) Dial(ctx context.Context, name string, port int32) (net.Conn, error) {
+	r, err := d.readyVM(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	addr := net.JoinHostPort(r.addr, strconv.Itoa(int(port)))
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		var dialer net.Dialer
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err == nil || time.Now().After(deadline) || ctx.Err() != nil {
+			return conn, err
 		}
-		return err
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
 	}
-	if unit != nil && running(*unit) {
-		return fmt.Errorf("machine %s's unit %s is %s; stop it first", uid, unit.Name, unit.Active)
-	}
-	return os.RemoveAll(h.dir(uid))
 }
