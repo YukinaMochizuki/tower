@@ -160,7 +160,11 @@ func (e Env) Drivers(ctx context.Context) (driver.Drivers, error) {
 
 // Remote makes, once, a repository with a commit on main in the place,
 // the git suite's remote, and returns its URL and where main is.
-func (e Env) Remote() (url, head string, err error) {
+func (e Env) Remote() (url, head string, err error) { return e.RemoteWith(nil) }
+
+// RemoteWith is Remote, its commit holding the files too, by path, the
+// first time it is made.
+func (e Env) RemoteWith(files map[string]string) (url, head string, err error) {
 	dir := filepath.Join(e.Dir, "remote.git")
 	work := filepath.Join(e.Dir, "remote-work")
 	if _, err := os.Stat(dir); err == nil {
@@ -171,11 +175,23 @@ func (e Env) Remote() (url, head string, err error) {
 		{"git", "init", "--quiet", "--bare", "--initial-branch=main", dir},
 		{"git", "init", "--quiet", "--initial-branch=main", work},
 		{"sh", "-c", "echo 'module drivertest' > go.mod && echo hello > README"},
+		{"files"},
 		{"git", "add", "."},
 		{"git", "-c", "user.name=testbed", "-c", "user.email=testbed@tower.invalid", "commit", "--quiet", "-m", "the first commit"},
 		{"git", "push", "--quiet", dir, "main"},
 	}
 	for i, s := range steps {
+		if s[0] == "files" {
+			for p, content := range files {
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(work, p)), 0o755); err != nil {
+					return "", "", err
+				}
+				if err := os.WriteFile(filepath.Join(work, p), []byte(content), 0o644); err != nil {
+					return "", "", err
+				}
+			}
+			continue
+		}
 		cmd := exec.Command(s[0], s[1:]...)
 		if i >= 2 {
 			cmd.Dir = work

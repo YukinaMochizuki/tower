@@ -52,8 +52,9 @@ e2e:
 	fi
 
 # Real-host tests (L4) on a testbed test/testbed/setup.sh made: the
-# drivers' conformance suites against the real drivers, the storage
-# driver on the host, and the demo and a k3s machine end to end
+# drivers' conformance suites against the real drivers, the provider
+# contract against hostd over them (in process and through its tunnel),
+# the storage driver on the host, and the demo and a k3s machine end to end
 # (docs/runbook/testbed.md). The tests are built as you and run as root,
 # one package at a time. RUN=regexp picks some; PKG=drivers one package.
 TESTBED_PKGS = $(if $(PKG),./test/testbed/$(PKG),./test/testbed/...)
