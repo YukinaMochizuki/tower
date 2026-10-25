@@ -80,7 +80,8 @@ message BoxSpec {
 }
 
 // SecretFile is one value of a Secret written into a box as a file. The
-// value enters no object, status, log or event.
+// value enters no object, status, log or event, nor any disk: it is held
+// in memory in the box, its path a link to it (docs/decisions/secrets.md).
 message SecretFile {
   // A Secret in the same project.
   string secret = 1;

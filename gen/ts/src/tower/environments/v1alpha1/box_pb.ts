@@ -174,7 +174,8 @@ export const BoxSpecSchema: GenMessage<BoxSpec> = /*@__PURE__*/
 
 /**
  * SecretFile is one value of a Secret written into a box as a file. The
- * value enters no object, status, log or event.
+ * value enters no object, status, log or event, nor any disk: it is held
+ * in memory in the box, its path a link to it (docs/decisions/secrets.md).
  *
  * @generated from message tower.environments.v1alpha1.SecretFile
  */

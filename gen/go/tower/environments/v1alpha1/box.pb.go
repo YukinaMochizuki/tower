@@ -330,7 +330,8 @@ func (x *BoxSpec) GetFallbackImage() string {
 }
 
 // SecretFile is one value of a Secret written into a box as a file. The
-// value enters no object, status, log or event.
+// value enters no object, status, log or event, nor any disk: it is held
+// in memory in the box, its path a link to it (docs/decisions/secrets.md).
 type SecretFile struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// A Secret in the same project.
