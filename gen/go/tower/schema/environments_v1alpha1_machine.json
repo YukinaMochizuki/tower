@@ -9,7 +9,7 @@
           "type": "string"
         },
         "content": {
-          "description": "The converge body (an ansible playbook). tower hashes it.",
+          "description": "The converge body (an ansible playbook). tower hashes it. Its golden phase is every task but those tagged configure; its configure phase, run in each machine with its own vars and secrets, is those tagged configure (docs/decisions/machine-blueprints.md).",
           "type": "string"
         },
         "exposePorts": {

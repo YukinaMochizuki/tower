@@ -264,7 +264,10 @@ func (x *MachineSpec) GetRunState() RunState {
 type Blueprint struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// The converge body (an ansible playbook). tower hashes it.
+	// The converge body (an ansible playbook). tower hashes it. Its golden
+	// phase is every task but those tagged configure; its configure phase,
+	// run in each machine with its own vars and secrets, is those tagged
+	// configure (docs/decisions/machine-blueprints.md).
 	Content string `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
 	// The image the golden is converged from, such as "ubuntu-24.04".
 	BaseImage string `protobuf:"bytes,3,opt,name=base_image,json=baseImage,proto3" json:"base_image,omitempty"`

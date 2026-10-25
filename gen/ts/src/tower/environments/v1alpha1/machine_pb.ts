@@ -124,7 +124,10 @@ export type Blueprint = Message<"tower.environments.v1alpha1.Blueprint"> & {
   name: string;
 
   /**
-   * The converge body (an ansible playbook). tower hashes it.
+   * The converge body (an ansible playbook). tower hashes it. Its golden
+   * phase is every task but those tagged configure; its configure phase,
+   * run in each machine with its own vars and secrets, is those tagged
+   * configure (docs/decisions/machine-blueprints.md).
    *
    * @generated from field: string content = 2;
    */
