@@ -149,6 +149,19 @@ Nothing of a Secret's value is written on the host: it reaches a guest as
 the environment of one command or process, or as a box's secret file
 inside the guest, and git's tokens as the environment of one git command.
 
+### Known limitations
+
+- **A machine's playbook runs as root.** tower runs a blueprint in its VM
+  with `ansible-playbook --connection=local` as root; workstream runs it
+  over ssh as `ubuntu`. workstream's `workstream-dev` blueprint
+  (`workstream: src/machine/playbooks/workstream-dev.yml`) adds
+  `{{ ansible_user | default('ubuntu') }}` to the docker group and installs
+  mise and bun with `become: false` into `~`: under tower those land in
+  root's home, the docker group goes to an `ubuntu` who never runs them,
+  and its ready check (`test -x ~/.local/bin/mise`) reads root's home,
+  where they are. The machine works as root; a session expecting to run as
+  `ubuntu` there finds neither tool. The blueprint is carried unchanged.
+
 ### Upgrading
 
 Replace `/usr/local/bin/hostd` and `/usr/local/lib/tower/tower-guest`, then
