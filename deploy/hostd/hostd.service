@@ -1,0 +1,33 @@
+[Unit]
+Description=hostd, a tower target's host
+Documentation=file:///usr/local/share/doc/tower/runbook/deploy.md
+# Its drivers are Docker's, BuildKit's and ZFS's; its direct streams are
+# served on the host's tailnet address alone.
+After=network-online.target tailscaled.service docker.service buildkitd.service zfs.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+# Root's: it runs zfs, Docker and git, and copies into the guests.
+# TOWER_URL, TOWER_TARGET, HOSTD_DIRECT_LISTEN (the host's tailnet address
+# and a port), TOWER_REGISTRY, TOWER_REGISTRY_USER (docs/runbook/deploy.md).
+EnvironmentFile=/etc/tower/hostd.env
+ExecStart=/usr/local/bin/hostd \
+	--tower ${TOWER_URL} \
+	--target ${TOWER_TARGET} \
+	--token-file /etc/tower/hostd.token \
+	--ticket-public-key /etc/tower/ticket-key.pub \
+	--direct-listen ${HOSTD_DIRECT_LISTEN} \
+	--state-dir /var/lib/tower-hostd \
+	--zfs-dataset tower/hostd \
+	--registry ${TOWER_REGISTRY} \
+	--registry-user ${TOWER_REGISTRY_USER} \
+	--registry-password-file /etc/tower/registry.password
+# The guests are Docker's, and outlive hostd: only hostd itself, and the
+# git and zfs it runs, stop with it.
+Restart=always
+RestartSec=2
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

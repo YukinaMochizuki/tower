@@ -5,7 +5,7 @@ GOLANGCI_LINT := $(TOOL) golangci-lint
 # Paths whose contents are produced by `make gen` and must never drift.
 GENERATED := gen internal/apiserver/servicegen internal/store/sqlite/db
 
-.PHONY: all gen check lint lint-proto lint-go breaking test e2e gen-check dev tools deps
+.PHONY: all gen check lint lint-proto lint-go breaking test e2e e2e-host build-deploy gen-check dev tools deps
 
 all: check
 
@@ -29,6 +29,7 @@ lint-proto:
 
 lint-go:
 	$(GOLANGCI_LINT) run ./...
+	$(GOLANGCI_LINT) run --build-tags testbed ./test/testbed/...
 
 # Compares against main; skipped while main has no schema to compare with.
 breaking:
@@ -49,6 +50,21 @@ e2e:
 	else \
 		echo "e2e: no packages under test/e2e yet"; \
 	fi
+
+# Real-host tests (L4) on a testbed test/testbed/setup.sh made: the
+# drivers' conformance suites against the real drivers, the storage
+# driver on the host, and the demo and a k3s machine end to end
+# (docs/runbook/testbed.md). The tests are built as you and run as root,
+# one package at a time. RUN=regexp picks some; PKG=drivers one package.
+TESTBED_PKGS = $(if $(PKG),./test/testbed/$(PKG),./test/testbed/...)
+e2e-host:
+	go test -exec 'sudo -E' -tags testbed -p 1 -count=1 -timeout 120m -v $(if $(RUN),-run '$(RUN)') $(TESTBED_PKGS)
+
+# The binaries docs/runbook/deploy.md installs, tower-guest static.
+build-deploy:
+	@mkdir -p bin
+	go build -o bin/ ./cmd/tower-apiserver ./cmd/tower ./cmd/hostd
+	CGO_ENABLED=0 go build -o bin/tower-guest ./cmd/tower-guest
 
 # Regenerates into the working tree and fails if anything changed, so it holds
 # for uncommitted work as well as in CI.
