@@ -242,6 +242,16 @@ func TestGoldensOnTheHost(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// tower fails it, as nothing it is built from is recorded; it is made
+	// ready once that is said, or the failure would undo it.
+	testutil.Eventually(t, "the golden failed", func() (bool, string) {
+		o, err := w.Env.AsSystem().Get(t.Context(), registry.Golden, client.Key{Project: apiservertest.Project, Name: "named"})
+		if err != nil {
+			return false, err.Error()
+		}
+		phase := o.(*envv1alpha1.Golden).GetStatus().GetPhase()
+		return phase == envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED, phase.String()
+	})
 	if _, err := w.Env.AsSystem().UpdateStatus(t.Context(), registry.Golden, client.Key{Project: apiservertest.Project, Name: "named"},
 		&envv1alpha1.GoldenStatus{Phase: envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY, Artifact: "golden-named"}, nil); err != nil {
 		t.Fatal(err)
