@@ -21,6 +21,7 @@ package proclog
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -163,7 +164,12 @@ func (w *Writer) Write(stderr bool, p []byte) error {
 
 // prune removes the segments wholly older than the last cap bytes.
 func (w *Writer) prune() {
-	segs, err := segments(w.dir)
+	dir, err := os.OpenRoot(w.dir)
+	if err != nil {
+		return
+	}
+	segs, err := segments(dir)
+	_ = dir.Close()
 	if err != nil {
 		return
 	}
@@ -181,16 +187,22 @@ func (w *Writer) prune() {
 // Close closes the log.
 func (w *Writer) Close() error { return w.seg.Close() }
 
-// segments are the first offsets of a log's segments, oldest first.
-func segments(dir string) ([]int64, error) {
-	entries, err := os.ReadDir(dir)
+// segments are the first offsets of a log's segments, oldest first: the
+// files named as the writer names them, and no other.
+func segments(dir *os.Root) ([]int64, error) {
+	d, err := dir.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = d.Close() }()
+	entries, err := d.ReadDir(-1)
 	if err != nil {
 		return nil, err
 	}
 	var out []int64
 	for _, e := range entries {
 		if v, ok := strings.CutPrefix(e.Name(), segPrefix); ok {
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 0 && e.Name() == segName(n) {
 				out = append(out, n)
 			}
 		}
@@ -235,9 +247,89 @@ func Lock(dir string) (*os.File, error) {
 	return f, nil
 }
 
+// What hostd reads of a process's directory is written in the guest,
+// which can put anything there: a symlink to a host file, a FIFO, a file
+// of any size, segments of any name. Every read is confined to the
+// directory (os.Root), opens without blocking and takes a regular file
+// alone, and reads no more than it bounds.
+const (
+	// maxMeta and maxExit bound meta.json and exit.json.
+	maxMeta = 64 << 10
+	maxExit = 4 << 10
+	// maxRecord is the most a record holds, as the writer writes them.
+	maxRecord = 1 << 20
+	// maxSegments is the most segments a read looks at, the newest: the
+	// writer keeps three at most.
+	maxSegments = 8
+	// segmentRetries bounds the reads again of a log whose segments went
+	// as it was read.
+	segmentRetries = 8
+)
+
+// MaxLogCap is the most of a log a read gives out, whatever its meta.json
+// says.
+var MaxLogCap int64 = 1 << 30
+
+// errNotRegular is a file of a process's directory that is not a regular
+// file.
+var errNotRegular = errors.New("proclog: not a regular file")
+
+// openFile opens a regular file of dir for reading, without blocking.
+func openFile(dir *os.Root, name string) (*os.File, error) {
+	f, err := dir.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, fmt.Errorf("%s: %w", name, cmp.Or(err, errNotRegular))
+	}
+	return f, nil
+}
+
+// readSmall reads a regular file of dir of at most limit bytes.
+func readSmall(dir *os.Root, name string, limit int64) ([]byte, error) {
+	f, err := openFile(dir, name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	b, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err == nil && int64(len(b)) > limit {
+		err = fmt.Errorf("%s is over %d bytes", name, limit)
+	}
+	return b, err
+}
+
+// openProcess opens a process's directory of root, confined to it.
+func openProcess(root, id string) (*os.Root, error) {
+	if !ValidID(id) {
+		return nil, fmt.Errorf("%q: %w", id, ErrNotFound)
+	}
+	r, err := os.OpenRoot(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("%s: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = r.Close() }()
+	// Not a symlink: one, even within root, is not a process the
+	// supervisor made.
+	if st, err := r.Lstat(id); err != nil || !st.IsDir() {
+		return nil, fmt.Errorf("%s: %w", id, ErrNotFound)
+	}
+	dir, err := r.OpenRoot(id)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("%s: %w", id, ErrNotFound)
+	}
+	return dir, err
+}
+
 // alive reports whether a process's supervisor holds its lock.
-func alive(dir string) bool {
-	f, err := os.OpenFile(filepath.Join(dir, LockFile), os.O_RDONLY|syscall.O_CLOEXEC, 0)
+func alive(dir *os.Root) bool {
+	f, err := openFile(dir, LockFile)
 	if err != nil {
 		return false
 	}
@@ -251,14 +343,17 @@ func alive(dir string) bool {
 
 // readExit reads how a process ended: exit.json, or Killed if its
 // supervisor is gone without one; nil while it runs.
-func readExit(dir string) (*Exit, error) {
-	b, err := os.ReadFile(filepath.Join(dir, ExitFile))
-	if err == nil {
+func readExit(dir *os.Root) (*Exit, error) {
+	parse := func(b []byte) (*Exit, error) {
 		var e Exit
 		if err := json.Unmarshal(b, &e); err != nil {
 			return nil, err
 		}
 		return &e, nil
+	}
+	b, err := readSmall(dir, ExitFile, maxExit)
+	if err == nil {
+		return parse(b)
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
@@ -267,10 +362,9 @@ func readExit(dir string) (*Exit, error) {
 		return nil, nil
 	}
 	// It may have written its exit as it let go.
-	if b, err := os.ReadFile(filepath.Join(dir, ExitFile)); err == nil {
-		var e Exit
-		if err := json.Unmarshal(b, &e); err == nil {
-			return &e, nil
+	if b, err := readSmall(dir, ExitFile, maxExit); err == nil {
+		if e, err := parse(b); err == nil {
+			return e, nil
 		}
 	}
 	k := Killed
@@ -279,11 +373,16 @@ func readExit(dir string) (*Exit, error) {
 
 // Read reads one process of root.
 func Read(root, id string) (Info, error) {
-	if !ValidID(id) {
-		return Info{}, fmt.Errorf("%q: %w", id, ErrNotFound)
+	dir, err := openProcess(root, id)
+	if err != nil {
+		return Info{}, err
 	}
-	dir := filepath.Join(root, id)
-	b, err := os.ReadFile(filepath.Join(dir, MetaFile))
+	defer func() { _ = dir.Close() }()
+	return readInfo(dir, id)
+}
+
+func readInfo(dir *os.Root, id string) (Info, error) {
+	b, err := readSmall(dir, MetaFile, maxMeta)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Info{}, fmt.Errorf("%s: %w", id, ErrNotFound)
 	}
@@ -338,8 +437,16 @@ func Prune(root string, keep int) error {
 			finished = append(finished, p.ID)
 		}
 	}
+	if len(finished) <= keep {
+		return nil
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = r.Close() }()
 	for len(finished) > keep {
-		if err := os.RemoveAll(filepath.Join(root, finished[0])); err != nil {
+		if err := r.RemoveAll(finished[0]); err != nil {
 			return err
 		}
 		finished = finished[1:]
@@ -354,11 +461,19 @@ var FollowPoll = 20 * time.Millisecond
 // holds, if from is older), then, with follow, what it writes until it
 // ends or ctx is done, which is ctx's error.
 func ReadLog(ctx context.Context, root, id string, from int64, follow bool, out func(Chunk) error) (End, error) {
-	in, err := Read(root, id)
+	dir, err := openProcess(root, id)
 	if err != nil {
 		return End{}, err
 	}
-	dir := filepath.Join(root, id)
+	defer func() { _ = dir.Close() }()
+	in, err := readInfo(dir, id)
+	if err != nil {
+		return End{}, err
+	}
+	logCap := in.LogCap
+	if logCap <= 0 || logCap > MaxLogCap {
+		logCap = MaxLogCap
+	}
 	at := from
 	for {
 		// The exit is read before the log, so a log read after it holds
@@ -367,7 +482,7 @@ func ReadLog(ctx context.Context, root, id string, from int64, follow bool, out 
 		if err != nil {
 			return End{}, err
 		}
-		end, err := readSegments(dir, in.LogCap, &at, out)
+		end, err := readSegments(ctx, dir, logCap, &at, out)
 		if err != nil {
 			return End{}, err
 		}
@@ -384,9 +499,13 @@ func ReadLog(ctx context.Context, root, id string, from int64, follow bool, out 
 }
 
 // readSegments gives out what the log holds from *at on, moving *at past
-// it, and says where it ends.
-func readSegments(dir string, logCap int64, at *int64, out func(Chunk) error) (End, error) {
-	for {
+// it, and says where it ends. A segment that went as it was read is read
+// again, a few times at most, and never after ctx is done.
+func readSegments(ctx context.Context, dir *os.Root, logCap int64, at *int64, out func(Chunk) error) (End, error) {
+	for range segmentRetries {
+		if err := ctx.Err(); err != nil {
+			return End{}, err
+		}
 		segs, err := segments(dir)
 		if err != nil {
 			return End{}, err
@@ -396,13 +515,17 @@ func readSegments(dir string, logCap int64, at *int64, out func(Chunk) error) (E
 			return end, err
 		}
 	}
+	return End{}, errors.New("proclog: the log's segments kept going as they were read")
 }
 
-// readOnce reads the segments as listed; retry says one was removed under
-// it, and the list is read again.
-func readOnce(dir string, segs []int64, logCap int64, at *int64, out func(Chunk) error) (End, bool, error) {
+// readOnce reads the segments as listed, the newest maxSegments of them;
+// retry says one went under it, and the list is read again.
+func readOnce(dir *os.Root, segs []int64, logCap int64, at *int64, out func(Chunk) error) (End, bool, error) {
 	if len(segs) == 0 {
 		return End{}, false, nil
+	}
+	if len(segs) > maxSegments {
+		segs = segs[len(segs)-maxSegments:]
 	}
 	// next is where the last segment ends, which reading it says.
 	type rec struct {
@@ -413,7 +536,7 @@ func readOnce(dir string, segs []int64, logCap int64, at *int64, out func(Chunk)
 	var recs []rec
 	next := segs[0]
 	for i, s := range segs {
-		f, err := os.Open(filepath.Join(dir, segName(s)))
+		f, err := openFile(dir, segName(s))
 		if errors.Is(err, fs.ErrNotExist) {
 			return End{}, true, nil
 		}
@@ -421,13 +544,17 @@ func readOnce(dir string, segs []int64, logCap int64, at *int64, out func(Chunk)
 			return End{}, false, err
 		}
 		off := s
-		r := bufio.NewReader(f)
+		// A segment holds logCap bytes and a record more, at most.
+		r := bufio.NewReader(io.LimitReader(f, logCap+maxRecord+5))
 		for {
 			var hdr [5]byte
 			if _, err := io.ReadFull(r, hdr[:]); err != nil {
 				break // the end, or a record being written
 			}
 			n := int64(binary.BigEndian.Uint32(hdr[1:]))
+			if n > maxRecord || (hdr[0] != 'o' && hdr[0] != 'e') {
+				break // no record the writer writes
+			}
 			// Records wholly before *at are skipped unread.
 			if off+n <= *at {
 				if _, err := r.Discard(int(n)); err != nil {
@@ -448,10 +575,7 @@ func readOnce(dir string, segs []int64, logCap int64, at *int64, out func(Chunk)
 			next = off
 		}
 	}
-	held := segs[0]
-	if logCap > 0 {
-		held = max(held, next-logCap)
-	}
+	held := max(segs[0], next-logCap)
 	from := max(*at, held)
 	for _, r := range recs {
 		if r.off+int64(len(r.data)) <= from {
