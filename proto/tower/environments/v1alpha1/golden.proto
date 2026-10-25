@@ -49,6 +49,9 @@ message BoxImageInputs {
   string devcontainer_hash = 2;
   // Add-ons with their versions, such as "browser@3".
   repeated string addons = 3;
+  // A hash of the box's ImageBuild, its Dockerfile and files, for an image
+  // built from one; base_image_digest and devcontainer_hash are then empty.
+  string build_hash = 4;
 }
 
 // BoxWarmInputs make a warm golden: a checkout of a repository's default

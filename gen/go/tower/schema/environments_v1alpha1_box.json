@@ -19,16 +19,23 @@
           "type": "array"
         },
         "image": {
-          "description": "An explicit base image, which skips the first checkout's devcontainer.",
+          "description": "An explicit base image, which skips the first checkout's devcontainer. At most one of image and image_build is set.",
           "type": "string"
+        },
+        "imageBuild": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.ImageBuild",
+          "description": "An image built for the box from a Dockerfile, with its add-ons layered on, as a container blueprint is, which skips the first checkout's devcontainer. At most one of image and image_build is set."
         },
         "keep": {
           "description": "Never stopped for idleness while set: workstream's keep_box. A box with a process running (EnvironmentService.StartProcess) is not either.",
           "type": "boolean"
         },
-        "privilegedSecret": {
-          "description": "A Secret in the same project whose values reach every command run in the box, as environment variables; empty is not privileged. The values never enter a spec of a lower layer (docs/decisions/secrets.md).",
-          "type": "string"
+        "privilegedSecrets": {
+          "description": "Values of Secrets in the same project that reach every command and process run in the box, as environment variables named by their as; none is not privileged. The values never enter a spec of a lower layer (docs/decisions/secrets.md).",
+          "items": {
+            "$ref": "#/$defs/tower.environments.v1alpha1.SecretRef"
+          },
+          "type": "array"
         },
         "resources": {
           "$ref": "#/$defs/tower.environments.v1alpha1.Resources"
@@ -40,6 +47,13 @@
             "RUN_STATE_STOPPED"
           ],
           "type": "string"
+        },
+        "secretFiles": {
+          "description": "Values of Secrets in the same project written into the box as files, at each start of its instance and before any command runs in it.",
+          "items": {
+            "$ref": "#/$defs/tower.environments.v1alpha1.SecretFile"
+          },
+          "type": "array"
         },
         "workstream": {
           "description": "The workstream the box belongs to, by id. A workstream's boxes and machines share a network and reach each other by alias.",
@@ -126,6 +140,24 @@
       },
       "type": "object"
     },
+    "tower.environments.v1alpha1.ImageBuild": {
+      "additionalProperties": false,
+      "description": "ImageBuild is a box image's own build: a Dockerfile and the files its context holds beside it, 16 MiB in all at most.",
+      "properties": {
+        "dockerfile": {
+          "type": "string"
+        },
+        "files": {
+          "additionalProperties": {
+            "contentEncoding": "base64",
+            "type": "string"
+          },
+          "description": "The context's files by their relative path, such as \"etc/app.conf\"; never \"Dockerfile\".",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
     "tower.environments.v1alpha1.Resources": {
       "additionalProperties": false,
       "description": "Resources is a shape, as quantities; an empty one takes tower's default.",
@@ -140,6 +172,48 @@
         },
         "memory": {
           "description": "Such as \"4Gi\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.SecretFile": {
+      "additionalProperties": false,
+      "description": "SecretFile is one value of a Secret written into a box as a file. The value enters no object, status, log or event.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "mode": {
+          "description": "The file's permission bits; 0 is 0600.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "description": "Where in the box, an absolute path.",
+          "type": "string"
+        },
+        "secret": {
+          "description": "A Secret in the same project.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.SecretRef": {
+      "additionalProperties": false,
+      "description": "SecretRef names one value of a Secret and what to call it.",
+      "properties": {
+        "as": {
+          "description": "The variable the value is given as.",
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "secret": {
+          "description": "A Secret in the same project.",
           "type": "string"
         }
       },

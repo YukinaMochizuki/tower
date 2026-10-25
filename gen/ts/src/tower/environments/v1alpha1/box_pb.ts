@@ -8,6 +8,8 @@ import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Resources, RunState } from "./common_pb";
 import { file_tower_environments_v1alpha1_common } from "./common_pb";
+import type { SecretRef } from "./machine_pb";
+import { file_tower_environments_v1alpha1_machine } from "./machine_pb";
 import type { Condition, EventType, ObjectMeta } from "../../meta/v1/meta_pb";
 import { file_tower_meta_v1_meta } from "../../meta/v1/meta_pb";
 import { file_tower_meta_v1_options } from "../../meta/v1/options_pb";
@@ -17,7 +19,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tower/environments/v1alpha1/box.proto.
  */
 export const file_tower_environments_v1alpha1_box: GenFile = /*@__PURE__*/
-  fileDesc("CiV0b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTEvYm94LnByb3RvEht0b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEi2QEKA0JveBITCgthcGlfdmVyc2lvbhgBIAEoCRIMCgRraW5kGAIgASgJEisKCG1ldGFkYXRhGAMgASgLMhkudG93ZXIubWV0YS52MS5PYmplY3RNZXRhEjIKBHNwZWMYBCABKAsyJC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94U3BlYxI2CgZzdGF0dXMYBSABKAsyJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94U3RhdHVzOhaKtRgSCgNCb3gSBWJveGVzGgJieCABItMCCgdCb3hTcGVjEhoKCndvcmtzdHJlYW0YASABKAlCBoq1GAIIARJACgljaGVja291dHMYAiADKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQ2hlY2tvdXRCBoq1GAIIARIWCgZhZGRvbnMYAyADKAlCBoq1GAIIARIVCgVpbWFnZRgEIAEoCUIGirUYAggBEiEKEXByaXZpbGVnZWRfc2VjcmV0GAUgASgJQgaKtRgCCAESDAoEa2VlcBgGIAEoCBI4CglydW5fc3RhdGUYCCABKA4yJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUnVuU3RhdGUSOQoJcmVzb3VyY2VzGAkgASgLMiYudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJlc291cmNlc0oECAcQCFIPYmFja2dyb3VuZF93b3JrIisKCENoZWNrb3V0EhIKCnJlcG9zaXRvcnkYASABKAkSCwoDcmVmGAIgASgJIrMCCglCb3hTdGF0dXMSGwoTb2JzZXJ2ZWRfZ2VuZXJhdGlvbhgBIAEoAxIsCgpjb25kaXRpb25zGAIgAygLMhgudG93ZXIubWV0YS52MS5Db25kaXRpb24SNAoFcGhhc2UYAyABKA4yJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94UGhhc2USFgoOc3RvcHBlZF9yZWFzb24YBCABKAkSDgoGdGFyZ2V0GAUgASgJEhQKDGltYWdlX2dvbGRlbhgGIAEoCRITCgt3YXJtX2dvbGRlbhgHIAEoCRIQCghpbnN0YW5jZRgIIAEoCRINCgVhbGlhcxgJIAEoCRIxCg1sYXN0X3VzZV90aW1lGAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIuCg1HZXRCb3hSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkSDAoEbmFtZRgCIAEoCSI/Cg5HZXRCb3hSZXNwb25zZRItCgNib3gYASABKAsyIC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94ImIKEExpc3RCb3hlc1JlcXVlc3QSDwoHcHJvamVjdBgBIAEoCRIWCg5sYWJlbF9zZWxlY3RvchgCIAEoCRIRCglwYWdlX3NpemUYAyABKAUSEgoKcGFnZV90b2tlbhgEIAEoCSJvChFMaXN0Qm94ZXNSZXNwb25zZRIvCgVpdGVtcxgBIAMoCzIgLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Cb3gSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJEhAKCHJldmlzaW9uGAMgASgDIlQKEVdhdGNoQm94ZXNSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkSFgoObGFiZWxfc2VsZWN0b3IYAiABKAkSFgoOc2luY2VfcmV2aXNpb24YAyABKAMifQoSV2F0Y2hCb3hlc1Jlc3BvbnNlEiYKBHR5cGUYASABKA4yGC50b3dlci5tZXRhLnYxLkV2ZW50VHlwZRItCgNib3gYAiABKAsyIC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94EhAKCHJldmlzaW9uGAMgASgDIlUKD0FwcGx5Qm94UmVxdWVzdBItCgNib3gYASABKAsyIC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94EhMKC2NyZWF0ZV9vbmx5GAIgASgIImQKEEFwcGx5Qm94UmVzcG9uc2USLQoDYm94GAEgASgLMiAudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkJveBIQCgh3YXJuaW5ncxgCIAMoCRIPCgdjcmVhdGVkGAMgASgIIncKEERlbGV0ZUJveFJlcXVlc3QSDwoHcHJvamVjdBgBIAEoCRIMCgRuYW1lGAIgASgJEiYKGWV4cGVjdGVkX3Jlc291cmNlX3ZlcnNpb24YAyABKANIAIgBAUIcChpfZXhwZWN0ZWRfcmVzb3VyY2VfdmVyc2lvbiJCChFEZWxldGVCb3hSZXNwb25zZRItCgNib3gYASABKAsyIC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94IrUBChZVcGRhdGVCb3hTdGF0dXNSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkSDAoEbmFtZRgCIAEoCRI2CgZzdGF0dXMYAyABKAsyJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94U3RhdHVzEiYKGWV4cGVjdGVkX3Jlc291cmNlX3ZlcnNpb24YBCABKANIAIgBAUIcChpfZXhwZWN0ZWRfcmVzb3VyY2VfdmVyc2lvbiJIChdVcGRhdGVCb3hTdGF0dXNSZXNwb25zZRItCgNib3gYASABKAsyIC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94KsYBCghCb3hQaGFzZRIZChVCT1hfUEhBU0VfVU5TUEVDSUZJRUQQABIVChFCT1hfUEhBU0VfUEVORElORxABEhYKEkJPWF9QSEFTRV9VTlBMQUNFRBACEhYKEkJPWF9QSEFTRV9CVUlMRElORxADEhYKEkJPWF9QSEFTRV9TVEFSVElORxAEEhMKD0JPWF9QSEFTRV9SRUFEWRAFEhUKEUJPWF9QSEFTRV9TVE9QUEVEEAYSFAoQQk9YX1BIQVNFX0ZBSUxFRBAHMp8FCgpCb3hTZXJ2aWNlEmEKBkdldEJveBIqLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5HZXRCb3hSZXF1ZXN0GisudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkdldEJveFJlc3BvbnNlEmoKCUxpc3RCb3hlcxItLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5MaXN0Qm94ZXNSZXF1ZXN0Gi4udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkxpc3RCb3hlc1Jlc3BvbnNlEm8KCldhdGNoQm94ZXMSLi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuV2F0Y2hCb3hlc1JlcXVlc3QaLy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuV2F0Y2hCb3hlc1Jlc3BvbnNlMAESZwoIQXBwbHlCb3gSLC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXBwbHlCb3hSZXF1ZXN0Gi0udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkFwcGx5Qm94UmVzcG9uc2USagoJRGVsZXRlQm94Ei0udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkRlbGV0ZUJveFJlcXVlc3QaLi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRGVsZXRlQm94UmVzcG9uc2USfAoPVXBkYXRlQm94U3RhdHVzEjMudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlVwZGF0ZUJveFN0YXR1c1JlcXVlc3QaNC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuVXBkYXRlQm94U3RhdHVzUmVzcG9uc2VCkwIKH2NvbS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTFCCEJveFByb3RvUAFaWGdpdGh1Yi5jb20vWXVraW5hTW9jaGl6dWtpL3Rvd2VyL2dlbi9nby90b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTE7ZW52aXJvbm1lbnRzdjFhbHBoYTGiAgNURViqAhtUb3dlci5FbnZpcm9ubWVudHMuVjFhbHBoYTHKAhtUb3dlclxFbnZpcm9ubWVudHNcVjFhbHBoYTHiAidUb3dlclxFbnZpcm9ubWVudHNcVjFhbHBoYTFcR1BCTWV0YWRhdGHqAh1Ub3dlcjo6RW52aXJvbm1lbnRzOjpWMWFscGhhMWIGcHJvdG8z", [file_google_protobuf_timestamp, file_tower_environments_v1alpha1_common, file_tower_meta_v1_meta, file_tower_meta_v1_options]);
+  fileDesc("CiV0b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTEvYm94LnByb3RvEht0b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEi2QEKA0JveBITCgthcGlfdmVyc2lvbhgBIAEoCRIMCgRraW5kGAIgASgJEisKCG1ldGFkYXRhGAMgASgLMhkudG93ZXIubWV0YS52MS5PYmplY3RNZXRhEjIKBHNwZWMYBCABKAsyJC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94U3BlYxI2CgZzdGF0dXMYBSABKAsyJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94U3RhdHVzOhaKtRgSCgNCb3gSBWJveGVzGgJieCABIqIECgdCb3hTcGVjEhoKCndvcmtzdHJlYW0YASABKAlCBoq1GAIIARJACgljaGVja291dHMYAiADKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQ2hlY2tvdXRCBoq1GAIIARIWCgZhZGRvbnMYAyADKAlCBoq1GAIIARIVCgVpbWFnZRgEIAEoCUIGirUYAggBEgwKBGtlZXAYBiABKAgSOAoJcnVuX3N0YXRlGAggASgOMiUudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJ1blN0YXRlEjkKCXJlc291cmNlcxgJIAEoCzImLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5SZXNvdXJjZXMSSgoScHJpdmlsZWdlZF9zZWNyZXRzGAogAygLMiYudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlNlY3JldFJlZkIGirUYAggBEkUKDHNlY3JldF9maWxlcxgLIAMoCzInLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5TZWNyZXRGaWxlQgaKtRgCCAESRAoLaW1hZ2VfYnVpbGQYDCABKAsyJy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSW1hZ2VCdWlsZEIGirUYAggBSgQIBxAISgQIBRAGUg9iYWNrZ3JvdW5kX3dvcmtSEXByaXZpbGVnZWRfc2VjcmV0IkUKClNlY3JldEZpbGUSDgoGc2VjcmV0GAEgASgJEgsKA2tleRgCIAEoCRIMCgRwYXRoGAMgASgJEgwKBG1vZGUYBCABKA0ikQEKCkltYWdlQnVpbGQSEgoKZG9ja2VyZmlsZRgBIAEoCRJBCgVmaWxlcxgCIAMoCzIyLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5JbWFnZUJ1aWxkLkZpbGVzRW50cnkaLAoKRmlsZXNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAw6AjgBIisKCENoZWNrb3V0EhIKCnJlcG9zaXRvcnkYASABKAkSCwoDcmVmGAIgASgJIrMCCglCb3hTdGF0dXMSGwoTb2JzZXJ2ZWRfZ2VuZXJhdGlvbhgBIAEoAxIsCgpjb25kaXRpb25zGAIgAygLMhgudG93ZXIubWV0YS52MS5Db25kaXRpb24SNAoFcGhhc2UYAyABKA4yJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94UGhhc2USFgoOc3RvcHBlZF9yZWFzb24YBCABKAkSDgoGdGFyZ2V0GAUgASgJEhQKDGltYWdlX2dvbGRlbhgGIAEoCRITCgt3YXJtX2dvbGRlbhgHIAEoCRIQCghpbnN0YW5jZRgIIAEoCRINCgVhbGlhcxgJIAEoCRIxCg1sYXN0X3VzZV90aW1lGAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIuCg1HZXRCb3hSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkSDAoEbmFtZRgCIAEoCSI/Cg5HZXRCb3hSZXNwb25zZRItCgNib3gYASABKAsyIC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94ImIKEExpc3RCb3hlc1JlcXVlc3QSDwoHcHJvamVjdBgBIAEoCRIWCg5sYWJlbF9zZWxlY3RvchgCIAEoCRIRCglwYWdlX3NpemUYAyABKAUSEgoKcGFnZV90b2tlbhgEIAEoCSJvChFMaXN0Qm94ZXNSZXNwb25zZRIvCgVpdGVtcxgBIAMoCzIgLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Cb3gSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJEhAKCHJldmlzaW9uGAMgASgDIlQKEVdhdGNoQm94ZXNSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkSFgoObGFiZWxfc2VsZWN0b3IYAiABKAkSFgoOc2luY2VfcmV2aXNpb24YAyABKAMifQoSV2F0Y2hCb3hlc1Jlc3BvbnNlEiYKBHR5cGUYASABKA4yGC50b3dlci5tZXRhLnYxLkV2ZW50VHlwZRItCgNib3gYAiABKAsyIC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94EhAKCHJldmlzaW9uGAMgASgDIlUKD0FwcGx5Qm94UmVxdWVzdBItCgNib3gYASABKAsyIC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94EhMKC2NyZWF0ZV9vbmx5GAIgASgIImQKEEFwcGx5Qm94UmVzcG9uc2USLQoDYm94GAEgASgLMiAudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkJveBIQCgh3YXJuaW5ncxgCIAMoCRIPCgdjcmVhdGVkGAMgASgIIncKEERlbGV0ZUJveFJlcXVlc3QSDwoHcHJvamVjdBgBIAEoCRIMCgRuYW1lGAIgASgJEiYKGWV4cGVjdGVkX3Jlc291cmNlX3ZlcnNpb24YAyABKANIAIgBAUIcChpfZXhwZWN0ZWRfcmVzb3VyY2VfdmVyc2lvbiJCChFEZWxldGVCb3hSZXNwb25zZRItCgNib3gYASABKAsyIC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94IrUBChZVcGRhdGVCb3hTdGF0dXNSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkSDAoEbmFtZRgCIAEoCRI2CgZzdGF0dXMYAyABKAsyJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94U3RhdHVzEiYKGWV4cGVjdGVkX3Jlc291cmNlX3ZlcnNpb24YBCABKANIAIgBAUIcChpfZXhwZWN0ZWRfcmVzb3VyY2VfdmVyc2lvbiJIChdVcGRhdGVCb3hTdGF0dXNSZXNwb25zZRItCgNib3gYASABKAsyIC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm94KsYBCghCb3hQaGFzZRIZChVCT1hfUEhBU0VfVU5TUEVDSUZJRUQQABIVChFCT1hfUEhBU0VfUEVORElORxABEhYKEkJPWF9QSEFTRV9VTlBMQUNFRBACEhYKEkJPWF9QSEFTRV9CVUlMRElORxADEhYKEkJPWF9QSEFTRV9TVEFSVElORxAEEhMKD0JPWF9QSEFTRV9SRUFEWRAFEhUKEUJPWF9QSEFTRV9TVE9QUEVEEAYSFAoQQk9YX1BIQVNFX0ZBSUxFRBAHMp8FCgpCb3hTZXJ2aWNlEmEKBkdldEJveBIqLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5HZXRCb3hSZXF1ZXN0GisudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkdldEJveFJlc3BvbnNlEmoKCUxpc3RCb3hlcxItLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5MaXN0Qm94ZXNSZXF1ZXN0Gi4udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkxpc3RCb3hlc1Jlc3BvbnNlEm8KCldhdGNoQm94ZXMSLi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuV2F0Y2hCb3hlc1JlcXVlc3QaLy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuV2F0Y2hCb3hlc1Jlc3BvbnNlMAESZwoIQXBwbHlCb3gSLC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXBwbHlCb3hSZXF1ZXN0Gi0udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkFwcGx5Qm94UmVzcG9uc2USagoJRGVsZXRlQm94Ei0udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkRlbGV0ZUJveFJlcXVlc3QaLi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRGVsZXRlQm94UmVzcG9uc2USfAoPVXBkYXRlQm94U3RhdHVzEjMudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlVwZGF0ZUJveFN0YXR1c1JlcXVlc3QaNC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuVXBkYXRlQm94U3RhdHVzUmVzcG9uc2VCkwIKH2NvbS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTFCCEJveFByb3RvUAFaWGdpdGh1Yi5jb20vWXVraW5hTW9jaGl6dWtpL3Rvd2VyL2dlbi9nby90b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTE7ZW52aXJvbm1lbnRzdjFhbHBoYTGiAgNURViqAhtUb3dlci5FbnZpcm9ubWVudHMuVjFhbHBoYTHKAhtUb3dlclxFbnZpcm9ubWVudHNcVjFhbHBoYTHiAidUb3dlclxFbnZpcm9ubWVudHNcVjFhbHBoYTFcR1BCTWV0YWRhdGHqAh1Ub3dlcjo6RW52aXJvbm1lbnRzOjpWMWFscGhhMWIGcHJvdG8z", [file_google_protobuf_timestamp, file_tower_environments_v1alpha1_common, file_tower_environments_v1alpha1_machine, file_tower_meta_v1_meta, file_tower_meta_v1_options]);
 
 /**
  * Box is a working copy an agent edits, builds and runs things in: one or
@@ -94,19 +96,11 @@ export type BoxSpec = Message<"tower.environments.v1alpha1.BoxSpec"> & {
 
   /**
    * An explicit base image, which skips the first checkout's devcontainer.
+   * At most one of image and image_build is set.
    *
    * @generated from field: string image = 4;
    */
   image: string;
-
-  /**
-   * A Secret in the same project whose values reach every command run in
-   * the box, as environment variables; empty is not privileged. The values
-   * never enter a spec of a lower layer (docs/decisions/secrets.md).
-   *
-   * @generated from field: string privileged_secret = 5;
-   */
-  privilegedSecret: string;
 
   /**
    * Never stopped for idleness while set: workstream's keep_box. A box
@@ -128,6 +122,33 @@ export type BoxSpec = Message<"tower.environments.v1alpha1.BoxSpec"> & {
    * @generated from field: tower.environments.v1alpha1.Resources resources = 9;
    */
   resources?: Resources | undefined;
+
+  /**
+   * Values of Secrets in the same project that reach every command and
+   * process run in the box, as environment variables named by their as;
+   * none is not privileged. The values never enter a spec of a lower layer
+   * (docs/decisions/secrets.md).
+   *
+   * @generated from field: repeated tower.environments.v1alpha1.SecretRef privileged_secrets = 10;
+   */
+  privilegedSecrets: SecretRef[];
+
+  /**
+   * Values of Secrets in the same project written into the box as files,
+   * at each start of its instance and before any command runs in it.
+   *
+   * @generated from field: repeated tower.environments.v1alpha1.SecretFile secret_files = 11;
+   */
+  secretFiles: SecretFile[];
+
+  /**
+   * An image built for the box from a Dockerfile, with its add-ons layered
+   * on, as a container blueprint is, which skips the first checkout's
+   * devcontainer. At most one of image and image_build is set.
+   *
+   * @generated from field: tower.environments.v1alpha1.ImageBuild image_build = 12;
+   */
+  imageBuild?: ImageBuild | undefined;
 };
 
 /**
@@ -136,6 +157,75 @@ export type BoxSpec = Message<"tower.environments.v1alpha1.BoxSpec"> & {
  */
 export const BoxSpecSchema: GenMessage<BoxSpec> = /*@__PURE__*/
   messageDesc(file_tower_environments_v1alpha1_box, 1);
+
+/**
+ * SecretFile is one value of a Secret written into a box as a file. The
+ * value enters no object, status, log or event.
+ *
+ * @generated from message tower.environments.v1alpha1.SecretFile
+ */
+export type SecretFile = Message<"tower.environments.v1alpha1.SecretFile"> & {
+  /**
+   * A Secret in the same project.
+   *
+   * @generated from field: string secret = 1;
+   */
+  secret: string;
+
+  /**
+   * @generated from field: string key = 2;
+   */
+  key: string;
+
+  /**
+   * Where in the box, an absolute path.
+   *
+   * @generated from field: string path = 3;
+   */
+  path: string;
+
+  /**
+   * The file's permission bits; 0 is 0600.
+   *
+   * @generated from field: uint32 mode = 4;
+   */
+  mode: number;
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.SecretFile.
+ * Use `create(SecretFileSchema)` to create a new message.
+ */
+export const SecretFileSchema: GenMessage<SecretFile> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_box, 2);
+
+/**
+ * ImageBuild is a box image's own build: a Dockerfile and the files its
+ * context holds beside it, 16 MiB in all at most.
+ *
+ * @generated from message tower.environments.v1alpha1.ImageBuild
+ */
+export type ImageBuild = Message<"tower.environments.v1alpha1.ImageBuild"> & {
+  /**
+   * @generated from field: string dockerfile = 1;
+   */
+  dockerfile: string;
+
+  /**
+   * The context's files by their relative path, such as "etc/app.conf";
+   * never "Dockerfile".
+   *
+   * @generated from field: map<string, bytes> files = 2;
+   */
+  files: { [key: string]: Uint8Array };
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.ImageBuild.
+ * Use `create(ImageBuildSchema)` to create a new message.
+ */
+export const ImageBuildSchema: GenMessage<ImageBuild> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_box, 3);
 
 /**
  * Checkout is one repository checked out in a box.
@@ -163,7 +253,7 @@ export type Checkout = Message<"tower.environments.v1alpha1.Checkout"> & {
  * Use `create(CheckoutSchema)` to create a new message.
  */
 export const CheckoutSchema: GenMessage<Checkout> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_box, 2);
+  messageDesc(file_tower_environments_v1alpha1_box, 4);
 
 /**
  * BoxStatus is what tower reports about the box.
@@ -243,7 +333,7 @@ export type BoxStatus = Message<"tower.environments.v1alpha1.BoxStatus"> & {
  * Use `create(BoxStatusSchema)` to create a new message.
  */
 export const BoxStatusSchema: GenMessage<BoxStatus> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_box, 3);
+  messageDesc(file_tower_environments_v1alpha1_box, 5);
 
 /**
  * @generated from message tower.environments.v1alpha1.GetBoxRequest
@@ -265,7 +355,7 @@ export type GetBoxRequest = Message<"tower.environments.v1alpha1.GetBoxRequest">
  * Use `create(GetBoxRequestSchema)` to create a new message.
  */
 export const GetBoxRequestSchema: GenMessage<GetBoxRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_box, 4);
+  messageDesc(file_tower_environments_v1alpha1_box, 6);
 
 /**
  * @generated from message tower.environments.v1alpha1.GetBoxResponse
@@ -282,7 +372,7 @@ export type GetBoxResponse = Message<"tower.environments.v1alpha1.GetBoxResponse
  * Use `create(GetBoxResponseSchema)` to create a new message.
  */
 export const GetBoxResponseSchema: GenMessage<GetBoxResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_box, 5);
+  messageDesc(file_tower_environments_v1alpha1_box, 7);
 
 /**
  * @generated from message tower.environments.v1alpha1.ListBoxesRequest
@@ -316,7 +406,7 @@ export type ListBoxesRequest = Message<"tower.environments.v1alpha1.ListBoxesReq
  * Use `create(ListBoxesRequestSchema)` to create a new message.
  */
 export const ListBoxesRequestSchema: GenMessage<ListBoxesRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_box, 6);
+  messageDesc(file_tower_environments_v1alpha1_box, 8);
 
 /**
  * @generated from message tower.environments.v1alpha1.ListBoxesResponse
@@ -343,7 +433,7 @@ export type ListBoxesResponse = Message<"tower.environments.v1alpha1.ListBoxesRe
  * Use `create(ListBoxesResponseSchema)` to create a new message.
  */
 export const ListBoxesResponseSchema: GenMessage<ListBoxesResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_box, 7);
+  messageDesc(file_tower_environments_v1alpha1_box, 9);
 
 /**
  * @generated from message tower.environments.v1alpha1.WatchBoxesRequest
@@ -372,7 +462,7 @@ export type WatchBoxesRequest = Message<"tower.environments.v1alpha1.WatchBoxesR
  * Use `create(WatchBoxesRequestSchema)` to create a new message.
  */
 export const WatchBoxesRequestSchema: GenMessage<WatchBoxesRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_box, 8);
+  messageDesc(file_tower_environments_v1alpha1_box, 10);
 
 /**
  * @generated from message tower.environments.v1alpha1.WatchBoxesResponse
@@ -399,7 +489,7 @@ export type WatchBoxesResponse = Message<"tower.environments.v1alpha1.WatchBoxes
  * Use `create(WatchBoxesResponseSchema)` to create a new message.
  */
 export const WatchBoxesResponseSchema: GenMessage<WatchBoxesResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_box, 9);
+  messageDesc(file_tower_environments_v1alpha1_box, 11);
 
 /**
  * @generated from message tower.environments.v1alpha1.ApplyBoxRequest
@@ -423,7 +513,7 @@ export type ApplyBoxRequest = Message<"tower.environments.v1alpha1.ApplyBoxReque
  * Use `create(ApplyBoxRequestSchema)` to create a new message.
  */
 export const ApplyBoxRequestSchema: GenMessage<ApplyBoxRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_box, 10);
+  messageDesc(file_tower_environments_v1alpha1_box, 12);
 
 /**
  * @generated from message tower.environments.v1alpha1.ApplyBoxResponse
@@ -450,7 +540,7 @@ export type ApplyBoxResponse = Message<"tower.environments.v1alpha1.ApplyBoxResp
  * Use `create(ApplyBoxResponseSchema)` to create a new message.
  */
 export const ApplyBoxResponseSchema: GenMessage<ApplyBoxResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_box, 11);
+  messageDesc(file_tower_environments_v1alpha1_box, 13);
 
 /**
  * @generated from message tower.environments.v1alpha1.DeleteBoxRequest
@@ -477,7 +567,7 @@ export type DeleteBoxRequest = Message<"tower.environments.v1alpha1.DeleteBoxReq
  * Use `create(DeleteBoxRequestSchema)` to create a new message.
  */
 export const DeleteBoxRequestSchema: GenMessage<DeleteBoxRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_box, 12);
+  messageDesc(file_tower_environments_v1alpha1_box, 14);
 
 /**
  * @generated from message tower.environments.v1alpha1.DeleteBoxResponse
@@ -494,7 +584,7 @@ export type DeleteBoxResponse = Message<"tower.environments.v1alpha1.DeleteBoxRe
  * Use `create(DeleteBoxResponseSchema)` to create a new message.
  */
 export const DeleteBoxResponseSchema: GenMessage<DeleteBoxResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_box, 13);
+  messageDesc(file_tower_environments_v1alpha1_box, 15);
 
 /**
  * @generated from message tower.environments.v1alpha1.UpdateBoxStatusRequest
@@ -526,7 +616,7 @@ export type UpdateBoxStatusRequest = Message<"tower.environments.v1alpha1.Update
  * Use `create(UpdateBoxStatusRequestSchema)` to create a new message.
  */
 export const UpdateBoxStatusRequestSchema: GenMessage<UpdateBoxStatusRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_box, 14);
+  messageDesc(file_tower_environments_v1alpha1_box, 16);
 
 /**
  * @generated from message tower.environments.v1alpha1.UpdateBoxStatusResponse
@@ -543,7 +633,7 @@ export type UpdateBoxStatusResponse = Message<"tower.environments.v1alpha1.Updat
  * Use `create(UpdateBoxStatusResponseSchema)` to create a new message.
  */
 export const UpdateBoxStatusResponseSchema: GenMessage<UpdateBoxStatusResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_box, 15);
+  messageDesc(file_tower_environments_v1alpha1_box, 17);
 
 /**
  * BoxPhase is where a box is in its life.

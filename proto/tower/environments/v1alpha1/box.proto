@@ -4,6 +4,7 @@ package tower.environments.v1alpha1;
 
 import "google/protobuf/timestamp.proto";
 import "tower/environments/v1alpha1/common.proto";
+import "tower/environments/v1alpha1/machine.proto";
 import "tower/meta/v1/meta.proto";
 import "tower/meta/v1/options.proto";
 
@@ -32,6 +33,10 @@ message BoxSpec {
   // background_work: tower sees a box's processes itself (StartProcess).
   reserved 7;
   reserved "background_work";
+  // privileged_secret: a whole Secret as the environment, replaced by
+  // privileged_secrets, which names each value and what to call it.
+  reserved 5;
+  reserved "privileged_secret";
 
   // The workstream the box belongs to, by id. A workstream's boxes and
   // machines share a network and reach each other by alias.
@@ -42,11 +47,8 @@ message BoxSpec {
   // Add-ons layered onto the image, such as "browser" or "desktop".
   repeated string addons = 3 [(tower.meta.v1.field).immutable = true];
   // An explicit base image, which skips the first checkout's devcontainer.
+  // At most one of image and image_build is set.
   string image = 4 [(tower.meta.v1.field).immutable = true];
-  // A Secret in the same project whose values reach every command run in
-  // the box, as environment variables; empty is not privileged. The values
-  // never enter a spec of a lower layer (docs/decisions/secrets.md).
-  string privileged_secret = 5 [(tower.meta.v1.field).immutable = true];
   // Never stopped for idleness while set: workstream's keep_box. A box
   // with a process running (EnvironmentService.StartProcess) is not either.
   bool keep = 6;
@@ -54,6 +56,39 @@ message BoxSpec {
   // every process running in it.
   RunState run_state = 8;
   Resources resources = 9;
+  // Values of Secrets in the same project that reach every command and
+  // process run in the box, as environment variables named by their as;
+  // none is not privileged. The values never enter a spec of a lower layer
+  // (docs/decisions/secrets.md).
+  repeated SecretRef privileged_secrets = 10 [(tower.meta.v1.field).immutable = true];
+  // Values of Secrets in the same project written into the box as files,
+  // at each start of its instance and before any command runs in it.
+  repeated SecretFile secret_files = 11 [(tower.meta.v1.field).immutable = true];
+  // An image built for the box from a Dockerfile, with its add-ons layered
+  // on, as a container blueprint is, which skips the first checkout's
+  // devcontainer. At most one of image and image_build is set.
+  ImageBuild image_build = 12 [(tower.meta.v1.field).immutable = true];
+}
+
+// SecretFile is one value of a Secret written into a box as a file. The
+// value enters no object, status, log or event.
+message SecretFile {
+  // A Secret in the same project.
+  string secret = 1;
+  string key = 2;
+  // Where in the box, an absolute path.
+  string path = 3;
+  // The file's permission bits; 0 is 0600.
+  uint32 mode = 4;
+}
+
+// ImageBuild is a box image's own build: a Dockerfile and the files its
+// context holds beside it, 16 MiB in all at most.
+message ImageBuild {
+  string dockerfile = 1;
+  // The context's files by their relative path, such as "etc/app.conf";
+  // never "Dockerfile".
+  map<string, bytes> files = 2;
 }
 
 // Checkout is one repository checked out in a box.
