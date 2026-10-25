@@ -502,6 +502,8 @@ func TestAK3sMachine(t *testing.T) {
 			Workstream: "ws1",
 			Blueprint: &envv1alpha1.Blueprint{
 				Name: "k3s", Content: string(playbook), BaseImage: "ubuntu-24.04", ExposePorts: []int32{6443}, NetAlias: "k3s",
+				// workstream's k3s blueprint's (workstream: src/machine/builtin.ts).
+				ReadyCheck: &envv1alpha1.ReadyCheck{Command: "k3s kubectl get nodes 2>/dev/null | grep -q ' Ready '"},
 			},
 			Resources: &envv1alpha1.Resources{Cpu: "2", Memory: "4Gi", Disk: "20Gi"},
 		},
@@ -513,18 +515,15 @@ func TestAK3sMachine(t *testing.T) {
 	w.admin.must(manifests(t)+"---\n"+string(mJSON)+"\n", "apply", "-f", "-", "-p", "web")
 	w.host = w.runHostd()
 	w.admin.must("", "wait", "machine", "k3s", "-p", "web", "--for", "condition=Ready", "--timeout", "30m")
-	// The box has idled while the machine converged: a command wakes it.
 	ctx := t.Context()
 
-	// The machine runs k3s, its node named by the one hostname. A machine
-	// is ready once configured; k3s, started again in the clone, answers a
-	// moment later (workstream's own driver waits on a blueprint's
-	// readiness check, which tower's Blueprint does not carry).
-	testutil.EventuallyWithin(t, 5*time.Minute, "k3s answering in the machine", func() (bool, string) {
-		out, code, err := execIn(ctx, w.envs, machineEnv("k3s"), "k3s", "kubectl", "get", "nodes", "-o", "name")
-		return err == nil && code == 0 && strings.TrimSpace(out) == "node/machine", fmt.Sprint(out, code, err)
-	})
-	// A box of its workstream reaches its API by its alias.
+	// Ready, its ready check passed: k3s answers, its node named by the
+	// one hostname.
+	if out, code, err := execIn(ctx, w.envs, machineEnv("k3s"), "k3s", "kubectl", "get", "nodes", "-o", "name"); err != nil || code != 0 || strings.TrimSpace(out) != "node/machine" {
+		t.Fatalf("k3s in a READY machine: %q, exit %d, %v", out, code, err)
+	}
+	// A box of its workstream reaches its API by its alias. The box has
+	// idled while the machine converged: a command wakes it.
 	testutil.EventuallyWithin(t, 5*time.Minute, "the box reaching k3s:6443", func() (bool, string) {
 		out, code, err := execIn(ctx, w.envs, boxEnv("b1"), "nc", "-z", "-w", "5", "k3s", "6443")
 		return err == nil && code == 0, fmt.Sprint(out, code, err)
@@ -536,8 +535,7 @@ func TestAK3sMachine(t *testing.T) {
 	// A process runs in the machine, apart from the call.
 	started, err := w.envs.StartProcess(ctx, connect.NewRequest(&envv1alpha1.StartProcessRequest{
 		Environment: machineEnv("k3s"), Name: "readyz",
-		// Until its API is ready, which it says once.
-		Command: &envv1alpha1.StartProcessRequest_Shell{Shell: "until k3s kubectl get --raw /readyz >/dev/null 2>&1; do sleep 2; done; k3s kubectl get --raw /readyz"},
+		Command: &envv1alpha1.StartProcessRequest_Shell{Shell: "k3s kubectl get --raw /readyz"},
 	}))
 	if err != nil {
 		t.Fatal(err)
