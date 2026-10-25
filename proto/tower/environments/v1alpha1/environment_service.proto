@@ -37,12 +37,13 @@ service EnvironmentService {
   // directly, and the ticket to present there. On a hangar target it is
   // UNIMPLEMENTED: hangar forwards no port yet.
   rpc IssueTicket(IssueTicketRequest) returns (IssueTicketResponse);
-  // StartProcess starts a process in a box and returns its id at once: a
-  // background job or a service, which outlives the call, unlike Exec's
-  // command. In a privileged box, tower adds its Secret's values to the
-  // process's environment. While a process runs, the box is never stopped
-  // for idleness; stopping the box ends it. Processes are a box's alone: in
-  // a machine this is UNIMPLEMENTED.
+  // StartProcess starts a process in a box or a machine and returns its id
+  // at once: a background job or a service, which outlives the call, unlike
+  // Exec's command. In a privileged box, tower adds its Secret's values to
+  // the process's environment. While a process runs, the box is never
+  // stopped for idleness (a machine never is); stopping the environment
+  // ends it. A machine's processes are read from the machine itself: while
+  // it is stopped, they are not listed.
   rpc StartProcess(StartProcessRequest) returns (StartProcessResponse);
   // AttachProcess streams a process's output from an offset, stdout and
   // stderr in the order written. With follow it goes on until the process
@@ -52,7 +53,7 @@ service EnvironmentService {
   rpc AttachProcess(AttachProcessRequest) returns (stream AttachProcessResponse);
   // SignalProcess sends a signal to a process's group.
   rpc SignalProcess(SignalProcessRequest) returns (SignalProcessResponse);
-  // ListProcesses lists a box's processes, running and finished.
+  // ListProcesses lists an environment's processes, running and finished.
   rpc ListProcesses(ListProcessesRequest) returns (ListProcessesResponse);
 }
 
@@ -186,7 +187,7 @@ message IssueTicketRequest {
 }
 
 message StartProcessRequest {
-  // A box.
+  // A box or a machine.
   Environment environment = 1;
   oneof command {
     // The program and its arguments, run without a shell.
@@ -194,21 +195,21 @@ message StartProcessRequest {
     // A line run by /bin/sh -c.
     string shell = 3;
   }
-  // The working directory; empty is the box's default.
+  // The working directory; empty is the environment's default.
   string dir = 4;
-  // Added to the box's own environment for this process alone.
+  // Added to the environment's own for this process alone.
   map<string, string> env = 5;
   // A name for people, such as "dev server"; tower does not read it.
   string name = 6;
 }
 
 message StartProcessResponse {
-  // The process's id in its box.
+  // The process's id in its environment.
   string process = 1;
 }
 
 message AttachProcessRequest {
-  // A box.
+  // A box or a machine.
   Environment environment = 1;
   string process = 2;
   // Where in the process's output to start: an offset a previous attach
@@ -272,7 +273,7 @@ message ProcessExit {
 }
 
 message SignalProcessRequest {
-  // A box.
+  // A box or a machine.
   Environment environment = 1;
   string process = 2;
   Signal signal = 3;
@@ -281,18 +282,18 @@ message SignalProcessRequest {
 message SignalProcessResponse {}
 
 message ListProcessesRequest {
-  // A box.
+  // A box or a machine.
   Environment environment = 1;
 }
 
 message ListProcessesResponse {
-  // Oldest first. A finished process is kept until its box is deleted, or
-  // until the box holds more finished processes than its target keeps (100
-  // unless the target says otherwise), the oldest going first.
+  // Oldest first. A finished process is kept until its environment is
+  // deleted, or until it holds more finished processes than its target
+  // keeps (100 unless the target says otherwise), the oldest going first.
   repeated ProcessInfo processes = 1;
 }
 
-// ProcessInfo is one process of a box.
+// ProcessInfo is one process of a box or a machine.
 message ProcessInfo {
   string process = 1;
   string name = 2;

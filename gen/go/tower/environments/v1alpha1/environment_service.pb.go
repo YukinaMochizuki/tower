@@ -1261,16 +1261,16 @@ func (x *IssueTicketRequest) GetPort() int32 {
 
 type StartProcessRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// A box.
+	// A box or a machine.
 	Environment *Environment `protobuf:"bytes,1,opt,name=environment,proto3" json:"environment,omitempty"`
 	// Types that are valid to be assigned to Command:
 	//
 	//	*StartProcessRequest_Argv
 	//	*StartProcessRequest_Shell
 	Command isStartProcessRequest_Command `protobuf_oneof:"command"`
-	// The working directory; empty is the box's default.
+	// The working directory; empty is the environment's default.
 	Dir string `protobuf:"bytes,4,opt,name=dir,proto3" json:"dir,omitempty"`
-	// Added to the box's own environment for this process alone.
+	// Added to the environment's own for this process alone.
 	Env map[string]string `protobuf:"bytes,5,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// A name for people, such as "dev server"; tower does not read it.
 	Name          string `protobuf:"bytes,6,opt,name=name,proto3" json:"name,omitempty"`
@@ -1381,7 +1381,7 @@ func (*StartProcessRequest_Shell) isStartProcessRequest_Command() {}
 
 type StartProcessResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The process's id in its box.
+	// The process's id in its environment.
 	Process       string `protobuf:"bytes,1,opt,name=process,proto3" json:"process,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1426,7 +1426,7 @@ func (x *StartProcessResponse) GetProcess() string {
 
 type AttachProcessRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// A box.
+	// A box or a machine.
 	Environment *Environment `protobuf:"bytes,1,opt,name=environment,proto3" json:"environment,omitempty"`
 	Process     string       `protobuf:"bytes,2,opt,name=process,proto3" json:"process,omitempty"`
 	// Where in the process's output to start: an offset a previous attach
@@ -1766,7 +1766,7 @@ func (x *ProcessExit) GetSignal() Signal {
 
 type SignalProcessRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// A box.
+	// A box or a machine.
 	Environment   *Environment `protobuf:"bytes,1,opt,name=environment,proto3" json:"environment,omitempty"`
 	Process       string       `protobuf:"bytes,2,opt,name=process,proto3" json:"process,omitempty"`
 	Signal        Signal       `protobuf:"varint,3,opt,name=signal,proto3,enum=tower.environments.v1alpha1.Signal" json:"signal,omitempty"`
@@ -1863,7 +1863,7 @@ func (*SignalProcessResponse) Descriptor() ([]byte, []int) {
 
 type ListProcessesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// A box.
+	// A box or a machine.
 	Environment   *Environment `protobuf:"bytes,1,opt,name=environment,proto3" json:"environment,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1908,9 +1908,9 @@ func (x *ListProcessesRequest) GetEnvironment() *Environment {
 
 type ListProcessesResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Oldest first. A finished process is kept until its box is deleted, or
-	// until the box holds more finished processes than its target keeps (100
-	// unless the target says otherwise), the oldest going first.
+	// Oldest first. A finished process is kept until its environment is
+	// deleted, or until it holds more finished processes than its target
+	// keeps (100 unless the target says otherwise), the oldest going first.
 	Processes     []*ProcessInfo `protobuf:"bytes,1,rep,name=processes,proto3" json:"processes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1953,7 +1953,7 @@ func (x *ListProcessesResponse) GetProcesses() []*ProcessInfo {
 	return nil
 }
 
-// ProcessInfo is one process of a box.
+// ProcessInfo is one process of a box or a machine.
 type ProcessInfo struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Process string                 `protobuf:"bytes,1,opt,name=process,proto3" json:"process,omitempty"`
