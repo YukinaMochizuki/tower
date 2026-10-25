@@ -51,6 +51,8 @@ import (
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver/chvm/launcher"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver/docker"
@@ -465,9 +467,13 @@ func (d *Driver) prepareBoot(ctx context.Context, name string, c container.Inspe
 	if memory == 0 {
 		memory = 1 << 30
 	}
+	hostKey, hostPub, err := d.vmHostKey(name)
+	if err != nil {
+		return err
+	}
 	ls := launcher.Spec{
 		Name: name, CPUs: max(s.CPUs, 1), MemoryMiB: int64(memory >> 20), MAC: macOf(name),
-		InstanceID: name, Hostname: Hostname, UserData: d.userData(), StopGrace: d.cfg.StopGrace,
+		InstanceID: name, Hostname: Hostname, UserData: d.userData(hostKey, hostPub), StopGrace: d.cfg.StopGrace,
 	}
 	b, err := json.Marshal(ls)
 	if err != nil {
@@ -482,13 +488,18 @@ func macOf(name string) string {
 	return fmt.Sprintf("02:%02x:%02x:%02x:%02x:%02x", sum[0], sum[1], sum[2], sum[3], sum[4])
 }
 
-// userData is the VMs' cloud-config: hostd's key for root, and the one
-// hostname. A root locked by its password field ("!", as Alpine's is)
-// takes no key either; it is given one that only locks its password. The
-// workstream's aliases are single labels, which systemd-resolved (as
-// Ubuntu's) sends to no DNS server unless told to: it is told to, at
-// each boot.
-func (d *Driver) userData() string {
+// userData is a VM's cloud-config: hostd's key for root, the host key
+// hostd made for it, which hostd checks it answers with (its only one),
+// and the one hostname. A root locked by its password field ("!", as
+// Alpine's is) takes no key either; it is given one that only locks its
+// password. The workstream's aliases are single labels, which
+// systemd-resolved (as Ubuntu's) sends to no DNS server unless told to: it
+// is told to, at each boot.
+func (d *Driver) userData(hostKeyPEM string, hostPub ssh.PublicKey) string {
+	var key strings.Builder
+	for _, line := range strings.Split(strings.TrimSpace(hostKeyPEM), "\n") {
+		key.WriteString("    " + line + "\n")
+	}
 	return "#cloud-config\n" +
 		"hostname: " + Hostname + "\n" +
 		"preserve_hostname: false\n" +
@@ -496,6 +507,11 @@ func (d *Driver) userData() string {
 		"ssh_pwauth: false\n" +
 		"ssh_authorized_keys:\n" +
 		"  - " + d.keys.authorized + "\n" +
+		"ssh_deletekeys: true\n" +
+		"ssh_genkeytypes: []\n" +
+		"ssh_keys:\n" +
+		"  ed25519_private: |\n" + key.String() +
+		"  ed25519_public: " + strings.TrimSpace(string(ssh.MarshalAuthorizedKey(hostPub))) + "\n" +
 		"bootcmd:\n" +
 		"  - [sh, -c, \"sed -i 's/^root:![^:]*:/root:*:/' /etc/shadow\"]\n" +
 		"  - [sh, -c, \"if [ -d /etc/systemd ]; then mkdir -p /etc/systemd/resolved.conf.d && " +

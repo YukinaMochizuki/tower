@@ -57,6 +57,53 @@ func loadKeys(dir string) (sshKeys, error) {
 	return sshKeys{signer: signer, authorized: authorized}, nil
 }
 
+// hostKeyFile is a VM's ssh host key, in its directory: hostd makes it
+// and gives it to the VM through cloud-init (ssh_keys), so it knows the
+// key the VM answers with before the VM ever boots.
+const hostKeyFile = "ssh_host_ed25519_key"
+
+// vmHostKey is a VM's host key, made once: its private key in OpenSSH's
+// PEM and its public key.
+func (d *Driver) vmHostKey(name string) (privPEM string, pub ssh.PublicKey, err error) {
+	path := filepath.Join(d.dir(name), hostKeyFile)
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		_, priv, gerr := ed25519.GenerateKey(rand.Reader)
+		if gerr != nil {
+			return "", nil, gerr
+		}
+		block, merr := ssh.MarshalPrivateKey(priv, "")
+		if merr != nil {
+			return "", nil, merr
+		}
+		b = pem.EncodeToMemory(block)
+		if err := os.MkdirAll(d.dir(name), 0o700); err != nil {
+			return "", nil, err
+		}
+		if err := writeAtomic(path, b, 0o600); err != nil {
+			return "", nil, err
+		}
+	} else if err != nil {
+		return "", nil, err
+	}
+	signer, err := ssh.ParsePrivateKey(b)
+	if err != nil {
+		return "", nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return string(b), signer.PublicKey(), nil
+}
+
+// sshConfig is how hostd connects to a VM: as root with its key, to a VM
+// answering with the host key hostd gave it, and no other.
+func (d *Driver) sshConfig(hostKey ssh.PublicKey) *ssh.ClientConfig {
+	return &ssh.ClientConfig{
+		User: "root", Auth: []ssh.AuthMethod{ssh.PublicKeys(d.keys.signer)},
+		HostKeyCallback:   ssh.FixedHostKey(hostKey),
+		HostKeyAlgorithms: []string{hostKey.Type()},
+		Timeout:           10 * time.Second,
+	}
+}
+
 // In a VM, tower-guest is kept here, beside the sha256 it was copied as.
 const (
 	guestDir     = "/var/lib/tower/bin"
@@ -120,16 +167,14 @@ func (d *Driver) readyVM(ctx context.Context, name string) (*readyVM, error) {
 
 // dialSSH connects to a VM's ssh as root, waiting for it to answer up to
 // ReadyTimeout, as a VM just started boots. A VM that stops meanwhile is
-// ErrNotRunning.
-//
-// The VM's host key is not checked: a VM's address is on its workstream's
-// network on this host alone, and its key is made afresh by each instance.
+// ErrNotRunning. It answers with the host key hostd gave it, or is not
+// spoken to.
 func (d *Driver) dialSSH(ctx context.Context, name, addr string) (*ssh.Client, error) {
-	cfg := &ssh.ClientConfig{
-		User: "root", Auth: []ssh.AuthMethod{ssh.PublicKeys(d.keys.signer)},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec // see above
-		Timeout:         10 * time.Second,
+	_, hostKey, err := d.vmHostKey(name)
+	if err != nil {
+		return nil, err
 	}
+	cfg := d.sshConfig(hostKey)
 	deadline := time.Now().Add(d.cfg.ReadyTimeout)
 	var last error
 	for {
