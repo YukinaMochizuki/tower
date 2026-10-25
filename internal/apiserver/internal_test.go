@@ -102,6 +102,7 @@ func sec(name string) *secretsv1alpha1.Secret {
 }
 
 func TestFinalizers(t *testing.T) {
+	t.Parallel()
 	s, system, admin := running(t)
 	b := s.backend(registry.Secret)
 	key := resource.Key{Project: "web", Name: "api"}
@@ -144,6 +145,7 @@ func deleted(b *backend, ctx context.Context, key resource.Key) func() (bool, st
 }
 
 func TestReservedLabelsSurviveUserApply(t *testing.T) {
+	t.Parallel()
 	s, system, admin := running(t)
 	b := s.backend(registry.Secret)
 
@@ -178,6 +180,7 @@ func TestReservedLabelsSurviveUserApply(t *testing.T) {
 }
 
 func TestReservedAnnotationsSurviveAndEchoBack(t *testing.T) {
+	t.Parallel()
 	s, system, admin := running(t)
 	b := s.backend(registry.Project)
 	p := &tenancyv1alpha1.Project{Metadata: &metav1.ObjectMeta{Name: "api", Annotations: map[string]string{"tower.hangarlab.cloud/env": "e-1"}}}
@@ -208,6 +211,7 @@ func TestReservedAnnotationsSurviveAndEchoBack(t *testing.T) {
 }
 
 func TestSweepCollectsOrphans(t *testing.T) {
+	t.Parallel()
 	s, system, admin := running(t)
 	b := s.backend(registry.Secret)
 
@@ -258,6 +262,7 @@ func TestSweepCollectsOrphans(t *testing.T) {
 }
 
 func TestStoredBytesCarryNoResourceVersion(t *testing.T) {
+	t.Parallel()
 	s, system, _ := running(t)
 	if _, err := s.backend(registry.Secret).Apply(system, sec("api")); err != nil {
 		t.Fatal(err)

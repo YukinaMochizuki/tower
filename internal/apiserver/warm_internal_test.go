@@ -15,6 +15,7 @@ import (
 // hold whatever its score; after it, a challenger takes a place only with
 // a score more than WarmChallengeMargin above the holder's.
 func TestWarmRankingHasHysteresis(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
 	candidate := func(name string, seconds int64, heldFor time.Duration) warmCandidate {
 		c := warmCandidate{project: "web", repo: &envv1alpha1.Repository{

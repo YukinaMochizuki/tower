@@ -323,6 +323,7 @@ func processSteps(t *testing.T, env environmentsv1alpha1connect.EnvironmentServi
 // streamed to, kept running by a process, idle-stopped and woken; its host
 // gone and back; its project deleted, and the host empty after.
 func TestTheDemo(t *testing.T) {
+	t.Parallel()
 	bin := t.TempDir()
 	binaries(t, bin)
 	// Unix socket paths are short; t.TempDir can be too long for one.

@@ -32,6 +32,7 @@ func getProject(name string) *connect.Request[tenancyv1alpha1.GetProjectRequest]
 }
 
 func TestLifecycle(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	a := e.as(admin)
@@ -97,6 +98,7 @@ func TestLifecycle(t *testing.T) {
 }
 
 func TestApplyRules(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	e.setup()
@@ -170,6 +172,7 @@ func TestApplyRules(t *testing.T) {
 // that exists with AlreadyExists, changing nothing, and takes no resource
 // version.
 func TestCreateOnlyApplyNeverReplaces(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	a := e.as(admin)
@@ -195,6 +198,7 @@ func TestCreateOnlyApplyNeverReplaces(t *testing.T) {
 // write a kind is refused for that, by name, whether the object exists or
 // not, before anything says the name is taken.
 func TestCreateOnlyDeniesBeforeSayingAnObjectExists(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	w := e.as(workstream)
@@ -222,6 +226,7 @@ func messageWithout(err error, name string) string {
 }
 
 func TestWatch(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t, func(c *apiserver.Config) { c.BookmarkInterval = 30 * time.Second })
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -291,6 +296,7 @@ func TestWatch(t *testing.T) {
 }
 
 func TestWatchReportsItsDeadline(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setup()
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
@@ -305,6 +311,7 @@ func TestWatchReportsItsDeadline(t *testing.T) {
 }
 
 func TestWatchFromCompactedRevision(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	e.setup()
@@ -331,6 +338,7 @@ func TestWatchFromCompactedRevision(t *testing.T) {
 // beyond EventRetention, so a watch from before it is OUT_OF_RANGE, and one
 // from within it is not.
 func TestCompactionKeepsTheRetention(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t, func(c *apiserver.Config) { c.EventRetention = 2 })
 	ctx := t.Context()
 	e.setup()
@@ -366,6 +374,7 @@ func TestCompactionKeepsTheRetention(t *testing.T) {
 // by it; deleting the project deletes its contents first, then the
 // project.
 func TestProjectDeletionDeletesItsContents(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	e.setup()
@@ -416,6 +425,7 @@ func TestProjectDeletionDeletesItsContents(t *testing.T) {
 // was made with, so deleting it afterwards still deletes its contents
 // first.
 func TestAnApplyKeepsTheSystemsFinalizers(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	e.setup()
@@ -446,6 +456,7 @@ func TestAnApplyKeepsTheSystemsFinalizers(t *testing.T) {
 // TestNothingGoesIntoAProjectThatIsNotThere: a project-scoped object in a
 // project that does not exist is refused, whoever writes it.
 func TestNothingGoesIntoAProjectThatIsNotThere(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	for who, c := range map[string]clients{"admin": e.as(admin), "root on the host": e.local(), "the system": e.asSystem()} {
@@ -457,6 +468,7 @@ func TestNothingGoesIntoAProjectThatIsNotThere(t *testing.T) {
 // TestStatusIsTheSystems: status is a subresource only the system writes;
 // an apply never changes it.
 func TestStatusIsTheSystems(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := t.Context()
 	e.setup()

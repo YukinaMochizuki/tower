@@ -8,6 +8,7 @@ import (
 // TestKeyLocks: one key's holders take turns, other keys do not wait, and
 // a lock no one wants is dropped.
 func TestKeyLocks(t *testing.T) {
+	t.Parallel()
 	var k keyLocks
 	var wg sync.WaitGroup
 	counts := map[string]int{}

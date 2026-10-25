@@ -19,6 +19,7 @@ import (
 // inputs name by digest is what its build is FROM, though its tag moved
 // to another since the golden was made.
 func TestAnImageIsBuiltFromTheBaseItsGoldenNames(t *testing.T) {
+	t.Parallel()
 	s := &Server{cfg: Config{Resolver: devcontainer.Real{}}}
 	p := fake.New("t1", clockwork.NewRealClock())
 	p.SetImage("ubuntu:24.04", provider.ImageConfig{Digest: "sha256:moved"})

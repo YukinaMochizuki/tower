@@ -60,6 +60,7 @@ func (w *world) processesRunning(box string) int32 {
 // never stopped for idleness, and the process ending is a use of it: the
 // idle clock starts again then, so the output can still be read.
 func TestARunningProcessKeepsABox(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, idleAfter(time.Hour))
 	w.readyBox("dev")
 	envs := w.as(workstream).envs
@@ -87,6 +88,7 @@ func TestARunningProcessKeepsABox(t *testing.T) {
 // an editor connected on a ticket, is never stopped for idleness, and the
 // last stream's end is a use of it.
 func TestAnOpenStreamKeepsABox(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, idleAfter(time.Hour))
 	w.readyBox("dev")
 	in := provider.Instance{Project: "web", Name: w.box("dev").GetStatus().GetInstance()}
@@ -117,6 +119,7 @@ func TestAnOpenStreamKeepsABox(t *testing.T) {
 // TestARequestedStopEndsProcesses: stopping a box at workstream's request
 // ends its processes.
 func TestARequestedStopEndsProcesses(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.readyBox("dev")
 	id := startProcess(t, w.as(workstream).envs, &envv1alpha1.StartProcessRequest{Environment: boxEnv("dev"), Command: &envv1alpha1.StartProcessRequest_Argv{Argv: &envv1alpha1.Argv{Args: []string{"sleep"}}}})
@@ -139,6 +142,7 @@ func TestARequestedStopEndsProcesses(t *testing.T) {
 // it is listed and signalled; a privileged box's Secret reaches its
 // environment and nowhere else; and an attach keeps the box in use.
 func TestProcessesThroughTower(t *testing.T) {
+	t.Parallel()
 	var logs syncBuffer
 	w := newWorld(t, worldOption{config: func(c *apiserver.Config) {
 		c.Logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -219,6 +223,7 @@ func TestProcessesThroughTower(t *testing.T) {
 // TestProcessesInAMachine: a machine runs processes as a box does, given
 // the environment of their own, apart from any call.
 func TestProcessesInAMachine(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.mustApply(registry.Machine, machine("k3s"))
 	w.waitMachine("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_READY)

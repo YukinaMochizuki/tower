@@ -52,6 +52,7 @@ func (w *world) waitFailedSaying(name string, want ...string) *envv1alpha1.Box {
 // which a restart keeps. A call into it meanwhile is refused at once with
 // the reason; a success ends the backoff.
 func TestAFailedCheckoutIsTriedAgainAfterABackoff(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.fake.FailCommands("install-dependencies")
 	w.mustApply(registry.Repository, repository("api"))
@@ -97,6 +98,7 @@ func TestAFailedCheckoutIsTriedAgainAfterABackoff(t *testing.T) {
 // TestAChangedSpecTriesAFailedStepAgain: a box's spec changed while one of
 // its steps waits out a backoff runs the step again at once.
 func TestAChangedSpecTriesAFailedStepAgain(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.fake.FailCommands("install-dependencies")
 	w.mustApply(registry.Repository, repository("api"))
@@ -117,6 +119,7 @@ func TestAChangedSpecTriesAFailedStepAgain(t *testing.T) {
 // TestAStepsFailuresGoWithItsBox: the failures of a box's step are
 // forgotten once the box is gone.
 func TestAStepsFailuresGoWithItsBox(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.fake.FailCommands("install-dependencies")
 	w.mustApply(registry.Repository, repository("api"))
@@ -146,6 +149,7 @@ func TestAStepsFailuresGoWithItsBox(t *testing.T) {
 // configure phase fails is FAILED, saying when it runs again, and runs
 // again then.
 func TestAFailedConfigurePhaseIsTriedAgainAfterABackoff(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	fail := true
 	var configures int

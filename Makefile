@@ -5,7 +5,7 @@ GOLANGCI_LINT := $(TOOL) golangci-lint
 # Paths whose contents are produced by `make gen` and must never drift.
 GENERATED := gen internal/apiserver/servicegen internal/store/sqlite/db
 
-.PHONY: all gen check lint lint-proto lint-go breaking test e2e e2e-host build-deploy gen-check dev tools deps
+.PHONY: all gen check lint lint-proto lint-go breaking test e2e test-e2e-race e2e-host build-deploy gen-check dev tools deps
 
 all: check
 
@@ -47,12 +47,21 @@ test:
 	go test $(RACE) -timeout 20m ./...
 
 # Hermetic end-to-end tests: tower, hostd and the CLI with fake drivers.
-# Passes while test/e2e holds no package yet.
+# Without the race detector and in parallel; test-e2e-race runs them under
+# it, one at a time (docs/conventions/testing.md says why). Both pass while
+# test/e2e holds no package yet.
 e2e:
 	@if [ -n "$$(find test/e2e -name '*.go' 2>/dev/null)" ]; then \
-		go test $(RACE) -timeout 20m -tags e2e ./test/e2e/...; \
+		go test -timeout 20m -tags e2e ./test/e2e/...; \
 	else \
 		echo "e2e: no packages under test/e2e yet"; \
+	fi
+
+test-e2e-race:
+	@if [ -n "$$(find test/e2e -name '*.go' 2>/dev/null)" ]; then \
+		go test $(RACE) -parallel 1 -timeout 40m -tags e2e ./test/e2e/...; \
+	else \
+		echo "test-e2e-race: no packages under test/e2e yet"; \
 	fi
 
 # Real-host tests (L4) on a testbed test/testbed/setup.sh made: the

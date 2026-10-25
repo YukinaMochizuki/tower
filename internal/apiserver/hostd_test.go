@@ -15,6 +15,7 @@ import (
 // this apiserver, to the provider contract: the seam a host's real drivers
 // plug into.
 func TestHostdConformanceThroughTower(t *testing.T) {
+	t.Parallel()
 	w := hostdtest.New(t, hostdtest.Options{})
 	w.Tunnel(t)
 	p, err := w.Env.Server.ProviderFor(hostdtest.Target)

@@ -102,6 +102,7 @@ func writeFile(ctx context.Context, envs environmentsv1alpha1connect.Environment
 // refused to an admin, root on the host, hostd and the unauthenticated,
 // alike whether what it names exists; workstream's goes through.
 func TestOnlyWorkstreamUsesEnvironments(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.readyBox("dev")
 	ctx := t.Context()
@@ -194,6 +195,7 @@ func messageOfErr(err error) string {
 // caller in the order written, then its exit code; a shell line runs under
 // /bin/sh -c, and a command past its timeout is killed and says so.
 func TestExecStreamsOutputInOrder(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	b := w.readyBox("dev")
 	envs := w.as(workstream).envs
@@ -233,6 +235,7 @@ func TestExecStreamsOutputInOrder(t *testing.T) {
 // gives them, over what the caller gives; a key it does not name is not
 // given, and the values reach no object, event, log line or database file.
 func TestAPrivilegedBoxsSecretReachesOnlyItsCommands(t *testing.T) {
+	t.Parallel()
 	var logs syncBuffer
 	w := newWorld(t, worldOption{config: func(c *apiserver.Config) {
 		c.Logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -269,6 +272,7 @@ func TestAPrivilegedBoxsSecretReachesOnlyItsCommands(t *testing.T) {
 // starts it, waits until it is READY, and runs there: the same box, on the
 // same instance.
 func TestExecWakesAnIdleBox(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, idleAfter(time.Hour))
 	before := w.readyBox("dev")
 	w.advance(61 * time.Minute)
@@ -300,6 +304,7 @@ func TestExecWakesAnIdleBox(t *testing.T) {
 // TestARequestedStopIsRefused: a box or machine workstream stopped is not
 // started by a call; the call says why.
 func TestARequestedStopIsRefused(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	b := w.readyBox("dev")
 	b.Spec.RunState = envv1alpha1.RunState_RUN_STATE_STOPPED
@@ -326,6 +331,7 @@ func TestARequestedStopIsRefused(t *testing.T) {
 // TestFilesThroughTower: a file written in chunks, in order, reads back
 // whole and by window; a chunk out of order is refused.
 func TestFilesThroughTower(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	w.readyBox("dev")
 	envs := w.as(workstream).envs
@@ -365,6 +371,7 @@ func TestFilesThroughTower(t *testing.T) {
 // TestCopyFileBetweenBoxes: a copy between two environments of one
 // workstream happens on the target; one between workstreams is refused.
 func TestCopyFileBetweenBoxes(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	a := w.readyBox("a")
 	bx := w.readyBox("b")
@@ -395,6 +402,7 @@ func TestCopyFileBetweenBoxes(t *testing.T) {
 // origin/* to the forge; Push goes only with a credential, and forces only
 // on its lease.
 func TestFetchOriginAndPush(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	const url = "https://git.example.com/api.git"
 	w.fake.SetRemote(url, "main", map[string]string{"go.mod": "module api\n"}, "c1", "c2")
@@ -483,6 +491,7 @@ func newSigner(t *testing.T) *ticket.Signer {
 // and a ticket that verifies with tower's public key for the box's
 // instance and that port alone, until it expires.
 func TestATicketVerifiesForItsPortAlone(t *testing.T) {
+	t.Parallel()
 	signer := newSigner(t)
 	w := newWorld(t, withTickets(signer))
 	b := w.readyBox("dev")
@@ -526,6 +535,7 @@ func TestATicketVerifiesForItsPortAlone(t *testing.T) {
 // TestNoTicketOnHangar: a ticket for an environment on a hangar target is
 // Unimplemented, and says why.
 func TestNoTicketOnHangar(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, withTickets(newSigner(t)))
 	w.mustApply(registry.Target, &targetsv1alpha1.Target{
 		Metadata: &metav1.ObjectMeta{Name: "hg"},

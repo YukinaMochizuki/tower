@@ -78,6 +78,7 @@ func dockerfileIn(t *testing.T, ctx []byte) string {
 // onCreateCommand and its postCreateCommand in /workspace. A step that
 // fails leaves the box READY, saying so.
 func TestABoxIsMadeOfItsRepositorysDevcontainer(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, realResolver())
 	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{
 		".devcontainer/devcontainer.json": `{
@@ -142,6 +143,7 @@ func TestABoxIsMadeOfItsRepositorysDevcontainer(t *testing.T) {
 // image built from the commit its devcontainer was read at, not from the
 // branch read again when the build runs.
 func TestAnImageIsBuiltFromTheCommitRead(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, realResolver())
 	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{".devcontainer.json": `{"image": "node:22"}`}, "c1", "c2")
 	b := w.readyBox("dev", func(b *envv1alpha1.Box) { b.Spec.Checkouts[0].Ref = "main" })
@@ -162,6 +164,7 @@ func TestAnImageIsBuiltFromTheCommitRead(t *testing.T) {
 // build, is made of the image to fall back to, sets nothing up, and says
 // why in its DevcontainerFellBack condition.
 func TestABoxFallsBackFromADevcontainerItCannotMake(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, realResolver())
 	w.fake.SetImage("ubuntu:24.04", provider.ImageConfig{Digest: "sha256:dd"})
 	var setup setupRun
@@ -203,6 +206,7 @@ func TestABoxFallsBackFromADevcontainerItCannotMake(t *testing.T) {
 // back to, fails at once, saying why; one given an explicit image is made
 // of it and sets nothing up.
 func TestABoxWhoseDevcontainerCannotBeResolvedFails(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, realResolver())
 	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{"README": "no devcontainer"}, "c1")
 	w.mustApply(registry.Repository, repository("api"))
@@ -234,6 +238,7 @@ func TestABoxWhoseDevcontainerCannotBeResolvedFails(t *testing.T) {
 // of tower's default box image, with its add-ons, as workstream makes a
 // plain box of it; it sets nothing up.
 func TestABoxOfARepositoryWithoutADevcontainerFallsBack(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t, worldOption{config: func(c *apiserver.Config) {
 		c.Resolver, c.DefaultBoxImage = devcontainer.Real{}, "ghcr.io/workstream/box:1"
 	}})

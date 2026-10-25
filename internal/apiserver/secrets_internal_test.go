@@ -102,6 +102,7 @@ func noValues(t *testing.T, what string, msgs ...proto.Message) {
 // holds a secret's value, nor its sealed form; status says what can be
 // said without them.
 func TestSecretValuesAreNeverAnswered(t *testing.T) {
+	t.Parallel()
 	log := &lockedBuffer{}
 	s, system, user := runningWith(t, withSecrets(keyring(t, secrets.NewKEK("k1")), log))
 	b := s.backend(registry.Secret)
@@ -240,6 +241,7 @@ func secretStatus(m proto.Message) *secretsv1alpha1.SecretStatus {
 // TestSecretDataAtRestIsCiphertext: the database's files, its history
 // included, hold no value of a secret, nor its Docker config at all.
 func TestSecretDataAtRestIsCiphertext(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s, _, user := runningAt(t, filepath.Join(dir, "tower.db"), withSecrets(keyring(t, secrets.NewKEK("k1")), nil))
 	b := s.backend(registry.Secret)
@@ -289,6 +291,7 @@ func TestSecretDataAtRestIsCiphertext(t *testing.T) {
 // TestSecretAppliesAreChecked: an apply carries the data, every time, never
 // the sealed form, and holds to its type.
 func TestSecretAppliesAreChecked(t *testing.T) {
+	t.Parallel()
 	s, _, user := runningWith(t, withSecrets(keyring(t, secrets.NewKEK("k1")), nil))
 	b := s.backend(registry.Secret)
 	if _, err := b.Apply(user, registrySecret("ghcr", dockerConfig("ghcr.io", "me", "p"))); err != nil {
@@ -325,6 +328,7 @@ func TestSecretAppliesAreChecked(t *testing.T) {
 // TestSecretsNeedAKEK: without a key-encryption key, writing a secret fails
 // and says why; with none stored, the apiserver starts all the same.
 func TestSecretsNeedAKEK(t *testing.T) {
+	t.Parallel()
 	s, _, user := runningWith(t, func(c *Config) { c.Secrets = nil })
 	if err := s.PrepareSecrets(t.Context()); err != nil {
 		t.Errorf("an empty store without a KEK: %v", err)
@@ -339,6 +343,7 @@ func TestSecretsNeedAKEK(t *testing.T) {
 // start without the KEK they were sealed under, or with a wrong one, and
 // seals them again under a new one given the old.
 func TestTheKEKIsCheckedAtStart(t *testing.T) {
+	t.Parallel()
 	k1 := secrets.NewKEK("k1")
 	s, system, user := runningWith(t, withSecrets(keyring(t, k1), nil))
 	if _, err := s.backend(registry.Secret).Apply(user, registrySecret("ghcr", dockerConfig("ghcr.io", "me", secretCanary))); err != nil {
@@ -389,6 +394,7 @@ func TestTheKEKIsCheckedAtStart(t *testing.T) {
 // status observed at the generation it is stored at, and Ready, so a client
 // waiting for observed == generation sees it at once.
 func TestASecretsStatusIsAtItsGeneration(t *testing.T) {
+	t.Parallel()
 	s, _, user := running(t)
 	b := s.backend(registry.Secret)
 	check := func(what string, m proto.Message, gen int64) *metav1.Condition {
@@ -441,6 +447,7 @@ func TestASecretsStatusIsAtItsGeneration(t *testing.T) {
 // secret's values; no other caller, root on the host and admin tokens
 // included, gets them, and a secret gone or being deleted opens to nothing.
 func TestOpenSecretIsTheSystemsAlone(t *testing.T) {
+	t.Parallel()
 	s, system, user := running(t)
 	b := s.backend(registry.Secret)
 	if _, err := b.Apply(user, opaque("env", map[string]string{"GITHUB_TOKEN": secretCanary})); err != nil {

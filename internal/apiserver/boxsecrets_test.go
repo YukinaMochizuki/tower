@@ -24,6 +24,7 @@ import (
 // again at each start of it, over what was there; their values reach no
 // object, event, log line or database file.
 func TestSecretFilesAreWrittenAtEachStart(t *testing.T) {
+	t.Parallel()
 	var logs syncBuffer
 	w := newWorld(t, worldOption{config: func(c *apiserver.Config) {
 		c.Logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -103,6 +104,7 @@ func TestSecretFilesAreWrittenAtEachStart(t *testing.T) {
 // TestASecretFileThatCannotBeWrittenFailsTheBox: a secret file whose value
 // is gone fails the box, saying which secret and key, never a value.
 func TestASecretFileThatCannotBeWrittenFailsTheBox(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	const value = "canary-refused-Ty62"
 	w.mustApply(registry.Secret, secret("web", "gh", map[string]string{"hosts": value}))
@@ -128,6 +130,7 @@ func TestASecretFileThatCannotBeWrittenFailsTheBox(t *testing.T) {
 // from its Dockerfile and files, with its add-ons, as a golden of those
 // inputs that boxes of the same build share and another build does not.
 func TestABoxOfItsOwnImageBuild(t *testing.T) {
+	t.Parallel()
 	w := newWorld(t)
 	build := &envv1alpha1.ImageBuild{
 		Dockerfile: "FROM debian:12\nCOPY etc/app.conf /etc/app.conf\n",

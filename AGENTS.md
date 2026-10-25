@@ -38,7 +38,8 @@ outside; everything else is `internal/` and carries no compatibility promise.
 |---|---|
 | `make gen` | Regenerate everything from `proto/` and SQL |
 | `make check` | Lint, test, and fail if `make gen` would change anything. Run before every commit |
-| `make e2e` | Hermetic end-to-end tests (fake providers and drivers) |
+| `make e2e` | Hermetic end-to-end tests (fake providers and drivers), in parallel, without the race detector |
+| `make test-e2e-race` | The same under the race detector, one test at a time (CI runs it, `make check` does not) |
 | `make e2e-host` | Real-host tests on a testbed, as root (`docs/runbook/testbed.md`) |
 | `make build-deploy` | The binaries `docs/runbook/deploy.md` installs |
 | `make dev` | Run the apiserver locally in dev auth mode |
@@ -73,7 +74,7 @@ Every other tool is pinned in the repo (`go.mod`, `tools/tools.mod`, or
 | `docs/runbook/deploy.md` | You install tower, its registry or hostd on a host |
 | `docs/conventions/comments.md` | You write or review a code comment |
 | hangar's `docs/conventions/testing.md` | You write or change a test: its tools and examples hold here (`docs/decisions/testing-strategy.md`) |
-| `docs/conventions/testing.md` | You run tests: how tower's runs differ from hangar's |
+| `docs/conventions/testing.md` | You run tests: how they run in parallel, and how to run one while iterating |
 | hangar's `docs/checklists/new-resource.md` and `new-controller.md` | You add a kind or a controller; read "tower" for "hangar" |
 | hangar's `docs/checklists/review.md` | You review a change, or before you ask for one; its node and guest sections do not apply |
 

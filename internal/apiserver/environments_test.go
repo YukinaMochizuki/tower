@@ -33,6 +33,7 @@ func applyAs(t *testing.T, c clients, r registry.Resource, obj proto.Message) er
 }
 
 func TestTargetsAreChecked(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	a := e.as(admin)
 	if err := applyAs(t, a, registry.Target, hangarTarget("h")); err != nil {
@@ -87,6 +88,7 @@ func TestTargetsAreChecked(t *testing.T) {
 // TestAPlacementNamesAProjectAndATarget: a placement is named after an
 // existing project and names an existing target.
 func TestAPlacementNamesAProjectAndATarget(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setup()
 	a := e.as(admin)
@@ -107,6 +109,7 @@ func TestAPlacementNamesAProjectAndATarget(t *testing.T) {
 // TestATargetInUseIsNotDeleted: deleting a target a Placement or an
 // Instance names is refused, saying which, to everyone but the system.
 func TestATargetInUseIsNotDeleted(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.fixtures()
 	ctx := t.Context()
@@ -123,6 +126,7 @@ func TestATargetInUseIsNotDeleted(t *testing.T) {
 }
 
 func TestRepositoriesAreChecked(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setup()
 	a := e.as(admin)
@@ -149,6 +153,7 @@ func TestRepositoriesAreChecked(t *testing.T) {
 // project, its privileged secret a secret of it, an empty box names its
 // image, and its quantities parse.
 func TestABoxNamesWhatItIsMadeOf(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.fixtures()
 	w := e.as(workstream)
@@ -282,6 +287,7 @@ func withBox(mutate func(*envv1alpha1.Box), code connect.Code) struct {
 // TestAnInstancesEnvironment: an instance's environment is a container's,
 // of variables' names, its values without NUL.
 func TestAnInstancesEnvironment(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.fixtures()
 	sys := e.asSystem()
@@ -307,6 +313,7 @@ func TestAnInstancesEnvironment(t *testing.T) {
 }
 
 func TestAMachineNamesItsSecrets(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.fixtures()
 	w := e.as(workstream)
