@@ -95,7 +95,12 @@ func testInstancesRun(t *testing.T, h Harness) {
 	if _, err := h.Provider.Exec(t.Context(), provider.ExecRequest{Instance: in, Command: []string{"true"}}); err == nil {
 		t.Error("a command ran in a stopped instance")
 	}
-	vm := &envv1alpha1.InstanceSpec{Target: h.Target, Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_VM, Image: h.BaseImage, Network: "net-a", Alias: "vm"}
+	// Its resources given, as tower's controllers always give a VM's: its
+	// disk must hold its base image.
+	vm := &envv1alpha1.InstanceSpec{
+		Target: h.Target, Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_VM, Image: h.BaseImage, Network: "net-a", Alias: "vm",
+		Resources: &envv1alpha1.Resources{Cpu: "1", Memory: "1Gi", Disk: "2Gi"},
+	}
 	if _, st := h.Start(t, "vm", vm); st.GetAddress() == "" {
 		t.Errorf("a running VM's status: %v, want its address", st)
 	}

@@ -259,6 +259,16 @@ func (w *World) Harness(p provider.Provider) providertest.Harness {
 			}); err != nil {
 				t.Fatal(err)
 			}
+			// tower fails it, as nothing it is built from is recorded; it is
+			// made ready once that is said, or the failure would undo it.
+			testutil.Eventually(t, "golden "+key.Name+" failed", func() (bool, string) {
+				o, err := w.Env.AsSystem().Get(t.Context(), registry.Golden, key)
+				if err != nil {
+					return false, err.Error()
+				}
+				phase := o.(*envv1alpha1.Golden).GetStatus().GetPhase()
+				return phase == envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED, phase.String()
+			})
 			if _, err := w.Env.AsSystem().UpdateStatus(t.Context(), registry.Golden, key, &envv1alpha1.GoldenStatus{
 				Phase: envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY, Artifact: art.Name,
 			}, nil); err != nil {
