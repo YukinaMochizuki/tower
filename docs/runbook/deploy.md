@@ -95,7 +95,7 @@ A hostd host needs a ZFS pool (`docs/decisions/hostd-storage.md`), KVM
 ### 1. What its drivers run on
 
 ```sh
-deploy/hostd/install-deps.sh        # ZFS, Docker (live-restore), Cloud Hypervisor, its firmware, BuildKit
+deploy/hostd/install-deps.sh        # ZFS, Docker (live-restore), Cloud Hypervisor, its firmware, BuildKit and its build network
 zfs create -o mountpoint=none <pool>/hostd   # or tower/hostd on a pool named tower
 deploy/hostd/base-image.sh ubuntu-24.04      # the base image machines boot, with ansible
 install -m 0755 bin/hostd /usr/local/bin/
@@ -104,6 +104,10 @@ install -D -m 0755 bin/tower-guest /usr/local/lib/tower/tower-guest
 
 hostd's flags default to these paths and to the dataset `tower/hostd`;
 change `--zfs-dataset` in the unit for another pool.
+
+Build steps run on the bridge `tower-build0`, on 10.231.0.0/24
+(`docs/decisions/images.md`); where the host already has that network,
+run install-deps.sh with `TOWER_BUILD_SUBNET` set to another.
 
 ### 2. Its target and token
 

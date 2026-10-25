@@ -9,6 +9,9 @@
 # TOWER_REGISTRY_HTTP, if set, is a registry (host:port) served over plain
 # HTTP, as the testbed's is, which Docker and BuildKit are told to use so.
 # A production registry is served over TLS and needs nothing here.
+#
+# TOWER_BUILD_SUBNET, if set, is the build steps' network
+# (10.231.0.0/24 otherwise): it must be no other network of the host's.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -50,12 +53,48 @@ if [ ! -x "$bk/bin/buildkitd" ]; then
 	rm -f "$bk.tar.gz"
 fi
 for b in "$bk"/bin/*; do ln -sf "$b" "/usr/local/bin/$(basename "$b")"; done
+
+# A build step's network (docs/decisions/images.md): a network namespace
+# of its own on the bridge tower-build0, which is no workstream's, whose
+# packets reach the internet and DNS, and nothing of the host's nor any
+# other bridge's: the nftables table tower_build, loaded as buildkitd
+# starts.
+cni=/usr/local/lib/tower/cni-$TOWER_CNI_VERSION
+if [ ! -x "$cni/bridge" ]; then
+	fetch "$TOWER_CNI_URL" "$TOWER_CNI_SHA256" "$cni.tgz" 0644
+	mkdir -p "$cni"
+	tar -xzf "$cni.tgz" -C "$cni"
+	rm -f "$cni.tgz"
+fi
+build_subnet=${TOWER_BUILD_SUBNET:-10.231.0.0/24}
 mkdir -p /etc/buildkit
+cat >/etc/buildkit/cni.conflist <<EOF
+{
+  "cniVersion": "1.0.0",
+  "name": "tower-build",
+  "plugins": [
+    {
+      "type": "bridge",
+      "bridge": "tower-build0",
+      "isDefaultGateway": true,
+      "ipMasq": true,
+      "ipam": {"type": "host-local", "ranges": [[{"subnet": "$build_subnet"}]]}
+    },
+    {"type": "firewall", "backend": "iptables"}
+  ]
+}
+EOF
+install -m 0644 "$here/build-network.nft" /etc/buildkit/build-network.nft
+nft -c -f /etc/buildkit/build-network.nft
+
 {
 	echo "# Written by deploy/hostd/install-deps.sh."
 	echo "[worker.oci]"
 	echo "  enabled = true"
 	echo "  gc = true"
+	echo "  networkMode = \"cni\""
+	echo "  cniConfigPath = \"/etc/buildkit/cni.conflist\""
+	echo "  cniBinaryPath = \"$cni\""
 	echo "[worker.containerd]"
 	echo "  enabled = false"
 	if [ -n "${TOWER_REGISTRY_HTTP:-}" ]; then

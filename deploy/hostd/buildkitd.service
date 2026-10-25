@@ -5,6 +5,8 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+# What its build steps' network reaches, before any runs.
+ExecStartPre=/usr/sbin/nft -f /etc/buildkit/build-network.nft
 # Its socket is root's alone: hostd, as root, is its only client.
 ExecStart=/usr/local/bin/buildkitd --config /etc/buildkit/buildkitd.toml --addr unix:///run/buildkit/buildkitd.sock
 Restart=always
