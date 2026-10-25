@@ -39,7 +39,7 @@ func TestTheAddonsAreWorkstreams(t *testing.T) {
 func TestTheLayersDockerfile(t *testing.T) {
 	browser := addon{ID: "browser", Options: []kv{{"playwrightVersion", "1.2.3"}}}
 	desktop := addon{ID: "desktop", Env: []kv{{"DISPLAY", ":99"}}}
-	df := layer{Base: "mcr.microsoft.com/devcontainers/typescript-node:22", Addons: []addon{browser, desktop}, RemoteUser: "node", BaseUser: "node"}.dockerfile()
+	df := dockerfileOf(t, layer{Base: "mcr.microsoft.com/devcontainers/typescript-node:22", Addons: []addon{browser, desktop}, RemoteUser: "node", BaseUser: "node"})
 	lines := strings.Split(strings.TrimSpace(df), "\n")
 	if lines[0] != "FROM mcr.microsoft.com/devcontainers/typescript-node:22" || lines[1] != "USER root" {
 		t.Errorf("it starts %q", lines[:2])
@@ -59,19 +59,36 @@ func TestTheLayersDockerfile(t *testing.T) {
 	if lines[len(lines)-1] != "USER node" {
 		t.Errorf("it ends %q", lines[len(lines)-1])
 	}
-	plain := layer{Base: "b", Addons: []addon{browser}}.dockerfile()
+	plain := dockerfileOf(t, layer{Base: "b", Addons: []addon{browser}})
 	if last := strings.Split(strings.TrimSpace(plain), "\n"); last[len(last)-1] != "USER root" {
 		t.Errorf("a base without a user ends %q", last[len(last)-1])
 	}
-	// containerEnv, which workstream gives each container as it is
-	// written, is taken as written; no add-ons, no USER root.
-	env := layer{Base: "b", Env: map[string]string{"A": "$HOME/x", "B": `q"`}, RemoteUser: "vscode"}.dockerfile()
-	if env != "FROM b\nENV A=\"\\$HOME/x\"\nENV B=\"q\\\"\"\nUSER vscode\n" {
-		t.Errorf("a devcontainer's layer:\n%s", env)
+	// No add-ons, no USER root; and no containerEnv, which the box is
+	// given as its environment.
+	if got := dockerfileOf(t, layer{Base: "b", RemoteUser: "vscode"}); got != "FROM b\nUSER vscode\n" {
+		t.Errorf("a devcontainer's layer:\n%s", got)
 	}
-	if got := (layer{Base: "b"}).dockerfile(); got != "FROM b\n" {
+	if got := dockerfileOf(t, layer{Base: "b"}); got != "FROM b\n" {
 		t.Errorf("a layer of nothing:\n%s", got)
 	}
+	// A user that is no user's name reaches no Dockerfile.
+	for _, user := range []string{"node\nRUN rm -rf /", "a b", "-x", "x;y"} {
+		if df, err := (layer{Base: "b", RemoteUser: user}).dockerfile(); !errors.Is(err, ErrUnresolvable) {
+			t.Errorf("remoteUser %q wrote\n%s", user, df)
+		}
+		if df, err := (layer{Base: "b", Addons: []addon{browser}, BaseUser: user}).dockerfile(); !errors.Is(err, ErrUnresolvable) {
+			t.Errorf("a base's user %q wrote\n%s", user, df)
+		}
+	}
+}
+
+func dockerfileOf(t *testing.T, l layer) string {
+	t.Helper()
+	df, err := l.dockerfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return df
 }
 
 func TestAnAddonsVersionIsItsFiles(t *testing.T) {

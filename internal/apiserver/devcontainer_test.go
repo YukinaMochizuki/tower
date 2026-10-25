@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -81,7 +82,7 @@ func TestABoxIsMadeOfItsRepositorysDevcontainer(t *testing.T) {
 	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{
 		".devcontainer/devcontainer.json": `{
 			"image": "mcr.microsoft.com/devcontainers/go:1",
-			"containerEnv": {"GOFLAGS": "-mod=mod"},
+			"containerEnv": {"GOFLAGS": "-mod=mod", "MULTI": "one\ntwo", "CTRL": "a\u0001b"},
 			"remoteUser": "vscode",
 			"onCreateCommand": "make tools",
 			"postCreateCommand": "make deps",
@@ -100,8 +101,13 @@ func TestABoxIsMadeOfItsRepositorysDevcontainer(t *testing.T) {
 	}
 	df := dockerfileIn(t, w.fake.BuildContext(g.GetStatus().GetArtifact()))
 	if !strings.HasPrefix(df, "FROM mcr.microsoft.com/devcontainers/go:1@sha256:aa\nUSER root\n") || !strings.Contains(df, "_REMOTE_USER='vscode'") ||
-		!strings.HasSuffix(df, "USER 1000\nENV GOFLAGS=\"-mod=mod\"\nUSER vscode\n") {
+		!strings.HasSuffix(df, "USER 1000\nUSER vscode\n") {
 		t.Errorf("the box's image was built with\n%s", df)
+	}
+	// Its containerEnv is its instance's environment, each value as written.
+	inst, _ := w.instance(b.GetStatus().GetInstance())
+	if want := map[string]string{"GOFLAGS": "-mod=mod", "MULTI": "one\ntwo", "CTRL": "a\x01b"}; !maps.Equal(inst.GetSpec().GetEnv(), want) {
+		t.Errorf("the box's environment %q, want %q", inst.GetSpec().GetEnv(), want)
 	}
 	want := []string{
 		"/workspace: command -v mise >/dev/null 2>&1 && mise trust && mise install || true",

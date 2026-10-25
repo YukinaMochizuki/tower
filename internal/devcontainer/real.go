@@ -16,7 +16,7 @@ import (
 
 // layerVersion is part of every devcontainer's hash, so a change to how
 // tower builds the layer builds every image again.
-const layerVersion = "tower-layer-1"
+const layerVersion = "tower-layer-2"
 
 // lockfiles are what a warm checkout's dependencies are pinned by.
 var lockfiles = []string{
@@ -144,6 +144,7 @@ func (Real) resolve(ctx context.Context, p provider.Provider, req Request, forSe
 		return resolved{}, unresolvable("the repository has no %s at %s, and there is no image to fall back to", strings.Join(configCandidates, " or "), short(r.commit))
 	}
 	r.cfg = &cfg
+	r.img.Env = cfg.Env
 	r.hasMise = cfg.Env["MISE_CONFIG_FILE"] != ""
 	for _, f := range miseFiles {
 		if e, ok := read.Entries[f]; ok && !e.Dir {
@@ -245,7 +246,7 @@ func (re Real) Build(ctx context.Context, p provider.Provider, req Request, img 
 	}
 	l := layer{Addons: r.addons}
 	if r.cfg != nil {
-		l.Env, l.RemoteUser = r.cfg.Env, r.cfg.User
+		l.RemoteUser = r.cfg.User
 	}
 	switch {
 	case req.Build != nil:

@@ -120,6 +120,8 @@ type guest struct {
 	Created   time.Time
 	// Files are a container's outside /workspace, which its disk holds.
 	Files map[string][]byte
+	// Env is a container's environment, every command's in it.
+	Env map[string]string `json:",omitempty"`
 	// Procs are its processes, oldest first; ProcN numbers them, and Keep
 	// is how many finished ones it keeps.
 	Procs []*proc

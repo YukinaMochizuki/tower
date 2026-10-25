@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apiserver"
@@ -276,6 +277,33 @@ func withBox(mutate func(*envv1alpha1.Box), code connect.Code) struct {
 		b    *envv1alpha1.Box
 		code connect.Code
 	}{b, code}
+}
+
+// TestAnInstancesEnvironment: an instance's environment is a container's,
+// of variables' names, its values without NUL.
+func TestAnInstancesEnvironment(t *testing.T) {
+	e := newEnv(t)
+	e.fixtures()
+	sys := e.asSystem()
+	for what, tc := range map[string]struct {
+		kind envv1alpha1.InstanceKind
+		env  map[string]string
+		code connect.Code
+	}{
+		"values as written":     {envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, map[string]string{"A": "one\ntwo", "B": "a\x01b"}, 0},
+		"a name of no variable": {envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, map[string]string{"A B": "1"}, connect.CodeInvalidArgument},
+		"a value holding NUL":   {envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, map[string]string{"A": "a\x00b"}, connect.CodeInvalidArgument},
+		"of a vm":               {envv1alpha1.InstanceKind_INSTANCE_KIND_VM, map[string]string{"A": "1"}, connect.CodeInvalidArgument},
+	} {
+		in := &envv1alpha1.Instance{
+			Metadata: &metav1.ObjectMeta{Project: "web", Name: "i-" + strings.ReplaceAll(strings.Trim(strings.ToLower(what), "'"), " ", "-")},
+			Spec:     &envv1alpha1.InstanceSpec{Target: "t1", Kind: tc.kind, Image: "img", Env: tc.env},
+		}
+		_, err := sys.generic.Apply(t.Context(), registry.Instance, in)
+		if (tc.code == 0 && err != nil) || (tc.code != 0 && connect.CodeOf(err) != tc.code) {
+			t.Errorf("an instance of %s: %v, want %v", what, err, tc.code)
+		}
+	}
 }
 
 func TestAMachineNamesItsSecrets(t *testing.T) {

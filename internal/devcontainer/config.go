@@ -47,6 +47,9 @@ type config struct {
 	Features []string
 }
 
+// envName is a variable's name.
+var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 // trailingCommas is workstream's: it is applied to the whole text, inside
 // strings too.
 var trailingCommas = regexp.MustCompile(`,(\s*[}\]])`)
@@ -241,5 +244,18 @@ func parseConfig(configPath string, raw []byte) (config, error) {
 		c.User = str(j.ContainerUser)
 	}
 	c.Features = slices.Sorted(maps.Keys(j.Features))
+	// What reaches a container's environment and its Dockerfile is what
+	// they can take: a variable's name, a value without NUL, a user's name.
+	for _, k := range slices.Sorted(maps.Keys(c.Env)) {
+		if !envName.MatchString(k) {
+			return config{}, fmt.Errorf("%s: containerEnv sets %q, which is no variable's name", configPath, k)
+		}
+		if strings.ContainsRune(c.Env[k], 0) {
+			return config{}, fmt.Errorf("%s: containerEnv's %s holds a NUL", configPath, k)
+		}
+	}
+	if !validUser(c.User) {
+		return config{}, fmt.Errorf("%s: remoteUser %q is no user's name", configPath, c.User)
+	}
 	return c, nil
 }

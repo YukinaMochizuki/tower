@@ -180,7 +180,7 @@ func (h *Host) converge(ctx context.Context, in *envv1alpha1.Instance) (observed
 			case !pulled:
 				return observed{phase: envv1alpha1.InstancePhase_INSTANCE_PHASE_PENDING, reason: "Pulling", msg: "its image " + spec.GetImage() + " is being pulled"}, nil
 			}
-			err = h.d.Containers.Create(ctx, driver.ContainerSpec{GuestSpec: gs, Image: spec.GetImage()})
+			err = h.d.Containers.Create(ctx, driver.ContainerSpec{GuestSpec: gs, Image: spec.GetImage(), Env: spec.GetEnv()})
 			if errors.Is(err, driver.ErrNotFound) {
 				// Gone from the host since it was pulled: pulled again.
 				h.pulls.forget(spec.GetImage())

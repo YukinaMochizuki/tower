@@ -57,6 +57,28 @@ func (h Harness) vms() GuestKind {
 	}
 }
 
+// testContainerEnv: a container's environment, given in its spec, reaches
+// every command in it with each value as written, a newline and a control
+// byte included, as docker run -e gives them; a command's own wins.
+func testContainerEnv(t *testing.T, h Harness, k GuestKind) {
+	if k.DiskKind != driver.Dataset {
+		t.Skip("a VM takes no environment of its spec")
+	}
+	env := map[string]string{"TOWER_MULTI": "one\ntwo", "TOWER_CTRL": "a\x01b", "TOWER_MINE": "spec"}
+	withEnv := k
+	withEnv.Create = func(t *testing.T, spec driver.GuestSpec) error {
+		mustNot(t, "pulling "+h.Image, h.Drivers.Images.Pull(t.Context(), h.Image))
+		return h.Drivers.Containers.Create(t.Context(), driver.ContainerSpec{GuestSpec: spec, Image: h.Image, Env: env})
+	}
+	g := withEnv.guestWithDisk(t, h, "env")
+	code, out := run(t, k.Driver, g, map[string]string{"TOWER_MINE": "command"}, "env")
+	for _, want := range []string{"TOWER_MULTI=one\ntwo\n", "TOWER_CTRL=a\x01b\n", "TOWER_MINE=command\n"} {
+		if code != 0 || !strings.Contains(out, want) {
+			t.Errorf("env exited %d without %q: %q", code, want, out)
+		}
+	}
+}
+
 // guest makes a running guest on the disk at diskPath, on no network,
 // until the test ends, and returns its name.
 func (k GuestKind) guest(t *testing.T, h Harness, what, diskPath string) string {
@@ -92,6 +114,7 @@ func RunGuests(t *testing.T, h Harness, k GuestKind) {
 		{"Networks", testNetworks},
 		{"Exec", testGuestExec},
 		{"EnvironmentIsPerCommand", testGuestEnv},
+		{"EnvironmentOfItsSpec", testContainerEnv},
 		{"ExecEndsWithItsContext", testExecEnds},
 		{"Files", testGuestFiles},
 		{"Copy", testGuestCopy},

@@ -340,7 +340,7 @@ func (s *Server) boxImageGolden(ctx context.Context, p provider.Provider, projec
 	name := goldenName("img", hash)
 	_, err = s.ensureGolden(ctx, project, name, &envv1alpha1.GoldenSpec{
 		Target: target, InputHash: hash, Inputs: &envv1alpha1.GoldenSpec_BoxImage{BoxImage: inputs},
-	}, buildSpec{Image: &req}, nil)
+	}, buildSpec{Image: &req, Env: img.Env}, nil)
 	if err != nil {
 		return "", "", err
 	}
@@ -372,12 +372,18 @@ func (s *Server) makeBoxInstance(ctx context.Context, key controller.Key, box *e
 			return err
 		}
 	}
+	// Its devcontainer's containerEnv, recorded with its image's build.
+	var build buildSpec
+	if _, err := s.getRecord(ctx, goldenBuildKey(key.Project, img.GetMetadata().GetName()), &build); err != nil {
+		return err
+	}
 	_, err := s.backend(registry.Instance).Create(s.system(ctx), &envv1alpha1.Instance{
 		Metadata: &metav1.ObjectMeta{Project: key.Project, Name: name, OwnerReferences: []*metav1.OwnerReference{ownedBy(registry.Box, box)}},
 		Spec: &envv1alpha1.InstanceSpec{
 			Target: st.Target, Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, Image: img.GetStatus().GetArtifact(),
 			DiskGolden: warm, Network: spec.GetWorkstream(), Alias: key.Name,
 			Resources: withDefaults(envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, spec.GetResources()), RunState: runState,
+			Env: build.Env,
 		},
 	})
 	if err != nil && connect.CodeOf(err) != connect.CodeAlreadyExists {

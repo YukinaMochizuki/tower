@@ -85,4 +85,22 @@ func TestParseConfig(t *testing.T) {
 	if _, err := parseConfig(".devcontainer.json", []byte(`{"image": `)); err == nil {
 		t.Error("a devcontainer that does not parse parsed")
 	}
+	t.Run("values as written", func(t *testing.T) {
+		c, err := parseConfig(".devcontainer.json", []byte(`{"image": "x", "containerEnv": {"MULTI": "one\ntwo", "CTRL": "a\u0001b", "DOLLAR": "$HOME"}}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := map[string]string{"MULTI": "one\ntwo", "CTRL": "a\x01b", "DOLLAR": "$HOME"}; !maps.Equal(c.Env, want) {
+			t.Errorf("containerEnv %q, want %q", c.Env, want)
+		}
+	})
+	for what, raw := range map[string]string{
+		"a variable that is no name": `{"image": "x", "containerEnv": {"A B": "1"}}`,
+		"a value holding NUL":        `{"image": "x", "containerEnv": {"A": "a\u0000b"}}`,
+		"a user that is no name":     `{"image": "x", "remoteUser": "node\nRUN id"}`,
+	} {
+		if _, err := parseConfig(".devcontainer.json", []byte(raw)); err == nil {
+			t.Errorf("a devcontainer of %s parsed", what)
+		}
+	}
 }

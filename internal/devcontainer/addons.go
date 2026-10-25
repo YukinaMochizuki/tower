@@ -172,21 +172,31 @@ type layer struct {
 	Base, BaseUser string
 	Addons         []addon
 	// RemoteUser is who the add-ons install for and, when set, the user
-	// the image runs as.
+	// the image runs as. Both users are validUser's.
 	RemoteUser string
-	// Env is the devcontainer's containerEnv.
-	Env map[string]string
 }
+
+// userName is what a Dockerfile's USER is written with here: a name as
+// useradd takes one, or a uid, each with a group of the same, so nothing
+// else can reach the Dockerfile.
+var userName = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_.-]*\$?|[0-9]+)(:([A-Za-z_][A-Za-z0-9_.-]*|[0-9]+))?$`)
+
+// validUser reports whether user can be written into the layer.
+func validUser(user string) bool { return user == "" || userName.MatchString(user) }
 
 // dockerfile is the layer's Dockerfile. The add-ons' part is workstream's,
 // line for line, but for its check of apt, which workstream runs in a
 // container of the base before building and tower runs as the layer's
 // first step, so a base without apt fails with the same sentence before
-// any installer. After them come the devcontainer's containerEnv, which
-// workstream gives each container (docker run -e) and tower bakes in, its
-// $ escaped so it is taken as written, and its remoteUser, which workstream
-// runs every command as (docker exec -u) and tower makes the image's user.
-func (l layer) dockerfile() string {
+// any installer. After them comes the devcontainer's remoteUser, which
+// workstream runs every command as (docker exec -u) and tower makes the
+// image's user. Its containerEnv is not here: workstream gives it to each
+// container (docker run -e), and so does tower (Image.Env), as no
+// Dockerfile can write every value as it is, a newline for one.
+func (l layer) dockerfile() (string, error) {
+	if !validUser(l.RemoteUser) || !validUser(l.BaseUser) {
+		return "", fmt.Errorf("a user of %q or %q cannot be written into a Dockerfile: %w", l.RemoteUser, l.BaseUser, ErrUnresolvable)
+	}
 	lines := []string{"FROM " + l.Base}
 	if len(l.Addons) > 0 {
 		user := l.RemoteUser
@@ -219,19 +229,20 @@ func (l layer) dockerfile() string {
 		}
 		lines = append(lines, "USER "+base)
 	}
-	for _, k := range slices.Sorted(maps.Keys(l.Env)) {
-		lines = append(lines, fmt.Sprintf("ENV %s=%s", k, strings.ReplaceAll(jsonString(l.Env[k]), "$", `\$`)))
-	}
 	if l.RemoteUser != "" {
 		lines = append(lines, "USER "+l.RemoteUser)
 	}
-	return strings.Join(lines, "\n") + "\n"
+	return strings.Join(lines, "\n") + "\n", nil
 }
 
 // context is the layer's build context: its Dockerfile and each add-on's
 // files under its name.
 func (l layer) context() ([]byte, error) {
-	files := map[string]file{"Dockerfile": {data: []byte(l.dockerfile()), mode: 0o644}}
+	df, err := l.dockerfile()
+	if err != nil {
+		return nil, err
+	}
+	files := map[string]file{"Dockerfile": {data: []byte(df), mode: 0o644}}
 	for _, a := range l.Addons {
 		for name, data := range a.Files {
 			mode := int64(0o644)

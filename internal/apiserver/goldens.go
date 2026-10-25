@@ -64,8 +64,10 @@ var errGoldenGoing = fmt.Errorf("a golden of the same inputs is being deleted: %
 // blueprint. tower's own, and no secret; it is kept as an internal record
 // (goldenBuildKind), so hostd, which reads goldens, sees only their hashes.
 type buildSpec struct {
-	// Image is the request a box image is resolved from.
+	// Image is the request a box image is resolved from, and Env the
+	// environment a box of it is given: its devcontainer's containerEnv.
 	Image *devcontainer.Request `json:"image,omitempty"`
+	Env   map[string]string     `json:"env,omitempty"`
 	// Mirror is a warm checkout's, Branch the branch it follows.
 	Mirror string `json:"mirror,omitempty"`
 	Branch string `json:"branch,omitempty"`

@@ -253,6 +253,9 @@ type ContainerSpec struct {
 	GuestSpec
 	// Image is a reference by digest the host has pulled.
 	Image string
+	// Env is its environment over the image's, each value as written, for
+	// every command and process in it.
+	Env map[string]string `json:",omitempty"`
 }
 
 // Containers runs containers: Docker on a real host.

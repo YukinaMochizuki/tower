@@ -117,6 +117,9 @@ type Image struct {
 	// Commit is the commit the devcontainer was read at, "" for none: what
 	// its image is built from, though the ref asked for moves.
 	Commit string
+	// Env is the devcontainer's containerEnv, which a box of the image is
+	// given as its environment (InstanceSpec.env), each value as written.
+	Env map[string]string
 }
 
 // Step is a command a box runs once, after its repositories are checked

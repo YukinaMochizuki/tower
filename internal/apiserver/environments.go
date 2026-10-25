@@ -417,5 +417,13 @@ func validateInstance(_ context.Context, _ *Server, _ authz.Caller, _, obj proto
 	if spec.GetTarget() == "" || spec.GetKind() == envv1alpha1.InstanceKind_INSTANCE_KIND_UNSPECIFIED {
 		return invalid("an instance needs spec.target and spec.kind")
 	}
+	if len(spec.GetEnv()) > 0 && spec.GetKind() != envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER {
+		return invalid("spec.env is a container's")
+	}
+	for k, v := range spec.GetEnv() {
+		if !envName.MatchString(k) || strings.ContainsRune(v, 0) {
+			return invalid("spec.env: %q is no variable's name, or its value holds a NUL", k)
+		}
+	}
 	return validResources("spec.resources", spec.GetResources())
 }

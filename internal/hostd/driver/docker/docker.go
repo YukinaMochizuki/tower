@@ -208,6 +208,10 @@ func (d *Driver) Create(ctx context.Context, cs driver.ContainerSpec) error {
 	if img.Config != nil {
 		cfg.WorkingDir, cfg.User = img.Config.WorkingDir, img.Config.User
 	}
+	// Over the image's, as docker run -e gives them: each value as it is.
+	for _, k := range slices.Sorted(maps.Keys(cs.Env)) {
+		cfg.Env = append(cfg.Env, k+"="+cs.Env[k])
+	}
 	host := &container.HostConfig{
 		Mounts: []mount.Mount{
 			{Type: mount.TypeBind, Source: cs.Disk, Target: Workspace},

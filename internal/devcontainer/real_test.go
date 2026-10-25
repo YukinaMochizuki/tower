@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -82,9 +83,13 @@ func TestAnImageDevcontainer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "FROM mcr.microsoft.com/devcontainers/go:1@sha256:aa\nENV GOFLAGS=\"-mod=mod\"\nENV WS=\"/workspace\"\nUSER vscode\n"
+	want := "FROM mcr.microsoft.com/devcontainers/go:1@sha256:aa\nUSER vscode\n"
 	if df := dockerfileOf(t, f, ref); df != want {
 		t.Errorf("built with\n%s\nwant\n%s", df, want)
+	}
+	// Its containerEnv is the box's environment, not the image's.
+	if want := map[string]string{"GOFLAGS": "-mod=mod", "WS": "/workspace"}; !maps.Equal(img.Env, want) {
+		t.Errorf("the box's environment %v, want %v", img.Env, want)
 	}
 	// The base its golden was made for, should its tag have moved since.
 	img.BaseImageDigest = "sha256:bb"

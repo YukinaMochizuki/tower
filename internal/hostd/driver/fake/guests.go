@@ -31,12 +31,31 @@ type containers struct{ guests }
 type vms struct{ guests }
 
 func (c containers) Create(_ context.Context, spec driver.ContainerSpec) error {
-	return c.create("containers.Create", spec.GuestSpec, spec.Image, func() error {
+	err := c.create("containers.Create", spec.GuestSpec, spec.Image, func() error {
 		if !c.h.st.Pulled[spec.Image] {
 			return fmt.Errorf("image %s is not pulled: %w", spec.Image, driver.ErrNotFound)
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	return c.h.change("", func() error {
+		if gu := c.h.st.Guests[c.key(spec.Name)]; gu != nil && gu.Env == nil {
+			gu.Env = maps.Clone(spec.Env)
+		}
+		return nil
+	})
+}
+
+// envOf is a command's environment in a guest: the guest's, then its own.
+func envOf(gu *guest, own map[string]string) map[string]string {
+	if len(gu.Env) == 0 {
+		return own
+	}
+	env := maps.Clone(gu.Env)
+	maps.Copy(env, own)
+	return env
 }
 
 func (v vms) Create(_ context.Context, spec driver.VMSpec) error {
@@ -297,7 +316,7 @@ func (g guests) Exec(ctx context.Context, name string, spec driver.ExecSpec) (in
 				return nil
 			}
 		}
-		code = shell{g: g, gu: gu, d: d, env: spec.Env, dir: spec.Dir, stdin: stdin, out: &out}.run(spec.Command)
+		code = shell{g: g, gu: gu, d: d, env: envOf(gu, spec.Env), dir: spec.Dir, stdin: stdin, out: &out}.run(spec.Command)
 		g.h.execs = append(g.h.execs, Exec{Guest: name, Command: slices.Clone(spec.Command), Env: maps.Clone(spec.Env), ExitCode: code})
 		return nil
 	})
