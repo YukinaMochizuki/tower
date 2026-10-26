@@ -16,6 +16,7 @@ import (
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/conditions"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/controller"
 )
 
@@ -110,10 +111,17 @@ func (s *Server) silent(t *targetsv1alpha1.Target, st *targetsv1alpha1.TargetSta
 }
 
 // reconcileTargetStatus counts what tower holds on the target into its
-// status.
+// status, and gives it its teardown finalizer; a target being deleted, it
+// tears down (teardown.go).
 func (s *Server) reconcileTargetStatus(ctx context.Context, key controller.Key) error {
-	t, live, err := s.liveTarget(ctx, key.Name)
-	if err != nil || !live {
+	t, ok, err := getTyped[*targetsv1alpha1.Target](ctx, s, registry.Target, resource.Key{Name: key.Name})
+	if err != nil || !ok {
+		return err
+	}
+	if t.GetMetadata().GetDeleteTime() != nil {
+		return s.reconcileTeardown(ctx, t)
+	}
+	if err := s.ensureTeardownFinalizer(ctx, t); err != nil {
 		return err
 	}
 	instances, err := listTyped[*envv1alpha1.Instance](ctx, s, registry.Instance, "")

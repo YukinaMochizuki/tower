@@ -9,8 +9,10 @@ import (
 	"time"
 
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
+	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/conditions"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/auth"
 	"github.com/YukinaMochizuki/tower/internal/authz"
 	"github.com/YukinaMochizuki/tower/internal/controller"
@@ -119,13 +121,14 @@ func (s *Server) reachable(target string, st *targetsv1alpha1.TargetStatus) {
 
 // defaultProvider is tower's own provider of a target: a hostd target's
 // host, over its tunnel; a hangar target's, which tower runs itself
-// (hangar.go).
+// (hangar.go). A Target being deleted has its provider until it goes: its
+// teardown deletes through it (teardown.go).
 func (s *Server) defaultProvider(target string) (provider.Provider, error) {
-	t, live, err := s.liveTarget(context.Background(), target)
+	t, ok, err := getTyped[*targetsv1alpha1.Target](context.Background(), s, registry.Target, resource.Key{Name: target})
 	if err != nil {
 		return nil, err
 	}
-	if !live {
+	if !ok {
 		return nil, fmt.Errorf("target %q is gone", target)
 	}
 	if t.GetSpec().GetHangar() != nil {

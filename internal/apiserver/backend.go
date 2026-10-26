@@ -512,6 +512,11 @@ func (b *backend) create(ctx context.Context, p authz.Caller, key resource.Key, 
 	if b.hooks.cascades && !slices.Contains(meta.Finalizers, dependentsFinalizer) {
 		meta.Finalizers = append(meta.Finalizers, dependentsFinalizer)
 	}
+	for _, f := range b.hooks.finalizers {
+		if !slices.Contains(meta.Finalizers, f) {
+			meta.Finalizers = append(meta.Finalizers, f)
+		}
+	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return resource.ApplyResult{}, err

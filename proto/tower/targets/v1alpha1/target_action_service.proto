@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package tower.targets.v1alpha1;
+
+import "tower/targets/v1alpha1/target.proto";
+
+// TargetActionService does to a Target what its own service does not: an
+// administrator's action, with the Target as it was in the answer. It is
+// not a resource's service, so it is written by hand rather than
+// generated. See docs/decisions/placement.md.
+service TargetActionService {
+  // AbandonTarget lets a Target being deleted go without its teardown
+  // confirmed, for a target that cannot answer, such as one whose
+  // credential it refuses. What the teardown last found left stays on the
+  // target, unconfirmed. ROLE_ADMIN, root on the host and the system
+  // alone; refused unless the Target is being deleted.
+  rpc AbandonTarget(AbandonTargetRequest) returns (AbandonTargetResponse);
+}
+
+message AbandonTargetRequest {
+  string name = 1;
+}
+
+message AbandonTargetResponse {
+  // The Target as it was let go.
+  Target target = 1;
+  // What its teardown last found left on the target, which no one
+  // confirmed gone: status.remaining.
+  repeated string unconfirmed = 2;
+  // Whether unconfirmed is all that may be left: false when the teardown
+  // never listed the target, and what is on it is not known
+  // (status.remaining_known).
+  bool unconfirmed_known = 3;
+}

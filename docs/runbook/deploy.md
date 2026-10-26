@@ -307,3 +307,54 @@ A workstream network made by a hostd older than the guest fence keeps its
 label=tower.hangarlab.cloud/driver=network` lists them, and `ip link`
 shows which are not `twr*`. Each is made again, fenced, once its
 workstream's guests are gone.
+
+## Removing a target
+
+A target is deleted once no Placement or Instance names it: move or
+delete its projects' Placements first, and let their boxes and machines
+go. Then:
+
+```sh
+tower delete target hangar-main
+tower get target hangar-main -o yaml   # status.remaining, status.last_error
+```
+
+The Target stays, being deleted, while tower tears down what it made
+there (`docs/decisions/placement.md`): its goldens first, each image or
+snapshot deleted on the target, then, on a hangar target, every object
+labelled `tower/target=<name>` in the hangar project: containers, then
+their disks, networks once nothing is on them, the golden images and the
+registry login, the system container `tower-sys-*`, its 50Gi disk and its
+network included. hangar deletes in its own time. `status.remaining`
+lists what is left, and `last_error` what keeps it, such as hangar
+refusing the token: write the credential Secret again and the teardown
+goes on. `status.remaining_known` false says the teardown has not yet
+listed the target, so an empty `remaining` does not mean nothing is
+left. The Target goes once nothing is left; on a hangar target, tower
+then stops its provider.
+
+The images of box-image goldens, the boxes' images built on the target,
+are in tower's registry, not on the target, and stay there: deleting a
+golden deletes no image, and nothing prunes the registry yet. Remove
+them from the registry by hand if they are no longer wanted.
+
+A target that will not answer again, a hangar project gone or a host
+retired, is abandoned by an administrator:
+
+```sh
+tower target abandon hangar-main
+```
+
+It goes at once. What its teardown last found left is printed, and logged
+by the apiserver as a warning, unconfirmed; if the teardown never listed
+the target, as when its token was refused from the start, it says what
+is left is unknown. On a hangar target, what is left counts against the
+project's quota; list it, and delete it there by hand:
+
+```sh
+for k in containers disks networks customimages secrets; do
+  hangar get "$k" -p <project> -l tower/target=hangar-main
+done
+```
+
+A target not being deleted is refused.

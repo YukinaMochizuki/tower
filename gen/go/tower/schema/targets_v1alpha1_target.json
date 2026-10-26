@@ -336,6 +336,17 @@
             "string"
           ]
         },
+        "remaining": {
+          "description": "While the Target is being deleted, what its teardown last found still on the target, such as \"golden web/box-1a2b\" or a hangar object as \"disk/t-0193...\"; last_error says what keeps the teardown from going on. Empty, it means nothing is left only with remaining_known.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "remainingKnown": {
+          "description": "Whether remaining is all that is left on the target: false until the teardown has listed the target once, as for one that refuses tower from the start, and what else is on it is not known.",
+          "type": "boolean"
+        },
         "usage": {
           "$ref": "#/$defs/tower.targets.v1alpha1.Usage"
         }

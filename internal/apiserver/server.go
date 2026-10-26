@@ -21,6 +21,7 @@ import (
 	"github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1/environmentsv1alpha1connect"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/iam/v1alpha1/iamv1alpha1connect"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
+	"github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1/targetsv1alpha1connect"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/apiserver/servicegen"
 	"github.com/YukinaMochizuki/tower/internal/auth"
@@ -141,6 +142,8 @@ type Server struct {
 	jobs                                          jobs
 	// jobErrs are the jobs' last failures by target, for last_error.
 	jobErrs jobErrors
+	// teardowns are the last teardown passes of Targets being deleted.
+	teardowns teardowns
 	// uses are boxes' uses through Touch, not yet written to them, and the
 	// calls into them under way.
 	uses lastUses
@@ -240,6 +243,7 @@ func (s *Server) Handler(chain auth.Chain) http.Handler {
 		s.interceptors(chain))
 	mux.Handle(iamv1alpha1connect.NewServiceTokenIssuerServiceHandler(tokenIssuer{s}, s.interceptors(chain)))
 	mux.Handle(environmentsv1alpha1connect.NewRetryServiceHandler(retryService{s}, s.interceptors(chain)))
+	mux.Handle(targetsv1alpha1connect.NewTargetActionServiceHandler(targetActionService{s}, s.interceptors(chain)))
 	mux.Handle(environmentsv1alpha1connect.NewEnvironmentServiceHandler(environmentService{s}, s.interceptors(chain),
 		connect.WithReadMaxBytes(maxEnvironmentMessage)))
 	mux.HandleFunc(tunnel.Path, s.openTunnel(chain))

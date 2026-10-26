@@ -457,9 +457,18 @@ type TargetStatus struct {
 	// What the provider says about itself, one fact a line: its version, the
 	// health of its ZFS pool, its Docker and Cloud Hypervisor versions, a
 	// hangar project's quota and what it uses of it.
-	Facts         []*Fact `protobuf:"bytes,8,rep,name=facts,proto3" json:"facts,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Facts []*Fact `protobuf:"bytes,8,rep,name=facts,proto3" json:"facts,omitempty"`
+	// While the Target is being deleted, what its teardown last found still
+	// on the target, such as "golden web/box-1a2b" or a hangar object as
+	// "disk/t-0193..."; last_error says what keeps the teardown from going
+	// on. Empty, it means nothing is left only with remaining_known.
+	Remaining []string `protobuf:"bytes,9,rep,name=remaining,proto3" json:"remaining,omitempty"`
+	// Whether remaining is all that is left on the target: false until the
+	// teardown has listed the target once, as for one that refuses tower
+	// from the start, and what else is on it is not known.
+	RemainingKnown bool `protobuf:"varint,10,opt,name=remaining_known,json=remainingKnown,proto3" json:"remaining_known,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *TargetStatus) Reset() {
@@ -546,6 +555,20 @@ func (x *TargetStatus) GetFacts() []*Fact {
 		return x.Facts
 	}
 	return nil
+}
+
+func (x *TargetStatus) GetRemaining() []string {
+	if x != nil {
+		return x.Remaining
+	}
+	return nil
+}
+
+func (x *TargetStatus) GetRemainingKnown() bool {
+	if x != nil {
+		return x.RemainingKnown
+	}
+	return false
 }
 
 // Capacity is the target's room, as quantities.
@@ -1491,7 +1514,7 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"warmWindow\x12;\n" +
 	"\fwarm_max_age\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\n" +
 	"warmMaxAge\x125\n" +
-	"\x17warm_max_commits_behind\x18\x05 \x01(\x05R\x14warmMaxCommitsBehind\"\xbd\x03\n" +
+	"\x17warm_max_commits_behind\x18\x05 \x01(\x05R\x14warmMaxCommitsBehind\"\x84\x04\n" +
 	"\fTargetStatus\x12/\n" +
 	"\x13observed_generation\x18\x01 \x01(\x03R\x12observedGeneration\x128\n" +
 	"\n" +
@@ -1503,7 +1526,10 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\bcapacity\x18\x05 \x01(\v2 .tower.targets.v1alpha1.CapacityR\bcapacity\x123\n" +
 	"\x05usage\x18\x06 \x01(\v2\x1d.tower.targets.v1alpha1.UsageR\x05usage\x126\n" +
 	"\x06counts\x18\a \x01(\v2\x1e.tower.targets.v1alpha1.CountsR\x06counts\x122\n" +
-	"\x05facts\x18\b \x03(\v2\x1c.tower.targets.v1alpha1.FactR\x05facts\"\x9e\x01\n" +
+	"\x05facts\x18\b \x03(\v2\x1c.tower.targets.v1alpha1.FactR\x05facts\x12\x1c\n" +
+	"\tremaining\x18\t \x03(\tR\tremaining\x12'\n" +
+	"\x0fremaining_known\x18\n" +
+	" \x01(\bR\x0eremainingKnown\"\x9e\x01\n" +
 	"\bCapacity\x12\x1d\n" +
 	"\n" +
 	"disk_total\x18\x01 \x01(\tR\tdiskTotal\x12\x1b\n" +

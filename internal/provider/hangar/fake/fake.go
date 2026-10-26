@@ -142,6 +142,7 @@ func (f *Fake) ReleaseDeletes() {
 	f.disks.releaseLocked()
 	f.networks.releaseLocked()
 	f.secrets.releaseLocked()
+	f.images.releaseLocked()
 }
 
 // Installs is how many times tower-guest was written into a container.

@@ -94,20 +94,39 @@ func (t *Target) systemLabels() map[string]string {
 // EnsureSystem makes the system container as the config says, and checks
 // that tower-system answers in it, joining it to the tailnet once with the
 // config's auth key. With no system image, it makes nothing, and mirrors
-// and builds fail saying so.
+// and builds fail saying so. In teardown, it makes nothing.
 func (t *Target) EnsureSystem(ctx context.Context) error {
 	if t.cfg.SystemImage == "" {
 		t.sys.set(false, "this tower names no system image (--system-image)", system.Result{})
 		return nil
 	}
-	err := t.ensureSystem(ctx)
+	ct, err := t.makeSystem(ctx)
+	if errors.Is(err, errTornDown) {
+		t.sys.set(false, "the target is being torn down", system.Result{})
+		return nil
+	}
+	if err == nil {
+		err = t.checkSystem(ctx, ct)
+	}
 	if err != nil {
 		t.sys.set(false, err.Error(), system.Result{})
 	}
 	return err
 }
 
-func (t *Target) ensureSystem(ctx context.Context) error {
+// errTornDown is makeSystem's in teardown.
+var errTornDown = errors.New("the target is being torn down")
+
+// makeSystem makes the system container's objects, and returns its
+// container. It holds the target's lock, which Teardown takes to put the
+// target in teardown and for each pass, so it makes nothing a pass after
+// that would not see.
+func (t *Target) makeSystem(ctx context.Context) (*hangarcompute.Container, error) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.tornDown() {
+		return nil, errTornDown
+	}
 	name := systemName(t.cfg.Target)
 	labels := t.systemLabels()
 	if _, err := t.api.Networks().Get(ctx, name); errors.Is(err, ErrNotFound) {
@@ -115,24 +134,24 @@ func (t *Target) ensureSystem(ctx context.Context) error {
 			Metadata: &hangarmeta.ObjectMeta{Name: name, Labels: labels},
 			Spec:     &hangarnetwork.NetworkSpec{Ipv4Cidr: SystemNetworkCIDR},
 		}); err != nil {
-			return fmt.Errorf("the system network: %w", err)
+			return nil, fmt.Errorf("the system network: %w", err)
 		}
 	} else if err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := t.api.Disks().Get(ctx, name); errors.Is(err, ErrNotFound) {
 		if _, err := t.api.Disks().Apply(ctx, &hangarstorage.Disk{
 			Metadata: &hangarmeta.ObjectMeta{Name: name, Labels: labels},
 			Spec:     &hangarstorage.DiskSpec{Size: or(t.cfg.SystemDisk, DefaultSystemDisk)},
 		}); err != nil {
-			return fmt.Errorf("the system disk: %w", err)
+			return nil, fmt.Errorf("the system disk: %w", err)
 		}
 	} else if err != nil {
-		return err
+		return nil, err
 	}
 	pull, err := t.ensurePullSecret(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	want := &hangarcompute.ContainerSpec{
 		Image:         t.asPulled(t.cfg.SystemImage),
@@ -151,16 +170,23 @@ func (t *Target) ensureSystem(ctx context.Context) error {
 	}
 	ct, err := t.api.Containers().Get(ctx, name)
 	if err != nil && !errors.Is(err, ErrNotFound) {
-		return err
+		return nil, err
 	}
 	if ct == nil || !proto.Equal(ct.GetSpec(), want) {
 		if ct.GetMetadata().GetDeleteTime() != nil {
-			return errors.New("the system container is being deleted")
+			return nil, errors.New("the system container is being deleted")
 		}
 		if ct, err = t.api.Containers().Apply(ctx, &hangarcompute.Container{Metadata: &hangarmeta.ObjectMeta{Name: name, Labels: labels}, Spec: want}); err != nil {
-			return fmt.Errorf("the system container: %w", err)
+			return nil, fmt.Errorf("the system container: %w", err)
 		}
 	}
+	return ct, nil
+}
+
+// checkSystem checks that tower-system answers in the system container
+// ct, joining it to the tailnet once.
+func (t *Target) checkSystem(ctx context.Context, ct *hangarcompute.Container) error {
+	name := ct.GetMetadata().GetName()
 	m, err := t.api.Machine(ctx, machineOf(name))
 	if errors.Is(err, ErrNotFound) || (err == nil && (!ownedBy(m, ct) || m.GetStatus().GetPhase() != hangarcompute.MachinePhase_MACHINE_PHASE_RUNNING)) {
 		why := "the system container is not running yet"

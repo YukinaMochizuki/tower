@@ -35,6 +35,7 @@ func environmentHooks(r registry.Resource) (kindHooks, bool) {
 		return kindHooks{
 			validate:     validateTarget,
 			beforeDelete: refuseDeletingTargetInUse,
+			finalizers:   []string{TargetTeardownFinalizer},
 			targetOf:     func(obj proto.Message) string { return object.Meta(obj).GetName() },
 		}, true
 	case registry.Placement.Kind:
