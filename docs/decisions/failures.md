@@ -32,7 +32,10 @@ was deleting tower's records by hand.
   (`proto/tower/environments/v1alpha1/retry_service.proto`): the failures
   counted against the work are forgotten, so it runs now, and a failure
   again waits out the first backoff. Of a box or a machine, its golden
-  is built again if that failed, and its failed steps run again. It is a
+  is built again if that failed, and its failed steps run again. Of a box
+  that fell back from its devcontainer's image because it did not build,
+  READY or not, that image's golden is built again
+  (`docs/decisions/devcontainers.md`), so the next box gets it. It is a
   call, not a field of the spec: it asks for an act once and leaves
   nothing to undo, and a golden, which tower's controllers alone write,
   has no spec a client may change. The automatic backoff is unchanged:

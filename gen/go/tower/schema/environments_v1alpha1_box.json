@@ -75,11 +75,15 @@
           "type": "string"
         },
         "conditions": {
-          "description": "Ready, with ImageBuilt and Materialized on the way to it; SetUp, which says whether its devcontainer's setup steps passed: one that did not leaves the box READY; and DevcontainerFellBack, true when its image is the one to fall back to, saying why.",
+          "description": "Ready, with ImageBuilt and Materialized on the way to it; SetUp, which says whether its devcontainer's setup steps passed: one that did not leaves the box READY; and DevcontainerFellBack, true when its image is the one to fall back to, saying why. Fallen back from an image that did not build, its reason is BuildFailed while that image's golden is FAILED, its message naming the golden, why it failed, when (\"failed at\") and when it is built again (\"built again at\"); Rebuilding while it is built again; and BuiltSince once it is built, when a box made now is made of it. The box itself stays on the image it fell back to.",
           "items": {
             "$ref": "#/$defs/tower.meta.v1.Condition"
           },
           "type": "array"
+        },
+        "devcontainerGolden": {
+          "description": "The golden of its devcontainer's image when the box fell back from it because it did not build, while that golden is not built: tower keeps building it again as its backoff allows, and RetryBox builds it again at once, so that a box made after is made of it. Empty when the box did not fall back, fell back from a devcontainer tower could not make an image of, or once the golden is built (DevcontainerFellBack BuiltSince).",
+          "type": "string"
         },
         "imageGolden": {
           "description": "The Goldens it was made from: its image, and the warm checkout it was cloned from if its repository had one.",

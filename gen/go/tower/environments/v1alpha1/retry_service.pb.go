@@ -184,8 +184,10 @@ type RetryBoxResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The box as it was when the call came.
 	Box *Box `protobuf:"bytes,1,opt,name=box,proto3" json:"box,omitempty"`
-	// Whether it was FAILED, and so its work runs again now. A box that was
-	// not is left as it is: the call does nothing, and succeeds.
+	// Whether it was FAILED, or fell back from a devcontainer image whose
+	// golden is FAILED, and so its work, or that golden, runs again now. A
+	// box that was neither is left as it is: the call does nothing, and
+	// succeeds.
 	Retried       bool `protobuf:"varint,2,opt,name=retried,proto3" json:"retried,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

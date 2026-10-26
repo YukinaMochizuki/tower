@@ -257,6 +257,16 @@ func (s *Server) retryGolden(ctx context.Context, g *envv1alpha1.Golden) (bool, 
 			return false, err
 		}
 	}
+	// One made on a golden (a warm checkout on its image) waits while that
+	// golden is there and not built: made again now, it would fail on it
+	// again (convergeGolden). It queues this one once built or gone
+	// (queueGoldensOn).
+	if parent := g.GetSpec().GetParent(); parent != "" {
+		pg, ok, err := s.liveGolden(ctx, meta.GetProject(), parent)
+		if err != nil || (ok && goldenPhase(pg) != envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY) {
+			return true, err
+		}
+	}
 	// A failure is recorded before it is written (setGolden), so one with
 	// no record is built again at once.
 	at, err := s.goldenRetryAt(ctx, g)
@@ -282,8 +292,13 @@ func transient(err error) bool {
 
 func (s *Server) reconcileGolden(ctx context.Context, key controller.Key) error {
 	g, ok, err := getTyped[*envv1alpha1.Golden](ctx, s, registry.Golden, resource.Key{Project: key.Project, Name: key.Name})
-	if err != nil || !ok {
+	if err != nil {
 		return err
+	}
+	if !ok || goldenPhase(g) == envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY {
+		if err := s.queueGoldensOn(ctx, key); err != nil || !ok {
+			return err
+		}
 	}
 	job := "golden/" + key.String()
 	if g.GetMetadata().GetDeleteTime() != nil {
@@ -629,6 +644,21 @@ func (s *Server) pruneGolden(ctx context.Context, g *envv1alpha1.Golden) error {
 	return err
 }
 
+// queueGoldensOn queues the FAILED goldens made on the golden key, which
+// wait for it while it is there and not built (retryGolden).
+func (s *Server) queueGoldensOn(ctx context.Context, key controller.Key) error {
+	goldens, err := listTyped[*envv1alpha1.Golden](ctx, s, registry.Golden, key.Project)
+	if err != nil {
+		return err
+	}
+	for _, g := range goldens {
+		if g.GetSpec().GetParent() == key.Name && goldenPhase(g) == envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED {
+			enqueue(s.goldenCtrl, controller.Key{Project: key.Project, Name: g.GetMetadata().GetName()})
+		}
+	}
+	return nil
+}
+
 func (s *Server) goldenReferenced(ctx context.Context, g *envv1alpha1.Golden) (bool, error) {
 	project, name := g.GetMetadata().GetProject(), g.GetMetadata().GetName()
 	boxes, err := listTyped[*envv1alpha1.Box](ctx, s, registry.Box, project)
@@ -636,7 +666,9 @@ func (s *Server) goldenReferenced(ctx context.Context, g *envv1alpha1.Golden) (b
 		return false, err
 	}
 	for _, b := range boxes {
-		if b.GetStatus().GetImageGolden() == name || b.GetStatus().GetWarmGolden() == name {
+		// A box that fell back from its devcontainer's image asks for it
+		// until it is built (followDevcontainerGolden).
+		if b.GetStatus().GetImageGolden() == name || b.GetStatus().GetWarmGolden() == name || b.GetStatus().GetDevcontainerGolden() == name {
 			return true, nil
 		}
 	}

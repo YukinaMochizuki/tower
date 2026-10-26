@@ -522,7 +522,12 @@ type BoxStatus struct {
 	// Ready, with ImageBuilt and Materialized on the way to it; SetUp,
 	// which says whether its devcontainer's setup steps passed: one that did
 	// not leaves the box READY; and DevcontainerFellBack, true when its image
-	// is the one to fall back to, saying why.
+	// is the one to fall back to, saying why. Fallen back from an image that
+	// did not build, its reason is BuildFailed while that image's golden is
+	// FAILED, its message naming the golden, why it failed, when ("failed
+	// at") and when it is built again ("built again at"); Rebuilding while
+	// it is built again; and BuiltSince once it is built, when a box made
+	// now is made of it. The box itself stays on the image it fell back to.
 	Conditions []*v1.Condition `protobuf:"bytes,2,rep,name=conditions,proto3" json:"conditions,omitempty"`
 	Phase      BoxPhase        `protobuf:"varint,3,opt,name=phase,proto3,enum=tower.environments.v1alpha1.BoxPhase" json:"phase,omitempty"`
 	// Why a STOPPED box stopped: "Requested" (run_state) or "Idle".
@@ -539,9 +544,17 @@ type BoxStatus struct {
 	Alias string `protobuf:"bytes,9,opt,name=alias,proto3" json:"alias,omitempty"`
 	// When it was last used through tower, to within a minute: what idleness
 	// is measured from.
-	LastUseTime   *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=last_use_time,json=lastUseTime,proto3" json:"last_use_time,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	LastUseTime *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=last_use_time,json=lastUseTime,proto3" json:"last_use_time,omitempty"`
+	// The golden of its devcontainer's image when the box fell back from it
+	// because it did not build, while that golden is not built: tower keeps
+	// building it again as its backoff allows, and RetryBox builds it again
+	// at once, so that a box made after is made of it. Empty when the box
+	// did not fall back, fell back from a devcontainer tower could not make
+	// an image of, or once the golden is built (DevcontainerFellBack
+	// BuiltSince).
+	DevcontainerGolden string `protobuf:"bytes,11,opt,name=devcontainer_golden,json=devcontainerGolden,proto3" json:"devcontainer_golden,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *BoxStatus) Reset() {
@@ -642,6 +655,13 @@ func (x *BoxStatus) GetLastUseTime() *timestamppb.Timestamp {
 		return x.LastUseTime
 	}
 	return nil
+}
+
+func (x *BoxStatus) GetDevcontainerGolden() string {
+	if x != nil {
+		return x.DevcontainerGolden
+	}
+	return ""
 }
 
 type GetBoxRequest struct {
@@ -1368,7 +1388,7 @@ const file_tower_environments_v1alpha1_box_proto_rawDesc = "" +
 	"\n" +
 	"repository\x18\x01 \x01(\tR\n" +
 	"repository\x12\x10\n" +
-	"\x03ref\x18\x02 \x01(\tR\x03ref\"\xa8\x03\n" +
+	"\x03ref\x18\x02 \x01(\tR\x03ref\"\xd9\x03\n" +
 	"\tBoxStatus\x12/\n" +
 	"\x13observed_generation\x18\x01 \x01(\x03R\x12observedGeneration\x128\n" +
 	"\n" +
@@ -1383,7 +1403,8 @@ const file_tower_environments_v1alpha1_box_proto_rawDesc = "" +
 	"\binstance\x18\b \x01(\tR\binstance\x12\x14\n" +
 	"\x05alias\x18\t \x01(\tR\x05alias\x12>\n" +
 	"\rlast_use_time\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\vlastUseTime\"=\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\vlastUseTime\x12/\n" +
+	"\x13devcontainer_golden\x18\v \x01(\tR\x12devcontainerGolden\"=\n" +
 	"\rGetBoxRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"D\n" +

@@ -101,8 +101,10 @@ export type RetryBoxResponse = Message<"tower.environments.v1alpha1.RetryBoxResp
   box?: Box | undefined;
 
   /**
-   * Whether it was FAILED, and so its work runs again now. A box that was
-   * not is left as it is: the call does nothing, and succeeds.
+   * Whether it was FAILED, or fell back from a devcontainer image whose
+   * golden is FAILED, and so its work, or that golden, runs again now. A
+   * box that was neither is left as it is: the call does nothing, and
+   * succeeds.
    *
    * @generated from field: bool retried = 2;
    */
@@ -196,7 +198,11 @@ export const RetryService: GenService<{
   /**
    * RetryBox runs the failed work of a FAILED box now: its image golden,
    * if that failed, is retried as RetryGolden does, and its failed
-   * instance steps (secret files, checkouts) run again.
+   * instance steps (secret files, checkouts) run again. Of a box that fell
+   * back from its devcontainer's image because it did not build (its
+   * status's devcontainer_golden), READY or not, that golden, if FAILED,
+   * is retried as RetryGolden does, so a box made after is made of it
+   * once built; the box itself stays on the image it fell back to.
    *
    * @generated from rpc tower.environments.v1alpha1.RetryService.RetryBox
    */

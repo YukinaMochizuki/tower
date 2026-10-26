@@ -24,8 +24,13 @@ its backoff runs out: once the cause of a failure is fixed outside tower (a
 registry back, a repository pushed). The failures counted against the work
 are forgotten, so a failure again waits out the first backoff. Of a box or
 a machine, its golden is built again if that failed, and its failed steps
-run again. An object that is not FAILED is left as it is. retry does not
-wait: follow the object with tower get or tower wait.`,
+run again. A box that fell back to its fallback image because its
+devcontainer's image did not build (its DevcontainerFellBack condition
+names the golden) has that golden built again now if it is FAILED, the box
+READY or not: a box made after is made of the devcontainer's image once it
+builds, while this box stays on the image it fell back to. An object that
+is neither is left as it is. retry does not wait: follow the object with
+tower get or tower wait.`,
 		Example: "  tower retry box dev -p web\n" +
 			"  tower retry golden img-0123456789abcdef -p web",
 	}
@@ -79,6 +84,8 @@ func (a *app) retryKindCmd(r registry.Resource, call func(ctx context.Context, c
 			}
 			if retried {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s retried: its failed work runs now\n", objectName(r, obj))
+			} else if b, ok := obj.(*envv1alpha1.Box); ok && b.GetStatus().GetDevcontainerGolden() != "" {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s fell back from golden %s, which is not FAILED: nothing to retry\n", objectName(r, obj), b.GetStatus().GetDevcontainerGolden())
 			} else {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s is %s, not FAILED: nothing to retry\n", objectName(r, obj), phaseColumn(obj))
 			}
