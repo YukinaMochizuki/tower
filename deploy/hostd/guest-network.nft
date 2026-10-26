@@ -1,0 +1,59 @@
+# What hostd's guests reach (docs/decisions/traffic.md): the internet
+# alone; not the host, the tailnet, or any private address. A guest is on
+# a bridge named twr* (internal/hostd/driver/docker BridgeName) or on
+# Docker's docker0; other containers' bridges are not matched. Guests
+# resolve through public servers (hostd's --guest-dns). Loaded before
+# Docker by tower-guest-network.service; replaced whole on each load. A
+# table of its own, holding only drops, so no other table's accept can
+# override it.
+table inet tower_guest
+delete table inet tower_guest
+table inet tower_guest {
+	set private4 {
+		type ipv4_addr
+		flags interval
+		elements = { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.168.0.0/16, 198.18.0.0/15, 224.0.0.0/3 }
+	}
+	set private6 {
+		type ipv6_addr
+		flags interval
+		elements = { ::1/128, fc00::/7, fe80::/10, ff00::/8 }
+	}
+
+	# Counted, and logged at most twice a minute (IN, OUT, DST, DPT).
+	chain refuse {
+		limit rate 2/minute burst 5 packets log prefix "tower-guest: " level info
+		counter drop
+	}
+
+	chain guest_forward {
+		ct state established,related return
+		# To a guest's bridge: guests of one network reach each other,
+		# which passes here when br_netfilter sends bridged frames through
+		# the hook. Between networks, Docker's isolation chains drop.
+		oifname "docker0" return
+		oifname "twr*" return
+		oifname "tailscale0" jump refuse
+		ip daddr @private4 jump refuse
+		ip6 daddr @private6 jump refuse
+	}
+
+	# Replies to what the host opened to a guest (hostd's ssh to a VM, a
+	# forwarded port) pass; nothing a guest opens to the host does.
+	chain guest_input {
+		ct state established,related return
+		jump refuse
+	}
+
+	chain forward {
+		type filter hook forward priority filter - 10; policy accept;
+		iifname "docker0" jump guest_forward
+		iifname "twr*" jump guest_forward
+	}
+
+	chain input {
+		type filter hook input priority filter - 10; policy accept;
+		iifname "docker0" jump guest_input
+		iifname "twr*" jump guest_input
+	}
+}

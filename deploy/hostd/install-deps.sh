@@ -161,6 +161,20 @@ systemctl daemon-reload
 systemctl enable buildkitd.service >/dev/null
 systemctl restart buildkitd.service
 
+# What the guests reach (docs/decisions/traffic.md): the nftables table
+# tower_guest, loaded before Docker starts. Docker requires it, so a table
+# that fails to load keeps every container down rather than any guest
+# unfenced.
+install -d -m 0755 /etc/tower
+install -m 0644 "$here/guest-network.nft" /etc/tower/guest-network.nft
+nft -c -f /etc/tower/guest-network.nft
+install -m 0644 "$here/tower-guest-network.service" /etc/systemd/system/tower-guest-network.service
+systemctl daemon-reload
+systemctl enable tower-guest-network.service >/dev/null
+# A reload replaces the table without a moment unfenced; a restart would
+# restart Docker too, which requires it.
+systemctl reload-or-restart tower-guest-network.service
+
 # Docker: live-restore, and the plain-HTTP registry if there is one.
 python3 - "${TOWER_REGISTRY_HTTP:-}" <<'EOF'
 import json, os, sys

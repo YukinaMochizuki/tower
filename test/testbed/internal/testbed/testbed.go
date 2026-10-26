@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -117,6 +118,10 @@ func (e Env) Sweep() error {
 	return os.RemoveAll(e.Dir)
 }
 
+// GuestDNS is what the guests resolve through, as hostd's --guest-dns
+// defaults to: public servers, which the guests' firewall lets them reach.
+var GuestDNS = []netip.Addr{netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("9.9.9.9")}
+
 // Drivers opens hostd's real drivers over the place, but VMs and git.
 func (e Env) Drivers(ctx context.Context) (driver.Drivers, error) {
 	cli, err := docker.Dial("")
@@ -127,7 +132,7 @@ func (e Env) Drivers(ctx context.Context) (driver.Drivers, error) {
 	if err != nil {
 		return driver.Drivers{}, err
 	}
-	containers, err := docker.New(ctx, docker.Config{Client: cli, StateDir: e.StateDir(), GuestBinary: e.GuestBinary()})
+	containers, err := docker.New(ctx, docker.Config{Client: cli, StateDir: e.StateDir(), GuestBinary: e.GuestBinary(), DNS: GuestDNS})
 	if err != nil {
 		return driver.Drivers{}, err
 	}
@@ -145,6 +150,7 @@ func (e Env) Drivers(ctx context.Context) (driver.Drivers, error) {
 	vms, err := chvm.New(ctx, chvm.Config{
 		Docker: cli, StateDir: e.StateDir(), GuestBinary: e.GuestBinary(),
 		CloudHypervisor: CloudHypervisor, Firmware: Firmware, BaseImages: BaseImages,
+		DNS: GuestDNS,
 	})
 	if err != nil {
 		return driver.Drivers{}, err

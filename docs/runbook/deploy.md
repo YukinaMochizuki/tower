@@ -149,6 +149,16 @@ Build steps run on the bridge `tower-build0`, on 10.231.0.0/24
 (`docs/decisions/images.md`); where the host already has that network,
 run install-deps.sh with `TOWER_BUILD_SUBNET` set to another.
 
+install-deps.sh also fences the guests (`docs/decisions/traffic.md`): the
+unit `tower-guest-network` loads `/etc/tower/guest-network.nft` before
+Docker starts, and Docker requires it. Other containers on the host, such
+as upkeep's stacks on their own `br-*` networks, are not fenced; one run
+with `docker run` on Docker's default bridge is. Guests resolve through
+hostd's `--guest-dns`, public servers (1.1.1.1 and 9.9.9.9 unless set),
+since the fence drops what they send to the host's own resolver. `nft list
+table inet tower_guest` shows its counters, and the journal its refusals,
+prefixed `tower-guest:`.
+
 ### 2. Its target and token
 
 As an administrator, the Target and its ROLE_HOSTD token:
@@ -216,3 +226,9 @@ the environment of one git command. A machine takes no secret files.
 Replace `/usr/local/bin/hostd` and `/usr/local/lib/tower/tower-guest`, then
 `systemctl restart hostd`: containers and VMs run on, as Docker's; a VM
 gets the new tower-guest the next time hostd reaches it.
+
+A workstream network made by a hostd older than the guest fence keeps its
+`br-*` bridge, which the fence does not match: `docker network ls --filter
+label=tower.hangarlab.cloud/driver=network` lists them, and `ip link`
+shows which are not `twr*`. Each is made again, fenced, once its
+workstream's guests are gone.

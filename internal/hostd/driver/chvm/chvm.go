@@ -35,6 +35,7 @@ import (
 	"io"
 	"maps"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,6 +87,10 @@ type Config struct {
 	// BaseImages holds the base images, each NAME.raw
 	// (deploy/hostd/base-image.sh).
 	BaseImages string
+	// DNS are the servers a VM resolves through: its launcher relays the
+	// VM's queries to Docker's resolver, which forwards to these, public
+	// ones, as docker.Config's DNS. Empty is the host's.
+	DNS []netip.Addr
 	// StopGrace is how long a guest has to power off once its power button
 	// is pressed; zero means DefaultStopGrace.
 	StopGrace time.Duration
@@ -315,6 +320,7 @@ func (d *Driver) createContainer(ctx context.Context, name string, s spec, label
 		Sysctls:       map[string]string{"net.ipv4.ip_forward": "1"},
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
 		NetworkMode:   container.NetworkMode(netName),
+		DNS:           d.cfg.DNS,
 		Resources: container.Resources{
 			PidsLimit: ptr(int64(vmPidsLimit)),
 			Memory:    int64(memory) + memoryOverhead,
