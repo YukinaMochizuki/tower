@@ -169,18 +169,17 @@ func (h *Host) converge(ctx context.Context, in *envv1alpha1.Instance) (observed
 		if vm {
 			err = h.d.VMs.Create(ctx, driver.VMSpec{GuestSpec: gs, BaseImage: spec.GetImage()})
 		} else {
-			// Pulled apart from the host lock, which this reconcile holds.
-			var pulled bool
-			pulled, err = h.pulls.get(spec.GetImage(), controller.Key{Project: ref.GetProject(), Name: ref.GetName()})
+			var image string
+			image, err = h.image(ctx, spec.GetImage(), controller.Key{Project: ref.GetProject(), Name: ref.GetName()})
 			switch {
 			case errors.Is(err, driver.ErrNotFound) || errors.Is(err, driver.ErrNoSpace):
 				return failed("PullFailed", err), nil
 			case err != nil:
 				return observed{}, err
-			case !pulled:
+			case image == "":
 				return observed{phase: envv1alpha1.InstancePhase_INSTANCE_PHASE_PENDING, reason: "Pulling", msg: "its image " + spec.GetImage() + " is being pulled"}, nil
 			}
-			err = h.d.Containers.Create(ctx, driver.ContainerSpec{GuestSpec: gs, Image: spec.GetImage(), Env: spec.GetEnv()})
+			err = h.d.Containers.Create(ctx, driver.ContainerSpec{GuestSpec: gs, Image: image, Env: spec.GetEnv()})
 			if errors.Is(err, driver.ErrNotFound) {
 				// Gone from the host since it was pulled: pulled again.
 				h.pulls.forget(spec.GetImage())
@@ -221,6 +220,25 @@ func (h *Host) converge(ctx context.Context, in *envv1alpha1.Instance) (observed
 		}
 	}
 	return o, nil
+}
+
+// image is the name a container of ref is made by on the host, at once
+// for an image the host holds, built on it or pulled; else "" while it is
+// pulled, apart from the host lock, which a reconcile holds, key being
+// reconciled again when the pull ends. An image built on the host is never
+// pulled, whether or not it is pushed yet.
+func (h *Host) image(ctx context.Context, ref string, key controller.Key) (string, error) {
+	local, err := h.d.Images.Local(ctx, ref)
+	if !errors.Is(err, driver.ErrNotFound) {
+		return local, err
+	}
+	pulled, err := h.pulls.get(ref, key)
+	if err != nil || !pulled {
+		return "", err
+	}
+	// Pulled, and gone from the host since: pulled again.
+	h.pulls.forget(ref)
+	return "", fmt.Errorf("image %s left the host after it was pulled", ref)
 }
 
 // disk is the disk of the name, nil when it is not on the host.

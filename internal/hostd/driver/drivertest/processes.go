@@ -105,10 +105,9 @@ func testProcOtherUser(t *testing.T, h Harness, k GuestKind) {
 	mustNot(t, "making a context", err)
 	image, err := h.Drivers.Images.Build(t.Context(), driver.BuildSpec{Repository: "drivertest/" + name(t, ""), Context: &ctxTar})
 	mustNot(t, "building an image of another user", err)
-	mustNot(t, "pulling it", h.Drivers.Images.Pull(t.Context(), image))
 	other := k
 	other.Create = func(t *testing.T, spec driver.GuestSpec) error {
-		return h.Drivers.Containers.Create(t.Context(), driver.ContainerSpec{GuestSpec: spec, Image: image})
+		return h.Drivers.Containers.Create(t.Context(), driver.ContainerSpec{GuestSpec: spec, Image: h.Local(t, image)})
 	}
 	c := processes(t, k)
 	g := other.guestWithDisk(t, h, "visitor")

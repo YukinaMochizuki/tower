@@ -20,7 +20,8 @@ import (
 // tower's registry it pulled that no Instance or Golden of its target
 // names, once they have gone unnamed for the grace (an image's own time is
 // its build's, the epoch: hostd counts from when it first saw it unnamed,
-// afresh after a restart). An image a container is made of stays. A list it could not
+// afresh after a restart). An image a container is made of stays, and so
+// does one built here and not pushed yet. A list it could not
 // read, from the API or from a driver, stops it: a failed list must never
 // read as nothing being wanted. What another hostd made, or anything not
 // made by one, it never touches.
@@ -80,6 +81,16 @@ func (h *Host) Sweep(ctx context.Context) error {
 	images, err := h.d.Images.List(ctx)
 	if err != nil {
 		return fmt.Errorf("listing images: %w", err)
+	}
+	// An image not pushed yet is named as one an Instance names is: the
+	// host holds the one copy of it that runs, and the registry must yet
+	// get it.
+	unpushed, err := h.d.Images.Unpushed(ctx)
+	if err != nil {
+		return fmt.Errorf("listing the images not pushed yet: %w", err)
+	}
+	for _, ref := range unpushed {
+		artifacts[ref] = true
 	}
 
 	var errs []error

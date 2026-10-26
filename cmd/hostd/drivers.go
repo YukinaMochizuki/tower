@@ -100,7 +100,8 @@ func drivers(f flags, log *slog.Logger) (driver.Drivers, error) {
 	}
 	imgs, err := images.New(images.Config{
 		Docker: cli, BuildKit: df.buildkit, Registry: df.registry, Username: df.registryUser, Password: password,
-		ScratchDir: filepath.Join(f.stateDir, "scratch", "builds"),
+		ScratchDir:  filepath.Join(f.stateDir, "scratch", "builds"),
+		UnpushedDir: filepath.Join(f.stateDir, "images", "unpushed"),
 	})
 	if err != nil {
 		return driver.Drivers{}, fmt.Errorf("images: %w", err)

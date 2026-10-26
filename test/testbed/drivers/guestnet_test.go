@@ -51,7 +51,7 @@ func TestAGuestReachesNothingOfTheHost(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = h.Drivers.Storage.DestroyDisk(context.WithoutCancel(ctx), name+"-disk") })
 		spec := driver.GuestSpec{Name: name, Disk: d.Path, Network: netName, Alias: alias, CPUs: 1, Memory: 256 << 20, Labels: labels(name)}
-		if err := cs.Create(ctx, driver.ContainerSpec{GuestSpec: spec, Image: h.Image}); err != nil {
+		if err := cs.Create(ctx, driver.ContainerSpec{GuestSpec: spec, Image: h.Local(t, h.Image)}); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = cs.Remove(context.WithoutCancel(ctx), name) })
