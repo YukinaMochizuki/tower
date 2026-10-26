@@ -843,7 +843,7 @@ const file_tower_tenancy_v1alpha1_project_proto_rawDesc = "" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x125\n" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x127\n" +
 	"\x04spec\x18\x04 \x01(\v2#.tower.tenancy.v1alpha1.ProjectSpecR\x04spec\x12=\n" +
-	"\x06status\x18\x05 \x01(\v2%.tower.tenancy.v1alpha1.ProjectStatusR\x06status:\x1f\x8a\xb5\x18\x1b\n" +
+	"\x06status\x18\x05 \x01(\v2%.tower.tenancy.v1alpha1.ProjectStatusR\x06status:\x1f\xca\xf3\x18\x1b\n" +
 	"\aProject\x12\bprojects\x1a\x04proj \x02\"0\n" +
 	"\vProjectSpec\x12!\n" +
 	"\fdisplay_name\x18\x01 \x01(\tR\vdisplayName\"z\n" +

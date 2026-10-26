@@ -29,6 +29,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/hostd/hostdtest"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/provider/providertest"
+	"github.com/YukinaMochizuki/tower/internal/streams"
 	"github.com/YukinaMochizuki/tower/internal/testutil"
 	"github.com/YukinaMochizuki/tower/internal/ticket"
 )
@@ -500,7 +501,7 @@ func TestDirectStreams(t *testing.T) {
 		}
 		return tk
 	}
-	conn, err := hostd.DialStream(t.Context(), where.URL, issue(claims))
+	conn, err := streams.Dial(t.Context(), where.URL, issue(claims))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,8 +537,8 @@ func TestDirectStreams(t *testing.T) {
 	}
 	refused["tampered with"] = tk[:i] + string(swap) + tk[i+1:]
 	for what, tk := range refused {
-		_, err := hostd.DialStream(t.Context(), where.URL, tk)
-		var se *hostd.StreamError
+		_, err := streams.Dial(t.Context(), where.URL, tk)
+		var se *streams.Error
 		if !errors.As(err, &se) || (se.Status != http.StatusForbidden && se.Status != http.StatusUnauthorized) {
 			t.Errorf("a stream on a ticket %s: %v, want it refused", what, err)
 		}
@@ -568,7 +569,7 @@ func TestOpenStreamsAreReported(t *testing.T) {
 	}
 	var conns []io.Closer
 	for range 2 {
-		conn, err := hostd.DialStream(t.Context(), where.URL, tk)
+		conn, err := streams.Dial(t.Context(), where.URL, tk)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -118,7 +118,8 @@ func (s *Server) reachable(target string, st *targetsv1alpha1.TargetStatus) {
 }
 
 // defaultProvider is tower's own provider of a target: a hostd target's
-// host, over its tunnel.
+// host, over its tunnel; a hangar target's, which tower runs itself
+// (hangar.go).
 func (s *Server) defaultProvider(target string) (provider.Provider, error) {
 	t, live, err := s.liveTarget(context.Background(), target)
 	if err != nil {
@@ -127,8 +128,12 @@ func (s *Server) defaultProvider(target string) (provider.Provider, error) {
 	if !live {
 		return nil, fmt.Errorf("target %q is gone", target)
 	}
-	if t.GetSpec().GetHostd() == nil {
-		return nil, fmt.Errorf("target %q: %w: tower has no hangar provider yet", target, errNoProvider)
+	if t.GetSpec().GetHangar() != nil {
+		p, err := s.hangarProvider(target)
+		if err != nil {
+			return nil, err
+		}
+		return p, nil
 	}
 	return &hostd.Client{Target: target, Tunnels: s.tunnels, Calls: s.hostdCalls}, nil
 }

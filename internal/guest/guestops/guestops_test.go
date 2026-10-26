@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
-	"github.com/YukinaMochizuki/tower/internal/hostd/guestops"
+	"github.com/YukinaMochizuki/tower/internal/guest"
+	"github.com/YukinaMochizuki/tower/internal/guest/guestops"
 )
 
 // towerGuest is tower-guest, built once for the package's tests.
@@ -80,7 +80,7 @@ func ops(t *testing.T) guestops.Ops {
 func run(t *testing.T, o guestops.Ops, env map[string]string, stdin string, command ...string) (int, string, string) {
 	t.Helper()
 	var out, errOut bytes.Buffer
-	code, err := o.Exec(t.Context(), driver.ExecSpec{Command: command, Env: env, Stdin: strings.NewReader(stdin), Stdout: &out, Stderr: &errOut})
+	code, err := o.Exec(t.Context(), guest.ExecSpec{Command: command, Env: env, Stdin: strings.NewReader(stdin), Stdout: &out, Stderr: &errOut})
 	if err != nil {
 		t.Fatalf("running %v: %v", command, err)
 	}
@@ -106,7 +106,7 @@ func TestExec(t *testing.T) {
 	}
 	dir := t.TempDir()
 	var out bytes.Buffer
-	if _, err := o.Exec(t.Context(), driver.ExecSpec{Command: []string{"pwd"}, Dir: dir, Stdout: &out}); err != nil || strings.TrimSpace(out.String()) != dir {
+	if _, err := o.Exec(t.Context(), guest.ExecSpec{Command: []string{"pwd"}, Dir: dir, Stdout: &out}); err != nil || strings.TrimSpace(out.String()) != dir {
 		t.Errorf("pwd in %s: %q, %v", dir, out.String(), err)
 	}
 	if code, _, errOut := run(t, o, nil, "", "no-such-command"); code != 127 || !strings.Contains(errOut, "no-such-command") {
@@ -116,7 +116,7 @@ func TestExec(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {
-		_, err := o.Exec(ctx, driver.ExecSpec{Command: []string{"sh", "-c", "sleep 3600 & echo $! > " + marker + "; wait"}})
+		_, err := o.Exec(ctx, guest.ExecSpec{Command: []string{"sh", "-c", "sleep 3600 & echo $! > " + marker + "; wait"}})
 		done <- err
 	}()
 	pid := waitPID(t, marker)
@@ -187,7 +187,7 @@ func TestFiles(t *testing.T) {
 	if err := o.WriteFile(ctx, p, 0, 4, strings.NewReader("ents")); err != nil {
 		t.Fatal(err)
 	}
-	if err := o.WriteFile(ctx, p, 0, 2, strings.NewReader("xx")); !errors.Is(err, driver.ErrBadOffset) {
+	if err := o.WriteFile(ctx, p, 0, 2, strings.NewReader("xx")); !errors.Is(err, guest.ErrBadOffset) {
 		t.Errorf("a chunk not where the file ends: %v", err)
 	}
 	var b bytes.Buffer
@@ -247,7 +247,7 @@ func TestCopy(t *testing.T) {
 	}
 }
 
-func startProc(t *testing.T, o guestops.Ops, spec driver.ProcessSpec) string {
+func startProc(t *testing.T, o guestops.Ops, spec guest.ProcessSpec) string {
 	t.Helper()
 	if spec.LogCap == 0 {
 		spec.LogCap = 1 << 20
@@ -262,12 +262,12 @@ func startProc(t *testing.T, o guestops.Ops, spec driver.ProcessSpec) string {
 	return id
 }
 
-func follow(t *testing.T, o guestops.Ops, id string) (string, driver.LogEnd) {
+func follow(t *testing.T, o guestops.Ops, id string) (string, guest.LogEnd) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	var text strings.Builder
-	end, err := o.ReadProcessLog(ctx, id, 0, true, func(c driver.LogChunk) error {
+	end, err := o.ReadProcessLog(ctx, id, 0, true, func(c guest.LogChunk) error {
 		text.Write(c.Data)
 		return nil
 	})
@@ -284,7 +284,7 @@ func follow(t *testing.T, o guestops.Ops, id string) (string, driver.LogEnd) {
 func TestProcesses(t *testing.T) {
 	o := ops(t)
 	ctx, cancel := context.WithCancel(t.Context())
-	id, err := o.StartProcess(ctx, driver.ProcessSpec{Name: "build", Command: []string{"sh", "-c", "echo one; sleep 0.05; echo two >&2; sleep 0.2; echo $SECRET_ONE"}, Env: map[string]string{"SECRET_ONE": "canary-proc-Aa11"}, LogCap: 1 << 20, Keep: 100})
+	id, err := o.StartProcess(ctx, guest.ProcessSpec{Name: "build", Command: []string{"sh", "-c", "echo one; sleep 0.05; echo two >&2; sleep 0.2; echo $SECRET_ONE"}, Env: map[string]string{"SECRET_ONE": "canary-proc-Aa11"}, LogCap: 1 << 20, Keep: 100})
 	cancel()
 	if err != nil {
 		t.Fatal(err)
@@ -302,19 +302,19 @@ func TestProcesses(t *testing.T) {
 		return nil
 	})
 
-	capped := startProc(t, o, driver.ProcessSpec{Command: []string{"sh", "-c", "echo 0123456789; sleep 0.05; echo abcdefghij; sleep 0.05; echo ABCDEFGHIJ"}, LogCap: 16})
+	capped := startProc(t, o, guest.ProcessSpec{Command: []string{"sh", "-c", "echo 0123456789; sleep 0.05; echo abcdefghij; sleep 0.05; echo ABCDEFGHIJ"}, LogCap: 16})
 	follow(t, o, capped)
 	var got strings.Builder
-	end, err = o.ReadProcessLog(t.Context(), capped, 0, false, func(c driver.LogChunk) error { got.Write(c.Data); return nil })
+	end, err = o.ReadProcessLog(t.Context(), capped, 0, false, func(c guest.LogChunk) error { got.Write(c.Data); return nil })
 	if err != nil || got.String() != "ghij\nABCDEFGHIJ\n" || end.HeldFrom != 17 || end.Next != 33 {
 		t.Errorf("a capped log: %q, %+v, %v", got.String(), end, err)
 	}
 
-	group := startProc(t, o, driver.ProcessSpec{Command: []string{"sh", "-c", "sleep 3600 & echo $!; wait"}})
+	group := startProc(t, o, guest.ProcessSpec{Command: []string{"sh", "-c", "sleep 3600 & echo $!; wait"}})
 	var childPID int
 	deadline := time.Now().Add(10 * time.Second)
 	for childPID == 0 {
-		_, _ = o.ReadProcessLog(t.Context(), group, 0, false, func(c driver.LogChunk) error {
+		_, _ = o.ReadProcessLog(t.Context(), group, 0, false, func(c guest.LogChunk) error {
 			for _, ch := range strings.TrimSpace(string(c.Data)) {
 				childPID = childPID*10 + int(ch-'0')
 			}
@@ -336,7 +336,7 @@ func TestProcesses(t *testing.T) {
 	}
 
 	for range 3 {
-		follow(t, o, startProc(t, o, driver.ProcessSpec{Command: []string{"true"}, Keep: 2}))
+		follow(t, o, startProc(t, o, guest.ProcessSpec{Command: []string{"true"}, Keep: 2}))
 	}
 	viaShim, err := o.ListProcesses(t.Context())
 	if err != nil {
@@ -351,7 +351,7 @@ func TestProcesses(t *testing.T) {
 	if len(viaShim) != 2 || len(fromHost) != 2 || viaShim[0].ID != fromHost[0].ID {
 		t.Errorf("with 2 finished kept, listed %+v through the shim and %+v from the host", viaShim, fromHost)
 	}
-	if _, err := o.ReadProcessLog(t.Context(), "p0000000000000000", 0, false, func(driver.LogChunk) error { return nil }); !errors.Is(err, driver.ErrNotFound) {
+	if _, err := o.ReadProcessLog(t.Context(), "p0000000000000000", 0, false, func(guest.LogChunk) error { return nil }); !errors.Is(err, guest.ErrNoProcess) {
 		t.Errorf("a process not there: %v", err)
 	}
 }
@@ -360,7 +360,7 @@ func TestProcesses(t *testing.T) {
 // as when its guest stopped, reads as ended by SIGKILL.
 func TestASupervisorKilledReadsAsKilled(t *testing.T) {
 	o := ops(t)
-	id := startProc(t, o, driver.ProcessSpec{Command: []string{"sleep", "3600"}})
+	id := startProc(t, o, guest.ProcessSpec{Command: []string{"sleep", "3600"}})
 	// The supervisor is the lock's holder: kill every process holding it.
 	out, _ := exec.Command("fuser", "-k", "-KILL", filepath.Join(o.ProcRoot, id, "lock")).CombinedOutput()
 	_ = out

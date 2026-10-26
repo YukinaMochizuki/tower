@@ -971,12 +971,12 @@ const file_tower_iam_v1alpha1_service_token_proto_rawDesc = "" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x125\n" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x128\n" +
 	"\x04spec\x18\x04 \x01(\v2$.tower.iam.v1alpha1.ServiceTokenSpecR\x04spec\x12>\n" +
-	"\x06status\x18\x05 \x01(\v2&.tower.iam.v1alpha1.ServiceTokenStatusR\x06status:'\x8a\xb5\x18#\n" +
+	"\x06status\x18\x05 \x01(\v2&.tower.iam.v1alpha1.ServiceTokenStatusR\x06status:'\xca\xf3\x18#\n" +
 	"\fServiceToken\x12\rservicetokens\x1a\x02st \x02\"\x8a\x01\n" +
 	"\x10ServiceTokenSpec\x12 \n" +
 	"\vdescription\x18\x01 \x01(\tR\vdescription\x124\n" +
-	"\x04role\x18\x02 \x01(\x0e2\x18.tower.iam.v1alpha1.RoleB\x06\x8a\xb5\x18\x02\b\x01R\x04role\x12\x1e\n" +
-	"\x06target\x18\x03 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\x06target\"\xdc\x02\n" +
+	"\x04role\x18\x02 \x01(\x0e2\x18.tower.iam.v1alpha1.RoleB\x06\xca\xf3\x18\x02\b\x01R\x04role\x12\x1e\n" +
+	"\x06target\x18\x03 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\x06target\"\xdc\x02\n" +
 	"\x12ServiceTokenStatus\x12/\n" +
 	"\x13observed_generation\x18\x01 \x01(\x03R\x12observedGeneration\x128\n" +
 	"\n" +

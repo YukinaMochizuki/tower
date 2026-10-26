@@ -34,9 +34,20 @@ Traffic is split by who needs the bytes, not by size:
   and sit close to workstream.
 - Last use is kept in memory and written to status now and then, so commands
   do not move the store's revision.
-- hangar serves no port-forward to an arbitrary port yet, and its service
-  tokens are project-wide and long-lived, so a ticket scoped to one
-  environment exists only on hostd for now.
+- **A hangar target's direct streams pass through tower,** an exception to
+  point 3. hangar forwards any port of a machine (`:portforward`), but its
+  service tokens are project-wide and long-lived, so no client is given
+  one: tower serves the stream on its own listener
+  (`/streams/hangar/<target>/...`), checks the ticket it issued, and
+  relays it to hangar's port forward with the project's token
+  (`internal/provider/hangar`). Streams go to hangar directly once hangar
+  has tokens scoped to one machine and port, short-lived; hangar does not
+  take tickets tower signs, which would make it know tower
+  (`layers.md`).
+- **A copy between two instances goes across their workstream's
+  network,** from one guest to the other (tower-guest's send and receive),
+  never through tower: a copy is always within one workstream, whose
+  instances share a network.
 - **A guest's egress is fenced on hostd.** A box (a container on its
   workstream's Docker bridge) and a VM (behind its launcher's NAT, on the
   same bridge) would otherwise reach every port the host listens on through

@@ -16,8 +16,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/YukinaMochizuki/tower/internal/hostd/proclog"
-	"github.com/YukinaMochizuki/tower/internal/hostd/tarx"
+	"github.com/YukinaMochizuki/tower/internal/guest/proclog"
+	"github.com/YukinaMochizuki/tower/internal/guest/tarx"
 )
 
 // Main runs tower-guest with its arguments, returning its exit code.
@@ -41,8 +41,7 @@ func Main(args []string) int {
 	return 2
 }
 
-// Version is tower-guest's, which hostd compares with its own to copy it
-// into a VM again.
+// Version is tower-guest's, as it says it.
 var Version = "dev"
 
 // failed writes a shim's failure and returns its exit code.
@@ -77,6 +76,10 @@ func shim(stdin io.Reader, stdout, stderr io.Writer) int {
 		return listOp(h, stdout, stderr)
 	case OpLog:
 		return logOp(h, in, stdout, stderr)
+	case OpSend:
+		return sendOp(h, stderr)
+	case OpReceive:
+		return receiveOp(h, in, stdout, stderr)
 	}
 	return failed(stderr, ExitFailed, fmt.Errorf("no operation %q", h.Op))
 }

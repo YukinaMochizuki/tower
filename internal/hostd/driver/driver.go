@@ -11,10 +11,13 @@ package driver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net"
 	"time"
+
+	"github.com/YukinaMochizuki/tower/internal/guest"
 )
 
 // Labels hostd sets on what it makes. A driver keeps them as given: as
@@ -44,7 +47,7 @@ var (
 	ErrStartFailed = errors.New("driver: the guest did not start")
 	// ErrBadOffset means a chunk of a file does not start where the file
 	// ends.
-	ErrBadOffset = errors.New("driver: the chunk does not start where the file ends")
+	ErrBadOffset = guest.ErrBadOffset
 	// ErrLeaseLost means a push was refused: the branch is not at its
 	// lease.
 	ErrLeaseLost = errors.New("driver: the branch moved since its lease")
@@ -191,17 +194,7 @@ type Network struct {
 }
 
 // ExecSpec is one command run in a guest.
-type ExecSpec struct {
-	// Command is the program and its arguments, run without a shell.
-	Command []string
-	// Env is added to the guest's environment for this command alone.
-	Env map[string]string
-	// Dir is the working directory; empty is the guest's default.
-	Dir    string
-	Stdin  io.Reader
-	Stdout io.Writer
-	Stderr io.Writer
-}
+type ExecSpec = guest.ExecSpec
 
 // Guests is what the container and VM drivers both do, a guest named as
 // its spec named it. A guest not there is ErrNotFound; one not running,
@@ -267,51 +260,23 @@ type Containers interface {
 	Create(ctx context.Context, spec ContainerSpec) error
 }
 
-// ProcessSpec is a process started in a guest apart from any call.
-type ProcessSpec struct {
-	Name string
-	// Command is the program and its arguments, run without a shell.
-	Command []string
-	// Env is added to the guest's environment for this process alone, and
-	// never kept.
-	Env map[string]string
-	Dir string
-	// LogCap bounds what its log holds, its oldest output dropped first;
-	// Keep is how many finished processes its guest keeps from now on,
-	// its oldest going first.
-	LogCap int64
-	Keep   int
-}
+// What a process is started with and read back as, internal/guest's,
+// which guestops does for the container and VM drivers.
+type (
+	ProcessSpec = guest.ProcessSpec
+	ProcessExit = guest.ProcessExit
+	ProcessInfo = guest.ProcessInfo
+	LogChunk    = guest.LogChunk
+	LogEnd      = guest.LogEnd
+)
 
-// ProcessExit is how a process ended: Code, 128 plus the signal's number
-// for one a signal ended, and Signal, 0 if it exited.
-type ProcessExit struct {
-	Code, Signal int
-}
-
-// ProcessInfo is a process of a guest as the host keeps it.
-type ProcessInfo struct {
-	ID, Name string
-	Command  []string
-	Started  time.Time
-	// Exit is nil while it runs.
-	Exit *ProcessExit
-}
-
-// LogChunk is what a process wrote, at its offset in its log, stdout and
-// stderr counted together.
-type LogChunk struct {
-	Stderr bool
-	Offset int64
-	Data   []byte
-}
-
-// LogEnd is where a read of a process's log ended: the oldest offset it
-// holds, the offset to read on from, and how the process ended, nil while
-// it runs.
-type LogEnd struct {
-	HeldFrom, Next int64
-	Exit           *ProcessExit
+// FromGuest is err, of guestops, as a driver says it: a process the guest
+// does not keep is ErrNotFound.
+func FromGuest(err error) error {
+	if errors.Is(err, guest.ErrNoProcess) && !errors.Is(err, ErrNotFound) {
+		return fmt.Errorf("%w: %w", err, ErrNotFound)
+	}
+	return err
 }
 
 // Processes runs processes in a guest apart from any call, each in a

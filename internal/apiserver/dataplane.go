@@ -613,10 +613,6 @@ func (h environmentService) IssueTicket(ctx context.Context, req *connect.Reques
 		return nil, err
 	}
 	defer e.release()
-	if e.target.GetSpec().GetHangar() != nil {
-		return nil, connect.NewError(connect.CodeUnimplemented,
-			fmt.Errorf("%s runs on hangar target %q, which forwards no port yet: no direct stream to it can be ticketed", e, e.target.GetMetadata().GetName()))
-	}
 	if s.cfg.Tickets == nil {
 		return nil, failedPrecondition("this tower has no ticket signing key, so it issues no tickets")
 	}

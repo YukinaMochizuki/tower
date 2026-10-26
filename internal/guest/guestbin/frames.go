@@ -1,22 +1,25 @@
-// Package guestbin is tower-guest, the static program hostd puts in each
-// of its guests (cmd/tower-guest): bound read-only into a container,
-// copied into a VM. hostd runs every operation in a guest through it, by
-// docker exec in a container and over ssh in a VM, so both kinds of guest
-// are driven alike (internal/hostd/guestops):
+// Package guestbin is tower-guest, the static program a provider puts in
+// each of its guests (cmd/tower-guest): hostd binds it read-only into a
+// container and copies it into a VM, and the hangar provider writes it
+// into a hangar machine over hangar's exec. Every operation in a guest
+// runs through it, by docker exec or ssh on hostd and by hangar's exec on
+// hangar, so every kind of guest is driven alike (internal/guest/
+// guestops):
 //
 //   - shim: one operation, named by a header on its stdin: run a command
-//     (exec), read, write, copy out and copy in files, start a process
-//     under a supervisor, signal one, list them and read their logs;
+//     (exec), read, write, copy out and copy in files, send a path to
+//     another guest or receive one (transfer.go), start a process under a
+//     supervisor, signal one, list them and read their logs;
 //   - init: a container's first process, which reaps orphans and runs the
 //     image's own entrypoint, and outlives it;
 //   - supervise: a process's supervisor, detached from the call that
-//     started it (internal/hostd/proclog).
+//     started it (internal/guest/proclog).
 //
 // Its stdin is framed (Frame) so that, beside the command's own input, it
 // carries the header (what to do, with the environment of this call
-// alone, which so never enters a command line or a file) and hostd's
-// signal; a stdin that ends without its end frame, as when the call or
-// hostd is gone, kills what it runs.
+// alone, which so never enters a command line or a file) and the
+// provider's signal; a stdin that ends without its end frame, as when the
+// call or the provider is gone, kills what it runs.
 package guestbin
 
 import (
@@ -97,6 +100,11 @@ type Header struct {
 	Signal int    `json:"signal,omitempty"`
 	From   int64  `json:"from,omitempty"`
 	Follow bool   `json:"follow,omitempty"`
+	// Send and Receive (transfer.go): where the receiver listens, the
+	// token both share, and the top name the sent path takes.
+	Addr  string `json:"addr,omitempty"`
+	Token string `json:"token,omitempty"`
+	To    string `json:"to,omitempty"`
 }
 
 // The operations.
@@ -110,6 +118,8 @@ const (
 	OpSignal  = "signal"
 	OpList    = "list"
 	OpLog     = "log"
+	OpSend    = "send"
+	OpReceive = "receive"
 )
 
 // Exit codes a shim says what went wrong with in every operation but

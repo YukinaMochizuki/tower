@@ -22,6 +22,17 @@ images would branch by provider.
 Not a public registry: these images are gigabytes each, built often, and
 carry toolchain configuration that has no reason to leave the tailnet.
 
+**A hangar host reaches the registry without joining the tailnet** (a
+public cloud joins no private network; decided 2026-10). The registry's
+read side is open to the hangar host's public IP through an IP allowlist,
+and hangar pulls with a read-only login of the registry's that is the
+hangar target's own (`HangarTarget.registry_pull_secret`, kept in hangar as
+a registry-auth Secret its containers name): every guest of the host leaves
+through the same public IP, so the address alone says nothing of who
+pulls. Pushing from a hangar target is its builder's: a container that
+joins the tailnet with an identity of its own, which the tailnet's ACL
+limits to the registry; the host never does.
+
 ## Consequences
 
 - Providers need two primitives for images, build-and-push and run-from-the-

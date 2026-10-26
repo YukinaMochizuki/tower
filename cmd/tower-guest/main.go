@@ -1,5 +1,6 @@
-// Command tower-guest is the program hostd puts in each of its guests and
-// runs everything there through (internal/hostd/guestbin), and that runs
+// Command tower-guest is the program a provider, hostd or tower's hangar
+// provider, puts in each of its guests and runs everything there through
+// (internal/guest/guestbin), and that runs
 // each VM as its container's first process (tower-guest vm,
 // internal/hostd/driver/chvm/launcher). It is built static
 // (CGO_ENABLED=0), as it runs in images and VMs of any libc.
@@ -8,8 +9,8 @@ package main
 import (
 	"os"
 
+	"github.com/YukinaMochizuki/tower/internal/guest/guestbin"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver/chvm/launcher"
-	"github.com/YukinaMochizuki/tower/internal/hostd/guestbin"
 )
 
 func main() {

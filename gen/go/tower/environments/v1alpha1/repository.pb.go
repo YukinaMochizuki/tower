@@ -1063,7 +1063,7 @@ const file_tower_environments_v1alpha1_repository_proto_rawDesc = "" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x125\n" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x12?\n" +
 	"\x04spec\x18\x04 \x01(\v2+.tower.environments.v1alpha1.RepositorySpecR\x04spec\x12E\n" +
-	"\x06status\x18\x05 \x01(\v2-.tower.environments.v1alpha1.RepositoryStatusR\x06status:&\x8a\xb5\x18\"\n" +
+	"\x06status\x18\x05 \x01(\v2-.tower.environments.v1alpha1.RepositoryStatusR\x06status:&\xca\xf3\x18\"\n" +
 	"\n" +
 	"Repository\x12\frepositories\x1a\x04repo \x01\"v\n" +
 	"\x0eRepositorySpec\x12\x10\n" +

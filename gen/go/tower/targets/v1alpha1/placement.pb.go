@@ -848,7 +848,7 @@ const file_tower_targets_v1alpha1_placement_proto_rawDesc = "" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x125\n" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x129\n" +
 	"\x04spec\x18\x04 \x01(\v2%.tower.targets.v1alpha1.PlacementSpecR\x04spec\x12?\n" +
-	"\x06status\x18\x05 \x01(\v2'.tower.targets.v1alpha1.PlacementStatusR\x06status:!\x8a\xb5\x18\x1d\n" +
+	"\x06status\x18\x05 \x01(\v2'.tower.targets.v1alpha1.PlacementStatusR\x06status:!\xca\xf3\x18\x1d\n" +
 	"\tPlacement\x12\n" +
 	"placements\x1a\x02pl \x02\"'\n" +
 	"\rPlacementSpec\x12\x16\n" +

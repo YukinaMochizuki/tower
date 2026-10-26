@@ -38,6 +38,8 @@ type flags struct {
 	previousKEKs []string
 	ticketKey    string
 	defaultImage string
+	towerGuest   string
+	publicURL    string
 	dev          bool
 }
 
@@ -53,6 +55,8 @@ func main() {
 	})
 	flag.StringVar(&f.ticketKey, "ticket-key", "", "the ed25519 key tickets for direct streams are signed with, a file only its owner reads, made if missing; its public key, which hostd verifies tickets with, is written beside it with .pub added. Empty is ticket-key beside --secrets-kek; with neither, no ticket is issued")
 	flag.StringVar(&f.defaultImage, "default-box-image", "", "the image a box of a repository without a devcontainer is made of when it names no fallback_image, as workstream's own default box image; empty fails such a box")
+	flag.StringVar(&f.towerGuest, "tower-guest", "", "tower-guest, statically linked, which the provider of a hangar target writes into its machines and runs everything in them through; empty runs nothing in them")
+	flag.StringVar(&f.publicURL, "public-url", "", "where clients reach this apiserver, such as https://tower.example.ts.net:8080: direct streams to hangar targets' instances are served there; empty issues no ticket for them")
 	flag.BoolVar(&f.dev, "dev", false, "for local development only: trust the "+auth.DevPrincipalHeader+" header as the caller, and take the admin socket from the uid the apiserver runs as; only on a loopback IP")
 	flag.Parse()
 
@@ -98,7 +102,16 @@ func run(ctx context.Context, f flags, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	srv := apiserver.New(apiserver.Config{Store: st, Logger: log, Secrets: keys, Credentials: st, Tickets: tickets, DefaultBoxImage: f.defaultImage})
+	var guest []byte
+	if f.towerGuest != "" {
+		if guest, err = os.ReadFile(f.towerGuest); err != nil {
+			return fmt.Errorf("--tower-guest: %w", err)
+		}
+	}
+	srv := apiserver.New(apiserver.Config{
+		Store: st, Logger: log, Secrets: keys, Credentials: st, Tickets: tickets, DefaultBoxImage: f.defaultImage,
+		TowerGuest: guest, PublicURL: f.publicURL,
+	})
 	tokens, ok := srv.ServiceTokens()
 	if !ok {
 		return errors.New("the apiserver keeps no credentials")

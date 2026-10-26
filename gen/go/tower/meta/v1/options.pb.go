@@ -198,30 +198,30 @@ var file_tower_meta_v1_options_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.MessageOptions)(nil),
 		ExtensionType: (*ResourceOptions)(nil),
-		Field:         50001,
+		Field:         51001,
 		Name:          "tower.meta.v1.resource",
-		Tag:           "bytes,50001,opt,name=resource",
+		Tag:           "bytes,51001,opt,name=resource",
 		Filename:      "tower/meta/v1/options.proto",
 	},
 	{
 		ExtendedType:  (*descriptorpb.FieldOptions)(nil),
 		ExtensionType: (*FieldOptions)(nil),
-		Field:         50001,
+		Field:         51001,
 		Name:          "tower.meta.v1.field",
-		Tag:           "bytes,50001,opt,name=field",
+		Tag:           "bytes,51001,opt,name=field",
 		Filename:      "tower/meta/v1/options.proto",
 	},
 }
 
 // Extension fields to descriptorpb.MessageOptions.
 var (
-	// optional tower.meta.v1.ResourceOptions resource = 50001;
+	// optional tower.meta.v1.ResourceOptions resource = 51001;
 	E_Resource = &file_tower_meta_v1_options_proto_extTypes[0]
 )
 
 // Extension fields to descriptorpb.FieldOptions.
 var (
-	// optional tower.meta.v1.FieldOptions field = 50001;
+	// optional tower.meta.v1.FieldOptions field = 51001;
 	E_Field = &file_tower_meta_v1_options_proto_extTypes[1]
 )
 
@@ -242,8 +242,8 @@ const file_tower_meta_v1_options_proto_rawDesc = "" +
 	"\x11SCOPE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rSCOPE_PROJECT\x10\x01\x12\x10\n" +
 	"\fSCOPE_GLOBAL\x10\x02:]\n" +
-	"\bresource\x12\x1f.google.protobuf.MessageOptions\x18ц\x03 \x01(\v2\x1e.tower.meta.v1.ResourceOptionsR\bresource:R\n" +
-	"\x05field\x12\x1d.google.protobuf.FieldOptions\x18ц\x03 \x01(\v2\x1b.tower.meta.v1.FieldOptionsR\x05fieldB\xb5\x01\n" +
+	"\bresource\x12\x1f.google.protobuf.MessageOptions\x18\xb9\x8e\x03 \x01(\v2\x1e.tower.meta.v1.ResourceOptionsR\bresource:R\n" +
+	"\x05field\x12\x1d.google.protobuf.FieldOptions\x18\xb9\x8e\x03 \x01(\v2\x1b.tower.meta.v1.FieldOptionsR\x05fieldB\xb5\x01\n" +
 	"\x11com.tower.meta.v1B\fOptionsProtoP\x01Z<github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1;metav1\xa2\x02\x03TMX\xaa\x02\rTower.Meta.V1\xca\x02\rTower\\Meta\\V1\xe2\x02\x19Tower\\Meta\\V1\\GPBMetadata\xea\x02\x0fTower::Meta::V1b\x06proto3"
 
 var (

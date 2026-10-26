@@ -34,8 +34,12 @@ type Harness struct {
 	// Golden makes a READY Golden holding the artifact and returns its
 	// name, for an Instance to clone its disk from.
 	Golden func(t *testing.T, artifact provider.Artifact) string
-	// Image and BaseImage are what a container and a VM boot from.
+	// Image and BaseImage are what a container and a VM boot from; an
+	// empty BaseImage skips the VM, for a provider that runs none yet.
 	Image, BaseImage string
+	// Skip names the tests the provider does not pass, each with why, such
+	// as a hangar target's mirrors.
+	Skip map[string]string
 	// ProcessLimits, if set, sets the provider's cap of a process's log and
 	// how many finished processes an instance keeps; nil skips the test of
 	// them.
@@ -75,7 +79,12 @@ func Run(t *testing.T, h Harness) {
 		{"ProcessLimits", testProcessLimits},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) { tt.fn(t, h) })
+		t.Run(tt.name, func(t *testing.T) {
+			if why, ok := h.Skip[tt.name]; ok {
+				t.Skip(why)
+			}
+			tt.fn(t, h)
+		})
 	}
 }
 
@@ -94,6 +103,9 @@ func testInstancesRun(t *testing.T, h Harness) {
 	h.Stop(t, in)
 	if _, err := h.Provider.Exec(t.Context(), provider.ExecRequest{Instance: in, Command: []string{"true"}}); err == nil {
 		t.Error("a command ran in a stopped instance")
+	}
+	if h.BaseImage == "" {
+		return
 	}
 	// Its resources given, as tower's controllers always give a VM's: its
 	// disk must hold its base image.
@@ -203,7 +215,7 @@ func testFiles(t *testing.T, h Harness) {
 
 func testCopy(t *testing.T, h Harness) {
 	a, _ := h.Start(t, "copy-a", h.container("net-a"))
-	b, _ := h.Start(t, "copy-b", h.container("net-b"))
+	b, _ := h.Start(t, "copy-b", h.container("net-a"))
 	ctx := t.Context()
 	if err := h.Provider.WriteFile(ctx, a, "/tmp/out/result.txt", 0o644, 0, strings.NewReader("built")); err != nil {
 		t.Fatal(err)

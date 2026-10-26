@@ -32,10 +32,14 @@ message FieldOptions {
   bool immutable = 1;
 }
 
+// The options' numbers are tower's own, apart from hangar's (50001), from
+// which these were copied: tower links hangar's generated code too, for
+// its hangar provider, and two extensions of one number cannot be
+// registered in one binary.
 extend google.protobuf.MessageOptions {
-  ResourceOptions resource = 50001;
+  ResourceOptions resource = 51001;
 }
 
 extend google.protobuf.FieldOptions {
-  FieldOptions field = 50001;
+  FieldOptions field = 51001;
 }

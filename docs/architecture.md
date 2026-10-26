@@ -63,8 +63,17 @@ target and inputs, and `Instance`s, the containers and VMs a provider makes
 real. hostd sees only the Instances and Goldens of its own target.
 
 Commands, files, background processes and pushes are RPCs on a box or a
-machine (`EnvironmentService`); tower relays them to the target over the
-tunnel the target's hostd opens (`docs/decisions/traffic.md`).
+machine (`EnvironmentService`); tower relays them to a hostd target over
+the tunnel its hostd opens, and to a hangar target through hangar's API
+(`docs/decisions/traffic.md`).
+
+tower runs each hangar target's provider itself (`internal/provider/
+hangar`, started by the apiserver from the Target and the Secrets it
+names): it makes the target's Instances real in its hangar project, one
+hangar Network per workstream and a Container with a Disk at /workspace
+per container instance, and runs tower-guest in them over hangar's exec,
+as hostd does in its guests. Containers only, for now: mirrors, image
+builds, goldens and VMs on hangar come next.
 
 ## Data flow
 

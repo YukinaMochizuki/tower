@@ -1075,11 +1075,11 @@ const file_tower_secrets_v1alpha1_secret_proto_rawDesc = "" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x125\n" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x126\n" +
 	"\x04spec\x18\x04 \x01(\v2\".tower.secrets.v1alpha1.SecretSpecR\x04spec\x12<\n" +
-	"\x06status\x18\x05 \x01(\v2$.tower.secrets.v1alpha1.SecretStatusR\x06status:\x17\x8a\xb5\x18\x13\n" +
+	"\x06status\x18\x05 \x01(\v2$.tower.secrets.v1alpha1.SecretStatusR\x06status:\x17\xca\xf3\x18\x13\n" +
 	"\x06Secret\x12\asecrets \x01\"\x83\x02\n" +
 	"\n" +
 	"SecretSpec\x12>\n" +
-	"\x04type\x18\x01 \x01(\x0e2\".tower.secrets.v1alpha1.SecretTypeB\x06\x8a\xb5\x18\x02\b\x01R\x04type\x12@\n" +
+	"\x04type\x18\x01 \x01(\x0e2\".tower.secrets.v1alpha1.SecretTypeB\x06\xca\xf3\x18\x02\b\x01R\x04type\x12@\n" +
 	"\x04data\x18\x02 \x03(\v2,.tower.secrets.v1alpha1.SecretSpec.DataEntryR\x04data\x12:\n" +
 	"\x06sealed\x18\x03 \x01(\v2\".tower.secrets.v1alpha1.SealedDataR\x06sealed\x1a7\n" +
 	"\tDataEntry\x12\x10\n" +

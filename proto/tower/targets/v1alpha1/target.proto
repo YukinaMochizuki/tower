@@ -46,6 +46,12 @@ message HangarTarget {
   // A Secret in tower's reserved project "system" holding the hangar
   // service token tower calls the endpoint with, under the key "token".
   string credential_secret = 3;
+  // A Secret in tower's reserved project "system" holding the login hangar
+  // pulls tower's images with, under the key ".dockerconfigjson", in the
+  // Docker config format: a read-only login of the registry's, which
+  // hangar keeps as a registry-auth Secret of the project and names in its
+  // containers. Empty pulls anonymously. See docs/decisions/images.md.
+  string registry_pull_secret = 4;
 }
 
 // HostdTarget is a host running hostd. The host is whoever holds a

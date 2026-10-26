@@ -1275,16 +1275,16 @@ const file_tower_environments_v1alpha1_machine_proto_rawDesc = "" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x125\n" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x12<\n" +
 	"\x04spec\x18\x04 \x01(\v2(.tower.environments.v1alpha1.MachineSpecR\x04spec\x12B\n" +
-	"\x06status\x18\x05 \x01(\v2*.tower.environments.v1alpha1.MachineStatusR\x06status:\x1d\x8a\xb5\x18\x19\n" +
+	"\x06status\x18\x05 \x01(\v2*.tower.environments.v1alpha1.MachineStatusR\x06status:\x1d\xca\xf3\x18\x19\n" +
 	"\aMachine\x12\bmachines\x1a\x02mc \x01\"\x8c\x03\n" +
 	"\vMachineSpec\x12&\n" +
 	"\n" +
-	"workstream\x18\x01 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\n" +
+	"workstream\x18\x01 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\n" +
 	"workstream\x12L\n" +
-	"\tblueprint\x18\x02 \x01(\v2&.tower.environments.v1alpha1.BlueprintB\x06\x8a\xb5\x18\x02\b\x01R\tblueprint\x123\n" +
-	"\x04vars\x18\x03 \x01(\v2\x17.google.protobuf.StructB\x06\x8a\xb5\x18\x02\b\x01R\x04vars\x12D\n" +
+	"\tblueprint\x18\x02 \x01(\v2&.tower.environments.v1alpha1.BlueprintB\x06\xca\xf3\x18\x02\b\x01R\tblueprint\x123\n" +
+	"\x04vars\x18\x03 \x01(\v2\x17.google.protobuf.StructB\x06\xca\xf3\x18\x02\b\x01R\x04vars\x12D\n" +
 	"\tresources\x18\x04 \x01(\v2&.tower.environments.v1alpha1.ResourcesR\tresources\x12H\n" +
-	"\asecrets\x18\x05 \x03(\v2&.tower.environments.v1alpha1.SecretRefB\x06\x8a\xb5\x18\x02\b\x01R\asecrets\x12B\n" +
+	"\asecrets\x18\x05 \x03(\v2&.tower.environments.v1alpha1.SecretRefB\x06\xca\xf3\x18\x02\b\x01R\asecrets\x12B\n" +
 	"\trun_state\x18\x06 \x01(\x0e2%.tower.environments.v1alpha1.RunStateR\brunState\"\x9c\x02\n" +
 	"\tBlueprint\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +

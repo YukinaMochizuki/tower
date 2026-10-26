@@ -532,9 +532,9 @@ func TestATicketVerifiesForItsPortAlone(t *testing.T) {
 	}
 }
 
-// TestNoTicketOnHangar: a ticket for an environment on a hangar target is
-// Unimplemented, and says why.
-func TestNoTicketOnHangar(t *testing.T) {
+// TestNoTicketWithoutAHangarProvider: an environment on a hangar target
+// with no provider gets no ticket, Unavailable, and is told why.
+func TestNoTicketWithoutAHangarProvider(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t, withTickets(newSigner(t)))
 	w.mustApply(registry.Target, &targetsv1alpha1.Target{
@@ -545,7 +545,7 @@ func TestNoTicketOnHangar(t *testing.T) {
 	})
 	w.mustApply(registry.Placement, placement("web", "hg"))
 	// A box made on the hangar target, as far as tower can make it with no
-	// hangar provider: its target and instance chosen, and said ready.
+	// provider running: its target and instance chosen, and said ready.
 	b := box("dev")
 	b.Spec.Image = "ubuntu:24.04"
 	w.mustApply(registry.Box, b)
@@ -561,8 +561,8 @@ func TestNoTicketOnHangar(t *testing.T) {
 		return err == nil, fmt.Sprint(err)
 	})
 	_, err := w.as(workstream).envs.IssueTicket(t.Context(), connect.NewRequest(&envv1alpha1.IssueTicketRequest{Environment: boxEnv("dev"), Port: 8080}))
-	wantCode(t, err, connect.CodeUnimplemented, "a ticket on a hangar target")
-	if !strings.Contains(messageOfErr(err), "hangar") {
+	wantCode(t, err, connect.CodeUnavailable, "a ticket on a hangar target without its provider")
+	if !strings.Contains(messageOfErr(err), "no provider") {
 		t.Errorf("the refusal does not say why: %v", err)
 	}
 }

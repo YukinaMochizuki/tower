@@ -1,8 +1,9 @@
-// Package guestops is hostd's side of tower-guest (internal/hostd/
-// guestbin): the operations the container and VM drivers both do in a
-// running guest (commands, files, copies and processes), each one call of
-// tower-guest shim over a Runner, docker exec for a container and ssh for
-// a VM. It turns the shim's exit codes into the drivers' errors.
+// Package guestops is a provider's side of tower-guest (internal/guest/
+// guestbin): the operations done in a running guest (commands, files,
+// copies and processes), each one call of tower-guest shim over a Runner:
+// docker exec in a hostd container, ssh in a hostd VM, hangar's exec in a
+// hangar machine. It turns the shim's exit codes into internal/guest's
+// errors; a Runner's own errors pass through as they are.
 package guestops
 
 import (
@@ -14,11 +15,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"strconv"
 	"strings"
 
-	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
-	"github.com/YukinaMochizuki/tower/internal/hostd/guestbin"
-	"github.com/YukinaMochizuki/tower/internal/hostd/proclog"
+	"github.com/YukinaMochizuki/tower/internal/guest"
+	"github.com/YukinaMochizuki/tower/internal/guest/guestbin"
+	"github.com/YukinaMochizuki/tower/internal/guest/proclog"
 )
 
 // Runner runs tower-guest shim in a guest, its stdin from stdin and its
@@ -99,13 +101,13 @@ func result(op string, code int, msg string, err error) error {
 	case code == guestbin.ExitNotExist:
 		return fmt.Errorf("%s: %s: %w", op, msg, fs.ErrNotExist)
 	case code == guestbin.ExitBadOffset:
-		return fmt.Errorf("%s: %s: %w", op, msg, driver.ErrBadOffset)
+		return fmt.Errorf("%s: %s: %w", op, msg, guest.ErrBadOffset)
 	}
 	return fmt.Errorf("%s: exit %d: %s", op, code, msg)
 }
 
 // Exec runs a command until it ends or ctx does, which kills it.
-func (o Ops) Exec(ctx context.Context, spec driver.ExecSpec) (int, error) {
+func (o Ops) Exec(ctx context.Context, spec guest.ExecSpec) (int, error) {
 	stdin := spec.Stdin
 	if stdin == nil {
 		stdin = strings.NewReader("")
@@ -166,9 +168,39 @@ func (o Ops) CopyIn(ctx context.Context, dir string, r io.Reader) error {
 	return result("copying into "+dir, code, msg, err)
 }
 
+// Receive listens in the guest for a tar Send sends with token, and
+// extracts it into dir. listening hears the port it listens on, every
+// address of the guest's, once it does; it then waits for the sender until
+// it is done or ctx is.
+func (o Ops) Receive(ctx context.Context, dir, token string, listening func(port int)) error {
+	pr, pw := io.Pipe()
+	got := make(chan struct{})
+	go func() {
+		defer close(got)
+		sc := bufio.NewScanner(pr)
+		if sc.Scan() {
+			if port, err := strconv.Atoi(strings.TrimSpace(sc.Text())); err == nil {
+				listening(port)
+			}
+		}
+		_, _ = io.Copy(io.Discard, pr)
+	}()
+	code, msg, err := o.call(ctx, guestbin.Header{Op: guestbin.OpReceive, Path: dir, Token: token}, nil, pw)
+	_ = pw.Close()
+	<-got
+	return result("receiving into "+dir, code, msg, err)
+}
+
+// Send connects to a guest's Receive at addr and sends it a tar of path,
+// its top name to, or path's own when empty.
+func (o Ops) Send(ctx context.Context, path, addr, token, to string) error {
+	code, msg, err := o.call(ctx, guestbin.Header{Op: guestbin.OpSend, Path: path, Addr: addr, Token: token, To: to}, nil, nil)
+	return result("sending "+path, code, msg, err)
+}
+
 // StartProcess starts a process under a supervisor of its own and returns
 // its id.
-func (o Ops) StartProcess(ctx context.Context, spec driver.ProcessSpec) (string, error) {
+func (o Ops) StartProcess(ctx context.Context, spec guest.ProcessSpec) (string, error) {
 	if len(spec.Command) == 0 {
 		return "", errors.New("a process needs a command")
 	}
@@ -192,21 +224,21 @@ func (o Ops) StartProcess(ctx context.Context, spec driver.ProcessSpec) (string,
 func (o Ops) SignalProcess(ctx context.Context, id string, sig int) error {
 	code, msg, err := o.call(ctx, guestbin.Header{Op: guestbin.OpSignal, Root: o.ProcRoot, ID: id, Signal: sig}, nil, nil)
 	if code == guestbin.ExitNotExist && err == nil {
-		return fmt.Errorf("process %s: %w", id, driver.ErrNotFound)
+		return fmt.Errorf("process %s: %w", id, guest.ErrNoProcess)
 	}
 	return result("signalling "+id, code, msg, err)
 }
 
-func processInfo(in proclog.Info) driver.ProcessInfo {
-	p := driver.ProcessInfo{ID: in.ID, Name: in.Name, Command: in.Command, Started: in.Started}
+func processInfo(in proclog.Info) guest.ProcessInfo {
+	p := guest.ProcessInfo{ID: in.ID, Name: in.Name, Command: in.Command, Started: in.Started}
 	if in.Exit != nil {
-		p.Exit = &driver.ProcessExit{Code: in.Exit.Code, Signal: in.Exit.Signal}
+		p.Exit = &guest.ProcessExit{Code: in.Exit.Code, Signal: in.Exit.Signal}
 	}
 	return p
 }
 
 // ListProcesses lists the guest's processes, oldest first.
-func (o Ops) ListProcesses(ctx context.Context) ([]driver.ProcessInfo, error) {
+func (o Ops) ListProcesses(ctx context.Context) ([]guest.ProcessInfo, error) {
 	var list []proclog.Info
 	if o.HostProcRoot != "" {
 		var err error
@@ -223,31 +255,31 @@ func (o Ops) ListProcesses(ctx context.Context) ([]driver.ProcessInfo, error) {
 			return nil, fmt.Errorf("listing processes: %w", err)
 		}
 	}
-	out := make([]driver.ProcessInfo, 0, len(list))
+	out := make([]guest.ProcessInfo, 0, len(list))
 	for _, in := range list {
 		out = append(out, processInfo(in))
 	}
 	return out, nil
 }
 
-func logEnd(e proclog.End) driver.LogEnd {
-	end := driver.LogEnd{HeldFrom: e.HeldFrom, Next: e.Next}
+func logEnd(e proclog.End) guest.LogEnd {
+	end := guest.LogEnd{HeldFrom: e.HeldFrom, Next: e.Next}
 	if e.Exit != nil {
-		end.Exit = &driver.ProcessExit{Code: e.Exit.Code, Signal: e.Exit.Signal}
+		end.Exit = &guest.ProcessExit{Code: e.Exit.Code, Signal: e.Exit.Signal}
 	}
 	return end
 }
 
 // ReadProcessLog gives out a process's log from from, then, with follow,
 // what it writes until it ends or ctx is done.
-func (o Ops) ReadProcessLog(ctx context.Context, id string, from int64, follow bool, out func(driver.LogChunk) error) (driver.LogEnd, error) {
+func (o Ops) ReadProcessLog(ctx context.Context, id string, from int64, follow bool, out func(guest.LogChunk) error) (guest.LogEnd, error) {
 	emit := func(c proclog.Chunk) error {
-		return out(driver.LogChunk{Stderr: c.Stderr, Offset: c.Offset, Data: c.Data})
+		return out(guest.LogChunk{Stderr: c.Stderr, Offset: c.Offset, Data: c.Data})
 	}
 	if o.HostProcRoot != "" {
 		end, err := proclog.ReadLog(ctx, o.HostProcRoot, id, from, follow, emit)
 		if errors.Is(err, proclog.ErrNotFound) {
-			return driver.LogEnd{}, fmt.Errorf("process %s: %w", id, driver.ErrNotFound)
+			return guest.LogEnd{}, fmt.Errorf("process %s: %w", id, guest.ErrNoProcess)
 		}
 		return logEnd(end), err
 	}
@@ -280,19 +312,19 @@ func (o Ops) ReadProcessLog(ctx context.Context, id string, from int64, follow b
 	_ = pw.Close()
 	scanErr := <-done
 	if outErr != nil {
-		return driver.LogEnd{}, outErr
+		return guest.LogEnd{}, outErr
 	}
 	if code == guestbin.ExitNotExist && err == nil {
-		return driver.LogEnd{}, fmt.Errorf("process %s: %w", id, driver.ErrNotFound)
+		return guest.LogEnd{}, fmt.Errorf("process %s: %w", id, guest.ErrNoProcess)
 	}
 	if err := result("reading the log of "+id, code, msg, err); err != nil {
-		return driver.LogEnd{}, err
+		return guest.LogEnd{}, err
 	}
 	if scanErr != nil {
-		return driver.LogEnd{}, scanErr
+		return guest.LogEnd{}, scanErr
 	}
 	if end == nil {
-		return driver.LogEnd{}, fmt.Errorf("reading the log of %s: it ended without its end", id)
+		return guest.LogEnd{}, fmt.Errorf("reading the log of %s: it ended without its end", id)
 	}
 	if ctx.Err() != nil && end.Exit == nil {
 		return logEnd(*end), ctx.Err()

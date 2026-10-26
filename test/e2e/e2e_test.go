@@ -36,6 +36,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/hostd"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver/fake"
 	"github.com/YukinaMochizuki/tower/internal/secrets"
+	"github.com/YukinaMochizuki/tower/internal/streams"
 	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
@@ -389,7 +390,7 @@ func TestTheDemo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conn, err := hostd.DialStream(ctx, tk.Msg.GetUrl(), tk.Msg.GetTicket())
+	conn, err := streams.Dial(ctx, tk.Msg.GetUrl(), tk.Msg.GetTicket())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +403,7 @@ func TestTheDemo(t *testing.T) {
 		t.Errorf("the stream answered %q, %v", echo, err)
 	}
 	_ = conn.Close()
-	if _, err := hostd.DialStream(ctx, strings.Replace(tk.Msg.GetUrl(), "/8080", "/22", 1), tk.Msg.GetTicket()); err == nil {
+	if _, err := streams.Dial(ctx, strings.Replace(tk.Msg.GetUrl(), "/8080", "/22", 1), tk.Msg.GetTicket()); err == nil {
 		t.Error("a ticket for port 8080 opened port 22")
 	}
 

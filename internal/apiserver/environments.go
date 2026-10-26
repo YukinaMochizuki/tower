@@ -91,6 +91,11 @@ func validateTarget(_ context.Context, _ *Server, _ authz.Caller, _, obj proto.M
 		if err := ValidName(h.GetCredentialSecret()); err != nil {
 			return invalid("spec.hangar.credential_secret: %v", err)
 		}
+		if p := h.GetRegistryPullSecret(); p != "" {
+			if err := ValidName(p); err != nil {
+				return invalid("spec.hangar.registry_pull_secret: %v", err)
+			}
+		}
 	}
 	set := t.GetSpec().GetSettings()
 	for name, d := range map[string]*durationpb.Duration{

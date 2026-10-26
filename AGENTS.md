@@ -11,7 +11,8 @@ the API.
 Status: early. The engine, authentication, secrets, the environment kinds
 and their controllers, workstream's data plane (EnvironmentService), the
 tunnel, hostd with its real drivers (ZFS, Docker, Cloud Hypervisor,
-BuildKit, git) and the CLI exist; there is no hangar provider yet. `make
+BuildKit, git), the hangar provider's containers (without mirrors, builds,
+goldens or VMs yet) and the CLI exist. `make
 e2e` runs the whole of it on a fake host (`docs/runbook/demo.md`), `make
 e2e-host` on a testbed's real one (`docs/runbook/testbed.md`).
 `docs/architecture.md` describes the target.
@@ -41,6 +42,7 @@ outside; everything else is `internal/` and carries no compatibility promise.
 | `make e2e` | Hermetic end-to-end tests (fake providers and drivers), in parallel, without the race detector |
 | `make test-e2e-race` | The same under the race detector, one test at a time (CI runs it, `make check` does not) |
 | `make e2e-host` | Real-host tests on a testbed, as root (`docs/runbook/testbed.md`) |
+| `make e2e-hangar` | The provider contract against the hangar provider over a real hangar (`docs/runbook/testbed.md`) |
 | `make build-deploy` | The binaries `docs/runbook/deploy.md` installs |
 | `make dev` | Run the apiserver locally in dev auth mode |
 | `make tools` | Print the pinned tool versions |

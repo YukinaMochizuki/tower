@@ -275,7 +275,9 @@ type Provider interface {
 	// which must start where the file ends (ErrFailed otherwise), so a
 	// large file is written in chunks, in order.
 	WriteFile(ctx context.Context, in Instance, path string, mode fs.FileMode, offset int64, r io.Reader) error
-	// Copy copies a path from one instance of the target to another.
+	// Copy copies a path from one instance of the target to another on the
+	// same network, as tower copies within one workstream; the bytes stay
+	// on the target (docs/decisions/traffic.md).
 	Copy(ctx context.Context, from Instance, fromPath string, to Instance, toPath string) error
 	// BuildImage builds an image and pushes it to the registry, returning
 	// its reference by digest. The same context builds the same digest.

@@ -9,7 +9,7 @@
 // firmware. A blank disk gets its base image (BaseImages/<name>.raw)
 // written before its first boot. cloud-init gives root hostd's ssh key,
 // and hostd runs everything in the VM over ssh through tower-guest, which
-// it copies in (internal/hostd/guestops), as it does in a container by
+// it copies in (internal/guest/guestops), as it does in a container by
 // docker exec.
 //
 // Every VM is called machine: its hostname is no VM's own, and is the same
@@ -54,10 +54,10 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/YukinaMochizuki/tower/internal/guest/guestops"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver/chvm/launcher"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver/docker"
-	"github.com/YukinaMochizuki/tower/internal/hostd/guestops"
 )
 
 // Hostname is every VM's (see the package's comment).
@@ -671,7 +671,8 @@ func (d *Driver) ReadProcessLog(ctx context.Context, name, id string, from int64
 	if err != nil {
 		return driver.LogEnd{}, err
 	}
-	return o.ReadProcessLog(ctx, id, from, follow, out)
+	end, err := o.ReadProcessLog(ctx, id, from, follow, out)
+	return end, driver.FromGuest(err)
 }
 
 func (d *Driver) SignalProcess(ctx context.Context, name, id string, sig int) error {
@@ -682,7 +683,7 @@ func (d *Driver) SignalProcess(ctx context.Context, name, id string, sig int) er
 	if err != nil {
 		return err
 	}
-	return o.SignalProcess(ctx, id, sig)
+	return driver.FromGuest(o.SignalProcess(ctx, id, sig))
 }
 
 // Dial connects to a port of a running VM, once it answers, waiting a

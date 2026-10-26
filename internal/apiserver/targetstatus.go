@@ -161,6 +161,9 @@ func (s *Server) reconcileTargetStatus(ctx context.Context, key controller.Key) 
 	if t.GetSpec().GetHostd() != nil && s.cfg.Providers == nil {
 		s.reachable(key.Name, st)
 	}
+	if t.GetSpec().GetHangar() != nil && s.cfg.Providers == nil {
+		s.hangarReachable(key.Name, st)
+	}
 	s.silent(t, st)
 	if free, err := quantity.Bytes(st.GetCapacity().GetDiskFree()); err == nil && st.GetCapacity().GetDiskFree() != "" {
 		need := settingsOf(t).warmBudget + mustBytes(DiskPressureMargin)

@@ -89,3 +89,36 @@ outright, which the next run sweeps.
   `postCreateCommand` installed its dependencies; and one of a repository
   without a devcontainer, which fails. Their images are pulled from
   mcr.microsoft.com: the first run takes some minutes more.
+
+## A real hangar (the hangar provider)
+
+`make e2e-hangar` holds tower's hangar provider (`internal/provider/
+hangar`) to the provider contract over a real hangar, and reads a page
+an instance serves through hangar's port forward (`test/hangar`). It needs
+no testbed of tower's and no root: a hangar host of its own, or hangar's
+testbed (`hangar: docs/runbook/testbed.md`), with
+
+- a project for tower, whose Plan allows the networks, machines and disk
+  the suite makes (about ten of each, 100Gi), and a service token of it
+  that may manage containers, disks, networks and secrets, exec and
+  forward ports;
+- a box image in a registry the hangar node pulls from, by digest, with
+  `test/testbed/guestbin` in `/usr/local/bin`, as `setup.sh` puts it in
+  the testbed's images, and `busybox`.
+
+Point the run at it:
+
+```sh
+TOWER_HANGAR_ENDPOINT=https://hangar.example \
+TOWER_HANGAR_PROJECT=tower \
+TOWER_HANGAR_TOKEN_FILE=/path/to/token \
+TOWER_HANGAR_IMAGE=registry.example/tower/box@sha256:... \
+TOWER_HANGAR_PULL_SECRET_FILE=/path/to/dockerconfig.json \
+make e2e-hangar
+```
+
+`TOWER_HANGAR_PULL_SECRET_FILE` is a Docker config holding a login of
+the image's registry, which the provider gives hangar as a registry-auth
+Secret; leave it out for a registry read anonymously. A run deletes what
+it made as it ends, but for its networks, which the next run's sweep
+takes.

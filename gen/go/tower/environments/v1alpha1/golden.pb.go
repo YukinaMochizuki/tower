@@ -1262,14 +1262,14 @@ const file_tower_environments_v1alpha1_golden_proto_rawDesc = "" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x125\n" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x12;\n" +
 	"\x04spec\x18\x04 \x01(\v2'.tower.environments.v1alpha1.GoldenSpecR\x04spec\x12A\n" +
-	"\x06status\x18\x05 \x01(\v2).tower.environments.v1alpha1.GoldenStatusR\x06status:\x1b\x8a\xb5\x18\x17\n" +
+	"\x06status\x18\x05 \x01(\v2).tower.environments.v1alpha1.GoldenStatusR\x06status:\x1b\xca\xf3\x18\x17\n" +
 	"\x06Golden\x12\agoldens\x1a\x02gd \x01\"\xda\x02\n" +
 	"\n" +
 	"GoldenSpec\x12\x1e\n" +
-	"\x06target\x18\x01 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\x06target\x12%\n" +
+	"\x06target\x18\x01 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\x06target\x12%\n" +
 	"\n" +
-	"input_hash\x18\x02 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\tinputHash\x12\x1e\n" +
-	"\x06parent\x18\x03 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\x06parent\x12J\n" +
+	"input_hash\x18\x02 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\tinputHash\x12\x1e\n" +
+	"\x06parent\x18\x03 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\x06parent\x12J\n" +
 	"\tbox_image\x18\x04 \x01(\v2+.tower.environments.v1alpha1.BoxImageInputsH\x00R\bboxImage\x12G\n" +
 	"\bbox_warm\x18\x05 \x01(\v2*.tower.environments.v1alpha1.BoxWarmInputsH\x00R\aboxWarm\x12F\n" +
 	"\amachine\x18\x06 \x01(\v2*.tower.environments.v1alpha1.MachineInputsH\x00R\amachineB\b\n" +
