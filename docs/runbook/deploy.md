@@ -281,16 +281,19 @@ the environment of one git command. A machine takes no secret files.
 
 ### Known limitations
 
-- **A machine's playbook runs as root.** tower runs a blueprint in its VM
-  with `ansible-playbook --connection=local` as root; workstream runs it
-  over ssh as `ubuntu`. workstream's `workstream-dev` blueprint
-  (`workstream: src/machine/playbooks/workstream-dev.yml`) adds
-  `{{ ansible_user | default('ubuntu') }}` to the docker group and installs
-  mise and bun with `become: false` into `~`: under tower those land in
-  root's home, the docker group goes to an `ubuntu` who never runs them,
-  and its ready check (`test -x ~/.local/bin/mise`) reads root's home,
-  where they are. The machine works as root; a session expecting to run as
-  `ubuntu` there finds neither tool. The blueprint is carried unchanged.
+- **A machine's playbook runs as root unless its blueprint names a
+  user.** tower runs a blueprint in its VM with `ansible-playbook
+  --connection=local`, as root; workstream runs it over ssh as its VM
+  user. A blueprint written for workstream's way (become tasks through
+  sudo, the others and `~` the user's), such as `workstream-dev`
+  (`workstream: src/machine/playbooks/workstream-dev.yml`), converges as
+  written only when its client sets `Blueprint.run_as` to that user:
+  tower then makes the user, with a home and passwordless sudo, and runs
+  both phases and the ready check as it
+  (`docs/decisions/machine-blueprints.md`). Without it, its `become:
+  false` tasks land in root's home and its ready check reads root's. A
+  blueprint reading `ansible_user` is given it by its client, in its
+  golden vars; tower sets none. The blueprint is carried unchanged.
 
 ### Upgrading
 

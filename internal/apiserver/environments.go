@@ -387,6 +387,14 @@ func validateMachine(ctx context.Context, s *Server, _ authz.Caller, old, obj pr
 			return invalid("spec.blueprint.expose_ports: %d is not a port", port)
 		}
 	}
+	if ra := bp.GetRunAs(); ra != nil {
+		switch u := ra.GetUser(); {
+		case u == "root":
+			return invalid("spec.blueprint.run_as.user: root is what a blueprint without run_as runs as; leave run_as unset")
+		case !posixUser.MatchString(u):
+			return invalid("spec.blueprint.run_as.user: %q is not a POSIX user name (lower case letters, digits, '_' and '-', starting with a letter or '_', at most 32)", u)
+		}
+	}
 	if rc := bp.GetReadyCheck(); rc != nil {
 		if strings.TrimSpace(rc.GetCommand()) == "" {
 			return invalid("spec.blueprint.ready_check.command is required")

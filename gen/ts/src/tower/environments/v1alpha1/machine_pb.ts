@@ -17,7 +17,7 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
  * Describes the file tower/environments/v1alpha1/machine.proto.
  */
 export const file_tower_environments_v1alpha1_machine: GenFile = /*@__PURE__*/
-  fileDesc("Cil0b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTEvbWFjaGluZS5wcm90bxIbdG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExIuwBCgdNYWNoaW5lEhMKC2FwaV92ZXJzaW9uGAEgASgJEgwKBGtpbmQYAiABKAkSKwoIbWV0YWRhdGEYAyABKAsyGS50b3dlci5tZXRhLnYxLk9iamVjdE1ldGESNgoEc3BlYxgEIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5NYWNoaW5lU3BlYxI6CgZzdGF0dXMYBSABKAsyKi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuTWFjaGluZVN0YXR1czodyvMYGQoHTWFjaGluZRIIbWFjaGluZXMaAm1jIAEi0QIKC01hY2hpbmVTcGVjEhoKCndvcmtzdHJlYW0YASABKAlCBsrzGAIIARJBCglibHVlcHJpbnQYAiABKAsyJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQmx1ZXByaW50QgbK8xgCCAESLQoEdmFycxgDIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3RCBsrzGAIIARI5CglyZXNvdXJjZXMYBCABKAsyJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmVzb3VyY2VzEj8KB3NlY3JldHMYBSADKAsyJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuU2VjcmV0UmVmQgbK8xgCCAESOAoJcnVuX3N0YXRlGAYgASgOMiUudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJ1blN0YXRlItMBCglCbHVlcHJpbnQSDAoEbmFtZRgBIAEoCRIPCgdjb250ZW50GAIgASgJEhIKCmJhc2VfaW1hZ2UYAyABKAkSLAoLZ29sZGVuX3ZhcnMYBCABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EhQKDGV4cG9zZV9wb3J0cxgFIAMoBRIRCgluZXRfYWxpYXMYBiABKAkSPAoLcmVhZHlfY2hlY2sYByABKAsyJy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmVhZHlDaGVjayJJCgpSZWFkeUNoZWNrEg8KB2NvbW1hbmQYASABKAkSKgoHdGltZW91dBgCIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbiI0CglTZWNyZXRSZWYSDgoGc2VjcmV0GAEgASgJEgsKA2tleRgCIAEoCRIKCgJhcxgDIAEoCSLmAQoNTWFjaGluZVN0YXR1cxIbChNvYnNlcnZlZF9nZW5lcmF0aW9uGAEgASgDEiwKCmNvbmRpdGlvbnMYAiADKAsyGC50b3dlci5tZXRhLnYxLkNvbmRpdGlvbhI4CgVwaGFzZRgDIAEoDjIpLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5NYWNoaW5lUGhhc2USDgoGdGFyZ2V0GAQgASgJEg4KBmdvbGRlbhgFIAEoCRIQCghpbnN0YW5jZRgGIAEoCRINCgVhbGlhcxgHIAEoCRIPCgdhZGRyZXNzGAggASgJIjIKEUdldE1hY2hpbmVSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkSDAoEbmFtZRgCIAEoCSJLChJHZXRNYWNoaW5lUmVzcG9uc2USNQoHbWFjaGluZRgBIAEoCzIkLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5NYWNoaW5lImUKE0xpc3RNYWNoaW5lc1JlcXVlc3QSDwoHcHJvamVjdBgBIAEoCRIWCg5sYWJlbF9zZWxlY3RvchgCIAEoCRIRCglwYWdlX3NpemUYAyABKAUSEgoKcGFnZV90b2tlbhgEIAEoCSJ2ChRMaXN0TWFjaGluZXNSZXNwb25zZRIzCgVpdGVtcxgBIAMoCzIkLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5NYWNoaW5lEhcKD25leHRfcGFnZV90b2tlbhgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAyJXChRXYXRjaE1hY2hpbmVzUmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEhYKDmxhYmVsX3NlbGVjdG9yGAIgASgJEhYKDnNpbmNlX3JldmlzaW9uGAMgASgDIogBChVXYXRjaE1hY2hpbmVzUmVzcG9uc2USJgoEdHlwZRgBIAEoDjIYLnRvd2VyLm1ldGEudjEuRXZlbnRUeXBlEjUKB21hY2hpbmUYAiABKAsyJC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuTWFjaGluZRIQCghyZXZpc2lvbhgDIAEoAyJhChNBcHBseU1hY2hpbmVSZXF1ZXN0EjUKB21hY2hpbmUYASABKAsyJC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuTWFjaGluZRITCgtjcmVhdGVfb25seRgCIAEoCCJwChRBcHBseU1hY2hpbmVSZXNwb25zZRI1CgdtYWNoaW5lGAEgASgLMiQudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLk1hY2hpbmUSEAoId2FybmluZ3MYAiADKAkSDwoHY3JlYXRlZBgDIAEoCCJ7ChREZWxldGVNYWNoaW5lUmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEgwKBG5hbWUYAiABKAkSJgoZZXhwZWN0ZWRfcmVzb3VyY2VfdmVyc2lvbhgDIAEoA0gAiAEBQhwKGl9leHBlY3RlZF9yZXNvdXJjZV92ZXJzaW9uIk4KFURlbGV0ZU1hY2hpbmVSZXNwb25zZRI1CgdtYWNoaW5lGAEgASgLMiQudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLk1hY2hpbmUivQEKGlVwZGF0ZU1hY2hpbmVTdGF0dXNSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkSDAoEbmFtZRgCIAEoCRI6CgZzdGF0dXMYAyABKAsyKi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuTWFjaGluZVN0YXR1cxImChlleHBlY3RlZF9yZXNvdXJjZV92ZXJzaW9uGAQgASgDSACIAQFCHAoaX2V4cGVjdGVkX3Jlc291cmNlX3ZlcnNpb24iVAobVXBkYXRlTWFjaGluZVN0YXR1c1Jlc3BvbnNlEjUKB21hY2hpbmUYASABKAsyJC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuTWFjaGluZSrtAQoMTWFjaGluZVBoYXNlEh0KGU1BQ0hJTkVfUEhBU0VfVU5TUEVDSUZJRUQQABIZChVNQUNISU5FX1BIQVNFX1BFTkRJTkcQARIaChZNQUNISU5FX1BIQVNFX1VOUExBQ0VEEAISGgoWTUFDSElORV9QSEFTRV9CVUlMRElORxADEh0KGU1BQ0hJTkVfUEhBU0VfQ09ORklHVVJJTkcQBBIXChNNQUNISU5FX1BIQVNFX1JFQURZEAUSGQoVTUFDSElORV9QSEFTRV9TVE9QUEVEEAYSGAoUTUFDSElORV9QSEFTRV9GQUlMRUQQBzLmBQoOTWFjaGluZVNlcnZpY2USbQoKR2V0TWFjaGluZRIuLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5HZXRNYWNoaW5lUmVxdWVzdBovLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5HZXRNYWNoaW5lUmVzcG9uc2UScwoMTGlzdE1hY2hpbmVzEjAudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkxpc3RNYWNoaW5lc1JlcXVlc3QaMS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuTGlzdE1hY2hpbmVzUmVzcG9uc2USeAoNV2F0Y2hNYWNoaW5lcxIxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5XYXRjaE1hY2hpbmVzUmVxdWVzdBoyLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5XYXRjaE1hY2hpbmVzUmVzcG9uc2UwARJzCgxBcHBseU1hY2hpbmUSMC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXBwbHlNYWNoaW5lUmVxdWVzdBoxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5BcHBseU1hY2hpbmVSZXNwb25zZRJ2Cg1EZWxldGVNYWNoaW5lEjEudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkRlbGV0ZU1hY2hpbmVSZXF1ZXN0GjIudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkRlbGV0ZU1hY2hpbmVSZXNwb25zZRKIAQoTVXBkYXRlTWFjaGluZVN0YXR1cxI3LnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5VcGRhdGVNYWNoaW5lU3RhdHVzUmVxdWVzdBo4LnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5VcGRhdGVNYWNoaW5lU3RhdHVzUmVzcG9uc2VClwIKH2NvbS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTFCDE1hY2hpbmVQcm90b1ABWlhnaXRodWIuY29tL1l1a2luYU1vY2hpenVraS90b3dlci9nZW4vZ28vdG93ZXIvZW52aXJvbm1lbnRzL3YxYWxwaGExO2Vudmlyb25tZW50c3YxYWxwaGExogIDVEVYqgIbVG93ZXIuRW52aXJvbm1lbnRzLlYxYWxwaGExygIbVG93ZXJcRW52aXJvbm1lbnRzXFYxYWxwaGEx4gInVG93ZXJcRW52aXJvbm1lbnRzXFYxYWxwaGExXEdQQk1ldGFkYXRh6gIdVG93ZXI6OkVudmlyb25tZW50czo6VjFhbHBoYTFiBnByb3RvMw", [file_google_protobuf_duration, file_google_protobuf_struct, file_tower_environments_v1alpha1_common, file_tower_meta_v1_meta, file_tower_meta_v1_options]);
+  fileDesc("Cil0b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTEvbWFjaGluZS5wcm90bxIbdG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExIuwBCgdNYWNoaW5lEhMKC2FwaV92ZXJzaW9uGAEgASgJEgwKBGtpbmQYAiABKAkSKwoIbWV0YWRhdGEYAyABKAsyGS50b3dlci5tZXRhLnYxLk9iamVjdE1ldGESNgoEc3BlYxgEIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5NYWNoaW5lU3BlYxI6CgZzdGF0dXMYBSABKAsyKi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuTWFjaGluZVN0YXR1czodyvMYGQoHTWFjaGluZRIIbWFjaGluZXMaAm1jIAEi0QIKC01hY2hpbmVTcGVjEhoKCndvcmtzdHJlYW0YASABKAlCBsrzGAIIARJBCglibHVlcHJpbnQYAiABKAsyJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQmx1ZXByaW50QgbK8xgCCAESLQoEdmFycxgDIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3RCBsrzGAIIARI5CglyZXNvdXJjZXMYBCABKAsyJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmVzb3VyY2VzEj8KB3NlY3JldHMYBSADKAsyJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuU2VjcmV0UmVmQgbK8xgCCAESOAoJcnVuX3N0YXRlGAYgASgOMiUudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJ1blN0YXRlIocCCglCbHVlcHJpbnQSDAoEbmFtZRgBIAEoCRIPCgdjb250ZW50GAIgASgJEhIKCmJhc2VfaW1hZ2UYAyABKAkSLAoLZ29sZGVuX3ZhcnMYBCABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EhQKDGV4cG9zZV9wb3J0cxgFIAMoBRIRCgluZXRfYWxpYXMYBiABKAkSPAoLcmVhZHlfY2hlY2sYByABKAsyJy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmVhZHlDaGVjaxIyCgZydW5fYXMYCCABKAsyIi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUnVuQXMiFQoFUnVuQXMSDAoEdXNlchgBIAEoCSJJCgpSZWFkeUNoZWNrEg8KB2NvbW1hbmQYASABKAkSKgoHdGltZW91dBgCIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbiI0CglTZWNyZXRSZWYSDgoGc2VjcmV0GAEgASgJEgsKA2tleRgCIAEoCRIKCgJhcxgDIAEoCSLmAQoNTWFjaGluZVN0YXR1cxIbChNvYnNlcnZlZF9nZW5lcmF0aW9uGAEgASgDEiwKCmNvbmRpdGlvbnMYAiADKAsyGC50b3dlci5tZXRhLnYxLkNvbmRpdGlvbhI4CgVwaGFzZRgDIAEoDjIpLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5NYWNoaW5lUGhhc2USDgoGdGFyZ2V0GAQgASgJEg4KBmdvbGRlbhgFIAEoCRIQCghpbnN0YW5jZRgGIAEoCRINCgVhbGlhcxgHIAEoCRIPCgdhZGRyZXNzGAggASgJIjIKEUdldE1hY2hpbmVSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkSDAoEbmFtZRgCIAEoCSJLChJHZXRNYWNoaW5lUmVzcG9uc2USNQoHbWFjaGluZRgBIAEoCzIkLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5NYWNoaW5lImUKE0xpc3RNYWNoaW5lc1JlcXVlc3QSDwoHcHJvamVjdBgBIAEoCRIWCg5sYWJlbF9zZWxlY3RvchgCIAEoCRIRCglwYWdlX3NpemUYAyABKAUSEgoKcGFnZV90b2tlbhgEIAEoCSJ2ChRMaXN0TWFjaGluZXNSZXNwb25zZRIzCgVpdGVtcxgBIAMoCzIkLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5NYWNoaW5lEhcKD25leHRfcGFnZV90b2tlbhgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAyJXChRXYXRjaE1hY2hpbmVzUmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEhYKDmxhYmVsX3NlbGVjdG9yGAIgASgJEhYKDnNpbmNlX3JldmlzaW9uGAMgASgDIogBChVXYXRjaE1hY2hpbmVzUmVzcG9uc2USJgoEdHlwZRgBIAEoDjIYLnRvd2VyLm1ldGEudjEuRXZlbnRUeXBlEjUKB21hY2hpbmUYAiABKAsyJC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuTWFjaGluZRIQCghyZXZpc2lvbhgDIAEoAyJhChNBcHBseU1hY2hpbmVSZXF1ZXN0EjUKB21hY2hpbmUYASABKAsyJC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuTWFjaGluZRITCgtjcmVhdGVfb25seRgCIAEoCCJwChRBcHBseU1hY2hpbmVSZXNwb25zZRI1CgdtYWNoaW5lGAEgASgLMiQudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLk1hY2hpbmUSEAoId2FybmluZ3MYAiADKAkSDwoHY3JlYXRlZBgDIAEoCCJ7ChREZWxldGVNYWNoaW5lUmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEgwKBG5hbWUYAiABKAkSJgoZZXhwZWN0ZWRfcmVzb3VyY2VfdmVyc2lvbhgDIAEoA0gAiAEBQhwKGl9leHBlY3RlZF9yZXNvdXJjZV92ZXJzaW9uIk4KFURlbGV0ZU1hY2hpbmVSZXNwb25zZRI1CgdtYWNoaW5lGAEgASgLMiQudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLk1hY2hpbmUivQEKGlVwZGF0ZU1hY2hpbmVTdGF0dXNSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkSDAoEbmFtZRgCIAEoCRI6CgZzdGF0dXMYAyABKAsyKi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuTWFjaGluZVN0YXR1cxImChlleHBlY3RlZF9yZXNvdXJjZV92ZXJzaW9uGAQgASgDSACIAQFCHAoaX2V4cGVjdGVkX3Jlc291cmNlX3ZlcnNpb24iVAobVXBkYXRlTWFjaGluZVN0YXR1c1Jlc3BvbnNlEjUKB21hY2hpbmUYASABKAsyJC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuTWFjaGluZSrtAQoMTWFjaGluZVBoYXNlEh0KGU1BQ0hJTkVfUEhBU0VfVU5TUEVDSUZJRUQQABIZChVNQUNISU5FX1BIQVNFX1BFTkRJTkcQARIaChZNQUNISU5FX1BIQVNFX1VOUExBQ0VEEAISGgoWTUFDSElORV9QSEFTRV9CVUlMRElORxADEh0KGU1BQ0hJTkVfUEhBU0VfQ09ORklHVVJJTkcQBBIXChNNQUNISU5FX1BIQVNFX1JFQURZEAUSGQoVTUFDSElORV9QSEFTRV9TVE9QUEVEEAYSGAoUTUFDSElORV9QSEFTRV9GQUlMRUQQBzLmBQoOTWFjaGluZVNlcnZpY2USbQoKR2V0TWFjaGluZRIuLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5HZXRNYWNoaW5lUmVxdWVzdBovLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5HZXRNYWNoaW5lUmVzcG9uc2UScwoMTGlzdE1hY2hpbmVzEjAudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkxpc3RNYWNoaW5lc1JlcXVlc3QaMS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuTGlzdE1hY2hpbmVzUmVzcG9uc2USeAoNV2F0Y2hNYWNoaW5lcxIxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5XYXRjaE1hY2hpbmVzUmVxdWVzdBoyLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5XYXRjaE1hY2hpbmVzUmVzcG9uc2UwARJzCgxBcHBseU1hY2hpbmUSMC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXBwbHlNYWNoaW5lUmVxdWVzdBoxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5BcHBseU1hY2hpbmVSZXNwb25zZRJ2Cg1EZWxldGVNYWNoaW5lEjEudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkRlbGV0ZU1hY2hpbmVSZXF1ZXN0GjIudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkRlbGV0ZU1hY2hpbmVSZXNwb25zZRKIAQoTVXBkYXRlTWFjaGluZVN0YXR1cxI3LnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5VcGRhdGVNYWNoaW5lU3RhdHVzUmVxdWVzdBo4LnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5VcGRhdGVNYWNoaW5lU3RhdHVzUmVzcG9uc2VClwIKH2NvbS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTFCDE1hY2hpbmVQcm90b1ABWlhnaXRodWIuY29tL1l1a2luYU1vY2hpenVraS90b3dlci9nZW4vZ28vdG93ZXIvZW52aXJvbm1lbnRzL3YxYWxwaGExO2Vudmlyb25tZW50c3YxYWxwaGExogIDVEVYqgIbVG93ZXIuRW52aXJvbm1lbnRzLlYxYWxwaGExygIbVG93ZXJcRW52aXJvbm1lbnRzXFYxYWxwaGEx4gInVG93ZXJcRW52aXJvbm1lbnRzXFYxYWxwaGExXEdQQk1ldGFkYXRh6gIdVG93ZXI6OkVudmlyb25tZW50czo6VjFhbHBoYTFiBnByb3RvMw", [file_google_protobuf_duration, file_google_protobuf_struct, file_tower_environments_v1alpha1_common, file_tower_meta_v1_meta, file_tower_meta_v1_options]);
 
 /**
  * Machine is a VM an agent builds against, such as a k3s cluster: a
@@ -171,6 +171,15 @@ export type Blueprint = Message<"tower.environments.v1alpha1.Blueprint"> & {
    * @generated from field: tower.environments.v1alpha1.ReadyCheck ready_check = 7;
    */
   readyCheck?: ReadyCheck | undefined;
+
+  /**
+   * The user its phases and ready check run as; unset is root. It is the
+   * client's to name: tower names none of its own
+   * (docs/decisions/machine-blueprints.md). Part of what the golden is.
+   *
+   * @generated from field: tower.environments.v1alpha1.RunAs run_as = 8;
+   */
+  runAs?: RunAs | undefined;
 };
 
 /**
@@ -181,6 +190,32 @@ export const BlueprintSchema: GenMessage<Blueprint> = /*@__PURE__*/
   messageDesc(file_tower_environments_v1alpha1_machine, 2);
 
 /**
+ * RunAs is the user a blueprint's playbook runs as, as a playbook written
+ * to be run over ssh by a user with passwordless sudo expects: tasks with
+ * become get root through sudo, the others and ~ are the user's.
+ *
+ * @generated from message tower.environments.v1alpha1.RunAs
+ */
+export type RunAs = Message<"tower.environments.v1alpha1.RunAs"> & {
+  /**
+   * A POSIX user name (lower case letters, digits, '_' and '-', starting
+   * with a letter or '_', at most 32), not root. tower makes the user in
+   * the golden's builder unless the base image has one of the name, and
+   * gives it a home directory and passwordless sudo.
+   *
+   * @generated from field: string user = 1;
+   */
+  user: string;
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.RunAs.
+ * Use `create(RunAsSchema)` to create a new message.
+ */
+export const RunAsSchema: GenMessage<RunAs> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_machine, 3);
+
+/**
  * ReadyCheck is a shell command run in the machine after its configure
  * phase, every 5 seconds until it exits 0. It is checked again after each
  * start of the machine, since what it checks starts again with it.
@@ -189,7 +224,8 @@ export const BlueprintSchema: GenMessage<Blueprint> = /*@__PURE__*/
  */
 export type ReadyCheck = Message<"tower.environments.v1alpha1.ReadyCheck"> & {
   /**
-   * Run as sh -c command, as root, without the machine's secrets.
+   * Run as sh -c command, as the blueprint's run_as user (root if it has
+   * none), without the machine's secrets.
    *
    * @generated from field: string command = 1;
    */
@@ -209,7 +245,7 @@ export type ReadyCheck = Message<"tower.environments.v1alpha1.ReadyCheck"> & {
  * Use `create(ReadyCheckSchema)` to create a new message.
  */
 export const ReadyCheckSchema: GenMessage<ReadyCheck> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_machine, 3);
+  messageDesc(file_tower_environments_v1alpha1_machine, 4);
 
 /**
  * SecretRef names one value of a Secret and what to call it.
@@ -242,7 +278,7 @@ export type SecretRef = Message<"tower.environments.v1alpha1.SecretRef"> & {
  * Use `create(SecretRefSchema)` to create a new message.
  */
 export const SecretRefSchema: GenMessage<SecretRef> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_machine, 4);
+  messageDesc(file_tower_environments_v1alpha1_machine, 5);
 
 /**
  * MachineStatus is what tower reports about the machine.
@@ -298,7 +334,7 @@ export type MachineStatus = Message<"tower.environments.v1alpha1.MachineStatus">
  * Use `create(MachineStatusSchema)` to create a new message.
  */
 export const MachineStatusSchema: GenMessage<MachineStatus> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_machine, 5);
+  messageDesc(file_tower_environments_v1alpha1_machine, 6);
 
 /**
  * @generated from message tower.environments.v1alpha1.GetMachineRequest
@@ -320,7 +356,7 @@ export type GetMachineRequest = Message<"tower.environments.v1alpha1.GetMachineR
  * Use `create(GetMachineRequestSchema)` to create a new message.
  */
 export const GetMachineRequestSchema: GenMessage<GetMachineRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_machine, 6);
+  messageDesc(file_tower_environments_v1alpha1_machine, 7);
 
 /**
  * @generated from message tower.environments.v1alpha1.GetMachineResponse
@@ -337,7 +373,7 @@ export type GetMachineResponse = Message<"tower.environments.v1alpha1.GetMachine
  * Use `create(GetMachineResponseSchema)` to create a new message.
  */
 export const GetMachineResponseSchema: GenMessage<GetMachineResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_machine, 7);
+  messageDesc(file_tower_environments_v1alpha1_machine, 8);
 
 /**
  * @generated from message tower.environments.v1alpha1.ListMachinesRequest
@@ -371,7 +407,7 @@ export type ListMachinesRequest = Message<"tower.environments.v1alpha1.ListMachi
  * Use `create(ListMachinesRequestSchema)` to create a new message.
  */
 export const ListMachinesRequestSchema: GenMessage<ListMachinesRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_machine, 8);
+  messageDesc(file_tower_environments_v1alpha1_machine, 9);
 
 /**
  * @generated from message tower.environments.v1alpha1.ListMachinesResponse
@@ -398,7 +434,7 @@ export type ListMachinesResponse = Message<"tower.environments.v1alpha1.ListMach
  * Use `create(ListMachinesResponseSchema)` to create a new message.
  */
 export const ListMachinesResponseSchema: GenMessage<ListMachinesResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_machine, 9);
+  messageDesc(file_tower_environments_v1alpha1_machine, 10);
 
 /**
  * @generated from message tower.environments.v1alpha1.WatchMachinesRequest
@@ -427,7 +463,7 @@ export type WatchMachinesRequest = Message<"tower.environments.v1alpha1.WatchMac
  * Use `create(WatchMachinesRequestSchema)` to create a new message.
  */
 export const WatchMachinesRequestSchema: GenMessage<WatchMachinesRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_machine, 10);
+  messageDesc(file_tower_environments_v1alpha1_machine, 11);
 
 /**
  * @generated from message tower.environments.v1alpha1.WatchMachinesResponse
@@ -454,7 +490,7 @@ export type WatchMachinesResponse = Message<"tower.environments.v1alpha1.WatchMa
  * Use `create(WatchMachinesResponseSchema)` to create a new message.
  */
 export const WatchMachinesResponseSchema: GenMessage<WatchMachinesResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_machine, 11);
+  messageDesc(file_tower_environments_v1alpha1_machine, 12);
 
 /**
  * @generated from message tower.environments.v1alpha1.ApplyMachineRequest
@@ -478,7 +514,7 @@ export type ApplyMachineRequest = Message<"tower.environments.v1alpha1.ApplyMach
  * Use `create(ApplyMachineRequestSchema)` to create a new message.
  */
 export const ApplyMachineRequestSchema: GenMessage<ApplyMachineRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_machine, 12);
+  messageDesc(file_tower_environments_v1alpha1_machine, 13);
 
 /**
  * @generated from message tower.environments.v1alpha1.ApplyMachineResponse
@@ -505,7 +541,7 @@ export type ApplyMachineResponse = Message<"tower.environments.v1alpha1.ApplyMac
  * Use `create(ApplyMachineResponseSchema)` to create a new message.
  */
 export const ApplyMachineResponseSchema: GenMessage<ApplyMachineResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_machine, 13);
+  messageDesc(file_tower_environments_v1alpha1_machine, 14);
 
 /**
  * @generated from message tower.environments.v1alpha1.DeleteMachineRequest
@@ -532,7 +568,7 @@ export type DeleteMachineRequest = Message<"tower.environments.v1alpha1.DeleteMa
  * Use `create(DeleteMachineRequestSchema)` to create a new message.
  */
 export const DeleteMachineRequestSchema: GenMessage<DeleteMachineRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_machine, 14);
+  messageDesc(file_tower_environments_v1alpha1_machine, 15);
 
 /**
  * @generated from message tower.environments.v1alpha1.DeleteMachineResponse
@@ -549,7 +585,7 @@ export type DeleteMachineResponse = Message<"tower.environments.v1alpha1.DeleteM
  * Use `create(DeleteMachineResponseSchema)` to create a new message.
  */
 export const DeleteMachineResponseSchema: GenMessage<DeleteMachineResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_machine, 15);
+  messageDesc(file_tower_environments_v1alpha1_machine, 16);
 
 /**
  * @generated from message tower.environments.v1alpha1.UpdateMachineStatusRequest
@@ -581,7 +617,7 @@ export type UpdateMachineStatusRequest = Message<"tower.environments.v1alpha1.Up
  * Use `create(UpdateMachineStatusRequestSchema)` to create a new message.
  */
 export const UpdateMachineStatusRequestSchema: GenMessage<UpdateMachineStatusRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_machine, 16);
+  messageDesc(file_tower_environments_v1alpha1_machine, 17);
 
 /**
  * @generated from message tower.environments.v1alpha1.UpdateMachineStatusResponse
@@ -598,7 +634,7 @@ export type UpdateMachineStatusResponse = Message<"tower.environments.v1alpha1.U
  * Use `create(UpdateMachineStatusResponseSchema)` to create a new message.
  */
 export const UpdateMachineStatusResponseSchema: GenMessage<UpdateMachineStatusResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_machine, 17);
+  messageDesc(file_tower_environments_v1alpha1_machine, 18);
 
 /**
  * MachinePhase is where a machine is in its life.

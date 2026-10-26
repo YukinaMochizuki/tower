@@ -71,9 +71,11 @@ type buildSpec struct {
 	// Mirror is a warm checkout's, Branch the branch it follows.
 	Mirror string `json:"mirror,omitempty"`
 	Branch string `json:"branch,omitempty"`
-	// Blueprint and GoldenVars are a machine's golden phase.
+	// Blueprint and GoldenVars are a machine's golden phase, and RunAs
+	// the user it runs as, empty for root.
 	Blueprint  string          `json:"blueprint,omitempty"`
 	GoldenVars json.RawMessage `json:"goldenVars,omitempty"`
+	RunAs      string          `json:"runAs,omitempty"`
 }
 
 func inputHash(parts ...string) string {
@@ -518,7 +520,8 @@ func (s *Server) convergeWarm(ctx context.Context, p provider.Provider, ref prov
 // (configureMachine). This is how workstream's blueprints are written:
 // their tasks are untagged, and a task that needs a machine's own vars or
 // secrets is tagged configure (workstream: src/machine/drivers/
-// ansible-qemu.ts).
+// ansible-qemu.ts). A blueprint with a run_as user runs as it, made here
+// first (prepareUser), so every clone of the golden has it.
 func (s *Server) convergeMachine(ctx context.Context, p provider.Provider, ref provider.Instance, build buildSpec) error {
 	if err := p.WriteFile(ctx, ref, "/opt/tower/blueprint.yml", 0o600, 0, strings.NewReader(build.Blueprint)); err != nil {
 		return err
@@ -530,8 +533,11 @@ func (s *Server) convergeMachine(ctx context.Context, p provider.Provider, ref p
 	if err := p.WriteFile(ctx, ref, "/opt/tower/golden-vars.json", 0o600, 0, bytes.NewReader(vars)); err != nil {
 		return err
 	}
-	return s.mustRun(ctx, p, ref, nil, "/opt/tower",
-		"ansible-playbook", "--connection=local", "--inventory=localhost,", "--skip-tags=configure", "--extra-vars=@golden-vars.json", "blueprint.yml")
+	if err := s.prepareUser(ctx, p, ref, build.RunAs, "/opt/tower/blueprint.yml", "/opt/tower/golden-vars.json"); err != nil {
+		return err
+	}
+	return s.mustRun(ctx, p, ref, nil, "/opt/tower", asUser(build.RunAs,
+		"ansible-playbook", "--connection=local", "--inventory=localhost,", "--skip-tags=configure", "--extra-vars=@golden-vars.json", "blueprint.yml")...)
 }
 
 // mustRun runs a command, a non-zero exit being a failure of the work,

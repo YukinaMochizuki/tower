@@ -43,15 +43,57 @@ hostname the same from its golden to every clone of it.
   start of the machine. A blueprint without one is READY
   once configured.
 
+- **A blueprint may name the user it runs as (`Blueprint.run_as`); the
+  client chooses it, and tower names none.** workstream's blueprints (and
+  hangar's `hangar-testbed`) are written to be run over ssh by a user with
+  passwordless sudo: `become: true` tasks get root through sudo,
+  `become: false` tasks and `~` are the user's. With `run_as` set, tower
+  makes the user as the first step of the golden phase, as root through
+  the provider's exec in the builder VM: `useradd --create-home
+  --user-group` unless the VM has a user of the name, a home if it lacks
+  one, a passwordless sudo rule in `/etc/sudoers.d/tower-run-as`, and the
+  blueprint's files under `/opt/tower` handed to it. Each clone of the
+  golden has the user already; the same step runs again before the
+  configure phase, changing nothing but handing it that phase's files.
+  The golden phase, the configure phase and the ready check then run
+  through `runuser -u USER --`, which sets the user's `HOME`, `SHELL`,
+  `USER` and `LOGNAME` and keeps the rest of the environment, so the
+  configure phase's secrets, given as its environment, still reach it
+  (sudo would drop them). The user is part of the golden's inputs
+  (`MachineInputs.run_as`): a different user is a different golden. A
+  blueprint without `run_as` runs everything as root, as before, and its
+  golden's hash is unchanged. The name is a portable POSIX one and not
+  `root`, which is what no `run_as` means.
+
 Not a hostname per blueprint: a golden is shared by every machine of its
 blueprint, golden vars and base image, whatever their aliases, and nothing
 else names it to hostd.
+
+Not workstream's convention adopted by tower (a fixed user every
+blueprint runs as): tower would then name a client's user, and a
+blueprint written another way would break; the knob is generic, and
+workstream maps its convention onto it.
+
+Not the user made by hostd in the VM's cloud-config: the user is what
+the blueprint runs as, a decision about the machine, which is tower's
+(`layers.md`); made by tower through exec, it needs no new field in the
+provider interface, the instance spec or hostd's API, works the same on
+any provider of VMs, and lives in the golden's disk, from which every
+clone has it.
 
 ## Consequences
 
 - A blueprint that needs a VM to know its own name reads its alias, not
   its hostname.
-- workstream runs a ready check over ssh as its VM user (`ubuntu`), tower
-  as root: a check reading `~` reads root's home under tower.
+- A ready check runs as the blueprint's `run_as` user, root without one:
+  a check reading `~` reads that user's home. workstream runs one over
+  ssh as its VM user; it gives the same user as `run_as` for the two to
+  agree.
+- `ansible_user` is not set by tower: a blueprint reading it (as
+  workstream's `workstream-dev` does, with a default) is given it by its
+  client, in its golden vars.
+- The base image needs `sudo`, `useradd` and `runuser` for `run_as`
+  (Ubuntu's cloud image has them); a VM without sudo fails the golden
+  phase saying so.
 - Several VMs of one cluster (k3s agents joining a server) would share a
   hostname, and need their node names set otherwise.

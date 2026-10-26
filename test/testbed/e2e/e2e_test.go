@@ -9,8 +9,10 @@
 // idle-stopped and woken, its hostd restarted, its project deleted and
 // the host left as it was. TestAK3sMachine converges workstream's k3s
 // blueprint on a Cloud Hypervisor VM through tower, and reaches its API
-// from a box of the same workstream by its alias. TestBoxesOfDevcontainers
-// makes boxes of public repositories' devcontainers.
+// from a box of the same workstream by its alias.
+// TestAMachineRunsAsItsRunAsUser converges a blueprint as the user its
+// run_as names. TestBoxesOfDevcontainers makes boxes of public
+// repositories' devcontainers.
 package e2e
 
 import (

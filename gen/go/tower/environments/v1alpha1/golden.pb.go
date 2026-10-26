@@ -439,6 +439,8 @@ type MachineInputs struct {
 	// A hash of the blueprint's content and its golden_vars.
 	BlueprintHash string `protobuf:"bytes,1,opt,name=blueprint_hash,json=blueprintHash,proto3" json:"blueprint_hash,omitempty"`
 	BaseImage     string `protobuf:"bytes,2,opt,name=base_image,json=baseImage,proto3" json:"base_image,omitempty"`
+	// The user the blueprint runs as (Blueprint.run_as), empty for root.
+	RunAs         string `protobuf:"bytes,3,opt,name=run_as,json=runAs,proto3" json:"run_as,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -483,6 +485,13 @@ func (x *MachineInputs) GetBlueprintHash() string {
 func (x *MachineInputs) GetBaseImage() string {
 	if x != nil {
 		return x.BaseImage
+	}
+	return ""
+}
+
+func (x *MachineInputs) GetRunAs() string {
+	if x != nil {
+		return x.RunAs
 	}
 	return ""
 }
@@ -1286,11 +1295,12 @@ const file_tower_environments_v1alpha1_golden_proto_rawDesc = "" +
 	"repository\x12\x16\n" +
 	"\x06commit\x18\x02 \x01(\tR\x06commit\x12%\n" +
 	"\x0etoolchain_hash\x18\x03 \x01(\tR\rtoolchainHash\x12%\n" +
-	"\x0elockfiles_hash\x18\x04 \x01(\tR\rlockfilesHash\"U\n" +
+	"\x0elockfiles_hash\x18\x04 \x01(\tR\rlockfilesHash\"l\n" +
 	"\rMachineInputs\x12%\n" +
 	"\x0eblueprint_hash\x18\x01 \x01(\tR\rblueprintHash\x12\x1d\n" +
 	"\n" +
-	"base_image\x18\x02 \x01(\tR\tbaseImage\"\xa9\x02\n" +
+	"base_image\x18\x02 \x01(\tR\tbaseImage\x12\x15\n" +
+	"\x06run_as\x18\x03 \x01(\tR\x05runAs\"\xa9\x02\n" +
 	"\fGoldenStatus\x12/\n" +
 	"\x13observed_generation\x18\x01 \x01(\x03R\x12observedGeneration\x128\n" +
 	"\n" +

@@ -47,7 +47,18 @@ func machineInputs(spec *envv1alpha1.MachineSpec) (*envv1alpha1.MachineInputs, j
 	if err != nil {
 		return nil, nil, err
 	}
-	return &envv1alpha1.MachineInputs{BlueprintHash: inputHash(bp.GetContent(), string(vars)), BaseImage: bp.GetBaseImage()}, vars, nil
+	return &envv1alpha1.MachineInputs{BlueprintHash: inputHash(bp.GetContent(), string(vars)), BaseImage: bp.GetBaseImage(), RunAs: bp.GetRunAs().GetUser()}, vars, nil
+}
+
+// machineGoldenHash is the input hash of a machine's golden on target. A
+// blueprint without run_as hashes as it did before run_as was, so its
+// golden stays the one it had.
+func machineGoldenHash(target string, in *envv1alpha1.MachineInputs) string {
+	parts := []string{"machine", target, in.GetBlueprintHash(), in.GetBaseImage()}
+	if in.GetRunAs() != "" {
+		parts = append(parts, "run-as", in.GetRunAs())
+	}
+	return inputHash(parts...)
 }
 
 func (s *Server) reconcileMachine(ctx context.Context, key controller.Key) error {
@@ -107,16 +118,17 @@ func (s *Server) machineSteps(ctx context.Context, key controller.Key, m *envv1a
 		return fmt.Errorf("machine %s: %w: %w", key, controller.ErrWaiting, err)
 	}
 
-	// Its golden: one per blueprint, golden vars and base image.
+	// Its golden: one per blueprint, golden vars, base image and run_as
+	// user.
 	inputs, vars, err := machineInputs(spec)
 	if err != nil {
 		return err
 	}
-	hash := inputHash("machine", st.Target, inputs.GetBlueprintHash(), inputs.GetBaseImage())
+	hash := machineGoldenHash(st.Target, inputs)
 	st.Golden = goldenName("mc", hash)
 	g, err := s.ensureGolden(ctx, key.Project, st.Golden, &envv1alpha1.GoldenSpec{
 		Target: st.Target, InputHash: hash, Inputs: &envv1alpha1.GoldenSpec_Machine{Machine: inputs},
-	}, buildSpec{Blueprint: spec.GetBlueprint().GetContent(), GoldenVars: vars}, nil)
+	}, buildSpec{Blueprint: spec.GetBlueprint().GetContent(), GoldenVars: vars, RunAs: inputs.GetRunAs()}, nil)
 	if err != nil {
 		return err
 	}
@@ -230,7 +242,7 @@ func machineStep(key controller.Key, m *envv1alpha1.Machine, in *envv1alpha1.Ins
 // instance it is checked again. A check that never passes fails as any
 // instance step does (steps.go), with the end of its last output, which
 // can quote nothing secret: the check is run without the machine's
-// secrets.
+// secrets. It runs as the blueprint's run_as user, root without one.
 func (s *Server) checkReady(ctx context.Context, key controller.Key, m *envv1alpha1.Machine, in *envv1alpha1.Instance, p provider.Provider, st *envv1alpha1.MachineStatus, not func(envv1alpha1.MachinePhase, string, string)) error {
 	run := runOf(in)
 	job := "ready/" + key.String()
@@ -256,11 +268,12 @@ func (s *Server) checkReady(ctx context.Context, key controller.Key, m *envv1alp
 		timeout = check.GetTimeout().AsDuration()
 	}
 	ref := provider.Instance{Project: key.Project, Name: in.GetMetadata().GetName()}
+	user := m.GetSpec().GetBlueprint().GetRunAs().GetUser()
 	s.startJob(st.Target, job, s.machineCtrl, key, func(ctx context.Context) error {
 		deadline := s.clock.Now().Add(timeout)
 		for {
 			var out bytes.Buffer
-			code, err := p.Exec(ctx, provider.ExecRequest{Instance: ref, Command: []string{"sh", "-c", check.GetCommand()}, Stdout: &out, Stderr: &out})
+			code, err := p.Exec(ctx, provider.ExecRequest{Instance: ref, Command: asUser(user, "sh", "-c", check.GetCommand()), Stdout: &out, Stderr: &out})
 			if err != nil {
 				return err
 			}
@@ -292,7 +305,8 @@ func (s *Server) checkReady(ctx context.Context, key controller.Key, m *envv1alp
 // configure, which its golden phase skipped (convergeMachine); a playbook
 // with none runs nothing here. The secrets' values are
 // opened for the one command and given as its environment alone: they
-// enter no object, no event and no log.
+// enter no object, no event and no log. It runs as the blueprint's
+// run_as user, which its golden has (convergeMachine), root without one.
 func (s *Server) configureMachine(ctx context.Context, key controller.Key, m *envv1alpha1.Machine, in *envv1alpha1.Instance, p provider.Provider, st *envv1alpha1.MachineStatus, not func(envv1alpha1.MachinePhase, string, string)) error {
 	job := "configure/" + key.String()
 	step := machineStep(key, m, in, "configure")
@@ -346,8 +360,12 @@ func (s *Server) configureMachine(ctx context.Context, key controller.Key, m *en
 		if err := p.WriteFile(ctx, ref, "/opt/tower/blueprint.yml", 0o600, 0, bytes.NewReader([]byte(spec.GetBlueprint().GetContent()))); err != nil {
 			return err
 		}
-		if err := s.mustRun(ctx, p, ref, env, "/opt/tower",
-			"ansible-playbook", "--connection=local", "--inventory=localhost,", "--tags=configure", "--extra-vars=@vars.json", "blueprint.yml"); err != nil {
+		user := spec.GetBlueprint().GetRunAs().GetUser()
+		if err := s.prepareUser(ctx, p, ref, user, "/opt/tower/vars.json", "/opt/tower/blueprint.yml"); err != nil {
+			return err
+		}
+		if err := s.mustRun(ctx, p, ref, env, "/opt/tower", asUser(user,
+			"ansible-playbook", "--connection=local", "--inventory=localhost,", "--tags=configure", "--extra-vars=@vars.json", "blueprint.yml")...); err != nil {
 			return err
 		}
 		if err := s.annotateInstance(ctx, key.Project, ref.Name, configuredAnnotation, "true"); err != nil {
