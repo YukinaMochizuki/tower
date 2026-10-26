@@ -76,6 +76,9 @@ outright, which the next run sweeps.
 - A build step runs on a network of its own (`deploy/hostd/
   build-network.nft`): it reaches the internet, and neither the host nor a
   box on a workstream network.
+- A guest is fenced (`deploy/hostd/guest-network.nft`): its network's
+  bridge is named for the fence, and a box reaches the internet and a peer
+  by alias, and nothing listening on the host.
 - The k3s blueprint, untagged, converges with the golden phase
   `--skip-tags=configure` (`docs/decisions/machine-blueprints.md`), and its
   machine is READY once workstream's ready check sees its node Ready.

@@ -1,0 +1,142 @@
+name: release
+
+# Builds the release deploy/release.sh builds for a tag, attests every file
+# of it, and publishes it as the tag's GitHub Release: the host's files as
+# one tar, and the CLI for Linux and macOS (docs/runbook/release.md).
+#
+# Two jobs, as hangar's release: build runs the repository's code with a
+# read-only token and no cache from any other run; publish runs none of it,
+# only attests and publishes the files build handed over. Every action is
+# pinned to a commit.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to release; run the workflow from that same tag
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check the tag
+        run: |
+          if ! [[ $TAG =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.(0|[1-9][0-9]*))?$ ]]; then
+            echo "::error::$TAG is not a release tag (vMAJOR.MINOR.PATCH, or that with -rc.N)"
+            exit 1
+          fi
+          if [ "$GITHUB_REF" != "refs/tags/$TAG" ]; then
+            echo "::error::the workflow runs from $GITHUB_REF; run it from the tag: gh workflow run release.yml --ref $TAG -f tag=$TAG"
+            exit 1
+          fi
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          cache: 'false'
+      - name: Build
+        env:
+          TOWER_RELEASE_TAG: ${{ env.TAG }}
+        run: deploy/release.sh "$RUNNER_TEMP/release"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: ${{ runner.temp }}/release/dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+      # What build handed over must be a whole release of this run's commit,
+      # and nothing else.
+      - name: Check the files
+        run: |
+          cd "$RUNNER_TEMP/release"
+          sha256sum -c --strict SHA256SUMS
+          listed=$( (cut -d' ' -f3 SHA256SUMS; echo SHA256SUMS) | sort)
+          present=$(find . -mindepth 1 -printf '%P\n' | sort)
+          if [ "$listed" != "$present" ]; then
+            echo "::error::the files are not those SHA256SUMS lists"
+            exit 1
+          fi
+          if [ "$(cat VERSION)" != "$GITHUB_SHA" ]; then
+            echo "::error::VERSION is $(cat VERSION), not this run's commit $GITHUB_SHA"
+            exit 1
+          fi
+          for f in "tower-host_${TAG}_linux_amd64.tar.gz" \
+            "tower_${TAG}_linux_amd64.tar.gz" "tower_${TAG}_linux_arm64.tar.gz" \
+            "tower_${TAG}_darwin_amd64.tar.gz" "tower_${TAG}_darwin_arm64.tar.gz"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::the release has no $f"
+              exit 1
+            fi
+          done
+          if [ "$(tar -xzOf "tower-host_${TAG}_linux_amd64.tar.gz" ./VERSION)" != "$GITHUB_SHA" ]; then
+            echo "::error::the host tar's VERSION is not this run's commit $GITHUB_SHA"
+            exit 1
+          fi
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        id: attest
+        with:
+          subject-path: ${{ runner.temp }}/release/*
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          dir=$RUNNER_TEMP/release
+          cp "$BUNDLE" "$RUNNER_TEMP/attestation.jsonl"
+          digest=$(cd "$dir" && sha256sum SHA256SUMS | cut -d' ' -f1)
+          prerelease=
+          case $TAG in *-*) prerelease=--prerelease ;; esac
+          cat >"$RUNNER_TEMP/notes.md" <<EOF
+          Commit \`$(cat "$dir/VERSION")\`.
+
+          The digest of \`SHA256SUMS\` (\`sha256sum SHA256SUMS\`), which a host
+          checks before it unpacks anything (docs/runbook/release.md):
+
+          \`\`\`
+          $digest
+          \`\`\`
+
+          \`attestation.jsonl\` holds the build-provenance attestations of every
+          other file.
+          EOF
+          # A tag is released once: a second run for it stops here rather
+          # than replace files a host may already have checked.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::$TAG already has a release (or a draft); delete it first to publish it again"
+            exit 1
+          fi
+          gh release create "$TAG" --verify-tag --draft $prerelease \
+            --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" \
+            "$dir"/* "$RUNNER_TEMP/attestation.jsonl"
+          gh release edit "$TAG" --draft=false
+          echo "sha256sum SHA256SUMS: $digest" >>"$GITHUB_STEP_SUMMARY"

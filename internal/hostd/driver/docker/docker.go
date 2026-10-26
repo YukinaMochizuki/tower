@@ -16,6 +16,8 @@ import (
 	"archive/tar"
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -61,6 +63,20 @@ const (
 // DefaultNetwork is the network of a guest on none: Docker's own bridge.
 const DefaultNetwork = "bridge"
 
+// BridgePrefix begins the Linux name of every workstream network's
+// bridge, so the host's firewall tells hostd's guests from every other
+// container on the host (deploy/hostd/guest-network.nft). Not "tower-":
+// tower-build0, the build steps' bridge, has rules of its own.
+const BridgePrefix = "twr"
+
+// BridgeName is the Linux name of a workstream network's bridge:
+// BridgePrefix and a hash of the network's name, within the 15 bytes an
+// interface name holds.
+func BridgeName(network string) string {
+	sum := sha256.Sum256([]byte(network))
+	return BridgePrefix + hex.EncodeToString(sum[:6])
+}
+
 // Config configures the driver.
 type Config struct {
 	// Client is Docker's.
@@ -70,6 +86,11 @@ type Config struct {
 	StateDir string
 	// GuestBinary is tower-guest on the host, statically linked.
 	GuestBinary string
+	// DNS are the servers a container resolves through (Docker's resolver
+	// forwards to them), public ones: the host's firewall drops what a
+	// guest sends to a private address, the host's own resolver's among
+	// them (deploy/hostd/guest-network.nft). Empty is the host's.
+	DNS []netip.Addr
 	// StopTimeout is how long a container has to stop before it is killed;
 	// zero means 10 seconds.
 	StopTimeout time.Duration
@@ -236,6 +257,7 @@ func (d *Driver) Create(ctx context.Context, cs driver.ContainerSpec) error {
 		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyDisabled},
 		Resources:     container.Resources{NanoCPUs: int64(cs.CPUs) * 1e9, Memory: int64(cs.Memory), PidsLimit: ptr(int64(BoxPidsLimit))},
 		NetworkMode:   container.NetworkMode(netName),
+		DNS:           d.cfg.DNS,
 	}
 	endpoint := &network.EndpointSettings{}
 	if cs.Alias != "" && netName != DefaultNetwork {
@@ -712,7 +734,11 @@ func (n Networks) Ensure(ctx context.Context, name string, labels driver.Labels)
 		l = map[string]string{}
 	}
 	l[LabelDriver] = "network"
-	_, err = n.Cli.NetworkCreate(ctx, name, client.NetworkCreateOptions{Driver: "bridge", Labels: l})
+	_, err = n.Cli.NetworkCreate(ctx, name, client.NetworkCreateOptions{
+		Driver:  "bridge",
+		Options: map[string]string{"com.docker.network.bridge.name": BridgeName(name)},
+		Labels:  l,
+	})
 	if cerrdefs.IsConflict(err) {
 		return nil // made meanwhile
 	}

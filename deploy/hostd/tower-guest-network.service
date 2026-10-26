@@ -1,0 +1,24 @@
+[Unit]
+Description=What hostd's guests reach (deploy/hostd/guest-network.nft)
+Documentation=file:///usr/local/share/doc/tower/runbook/deploy.md
+# Before Docker, which starts guests that outlived a reboot, and before
+# hostd; after nftables.service, whose config begins by flushing every
+# table. Docker requires it, so a table that does not load keeps every
+# container down rather than a guest unfenced.
+DefaultDependencies=no
+After=local-fs.target nftables.service
+Before=network-pre.target docker.service hostd.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/tower/guest-network.nft
+# Replaces the table whole. Nothing deletes it on stop: guests outlive
+# Docker (live-restore), and must not outlive their fence. To lift it, by
+# hand: nft delete table inet tower_guest.
+ExecReload=/usr/sbin/nft -f /etc/tower/guest-network.nft
+
+[Install]
+WantedBy=multi-user.target
+RequiredBy=docker.service
