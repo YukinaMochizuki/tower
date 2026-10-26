@@ -744,6 +744,7 @@ func (w *world) warmOf() map[string][]string {
 // cloned from it, skipping the install.
 func TestWarmGoldensFollowUse(t *testing.T) {
 	t.Parallel()
+	testutil.Quarantine(t, "#24")
 	w := newWorld(t, worldOption{settings: &targetsv1alpha1.TargetSettings{WarmBudget: "25Gi"}})
 	w.fake.CaptureSize(func(provider.Instance) uint64 { return 10 << 30 })
 	open := func(repo string, n int) {

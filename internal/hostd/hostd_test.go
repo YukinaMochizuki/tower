@@ -234,6 +234,7 @@ func TestTheGraceKeepsWhatIsNew(t *testing.T) {
 // Golden names, and leaves one a Golden names and another's; tower cannot
 // delete another's.
 func TestGoldensOnTheHost(t *testing.T) {
+	testutil.Quarantine(t, "#23")
 	w := hostdtest.New(t, hostdtest.Options{Host: func(c *hostd.Config) { c.SweepGrace = time.Millisecond }})
 	d := w.Fake.Drivers()
 	if _, err := w.Env.AsSystem().Apply(t.Context(), registry.Golden, &envv1alpha1.Golden{

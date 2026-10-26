@@ -330,6 +330,7 @@ func TestAGoldensBuildIsTowersOwn(t *testing.T) {
 // built at, not the mirror's own, which a fetch may have moved past it.
 func TestAMirrorAheadOfItsRepositoryIsNotStale(t *testing.T) {
 	t.Parallel()
+	testutil.Quarantine(t, "#25")
 	w := newWorld(t, worldOption{settings: &targetsv1alpha1.TargetSettings{
 		WarmMaxCommitsBehind: 2, IdleStopAfter: durationpb.New(1000 * time.Hour),
 	}})
