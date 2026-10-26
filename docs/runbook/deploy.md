@@ -90,8 +90,10 @@ to each host (below). `tailscale cert` must run again before the
 certificate expires (a timer of the operator's), then `systemctl restart
 zot`.
 
-zot keeps its images in `/var/lib/zot`: give it a disk of its own, mounted
-there before install.sh runs. Images are rebuilt on demand, so the
+zot keeps its images in `/var/lib/zot/storage`: give `/var/lib/zot` a disk
+of its own, mounted there before install.sh runs. A request may take up to
+an hour (`readTimeout`, `writeTimeout`): a layer pushed from a target behind
+a slow uplink takes minutes, and zot's own default cuts it off at one. Images are rebuilt on demand, so the
 registry is not backed up.
 
 ### 4. Backing up the store
