@@ -379,7 +379,9 @@ func (x *Blueprint) GetRunAs() *RunAs {
 
 // RunAs is the user a blueprint's playbook runs as, as a playbook written
 // to be run over ssh by a user with passwordless sudo expects: tasks with
-// become get root through sudo, the others and ~ are the user's.
+// become get root through sudo, the others and ~ are the user's. The
+// machine's ready check, and what a client runs and writes in it through
+// EnvironmentService, are the user's too.
 type RunAs struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// A POSIX user name (lower case letters, digits, '_' and '-', starting

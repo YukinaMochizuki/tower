@@ -225,7 +225,8 @@ type ExecRequest struct {
 	//	*ExecRequest_Argv
 	//	*ExecRequest_Shell
 	Command isExecRequest_Command `protobuf_oneof:"command"`
-	// The working directory; empty is the environment's default.
+	// The working directory; empty is the environment's default, which in
+	// a machine with a run_as user is that user's home.
 	Dir string `protobuf:"bytes,4,opt,name=dir,proto3" json:"dir,omitempty"`
 	// Added to the environment's own for this command alone.
 	Env map[string]string `protobuf:"bytes,5,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
@@ -1268,7 +1269,8 @@ type StartProcessRequest struct {
 	//	*StartProcessRequest_Argv
 	//	*StartProcessRequest_Shell
 	Command isStartProcessRequest_Command `protobuf_oneof:"command"`
-	// The working directory; empty is the environment's default.
+	// The working directory; empty is the environment's default, which in
+	// a machine with a run_as user is that user's home.
 	Dir string `protobuf:"bytes,4,opt,name=dir,proto3" json:"dir,omitempty"`
 	// Added to the environment's own for this process alone.
 	Env map[string]string `protobuf:"bytes,5,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`

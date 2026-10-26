@@ -65,6 +65,20 @@ hostname the same from its golden to every clone of it.
   golden's hash is unchanged. The name is a portable POSIX one and not
   `root`, which is what no `run_as` means.
 
+- **A machine's data-plane work is its `run_as` user's too.** What a
+  client runs in a machine through EnvironmentService (`Exec`,
+  `StartProcess`) runs through `runuser -u USER --` as well, in the
+  user's home unless the call names a directory, its arguments passed
+  through `"$@"` rather than parsed again; a file `WriteFile` or
+  `CopyFile` puts there is handed to the user (`chown -R`), as root wrote
+  it. A client's VM convention is that of a login over ssh as that user,
+  which is what workstream did before tower: the machine the blueprint
+  built as the user is worked in as the user, and `sudo` reaches root.
+  runuser keeps the process group, so a signal to a process's group
+  reaches the command. A machine without `run_as`, and a box (which runs
+  as its image's user), are unchanged. There is no per-call user: the
+  machine's own is the only one a client has asked for.
+
 Not a hostname per blueprint: a golden is shared by every machine of its
 blueprint, golden vars and base image, whatever their aliases, and nothing
 else names it to hostd.
@@ -89,6 +103,9 @@ clone has it.
   a check reading `~` reads that user's home. workstream runs one over
   ssh as its VM user; it gives the same user as `run_as` for the two to
   agree.
+- A command a client runs in a machine with `run_as` that needs root
+  asks for it through `sudo`. The directories a `WriteFile` makes above
+  its file stay root's.
 - `ansible_user` is not set by tower: a blueprint reading it (as
   workstream's `workstream-dev` does, with a default) is given it by its
   client, in its golden vars.

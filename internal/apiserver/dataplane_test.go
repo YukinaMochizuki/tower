@@ -10,6 +10,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -366,6 +367,125 @@ func TestFilesThroughTower(t *testing.T) {
 	wantCode(t, err, connect.CodeInvalidArgument, "a read over the cap")
 	big := strings.Repeat("x", apiserver.MaxWriteFile+1)
 	wantCode(t, writeFile(ctx, envs, boxEnv("dev"), "/tmp/big", big, 0), connect.CodeInvalidArgument, "a chunk over the cap")
+}
+
+// TestAMachinesWorkIsItsRunAsUsers: in a machine whose blueprint names a
+// run_as user, a command and a process run as that user through runuser,
+// given their environment and their arguments as they were, in the
+// user's home unless given a directory; a file written or copied into it
+// is handed to the user; and a process is listed as the command asked
+// for. A machine without run_as runs and writes as root, untouched.
+func TestAMachinesWorkIsItsRunAsUsers(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	m := machine("dev")
+	m.Spec.Blueprint.RunAs = &envv1alpha1.RunAs{User: "dev"}
+	w.mustApply(registry.Machine, m)
+	w.mustApply(registry.Machine, machine("root"))
+	w.waitMachine("dev", envv1alpha1.MachinePhase_MACHINE_PHASE_READY)
+	w.waitMachine("root", envv1alpha1.MachinePhase_MACHINE_PHASE_READY)
+	w.readyBox("box", func(b *envv1alpha1.Box) { b.Spec.Workstream = "ws1" })
+	w.waitSettled()
+	devIn := w.machine("dev").GetStatus().GetInstance()
+
+	type call struct {
+		command []string
+		dir     string
+		env     map[string]string
+	}
+	var mu sync.Mutex
+	var calls []call
+	w.fake.OnExec(func(req provider.ExecRequest) (int, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls = append(calls, call{slices.Clone(req.Command), req.Dir, maps.Clone(req.Env)})
+		return 0, false
+	})
+	since := func() func() []call {
+		mu.Lock()
+		n := len(calls)
+		mu.Unlock()
+		return func() []call {
+			mu.Lock()
+			defer mu.Unlock()
+			return slices.Clone(calls[n:])
+		}
+	}
+	envs := w.as(workstream).envs
+	ctx := t.Context()
+	asDev := []string{"runuser", "-u", "dev", "--"}
+	inHome := append(slices.Clone(asDev), "sh", "-c", `cd "$HOME" || exit; exec "$@"`, "sh")
+
+	for _, tt := range []struct {
+		name string
+		env  *envv1alpha1.Environment
+		req  *envv1alpha1.ExecRequest
+		want call
+	}{
+		{"argv, no dir", machineEnv("dev"), &envv1alpha1.ExecRequest{Command: argv("bash", "-lc", `echo "$X" 'a b'`), Env: map[string]string{"X": "1"}},
+			call{append(slices.Clone(inHome), "bash", "-lc", `echo "$X" 'a b'`), "", map[string]string{"X": "1"}}},
+		{"shell, a dir", machineEnv("dev"), &envv1alpha1.ExecRequest{Command: &envv1alpha1.ExecRequest_Shell{Shell: "make test"}, Dir: "/srv/app"},
+			call{append(slices.Clone(asDev), "/bin/sh", "-c", "make test"), "/srv/app", map[string]string{}}},
+		{"no run_as", machineEnv("root"), &envv1alpha1.ExecRequest{Command: argv("whoami")},
+			call{[]string{"whoami"}, "", map[string]string{}}},
+		{"a box", boxEnv("box"), &envv1alpha1.ExecRequest{Command: argv("whoami")},
+			call{[]string{"whoami"}, "", map[string]string{}}},
+	} {
+		got := since()
+		tt.req.Environment = tt.env
+		if _, err := exec(ctx, envs, tt.req); err != nil {
+			t.Fatalf("%s: %v", tt.name, err)
+		}
+		if c := got(); len(c) != 1 || !slices.Equal(c[0].command, tt.want.command) || c[0].dir != tt.want.dir || !maps.Equal(c[0].env, tt.want.env) {
+			t.Errorf("%s: ran %+v, want %+v", tt.name, c, tt.want)
+		}
+	}
+
+	got := since()
+	id := startProcess(t, envs, &envv1alpha1.StartProcessRequest{
+		Environment: machineEnv("dev"), Command: &envv1alpha1.StartProcessRequest_Shell{Shell: "hangar-sync b"}, Name: "sync",
+	})
+	if c := got(); len(c) != 1 || !slices.Equal(c[0].command, append(slices.Clone(inHome), "/bin/sh", "-c", "hangar-sync b")) {
+		t.Errorf("the process ran %+v", c)
+	}
+	list, err := envs.ListProcesses(ctx, connect.NewRequest(&envv1alpha1.ListProcessesRequest{Environment: machineEnv("dev")}))
+	if err != nil || len(list.Msg.GetProcesses()) != 1 || list.Msg.GetProcesses()[0].GetProcess() != id || list.Msg.GetProcesses()[0].GetCommand() != "/bin/sh -c hangar-sync b" {
+		t.Errorf("listed %v, %v", list.Msg.GetProcesses(), err)
+	}
+
+	// Written and copied in, a file is the user's; as root, nothing more runs.
+	chown := func(path string) call {
+		return call{[]string{"sh", "-c", `chown -R -- "$1:$(id -gn -- "$1")" "$2"`, "sh", "dev", path}, "/", nil}
+	}
+	same := func(a, b []call) bool {
+		return slices.EqualFunc(a, b, func(x, y call) bool { return slices.Equal(x.command, y.command) && x.dir == y.dir && len(x.env) == 0 })
+	}
+	got = since()
+	if err := writeFile(ctx, envs, machineEnv("dev"), "/home/dev/notes.txt", "a", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFile(ctx, envs, machineEnv("dev"), "/home/dev/notes.txt", "b", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFile(ctx, envs, boxEnv("box"), "/tmp/out/x", "built", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := envs.CopyFile(ctx, connect.NewRequest(&envv1alpha1.CopyFileRequest{From: boxEnv("box"), FromPath: "/tmp/out", To: machineEnv("dev"), ToPath: "/home/dev/in"})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := envs.CopyFile(ctx, connect.NewRequest(&envv1alpha1.CopyFileRequest{From: boxEnv("box"), FromPath: "/tmp/out", To: machineEnv("root"), ToPath: "/root/in"})); err != nil {
+		t.Fatal(err)
+	}
+	if c := got(); !same(c, []call{chown("/home/dev/notes.txt"), chown("/home/dev/in")}) {
+		t.Errorf("writes and copies ran %+v", c)
+	}
+	if f := w.fake.Files(provider.Instance{Project: "web", Name: devIn}); f["/home/dev/notes.txt"] != "ab" || f["/home/dev/in/x"] != "built" {
+		t.Errorf("the machine holds %v", f)
+	}
+
+	// A file that could not be handed to the user fails its write.
+	w.fake.FailCommands("sh")
+	wantCode(t, writeFile(ctx, envs, machineEnv("dev"), "/home/dev/other", "a", 0), connect.CodeFailedPrecondition, "a file not handed to the user")
 }
 
 // TestCopyFileBetweenBoxes: a copy between two environments of one

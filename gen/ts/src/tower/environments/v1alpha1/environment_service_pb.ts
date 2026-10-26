@@ -81,7 +81,8 @@ export type ExecRequest = Message<"tower.environments.v1alpha1.ExecRequest"> & {
   } | { case: undefined; value?: undefined };
 
   /**
-   * The working directory; empty is the environment's default.
+   * The working directory; empty is the environment's default, which in
+   * a machine with a run_as user is that user's home.
    *
    * @generated from field: string dir = 4;
    */
@@ -552,7 +553,8 @@ export type StartProcessRequest = Message<"tower.environments.v1alpha1.StartProc
   } | { case: undefined; value?: undefined };
 
   /**
-   * The working directory; empty is the environment's default.
+   * The working directory; empty is the environment's default, which in
+   * a machine with a run_as user is that user's home.
    *
    * @generated from field: string dir = 4;
    */
@@ -995,7 +997,10 @@ export const SignalSchema: GenEnum<Signal> = /*@__PURE__*/
  * box's origin, push a branch, and ask for a ticket to stream to a port
  * directly. Only ROLE_WORKSTREAM may call it. Every call counts as a use of
  * the environment; a box tower stopped for idleness is started first, and
- * the call waits for it within its deadline. It is not a resource's
+ * the call waits for it within its deadline. In a machine whose blueprint
+ * names a run_as user, commands and processes run as that user, in its
+ * home unless given a directory, and a file written or copied there is
+ * handed to it (docs/decisions/machine-blueprints.md). It is not a resource's
  * service, so it is written by hand rather than generated. See
  * docs/decisions/traffic.md.
  *

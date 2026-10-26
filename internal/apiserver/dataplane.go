@@ -65,6 +65,9 @@ type environment struct {
 	// secretEnv is a privileged box's Secret's values, which every command
 	// in it is given.
 	secretEnv map[string]string
+	// runAs is a machine's blueprint's run_as user, empty for root (and for
+	// a box, whose commands run as its image's user).
+	runAs string
 	// release ends the call's use of the environment.
 	release func()
 }
@@ -190,7 +193,7 @@ func (h environmentService) findIn(ctx context.Context, env *envv1alpha1.Environ
 		if phase := m.GetStatus().GetPhase(); phase != envv1alpha1.MachinePhase_MACHINE_PHASE_READY {
 			return nil, failedPrecondition("%s is not ready: it is %s", e, strings.TrimPrefix(phase.String(), "MACHINE_PHASE_"))
 		}
-		e.workstream = m.GetSpec().GetWorkstream()
+		e.workstream, e.runAs = m.GetSpec().GetWorkstream(), m.GetSpec().GetBlueprint().GetRunAs().GetUser()
 		target, instance = m.GetStatus().GetTarget(), m.GetStatus().GetInstance()
 	}
 	if target == "" || instance == "" {
@@ -319,7 +322,7 @@ func (h environmentService) Exec(ctx context.Context, req *connect.Request[envv1
 		return send(&envv1alpha1.ExecResponse{Response: &envv1alpha1.ExecResponse_Stderr{Stderr: b}})
 	}}
 	start := h.s.clock.Now()
-	code, err := e.p.Exec(runCtx, provider.ExecRequest{Instance: e.ref, Command: command, Env: env, Dir: m.GetDir(), Stdout: stdout, Stderr: stderr})
+	code, err := e.p.Exec(runCtx, provider.ExecRequest{Instance: e.ref, Command: e.asRunAs(command, m.GetDir()), Env: env, Dir: m.GetDir(), Stdout: stdout, Stderr: stderr})
 	exit := &envv1alpha1.ExecExit{Code: int32(code)}
 	if err != nil && timeout > 0 && ctx.Err() == nil && errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		exit, err = &envv1alpha1.ExecExit{Code: timedOutCode, TimedOut: true}, nil
@@ -433,6 +436,13 @@ func (h environmentService) WriteFile(ctx context.Context, req *connect.Request[
 	if err := e.p.WriteFile(ctx, e.ref, m.GetPath(), mode, m.GetOffset(), bytes.NewReader(m.GetData())); err != nil {
 		return nil, providerError(e, err)
 	}
+	// A later chunk appends to the file the first made, which keeps its
+	// owner.
+	if m.GetOffset() == 0 {
+		if err := e.giveToRunAs(ctx, h.s, m.GetPath()); err != nil {
+			return nil, err
+		}
+	}
 	return connect.NewResponse(&envv1alpha1.WriteFileResponse{}), nil
 }
 
@@ -468,7 +478,72 @@ func (h environmentService) CopyFile(ctx context.Context, req *connect.Request[e
 	if err := from.p.Copy(ctx, from.ref, m.GetFromPath(), to.ref, m.GetToPath()); err != nil {
 		return nil, providerError(from, err)
 	}
+	if err := to.giveToRunAs(ctx, h.s, m.GetToPath()); err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(&envv1alpha1.CopyFileResponse{}), nil
+}
+
+// asRunAs is command as a machine's run_as user runs it, as its playbook
+// and ready check run: through runuser, which keeps the environment and
+// the process group, so a caller's env reaches it and a signal to the
+// group reaches it. Without a dir it starts in the user's home, as a
+// login over ssh would, rather than in a directory the user may not
+// read; the arguments pass through "$@", never parsed again. As root, or
+// in a box, it is command.
+func (e *environment) asRunAs(command []string, dir string) []string {
+	if e.runAs == "" {
+		return command
+	}
+	if dir != "" {
+		return asUser(e.runAs, command...)
+	}
+	return asUser(e.runAs, append([]string{"sh", "-c", inHomeExec, "sh"}, command...)...)
+}
+
+// inHomeExec runs its arguments as a program in the home of the user it
+// runs as.
+const inHomeExec = `cd "$HOME" || exit; exec "$@"`
+
+// givenCommand is the command a caller gave, of one asRunAs made of it,
+// so what a process is said to run is what was asked for.
+func (e *environment) givenCommand(command []string) []string {
+	if e.runAs == "" {
+		return command
+	}
+	rest, ok := cutPrefix(command, asUser(e.runAs))
+	if !ok {
+		return command
+	}
+	if inHome, ok := cutPrefix(rest, []string{"sh", "-c", inHomeExec, "sh"}); ok {
+		return inHome
+	}
+	return rest
+}
+
+// cutPrefix is s without prefix, and whether s started with it.
+func cutPrefix(s, prefix []string) ([]string, bool) {
+	if len(s) < len(prefix) || !slices.Equal(s[:len(prefix)], prefix) {
+		return s, false
+	}
+	return s[len(prefix):], true
+}
+
+// giveToRunAsScript hands the path $2, and all under it, to the user $1
+// and the user's primary group.
+const giveToRunAsScript = `chown -R -- "$1:$(id -gn -- "$1")" "$2"`
+
+// giveToRunAs hands a path written into a machine, as root, to its
+// run_as user, so what the caller put there is the user's as its
+// commands are. Directories the write made above it stay root's.
+func (e *environment) giveToRunAs(ctx context.Context, s *Server, path string) error {
+	if e.runAs == "" {
+		return nil
+	}
+	if err := s.mustRun(ctx, e.p, e.ref, nil, "/", "sh", "-c", giveToRunAsScript, "sh", e.runAs, path); err != nil {
+		return providerError(e, fmt.Errorf("giving %s to %s: %w", path, e.runAs, err))
+	}
+	return nil
 }
 
 // checkoutDir is where a box's checkout of the index is: the first at

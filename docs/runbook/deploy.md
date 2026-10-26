@@ -289,7 +289,8 @@ the environment of one git command. A machine takes no secret files.
   (`workstream: src/machine/playbooks/workstream-dev.yml`), converges as
   written only when its client sets `Blueprint.run_as` to that user:
   tower then makes the user, with a home and passwordless sudo, and runs
-  both phases and the ready check as it
+  both phases, the ready check, and the commands, processes and files the
+  client's calls make in the machine as it
   (`docs/decisions/machine-blueprints.md`). Without it, its `become:
   false` tasks land in root's home and its ready check reads root's. A
   blueprint reading `ansible_user` is given it by its client, in its
