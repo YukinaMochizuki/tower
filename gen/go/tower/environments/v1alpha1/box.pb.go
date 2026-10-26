@@ -1330,24 +1330,24 @@ const file_tower_environments_v1alpha1_box_proto_rawDesc = "" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x125\n" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x128\n" +
 	"\x04spec\x18\x04 \x01(\v2$.tower.environments.v1alpha1.BoxSpecR\x04spec\x12>\n" +
-	"\x06status\x18\x05 \x01(\v2&.tower.environments.v1alpha1.BoxStatusR\x06status:\x16\x8a\xb5\x18\x12\n" +
+	"\x06status\x18\x05 \x01(\v2&.tower.environments.v1alpha1.BoxStatusR\x06status:\x16\xca\xf3\x18\x12\n" +
 	"\x03Box\x12\x05boxes\x1a\x02bx \x01\"\xbe\x05\n" +
 	"\aBoxSpec\x12&\n" +
 	"\n" +
-	"workstream\x18\x01 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\n" +
+	"workstream\x18\x01 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\n" +
 	"workstream\x12K\n" +
-	"\tcheckouts\x18\x02 \x03(\v2%.tower.environments.v1alpha1.CheckoutB\x06\x8a\xb5\x18\x02\b\x01R\tcheckouts\x12\x1e\n" +
-	"\x06addons\x18\x03 \x03(\tB\x06\x8a\xb5\x18\x02\b\x01R\x06addons\x12\x1c\n" +
-	"\x05image\x18\x04 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\x05image\x12\x12\n" +
+	"\tcheckouts\x18\x02 \x03(\v2%.tower.environments.v1alpha1.CheckoutB\x06\xca\xf3\x18\x02\b\x01R\tcheckouts\x12\x1e\n" +
+	"\x06addons\x18\x03 \x03(\tB\x06\xca\xf3\x18\x02\b\x01R\x06addons\x12\x1c\n" +
+	"\x05image\x18\x04 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\x05image\x12\x12\n" +
 	"\x04keep\x18\x06 \x01(\bR\x04keep\x12B\n" +
 	"\trun_state\x18\b \x01(\x0e2%.tower.environments.v1alpha1.RunStateR\brunState\x12D\n" +
 	"\tresources\x18\t \x01(\v2&.tower.environments.v1alpha1.ResourcesR\tresources\x12]\n" +
 	"\x12privileged_secrets\x18\n" +
-	" \x03(\v2&.tower.environments.v1alpha1.SecretRefB\x06\x8a\xb5\x18\x02\b\x01R\x11privilegedSecrets\x12R\n" +
-	"\fsecret_files\x18\v \x03(\v2'.tower.environments.v1alpha1.SecretFileB\x06\x8a\xb5\x18\x02\b\x01R\vsecretFiles\x12P\n" +
-	"\vimage_build\x18\f \x01(\v2'.tower.environments.v1alpha1.ImageBuildB\x06\x8a\xb5\x18\x02\b\x01R\n" +
+	" \x03(\v2&.tower.environments.v1alpha1.SecretRefB\x06\xca\xf3\x18\x02\b\x01R\x11privilegedSecrets\x12R\n" +
+	"\fsecret_files\x18\v \x03(\v2'.tower.environments.v1alpha1.SecretFileB\x06\xca\xf3\x18\x02\b\x01R\vsecretFiles\x12P\n" +
+	"\vimage_build\x18\f \x01(\v2'.tower.environments.v1alpha1.ImageBuildB\x06\xca\xf3\x18\x02\b\x01R\n" +
 	"imageBuild\x12-\n" +
-	"\x0efallback_image\x18\r \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\rfallbackImageJ\x04\b\a\x10\bJ\x04\b\x05\x10\x06R\x0fbackground_workR\x11privileged_secret\"^\n" +
+	"\x0efallback_image\x18\r \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\rfallbackImageJ\x04\b\a\x10\bJ\x04\b\x05\x10\x06R\x0fbackground_workR\x11privileged_secret\"^\n" +
 	"\n" +
 	"SecretFile\x12\x16\n" +
 	"\x06secret\x18\x01 \x01(\tR\x06secret\x12\x10\n" +

@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tower/meta/v1/options.proto.
  */
 export const file_tower_meta_v1_options: GenFile = /*@__PURE__*/
-  fileDesc("Cht0b3dlci9tZXRhL3YxL29wdGlvbnMucHJvdG8SDXRvd2VyLm1ldGEudjEiaQoPUmVzb3VyY2VPcHRpb25zEgwKBGtpbmQYASABKAkSDgoGcGx1cmFsGAIgASgJEhMKC3Nob3J0X25hbWVzGAMgAygJEiMKBXNjb3BlGAQgASgOMhQudG93ZXIubWV0YS52MS5TY29wZSIhCgxGaWVsZE9wdGlvbnMSEQoJaW1tdXRhYmxlGAEgASgIKkMKBVNjb3BlEhUKEVNDT1BFX1VOU1BFQ0lGSUVEEAASEQoNU0NPUEVfUFJPSkVDVBABEhAKDFNDT1BFX0dMT0JBTBACOl0KCHJlc291cmNlEh8uZ29vZ2xlLnByb3RvYnVmLk1lc3NhZ2VPcHRpb25zGNGGAyABKAsyHi50b3dlci5tZXRhLnYxLlJlc291cmNlT3B0aW9uc1IIcmVzb3VyY2U6UgoFZmllbGQSHS5nb29nbGUucHJvdG9idWYuRmllbGRPcHRpb25zGNGGAyABKAsyGy50b3dlci5tZXRhLnYxLkZpZWxkT3B0aW9uc1IFZmllbGRCtQEKEWNvbS50b3dlci5tZXRhLnYxQgxPcHRpb25zUHJvdG9QAVo8Z2l0aHViLmNvbS9ZdWtpbmFNb2NoaXp1a2kvdG93ZXIvZ2VuL2dvL3Rvd2VyL21ldGEvdjE7bWV0YXYxogIDVE1YqgINVG93ZXIuTWV0YS5WMcoCDVRvd2VyXE1ldGFcVjHiAhlUb3dlclxNZXRhXFYxXEdQQk1ldGFkYXRh6gIPVG93ZXI6Ok1ldGE6OlYxYgZwcm90bzM", [file_google_protobuf_descriptor]);
+  fileDesc("Cht0b3dlci9tZXRhL3YxL29wdGlvbnMucHJvdG8SDXRvd2VyLm1ldGEudjEiaQoPUmVzb3VyY2VPcHRpb25zEgwKBGtpbmQYASABKAkSDgoGcGx1cmFsGAIgASgJEhMKC3Nob3J0X25hbWVzGAMgAygJEiMKBXNjb3BlGAQgASgOMhQudG93ZXIubWV0YS52MS5TY29wZSIhCgxGaWVsZE9wdGlvbnMSEQoJaW1tdXRhYmxlGAEgASgIKkMKBVNjb3BlEhUKEVNDT1BFX1VOU1BFQ0lGSUVEEAASEQoNU0NPUEVfUFJPSkVDVBABEhAKDFNDT1BFX0dMT0JBTBACOl0KCHJlc291cmNlEh8uZ29vZ2xlLnByb3RvYnVmLk1lc3NhZ2VPcHRpb25zGLmOAyABKAsyHi50b3dlci5tZXRhLnYxLlJlc291cmNlT3B0aW9uc1IIcmVzb3VyY2U6UgoFZmllbGQSHS5nb29nbGUucHJvdG9idWYuRmllbGRPcHRpb25zGLmOAyABKAsyGy50b3dlci5tZXRhLnYxLkZpZWxkT3B0aW9uc1IFZmllbGRCtQEKEWNvbS50b3dlci5tZXRhLnYxQgxPcHRpb25zUHJvdG9QAVo8Z2l0aHViLmNvbS9ZdWtpbmFNb2NoaXp1a2kvdG93ZXIvZ2VuL2dvL3Rvd2VyL21ldGEvdjE7bWV0YXYxogIDVE1YqgINVG93ZXIuTWV0YS5WMcoCDVRvd2VyXE1ldGFcVjHiAhlUb3dlclxNZXRhXFYxXEdQQk1ldGFkYXRh6gIPVG93ZXI6Ok1ldGE6OlYxYgZwcm90bzM", [file_google_protobuf_descriptor]);
 
 /**
  * ResourceOptions declares a message as an API resource. Codegen, the
@@ -110,13 +110,13 @@ export const ScopeSchema: GenEnum<Scope> = /*@__PURE__*/
   enumDesc(file_tower_meta_v1_options, 0);
 
 /**
- * @generated from extension: tower.meta.v1.ResourceOptions resource = 50001;
+ * @generated from extension: tower.meta.v1.ResourceOptions resource = 51001;
  */
 export const resource: GenExtension<MessageOptions, ResourceOptions> = /*@__PURE__*/
   extDesc(file_tower_meta_v1_options, 0);
 
 /**
- * @generated from extension: tower.meta.v1.FieldOptions field = 50001;
+ * @generated from extension: tower.meta.v1.FieldOptions field = 51001;
  */
 export const field: GenExtension<FieldOptions$1, FieldOptions> = /*@__PURE__*/
   extDesc(file_tower_meta_v1_options, 1);

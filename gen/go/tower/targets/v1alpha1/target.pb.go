@@ -1416,7 +1416,7 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x125\n" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x126\n" +
 	"\x04spec\x18\x04 \x01(\v2\".tower.targets.v1alpha1.TargetSpecR\x04spec\x12<\n" +
-	"\x06status\x18\x05 \x01(\v2$.tower.targets.v1alpha1.TargetStatusR\x06status:\x1c\x8a\xb5\x18\x18\n" +
+	"\x06status\x18\x05 \x01(\v2$.tower.targets.v1alpha1.TargetStatusR\x06status:\x1c\xca\xf3\x18\x18\n" +
 	"\x06Target\x12\atargets\x1a\x03tgt \x02\"\xd9\x01\n" +
 	"\n" +
 	"TargetSpec\x12>\n" +
@@ -1426,8 +1426,8 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\n" +
 	"\bprovider\"\x81\x01\n" +
 	"\fHangarTarget\x12\"\n" +
-	"\bendpoint\x18\x01 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\bendpoint\x12 \n" +
-	"\aproject\x18\x02 \x01(\tB\x06\x8a\xb5\x18\x02\b\x01R\aproject\x12+\n" +
+	"\bendpoint\x18\x01 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\bendpoint\x12 \n" +
+	"\aproject\x18\x02 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\aproject\x12+\n" +
 	"\x11credential_secret\x18\x03 \x01(\tR\x10credentialSecret\"\r\n" +
 	"\vHostdTarget\"\xa4\x02\n" +
 	"\x0eTargetSettings\x12A\n" +
