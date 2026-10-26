@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -411,6 +412,62 @@ func TestAMachineRunsAsItsRunAsUser(t *testing.T) {
 	}
 	if !slices.Equal(rootRan, []string{"blueprint.yml", "blueprint.yml", check}) {
 		t.Errorf("a machine without run_as ran %v", rootRan)
+	}
+}
+
+// TestAFailedGoldensBuilderGoes: a machine golden whose golden phase fails
+// is FAILED with the end of the phase's output, and its builder instance
+// goes at once rather than holding the target while the golden waits out
+// its backoff; built again once it has passed, the machine comes up.
+func TestAFailedGoldensBuilderGoes(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	var mu sync.Mutex
+	fail, builders := true, []string{}
+	w.fake.OnExec(func(req provider.ExecRequest) (int, bool) {
+		if !slices.Contains(req.Command, "--skip-tags=configure") {
+			return 0, false
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		builders = append(builders, req.Instance.Name)
+		if !fail {
+			return 0, true
+		}
+		_, _ = fmt.Fprintln(req.Stdout, "TASK [go] fatal: cannot determine current directory")
+		return 2, true
+	})
+	w.mustApply(registry.Machine, machine("k3s"))
+	var builder string
+	testutil.Eventually(t, "the golden phase ran", func() (bool, string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(builders) > 0 {
+			builder = builders[0]
+		}
+		return builder != "", ""
+	})
+	golden := strings.TrimPrefix(builder, "build-")
+	testutil.Eventually(t, "the golden failed and its builder went", func() (bool, string) {
+		g, ok := w.golden(golden)
+		if !ok {
+			return false, "no golden " + golden
+		}
+		msg := condition(g.GetStatus().GetConditions(), apiserver.GoldenReady).GetMessage()
+		_, kept := w.instance(builder)
+		return g.GetStatus().GetPhase() == envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED && strings.Contains(msg, "cannot determine current directory") && !kept,
+			fmt.Sprintf("golden %v, builder kept %v", g.GetStatus(), kept)
+	})
+
+	mu.Lock()
+	fail = false
+	mu.Unlock()
+	w.advance(apiserver.GoldenRetryFirst)
+	w.waitMachineTicking("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_READY)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(builders) != 2 {
+		t.Errorf("the golden phase ran in %v, want once failing and once again", builders)
 	}
 }
 
