@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/YukinaMochizuki/tower/internal/hostd/proclog"
+	"github.com/YukinaMochizuki/tower/internal/guest/proclog"
 )
 
 // startSupervised makes a process's directory and starts its supervisor,

@@ -2,7 +2,7 @@
 // hostd: a directory per process holding what it is (meta.json, never its
 // environment), its log, how it ended (exit.json), and a lock its
 // supervisor holds while it lives. The supervisor in the guest
-// (internal/hostd/guestbin) writes them; hostd reads them back, directly
+// (internal/guest/guestbin) writes them; hostd reads them back, directly
 // for a container, whose directory is on the host, or through the guest's
 // own tower-guest for a VM, so a process outlives the call that started
 // it and hostd, and a restarted hostd reads it back.

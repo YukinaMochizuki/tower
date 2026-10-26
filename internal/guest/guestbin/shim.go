@@ -16,8 +16,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/YukinaMochizuki/tower/internal/hostd/proclog"
-	"github.com/YukinaMochizuki/tower/internal/hostd/tarx"
+	"github.com/YukinaMochizuki/tower/internal/guest/proclog"
+	"github.com/YukinaMochizuki/tower/internal/guest/tarx"
 )
 
 // Main runs tower-guest with its arguments, returning its exit code.

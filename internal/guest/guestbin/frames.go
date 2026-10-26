@@ -2,7 +2,7 @@
 // of its guests (cmd/tower-guest): bound read-only into a container,
 // copied into a VM. hostd runs every operation in a guest through it, by
 // docker exec in a container and over ssh in a VM, so both kinds of guest
-// are driven alike (internal/hostd/guestops):
+// are driven alike (internal/guest/guestops):
 //
 //   - shim: one operation, named by a header on its stdin: run a command
 //     (exec), read, write, copy out and copy in files, start a process
@@ -10,7 +10,7 @@
 //   - init: a container's first process, which reaps orphans and runs the
 //     image's own entrypoint, and outlives it;
 //   - supervise: a process's supervisor, detached from the call that
-//     started it (internal/hostd/proclog).
+//     started it (internal/guest/proclog).
 //
 // Its stdin is framed (Frame) so that, beside the command's own input, it
 // carries the header (what to do, with the environment of this call

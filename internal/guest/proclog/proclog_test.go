@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YukinaMochizuki/tower/internal/hostd/proclog"
+	"github.com/YukinaMochizuki/tower/internal/guest/proclog"
 )
 
 // What hostd reads of a process's directory is written in the guest: the

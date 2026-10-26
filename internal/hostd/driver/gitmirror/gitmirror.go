@@ -26,9 +26,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/YukinaMochizuki/tower/internal/guest/tarx"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver/keylock"
-	"github.com/YukinaMochizuki/tower/internal/hostd/tarx"
 )
 
 // propMirror is a mirror's name, on its dataset.

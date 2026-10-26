@@ -4,7 +4,7 @@
 // orphans, with its disk mounted at /workspace, tower-guest bound
 // read-only at /.tower/tower-guest and its processes' directory, under
 // hostd's state directory, at /.tower/processes; everything done in it
-// goes through tower-guest shim, by docker exec (internal/hostd/guestops).
+// goes through tower-guest shim, by docker exec (internal/guest/guestops).
 // Its workstream networks are Docker bridge networks, which the VM driver
 // puts its VMs on too (Networks); a guest on no network is on Docker's
 // default bridge. What the driver makes carries the label
@@ -40,8 +40,8 @@ import (
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 
+	"github.com/YukinaMochizuki/tower/internal/guest/guestops"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
-	"github.com/YukinaMochizuki/tower/internal/hostd/guestops"
 )
 
 // Labels the driver sets on what it makes, beside hostd's.
@@ -624,7 +624,8 @@ func (d *Driver) ReadProcessLog(ctx context.Context, name, id string, from int64
 	if _, _, err := d.inspect(ctx, name); err != nil {
 		return driver.LogEnd{}, err
 	}
-	return d.ops(name).ReadProcessLog(ctx, id, from, follow, out)
+	end, err := d.ops(name).ReadProcessLog(ctx, id, from, follow, out)
+	return end, driver.FromGuest(err)
 }
 
 func (d *Driver) SignalProcess(ctx context.Context, name, id string, sig int) error {
@@ -636,7 +637,7 @@ func (d *Driver) SignalProcess(ctx context.Context, name, id string, sig int) er
 		// Its processes ended with it.
 		return nil
 	}
-	return d.ops(name).SignalProcess(ctx, id, sig)
+	return driver.FromGuest(d.ops(name).SignalProcess(ctx, id, sig))
 }
 
 // runner runs tower-guest shim in a container by docker exec.
