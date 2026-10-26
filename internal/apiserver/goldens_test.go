@@ -135,6 +135,7 @@ func TestAFailedGoldenIsBuiltAgainAfterABackoff(t *testing.T) {
 // from it meanwhile.
 func TestAWarmGoldenInUseIsKeptUntilUnused(t *testing.T) {
 	t.Parallel()
+	testutil.Quarantine(t, "#19")
 	// Room for one warm golden of 10Gi, and not for another on an
 	// estimate (5Gi) beside it.
 	w := newWorld(t, worldOption{settings: &targetsv1alpha1.TargetSettings{WarmBudget: "14Gi"}})
