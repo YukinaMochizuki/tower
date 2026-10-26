@@ -308,6 +308,9 @@ func (s *Server) reconcileGolden(ctx context.Context, key controller.Key) error 
 	}
 	switch goldenPhase(g) {
 	case envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED:
+		if err := s.deleteBuilder(ctx, g); err != nil {
+			return err
+		}
 		if asked, err := s.retryGolden(ctx, g); err != nil || asked {
 			return err
 		}
@@ -498,6 +501,23 @@ func (s *Server) convergeGolden(ctx context.Context, p provider.Provider, g *env
 			return nil
 		})
 	}
+	return nil
+}
+
+// deleteBuilder deletes a failed golden's builder instance, which would
+// otherwise hold its target's resources for as long as the golden is
+// kept, through its backoff; its failure already quotes what went wrong.
+// A golden built again is a new one, with a builder of its own.
+func (s *Server) deleteBuilder(ctx context.Context, g *envv1alpha1.Golden) error {
+	key := resource.Key{Project: g.GetMetadata().GetProject(), Name: childName("build", g.GetMetadata().GetName())}
+	in, ok, err := getTyped[*envv1alpha1.Instance](ctx, s, registry.Instance, key)
+	if err != nil || !ok || !owns(registry.Golden, g, in) || in.GetMetadata().GetDeleteTime() != nil {
+		return err
+	}
+	if _, err := s.backend(registry.Instance).Delete(s.system(ctx), key, nil); err != nil && !isNotFound(err) {
+		return err
+	}
+	s.log.Info("deleted a failed golden's builder", "project", key.Project, "golden", g.GetMetadata().GetName(), "builder", key.Name)
 	return nil
 }
 
