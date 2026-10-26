@@ -9,6 +9,8 @@ tool (
 
 require (
 	connectrpc.com/connect v1.21.0
+	github.com/YukinaMochizuki/hangar v0.2.0-rc.12.0.20261026064908-5da800074647
+	github.com/coder/websocket v1.8.15
 	github.com/containerd/errdefs v1.0.0
 	github.com/docker/cli v29.8.2+incompatible
 	github.com/google/nftables v0.3.0
