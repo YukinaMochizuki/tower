@@ -36,8 +36,16 @@ fi
 
 id zot >/dev/null 2>&1 || useradd --system --home-dir /var/lib/zot --shell /usr/sbin/nologin zot
 install -d -o zot -g zot -m 0700 /var/lib/zot
+# The images in a directory of their own: /var/lib/zot may be a disk's
+# mount, whose lost+found zot's garbage collection cannot read.
+install -d -o zot -g zot -m 0700 /var/lib/zot/storage
 install -d -m 0755 /etc/zot
 install -o root -g zot -m 0640 "$TOWER_ZOT_HTPASSWD" /etc/zot/htpasswd
+# zot's server reads a whole request, and writes a whole response, within
+# 60 s unless told otherwise. A layer is one request: one pushed from a
+# target behind a home uplink, or pulled over a slow link, takes minutes,
+# and was cut off mid-body (the client saw a TLS error, zot an i/o timeout).
+# An hour bounds a request that hangs without ending a slow one.
 tls=
 if [ -n "${TOWER_ZOT_TLS_CERT:-}" ]; then
 	install -o root -g zot -m 0644 "$TOWER_ZOT_TLS_CERT" /etc/zot/tls.crt
@@ -47,10 +55,12 @@ fi
 cat >/etc/zot/config.json <<EOF
 {
   "distSpecVersion": "1.1.1",
-  "storage": { "rootDirectory": "/var/lib/zot", "gc": true, "dedupe": true },
+  "storage": { "rootDirectory": "/var/lib/zot/storage", "gc": true, "dedupe": true },
   "http": {
     "address": "$TOWER_ZOT_ADDRESS",
     "port": "$port",
+    "readTimeout": "1h",
+    "writeTimeout": "1h",
     "auth": { "htpasswd": { "path": "/etc/zot/htpasswd" } }$tls
   },
   "log": { "level": "info" }
