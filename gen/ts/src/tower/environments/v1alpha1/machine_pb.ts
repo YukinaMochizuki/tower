@@ -192,7 +192,9 @@ export const BlueprintSchema: GenMessage<Blueprint> = /*@__PURE__*/
 /**
  * RunAs is the user a blueprint's playbook runs as, as a playbook written
  * to be run over ssh by a user with passwordless sudo expects: tasks with
- * become get root through sudo, the others and ~ are the user's.
+ * become get root through sudo, the others and ~ are the user's. The
+ * machine's ready check, and what a client runs and writes in it through
+ * EnvironmentService, are the user's too.
  *
  * @generated from message tower.environments.v1alpha1.RunAs
  */

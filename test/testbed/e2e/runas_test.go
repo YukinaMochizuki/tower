@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
@@ -36,7 +37,8 @@ const runAsPlaybook = `- hosts: all
 // converges on a Cloud Hypervisor VM as that user, made by tower in the
 // golden's builder: its become task runs as root through sudo, its other
 // tasks of both phases and its ready check write and read that user's
-// home, and root's home holds none of it.
+// home, and root's home holds none of it. What a client then runs, starts
+// and writes in it through tower is the user's as well, in its home.
 func TestAMachineRunsAsItsRunAsUser(t *testing.T) {
 	w := newWorld(t)
 	m := &envv1alpha1.Machine{
@@ -60,23 +62,37 @@ func TestAMachineRunsAsItsRunAsUser(t *testing.T) {
 	w.host = w.runHostd()
 	w.admin.must("", "wait", "machine", "runas", "-p", "web", "--for", "condition=Ready", "--timeout", "30m")
 
-	// Read as root, through tower's exec, which runs as root.
+	// A file written in through tower is the user's.
+	if _, err := w.envs.WriteFile(t.Context(), connect.NewRequest(&envv1alpha1.WriteFileRequest{
+		Environment: machineEnv("runas"), Path: "/home/tbuser/written", Data: []byte("w"),
+	})); err != nil {
+		t.Fatal(err)
+	}
+	// Read through tower's exec, which runs as the user, in its home; root
+	// through sudo.
 	const script = `set -e
 h=$(getent passwd tbuser | cut -d: -f6)
 echo "home=$h"
+echo "user=$(id -un) in $(pwd)"
 echo "become=$(cat /etc/run-as-become)"
 echo "golden=$(cat "$h/golden") $(stat -c %U "$h/golden")"
 echo "configure=$(cat "$h/configure") $(stat -c %U "$h/configure")"
-test ! -e /root/golden && test ! -e /root/configure && echo "root-home=clean"
-sudo -n -u tbuser sudo -n true && echo "sudo=ok"`
+echo "written=$(stat -c %U:%G "$h/written")"
+sudo -n test ! -e /root/golden && sudo -n test ! -e /root/configure && echo "root-home=clean"
+sudo -n true && echo "sudo=ok"`
 	out, code, err := execIn(t.Context(), w.envs, machineEnv("runas"), "sh", "-c", script)
 	if err != nil || code != 0 {
 		t.Fatalf("reading the machine: %q, exit %d, %v", out, code, err)
 	}
-	for _, want := range []string{"home=/home/tbuser", "become=root", "golden=tbuser tbuser", "configure=tbuser tbuser", "root-home=clean", "sudo=ok"} {
+	for _, want := range []string{"home=/home/tbuser", "user=tbuser in /home/tbuser", "become=root", "golden=tbuser tbuser", "configure=tbuser tbuser",
+		"written=tbuser:tbuser", "root-home=clean", "sudo=ok"} {
 		if !strings.Contains(out, want+"\n") {
 			t.Errorf("the machine says %q, not %q", out, want)
 		}
+	}
+	// So is a process.
+	if out, code, err := runProcess(t.Context(), w.envs, machineEnv("runas"), `echo "$(id -un) in $(pwd)"`); err != nil || code != 0 || out != "tbuser in /home/tbuser\n" {
+		t.Errorf("a process said %q, exit %d, %v", out, code, err)
 	}
 
 	w.admin.must("", "delete", "project", "web")

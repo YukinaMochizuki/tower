@@ -55,7 +55,7 @@ func (h environmentService) StartProcess(ctx context.Context, req *connect.Reque
 	}
 	defer e.release()
 	id, err := e.p.StartProcess(ctx, provider.ProcessRequest{
-		Instance: e.ref, Command: command, Env: e.commandEnv(m.GetEnv()), Dir: m.GetDir(), Name: m.GetName(),
+		Instance: e.ref, Command: e.asRunAs(command, m.GetDir()), Env: e.commandEnv(m.GetEnv()), Dir: m.GetDir(), Name: m.GetName(),
 	})
 	// Never the command's arguments or its environment's values: either may
 	// hold a secret.
@@ -141,7 +141,7 @@ func (h environmentService) ListProcesses(ctx context.Context, req *connect.Requ
 	}
 	res := &envv1alpha1.ListProcessesResponse{}
 	for _, p := range ps {
-		cmd := strings.Join(p.Command, " ")
+		cmd := strings.Join(e.givenCommand(p.Command), " ")
 		if len(cmd) > commandSummaryLen {
 			cmd = cmd[:commandSummaryLen] + "..."
 		}
