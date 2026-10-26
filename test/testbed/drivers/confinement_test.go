@@ -39,10 +39,7 @@ func guestOf(t *testing.T, h drivertest.Harness, kind string) string {
 	if kind == "vm" {
 		err = h.Drivers.VMs.Create(ctx, driver.VMSpec{GuestSpec: spec, BaseImage: h.BaseImage})
 	} else {
-		if err := h.Drivers.Images.Pull(ctx, h.Image); err != nil {
-			t.Fatal(err)
-		}
-		err = h.Drivers.Containers.Create(ctx, driver.ContainerSpec{GuestSpec: spec, Image: h.Image})
+		err = h.Drivers.Containers.Create(ctx, driver.ContainerSpec{GuestSpec: spec, Image: h.Local(t, h.Image)})
 	}
 	if err != nil {
 		t.Fatal(err)

@@ -20,6 +20,10 @@ import (
 // TargetReporting says the provider reported within its interval.
 const TargetReporting = "Reporting"
 
+// TargetImagesPushed says whether every image built on the host is in the
+// registry, and if not, which are not and why (pushes).
+const TargetImagesPushed = "ImagesPushed"
+
 func (h *Host) getTarget(ctx context.Context) (*targetsv1alpha1.Target, error) {
 	o, err := h.c.Get(ctx, registry.Target, client.Key{Name: h.cfg.Target})
 	if err != nil {
@@ -30,8 +34,8 @@ func (h *Host) getTarget(ctx context.Context) (*targetsv1alpha1.Target, error) {
 
 // Report writes what hostd says of its host into the Target's status:
 // capacity, facts, the disk its images hold (usage.images),
-// last_report_time and Reporting, leaving what tower owns there as it is
-// (internal/apiserver/targetstatus.go).
+// last_report_time, Reporting and ImagesPushed, leaving what tower owns
+// there as it is (internal/apiserver/targetstatus.go).
 func (h *Host) Report(ctx context.Context) error {
 	pool, err := h.d.Storage.Pool(ctx)
 	if err != nil {
@@ -86,6 +90,12 @@ func (h *Host) Report(ctx context.Context) error {
 			Type: TargetReporting, Status: metav1.ConditionStatus_CONDITION_STATUS_TRUE, Reason: "Reported",
 			Message: "hostd " + Version + " reported",
 		}, h.clock.Now())
+		pushed, reason, msg := h.pushes.state().condition()
+		pc := &metav1.Condition{Type: TargetImagesPushed, Status: metav1.ConditionStatus_CONDITION_STATUS_FALSE, Reason: reason, Message: msg}
+		if pushed {
+			pc.Status = metav1.ConditionStatus_CONDITION_STATUS_TRUE
+		}
+		st.Conditions = conditions.Set(st.Conditions, pc, h.clock.Now())
 		rv := t.GetMetadata().GetResourceVersion()
 		_, err = h.c.UpdateStatus(ctx, registry.Target, client.Key{Name: h.cfg.Target}, st, &rv)
 		if connect.CodeOf(err) == connect.CodeAborted {

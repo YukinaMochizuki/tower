@@ -104,12 +104,66 @@ func RunImages(t *testing.T, h Harness) {
 		// One a container is made of stays.
 		c := h.containers()
 		c.Create = func(t *testing.T, spec driver.GuestSpec) error {
-			return h.Drivers.Containers.Create(t.Context(), driver.ContainerSpec{GuestSpec: spec, Image: used})
+			return h.Drivers.Containers.Create(t.Context(), driver.ContainerSpec{GuestSpec: spec, Image: h.Local(t, used)})
 		}
 		_ = c.guestWithDisk(t, h, "image-user")
 		is(t, "removing an image a container is made of", im.Remove(ctx, used), driver.ErrBusy)
 		if !listed(used) {
 			t.Error("an image a container is made of went")
+		}
+	})
+	// What is built is the host's at once, before it is pushed: a
+	// container is made of it, a build is FROM it, it is resolved, and a
+	// pull of it is none; it is left to push until it is pushed, which
+	// puts the digest it was built as in the registry.
+	t.Run("ABuildIsTheHostsBeforeItIsPushed", func(t *testing.T) {
+		left := func(ref string) bool {
+			t.Helper()
+			list, err := im.Unpushed(ctx)
+			mustNot(t, "listing what is left to push", err)
+			return slices.Contains(list, ref)
+		}
+		base, err := build(t, driver.BuildSpec{}, map[string]string{"Dockerfile": "FROM " + h.Image + "\nLABEL drivertest=" + name(t, "base") + "\nUSER 4242\n"})
+		mustNot(t, "building", err)
+		if !left(base) {
+			t.Errorf("%s, built, is not left to push", base)
+		}
+		mustNot(t, "pulling what was built", im.Pull(ctx, base))
+		cfg, err := im.Resolve(ctx, base)
+		if _, digest, _ := strings.Cut(base, "@"); err != nil || cfg.Digest != digest || cfg.User != "4242" {
+			t.Errorf("%s, not pushed, resolved to %+v, %v; want its digest and user 4242", base, cfg, err)
+		}
+		layer, err := build(t, driver.BuildSpec{}, map[string]string{"Dockerfile": "FROM " + base + "\nLABEL drivertest-layer=" + name(t, "layer") + "\n"})
+		mustNot(t, "building FROM an image not pushed", err)
+		if cfg, err := im.Resolve(ctx, layer); err != nil || cfg.User != "4242" {
+			t.Errorf("%s, FROM %s, resolved to %+v, %v; want user 4242", layer, base, cfg, err)
+		}
+		c := h.containers()
+		c.Create = func(t *testing.T, spec driver.GuestSpec) error {
+			return h.Drivers.Containers.Create(t.Context(), driver.ContainerSpec{GuestSpec: spec, Image: h.Local(t, layer)})
+		}
+		g := c.guestWithDisk(t, h, "built")
+		if got, err := h.Drivers.Containers.Inspect(ctx, g); err != nil || !got.Running {
+			t.Errorf("a container of %s, not pushed: %+v, %v", layer, got, err)
+		}
+		list, err := im.List(ctx)
+		mustNot(t, "listing images", err)
+		for _, ref := range []string{base, layer} {
+			if !slices.ContainsFunc(list, func(i driver.HostImage) bool { return slices.Contains(i.Refs, ref) }) {
+				t.Errorf("%s, built, is not listed: %+v", ref, list)
+			}
+		}
+		for _, ref := range []string{base, layer} {
+			mustNot(t, "pushing "+ref, im.Push(ctx, ref))
+			if left(ref) {
+				t.Errorf("%s, pushed, is left to push", ref)
+			}
+			mustNot(t, "pushing "+ref+" again", im.Push(ctx, ref))
+			// Read from the registry now.
+			cfg, err := im.Resolve(ctx, ref)
+			if _, digest, _ := strings.Cut(ref, "@"); err != nil || cfg.Digest != digest {
+				t.Errorf("%s, pushed, resolved to %+v, %v; want its digest", ref, cfg, err)
+			}
 		}
 	})
 	t.Run("Resolve", func(t *testing.T) {

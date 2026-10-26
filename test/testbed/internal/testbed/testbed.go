@@ -142,7 +142,8 @@ func (e Env) Drivers(ctx context.Context) (driver.Drivers, error) {
 	}
 	imgs, err := images.New(images.Config{
 		Docker: cli, BuildKit: "unix:///run/buildkit/buildkitd.sock", Registry: reg.Addr, Username: reg.User, Password: reg.Password,
-		ScratchDir: filepath.Join(e.StateDir(), "scratch"),
+		ScratchDir:  filepath.Join(e.StateDir(), "scratch"),
+		UnpushedDir: filepath.Join(e.StateDir(), "images", "unpushed"),
 	})
 	if err != nil {
 		return driver.Drivers{}, err
@@ -241,7 +242,28 @@ func DrivertestImage(ctx context.Context, im driver.Images) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return im.Build(ctx, driver.BuildSpec{Repository: "testbed/drivertest", Context: bytes.NewReader(ctxTar)})
+	ref, err := im.Build(ctx, driver.BuildSpec{Repository: "testbed/drivertest", Context: bytes.NewReader(ctxTar)})
+	if err != nil {
+		return "", err
+	}
+	// hostd pushes in the background; the suites want the registry to
+	// hold it now.
+	return ref, im.Push(ctx, ref)
+}
+
+// StopRegistry stops the testbed's registry until the returned start is
+// called, or the test process ends it; start may be called more than
+// once.
+func StopRegistry() (start func() error, err error) {
+	if out, err := exec.Command("systemctl", "stop", "zot.service").CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("stopping the registry: %w: %s", err, out)
+	}
+	return func() error {
+		if out, err := exec.Command("systemctl", "start", "zot.service").CombinedOutput(); err != nil {
+			return fmt.Errorf("starting the registry: %w: %s", err, out)
+		}
+		return nil
+	}, nil
 }
 
 // ContextTar is a tar of what dir holds, its names relative to dir: a

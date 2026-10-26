@@ -321,36 +321,54 @@ type VMs interface {
 	Create(ctx context.Context, spec VMSpec) error
 }
 
-// Images pulls from tower's registry and builds into it.
+// Images pulls from tower's registry and builds into it. An image built on
+// the host is the host's at once and pushed later (docs/decisions/
+// images.md): Build keeps what it built for Push, which hostd runs apart.
 type Images interface {
 	Version(ctx context.Context) (string, error)
 	// Pull brings an image, a reference by digest, onto the host; one the
-	// registry lacks is ErrNotFound.
+	// registry lacks is ErrNotFound. One the host holds, pulled or built
+	// on it, is not pulled again.
 	Pull(ctx context.Context, ref string) error
-	// Build builds a context, pushes the image to its repository in the
-	// registry and returns its reference by digest. The same context builds
-	// the same digest. A Dir or Dockerfile outside the tar fails as a
-	// context that does not build does.
+	// Build builds a context into the host's images, where a container
+	// may be made of it at once (Local), and keeps it to be pushed to its
+	// repository in the registry (Push), returning its reference by
+	// digest, which Push pushes it as. The same context builds the same
+	// digest. A Dockerfile may be FROM an image built here and not pushed
+	// yet. A Dir or Dockerfile outside the tar fails as a context that does
+	// not build does.
 	Build(ctx context.Context, spec BuildSpec) (string, error)
-	// Resolve reads what a reference names from its registry without
-	// pulling it: its digest and the user it runs as. One the registry
-	// lacks is ErrNotFound.
+	// Push pushes an image built here to the registry, by the digest Build
+	// returned, and no longer keeps it to be pushed; one already pushed, or
+	// not built here, it leaves as it is. An image held to be pushed
+	// survives a restart.
+	Push(ctx context.Context, ref string) error
+	// Unpushed are the images built here not pushed yet, oldest first.
+	Unpushed(ctx context.Context) ([]string, error)
+	// Local is the name a container of ref is made by on the host: ref
+	// itself, or what the host knows an image built here by. One the host
+	// does not hold is ErrNotFound.
+	Local(ctx context.Context, ref string) (string, error)
+	// Resolve reads what a reference names without pulling it, from what
+	// was built here and not pushed yet, else from its registry: its
+	// digest and the user it runs as. One neither holds is ErrNotFound.
 	Resolve(ctx context.Context, ref string) (ImageConfig, error)
-	// List lists the images the host holds from tower's registry, and no
-	// other.
+	// List lists the images the host holds from tower's registry, built
+	// here or pulled, and no other.
 	List(ctx context.Context) ([]HostImage, error)
 	// Remove removes a reference of an image the host holds, the image
 	// going with its last; one a container is made of, running or not, is
-	// ErrBusy, and one gone no error.
+	// ErrBusy, and one gone no error. What Build keeps for Push stays.
 	Remove(ctx context.Context, ref string) error
-	// DiskUsage is what the host's images hold on its disk, in bytes.
+	// DiskUsage is what the host's images hold on its disk, in bytes, what
+	// Build keeps for Push included.
 	DiskUsage(ctx context.Context) (uint64, error)
 }
 
 // HostImage is an image the host holds.
 type HostImage struct {
 	ID string
-	// Refs are the references by digest it was pulled as.
+	// Refs are the references by digest it was pulled or built as.
 	Refs []string
 }
 

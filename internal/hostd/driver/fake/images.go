@@ -68,7 +68,8 @@ func inTar(p string) (string, error) {
 // Build reads the context's Dockerfile, which must start with FROM, and
 // names the image by the hash of the whole context and where in it the
 // build is. The image runs as the user its last USER names, else as what
-// it is FROM runs as.
+// it is FROM runs as. It is on the host at once, as pulled, and the
+// registry holds it once it is pushed.
 func (i images) Build(_ context.Context, spec driver.BuildSpec) (string, error) {
 	b, err := io.ReadAll(spec.Context)
 	if err != nil {
@@ -104,12 +105,15 @@ func (i images) Build(_ context.Context, spec driver.BuildSpec) (string, error) 
 	sum := sha256.Sum256(append(b, []byte("\x00"+dir+"\x00"+name)...))
 	ref := Registry + "/" + spec.Repository + "@sha256:" + hex.EncodeToString(sum[:])
 	err = i.h.change("images.Build", func() error {
-		if !i.h.st.Registry[ref] {
+		if !i.h.st.Pulled[ref] {
 			if err := i.h.room(ImageSize); err != nil {
 				return err
 			}
 		}
-		i.h.st.Registry[ref] = true
+		i.h.st.Pulled[ref] = true
+		if !i.h.st.Registry[ref] && !slices.Contains(i.h.st.Unpushed, ref) {
+			i.h.st.Unpushed = append(i.h.st.Unpushed, ref)
+		}
 		user := i.h.st.Users[strings.TrimSpace(from)]
 		for _, l := range lines {
 			if u, ok := strings.CutPrefix(strings.TrimSpace(l), "USER "); ok {
@@ -125,7 +129,43 @@ func (i images) Build(_ context.Context, spec driver.BuildSpec) (string, error) 
 	return ref, err
 }
 
-// List lists what was pulled, an image a reference.
+// Push puts an image built here in the registry.
+func (i images) Push(_ context.Context, ref string) error {
+	return i.h.change("images.Push", func() error {
+		n := slices.Index(i.h.st.Unpushed, ref)
+		if n < 0 {
+			return nil
+		}
+		i.h.st.Registry[ref] = true
+		i.h.st.Unpushed = slices.Delete(i.h.st.Unpushed, n, n+1)
+		return nil
+	})
+}
+
+func (i images) Unpushed(context.Context) ([]string, error) {
+	var out []string
+	err := i.h.read("images.Unpushed", func() error {
+		out = slices.Clone(i.h.st.Unpushed)
+		return nil
+	})
+	return out, err
+}
+
+// Local is ref itself, pulled or built.
+func (i images) Local(_ context.Context, ref string) (string, error) {
+	err := i.h.read("images.Local", func() error {
+		if !i.h.st.Pulled[ref] {
+			return fmt.Errorf("image %s is not on the host: %w", ref, driver.ErrNotFound)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return ref, nil
+}
+
+// List lists what was pulled or built, an image a reference.
 func (i images) List(context.Context) ([]driver.HostImage, error) {
 	var out []driver.HostImage
 	err := i.h.read("images.List", func() error {
@@ -138,7 +178,8 @@ func (i images) List(context.Context) ([]driver.HostImage, error) {
 	return out, err
 }
 
-// Remove forgets a pull, but of an image a container is made of.
+// Remove forgets a pull or a build, but of an image a container is made
+// of; what is to be pushed stays to be.
 func (i images) Remove(_ context.Context, ref string) error {
 	return i.h.change("images.Remove", func() error {
 		for name, g := range i.h.st.Guests {
@@ -161,13 +202,13 @@ func (i images) DiskUsage(context.Context) (uint64, error) {
 	return n, err
 }
 
-// Resolve answers for what tower's registry holds, and for any image of
-// another registry, as a public one holds them: a reference by digest, its
-// digest, a tag the hash of its name.
+// Resolve answers for what tower's registry holds or is to be pushed to
+// it, and for any image of another registry, as a public one holds them: a
+// reference by digest, its digest, a tag the hash of its name.
 func (i images) Resolve(_ context.Context, ref string) (driver.ImageConfig, error) {
 	var cfg driver.ImageConfig
 	err := i.h.read("images.Resolve", func() error {
-		if !i.h.st.Registry[ref] && strings.HasPrefix(ref, Registry+"/") {
+		if !i.h.st.Registry[ref] && !slices.Contains(i.h.st.Unpushed, ref) && strings.HasPrefix(ref, Registry+"/") {
 			return fmt.Errorf("image %s: %w", ref, driver.ErrNotFound)
 		}
 		cfg.User = i.h.st.Users[ref]

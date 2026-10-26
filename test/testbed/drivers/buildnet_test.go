@@ -40,11 +40,8 @@ func TestABuildStepReachesNothingOfTheHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = h.Drivers.Storage.DestroyDisk(context.WithoutCancel(ctx), boxName+"-disk") })
-	if err := h.Drivers.Images.Pull(ctx, h.Image); err != nil {
-		t.Fatal(err)
-	}
 	spec := driver.GuestSpec{Name: boxName, Disk: d.Path, Network: netName, Alias: "box", CPUs: 1, Memory: 256 << 20, Labels: labels}
-	if err := cs.Create(ctx, driver.ContainerSpec{GuestSpec: spec, Image: h.Image}); err != nil {
+	if err := cs.Create(ctx, driver.ContainerSpec{GuestSpec: spec, Image: h.Local(t, h.Image)}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cs.Remove(context.WithoutCancel(ctx), boxName) })

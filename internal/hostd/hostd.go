@@ -63,8 +63,13 @@ type Config struct {
 	// Instance read back; SweepEvery how often the sweep runs, SweepGrace
 	// its grace. Zero is each one's default.
 	ReportEvery, SweepEvery, SweepGrace time.Duration
-	Clock                               clockwork.Clock
-	Log                                 *slog.Logger
+	// PushRetryFirst and PushRetryMost bound the wait before a push of an
+	// image built on the host that failed is tried again: the first wait,
+	// doubled after each failure, up to the most. Zero is each one's
+	// default.
+	PushRetryFirst, PushRetryMost time.Duration
+	Clock                         clockwork.Clock
+	Log                           *slog.Logger
 }
 
 // Host is one host running hostd. Make it with New and run it with Run.
@@ -82,6 +87,7 @@ type Host struct {
 	limits  atomic.Pointer[processLimits]
 	streams *streams.Server
 	pulls   *pulls
+	pushes  *pushes
 	// unnamedImages are the images of the host no Instance or Golden
 	// named at a sweep, by ID, since when (sweepImages). Under mu.
 	unnamedImages map[string]time.Time
@@ -94,6 +100,8 @@ func New(cfg Config) *Host {
 	cfg.ReportEvery = cmp.Or(cfg.ReportEvery, DefaultReportEvery)
 	cfg.SweepEvery = cmp.Or(cfg.SweepEvery, DefaultSweepEvery)
 	cfg.SweepGrace = cmp.Or(cfg.SweepGrace, DefaultSweepGrace)
+	cfg.PushRetryFirst = cmp.Or(cfg.PushRetryFirst, DefaultPushRetryFirst)
+	cfg.PushRetryMost = cmp.Or(cfg.PushRetryMost, DefaultPushRetryMost)
 	h := &Host{cfg: cfg, d: cfg.Drivers, c: cfg.Client, clock: cfg.Clock, log: cfg.Log, unnamedImages: map[string]time.Time{}}
 	if h.clock == nil {
 		h.clock = clockwork.NewRealClock()
@@ -104,6 +112,7 @@ func New(cfg Config) *Host {
 	h.ctrl = h.newController()
 	h.streams = h.newStreams()
 	h.pulls = newPulls(cfg.Drivers.Images, h.clock, func(k controller.Key) { h.ctrl.Enqueue(k) })
+	h.pushes = newPushes(cfg.Drivers.Images, h.clock, h.log, cfg.PushRetryFirst, cfg.PushRetryMost)
 	return h
 }
 
@@ -116,6 +125,7 @@ func (h *Host) Run(ctx context.Context) error {
 	g, ctx := errgroup.WithContext(ctx)
 	h.pulls.start(ctx)
 	g.Go(func() error { return h.ctrl.Run(ctx) })
+	g.Go(func() error { h.pushes.run(ctx); return nil })
 	g.Go(func() error { h.every(ctx, h.cfg.ReportEvery, "report", h.Report); return nil })
 	g.Go(func() error { h.every(ctx, h.cfg.SweepEvery, "sweep", h.Sweep); return nil })
 	return g.Wait()

@@ -124,7 +124,9 @@ func (h *Host) Copy(ctx context.Context, from provider.Instance, fromPath string
 }
 
 // BuildImage builds a context tower sent, or a mirror's work tree, which
-// goes from the git driver to the image driver on the host alone.
+// goes from the git driver to the image driver on the host alone. The
+// image is the host's once it returns; its push to the registry runs
+// after, apart (pushes).
 func (h *Host) BuildImage(ctx context.Context, req provider.BuildRequest) (string, error) {
 	spec := driver.BuildSpec{Repository: req.Repository, Context: req.Context, Dir: req.Dir, Dockerfile: req.Dockerfile}
 	var archived chan error
@@ -153,7 +155,11 @@ func (h *Host) BuildImage(ctx context.Context, req provider.BuildRequest) (strin
 	if err != nil && !errors.Is(err, driver.ErrNoSpace) && !errors.Is(err, context.Canceled) {
 		return "", fmt.Errorf("building %s: %w: %w", req.Repository, err, provider.ErrFailed)
 	}
-	return ref, providerError(err)
+	if err != nil {
+		return "", providerError(err)
+	}
+	h.pushes.add(ref)
+	return ref, nil
 }
 
 func (h *Host) ResolveImage(ctx context.Context, ref string) (provider.ImageConfig, error) {

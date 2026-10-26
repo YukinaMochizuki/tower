@@ -83,10 +83,13 @@ type state struct {
 	Guests   map[string]*guest
 	Registry map[string]bool
 	// Users are the users images of the registry run as, "" for root.
-	Users   map[string]string `json:",omitempty"`
-	Pulled  map[string]bool
-	Mirrors map[string]*repo
-	Remotes map[string]*repo
+	Users  map[string]string `json:",omitempty"`
+	Pulled map[string]bool
+	// Unpushed are the images built on the host and not pushed yet,
+	// oldest first.
+	Unpushed []string `json:",omitempty"`
+	Mirrors  map[string]*repo
+	Remotes  map[string]*repo
 	// Addresses counts the addresses given out.
 	Addresses int
 }
@@ -309,6 +312,13 @@ func (h *Host) OnExec(fn func(guest string, spec driver.ExecSpec) (int, bool)) {
 // AddImage puts a reference in the registry.
 func (h *Host) AddImage(ref string) {
 	_ = h.change("", func() error { h.st.Registry[ref] = true; return nil })
+}
+
+// InRegistry reports whether the registry holds ref.
+func (h *Host) InRegistry(ref string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.st.Registry[ref]
 }
 
 // SetImageUser puts a reference in the registry, running as user.

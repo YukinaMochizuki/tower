@@ -41,10 +41,19 @@ func (h Harness) containers() GuestKind {
 	return GuestKind{
 		Driver: c, DiskKind: driver.Dataset, Workspace: "/workspace",
 		Create: func(t *testing.T, spec driver.GuestSpec) error {
-			mustNot(t, "pulling "+h.Image, h.Drivers.Images.Pull(t.Context(), h.Image))
-			return c.Create(t.Context(), driver.ContainerSpec{GuestSpec: spec, Image: h.Image})
+			return c.Create(t.Context(), driver.ContainerSpec{GuestSpec: spec, Image: h.Local(t, h.Image)})
 		},
 	}
+}
+
+// Local pulls ref and returns the name a container of it is made by, as
+// hostd does.
+func (h Harness) Local(t *testing.T, ref string) string {
+	t.Helper()
+	mustNot(t, "pulling "+ref, h.Drivers.Images.Pull(t.Context(), ref))
+	l, err := h.Drivers.Images.Local(t.Context(), ref)
+	mustNot(t, "naming "+ref+" on the host", err)
+	return l
 }
 
 func (h Harness) vms() GuestKind {
@@ -67,8 +76,7 @@ func testContainerEnv(t *testing.T, h Harness, k GuestKind) {
 	env := map[string]string{"TOWER_MULTI": "one\ntwo", "TOWER_CTRL": "a\x01b", "TOWER_MINE": "spec"}
 	withEnv := k
 	withEnv.Create = func(t *testing.T, spec driver.GuestSpec) error {
-		mustNot(t, "pulling "+h.Image, h.Drivers.Images.Pull(t.Context(), h.Image))
-		return h.Drivers.Containers.Create(t.Context(), driver.ContainerSpec{GuestSpec: spec, Image: h.Image, Env: env})
+		return h.Drivers.Containers.Create(t.Context(), driver.ContainerSpec{GuestSpec: spec, Image: h.Local(t, h.Image), Env: env})
 	}
 	g := withEnv.guestWithDisk(t, h, "env")
 	code, out := run(t, k.Driver, g, map[string]string{"TOWER_MINE": "command"}, "env")
