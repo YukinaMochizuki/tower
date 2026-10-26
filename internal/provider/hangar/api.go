@@ -23,6 +23,10 @@ type API interface {
 	Disks() Kind[*hangarstorage.Disk]
 	Containers() Kind[*hangarcompute.Container]
 	Secrets() Kind[*hangarsecrets.Secret]
+	CustomImages() Kind[*hangarstorage.CustomImage]
+	// ProjectName is the project's name, which a Disk names to be made from
+	// one of its CustomImages.
+	ProjectName() string
 	// Machine reads the machine a container runs as (MachineOf); one not
 	// made yet is ErrNotFound.
 	Machine(ctx context.Context, name string) (*hangarcompute.Machine, error)

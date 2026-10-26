@@ -34,6 +34,7 @@ type Connect struct {
 	disks      Kind[*hangarstorage.Disk]
 	containers Kind[*hangarcompute.Container]
 	secrets    Kind[*hangarsecrets.Secret]
+	images     Kind[*hangarstorage.CustomImage]
 	machines   computev1alpha1connect.MachineServiceClient
 	projects   tenancyv1alpha1connect.ProjectServiceClient
 }
@@ -132,15 +133,38 @@ func NewConnect(endpoint, project, token string, hc *http.Client) *Connect {
 			return err
 		},
 	}
+	imgs := storagev1alpha1connect.NewCustomImageServiceClient(hc, c.endpoint, opts...)
+	c.images = kind[*hangarstorage.CustomImage]{
+		project: project, what: "custom image",
+		get: func(ctx context.Context, name string) (*hangarstorage.CustomImage, error) {
+			r, err := imgs.GetCustomImage(ctx, connect.NewRequest(&hangarstorage.GetCustomImageRequest{Project: project, Name: name}))
+			return msg(r).GetCustomImage(), err
+		},
+		list: func(ctx context.Context, sel, page string) ([]*hangarstorage.CustomImage, string, error) {
+			r, err := imgs.ListCustomImages(ctx, connect.NewRequest(&hangarstorage.ListCustomImagesRequest{Project: project, LabelSelector: sel, PageToken: page}))
+			return msg(r).GetItems(), msg(r).GetNextPageToken(), err
+		},
+		apply: func(ctx context.Context, o *hangarstorage.CustomImage) (*hangarstorage.CustomImage, error) {
+			o.GetMetadata().Project = project
+			r, err := imgs.ApplyCustomImage(ctx, connect.NewRequest(&hangarstorage.ApplyCustomImageRequest{CustomImage: o}))
+			return msg(r).GetCustomImage(), err
+		},
+		del: func(ctx context.Context, name string) error {
+			_, err := imgs.DeleteCustomImage(ctx, connect.NewRequest(&hangarstorage.DeleteCustomImageRequest{Project: project, Name: name}))
+			return err
+		},
+	}
 	c.machines = computev1alpha1connect.NewMachineServiceClient(hc, c.endpoint, opts...)
 	c.projects = tenancyv1alpha1connect.NewProjectServiceClient(hc, c.endpoint, opts...)
 	return c
 }
 
-func (c *Connect) Networks() Kind[*hangarnetwork.Network]     { return c.networks }
-func (c *Connect) Disks() Kind[*hangarstorage.Disk]           { return c.disks }
-func (c *Connect) Containers() Kind[*hangarcompute.Container] { return c.containers }
-func (c *Connect) Secrets() Kind[*hangarsecrets.Secret]       { return c.secrets }
+func (c *Connect) Networks() Kind[*hangarnetwork.Network]         { return c.networks }
+func (c *Connect) Disks() Kind[*hangarstorage.Disk]               { return c.disks }
+func (c *Connect) Containers() Kind[*hangarcompute.Container]     { return c.containers }
+func (c *Connect) Secrets() Kind[*hangarsecrets.Secret]           { return c.secrets }
+func (c *Connect) CustomImages() Kind[*hangarstorage.CustomImage] { return c.images }
+func (c *Connect) ProjectName() string                            { return c.project }
 
 func (c *Connect) Machine(ctx context.Context, name string) (*hangarcompute.Machine, error) {
 	r, err := c.machines.GetMachine(ctx, connect.NewRequest(&hangarcompute.GetMachineRequest{Project: c.project, Name: name}))

@@ -24,6 +24,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/controller"
 	"github.com/YukinaMochizuki/tower/internal/provider/hangar"
 	"github.com/YukinaMochizuki/tower/internal/store"
+	"github.com/YukinaMochizuki/tower/internal/system"
 )
 
 // tower runs the provider of each hangar target itself (internal/provider/
@@ -85,7 +86,8 @@ func (s *Server) hangarTargetsOfSecret(ctx context.Context, o store.Object) []co
 	var keys []controller.Key
 	for _, t := range targets {
 		h := t.GetSpec().GetHangar()
-		if h != nil && (h.GetCredentialSecret() == o.Name || h.GetRegistryPullSecret() == o.Name) {
+		if h != nil && (h.GetCredentialSecret() == o.Name || h.GetRegistryPullSecret() == o.Name ||
+			h.GetRegistryPushSecret() == o.Name || h.GetTailnetAuthSecret() == o.Name) {
 			keys = append(keys, controller.Key{Name: t.GetMetadata().GetName()})
 		}
 	}
@@ -194,8 +196,32 @@ func (s *Server) hangarConfig(ctx context.Context, t *targetsv1alpha1.Target) (h
 			return hangar.Config{}, "", fmt.Errorf("its registry pull secret %q holds no \".dockerconfigjson\": %w", p, errSecretMissing)
 		}
 	}
+	var push system.Login
+	if p := h.GetRegistryPushSecret(); p != "" {
+		data, err := s.openTargetSecret(ctx, "registry push secret", p)
+		if err != nil {
+			return hangar.Config{}, "", err
+		}
+		push = system.Login{Username: string(data["username"]), Password: string(data["password"])}
+		if push.Username == "" {
+			return hangar.Config{}, "", fmt.Errorf("its registry push secret %q holds no \"username\": %w", p, errSecretMissing)
+		}
+	}
+	var authKey string
+	if a := h.GetTailnetAuthSecret(); a != "" {
+		data, err := s.openTargetSecret(ctx, "tailnet auth secret", a)
+		if err != nil {
+			return hangar.Config{}, "", err
+		}
+		if authKey = strings.TrimSpace(string(data["authkey"])); authKey == "" {
+			return hangar.Config{}, "", fmt.Errorf("its tailnet auth secret %q holds no \"authkey\": %w", a, errSecretMissing)
+		}
+	}
 	sum := sha256.New()
-	for _, part := range [][]byte{[]byte(h.GetEndpoint()), []byte(h.GetProject()), []byte(token), pull} {
+	for _, part := range [][]byte{
+		[]byte(h.GetEndpoint()), []byte(h.GetProject()), []byte(token), pull,
+		[]byte(h.GetRegistryHost()), []byte(push.Username), []byte(push.Password), []byte(authKey),
+	} {
 		_, _ = fmt.Fprintf(sum, "%d:", len(part))
 		_, _ = sum.Write(part)
 	}
@@ -208,6 +234,8 @@ func (s *Server) hangarConfig(ctx context.Context, t *targetsv1alpha1.Target) (h
 	cfg := hangar.Config{
 		Target: name, API: api(h.GetEndpoint(), h.GetProject(), token), Client: s.systemClient(), PullSecret: pull,
 		Guest: s.cfg.TowerGuest, StreamPrefix: HangarStreamPath + name + "/", Clock: s.clock, Log: s.log,
+		SystemImage: s.cfg.SystemImage, Registry: s.cfg.Registry, RegistryHost: h.GetRegistryHost(), RegistryPlainHTTP: s.cfg.RegistryPlainHTTP,
+		PushLogin: push, TailnetAuthKey: authKey,
 	}
 	if s.cfg.Tickets != nil {
 		cfg.TicketKey = s.cfg.Tickets.PublicKey()

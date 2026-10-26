@@ -30,6 +30,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -61,6 +62,9 @@ type Fake struct {
 	// PATH, before the host's: the image's own, as the testbed's images
 	// carry test/testbed/guestbin.
 	Bin string
+	// System, if set, is tower-system on the host, which a system
+	// container's calls run (system.go).
+	System string
 
 	clock clockwork.Clock
 	// guest is tower-guest on the host; dir holds each container's root.
@@ -72,6 +76,7 @@ type Fake struct {
 	disks      *kind[*hangarstorage.Disk]
 	containers *kind[*hangarcompute.Container]
 	secrets    *kind[*hangarsecrets.Secret]
+	images     *kind[*hangarstorage.CustomImage]
 	machines   map[string]*hangarcompute.Machine
 	// installed is the hash of the tower-guest written into each
 	// container, by its uid.
@@ -84,6 +89,9 @@ type Fake struct {
 	failPull    map[string]bool
 	// installs counts tower-guest written in, in every container.
 	installs int
+	// built are the images the fake built, by reference, with the user
+	// each runs as.
+	built map[string]string
 }
 
 var _ hangar.API = (*Fake)(nil)
@@ -96,6 +104,9 @@ func New(guest, dir string, clock clockwork.Clock) *Fake {
 	f.disks = &kind[*hangarstorage.Disk]{f: f, what: "disk", objs: map[string]*hangarstorage.Disk{}}
 	f.containers = &kind[*hangarcompute.Container]{f: f, what: "container", objs: map[string]*hangarcompute.Container{}}
 	f.secrets = &kind[*hangarsecrets.Secret]{f: f, what: "secret", objs: map[string]*hangarsecrets.Secret{}}
+	f.images = &kind[*hangarstorage.CustomImage]{f: f, what: "custom image", objs: map[string]*hangarstorage.CustomImage{}}
+	f.images.applied = f.imageApplied
+	f.images.deleting = f.imageDeleting
 	f.disks.deleting = f.diskDeleting
 	f.networks.deleting = f.networkDeleting
 	f.containers.applied = f.containerApplied
@@ -165,10 +176,12 @@ func (f *Fake) SetDown(err error) {
 	f.down = err
 }
 
-func (f *Fake) Networks() hangar.Kind[*hangarnetwork.Network]     { return f.networks }
-func (f *Fake) Disks() hangar.Kind[*hangarstorage.Disk]           { return f.disks }
-func (f *Fake) Containers() hangar.Kind[*hangarcompute.Container] { return f.containers }
-func (f *Fake) Secrets() hangar.Kind[*hangarsecrets.Secret]       { return f.secrets }
+func (f *Fake) Networks() hangar.Kind[*hangarnetwork.Network]         { return f.networks }
+func (f *Fake) Disks() hangar.Kind[*hangarstorage.Disk]               { return f.disks }
+func (f *Fake) Containers() hangar.Kind[*hangarcompute.Container]     { return f.containers }
+func (f *Fake) Secrets() hangar.Kind[*hangarsecrets.Secret]           { return f.secrets }
+func (f *Fake) CustomImages() hangar.Kind[*hangarstorage.CustomImage] { return f.images }
+func (f *Fake) ProjectName() string                                   { return Project }
 
 func (f *Fake) Machine(_ context.Context, name string) (*hangarcompute.Machine, error) {
 	f.mu.Lock()
@@ -253,6 +266,9 @@ func (f *Fake) containerApplied(ct *hangarcompute.Container, isNew bool) error {
 	m, ok := f.machines[name]
 	if !ok {
 		if err := os.MkdirAll(f.root(ct.GetMetadata().GetUid()), 0o755); err != nil {
+			return err
+		}
+		if err := f.fillVolumes(ct); err != nil {
 			return err
 		}
 		m = &hangarcompute.Machine{
@@ -389,6 +405,8 @@ func (f *Fake) Exec(ctx context.Context, req hangar.ExecRequest) (hangar.ExecExi
 		return f.shim(ctx, f.root(uid), stdin, stdout, stderr)
 	case len(cmd) == 3 && cmd[0] == "/bin/sh" && cmd[1] == "-c":
 		return f.installer(uid, cmd[2], stdin, stdout)
+	case len(cmd) == 2 && cmd[0] == systemBinary && cmd[1] == "call":
+		return f.system(ctx, req.Name, uid, stdin, stdout, stderr)
 	}
 	return hangar.ExecExit{}, connect.NewError(connect.CodeUnimplemented, fmt.Errorf("the fake runs no %q", cmd))
 }
@@ -537,6 +555,9 @@ func (k *kind[T]) Get(_ context.Context, name string) (T, error) {
 	if k.f.down != nil {
 		return zero, k.f.down
 	}
+	if !validName.MatchString(name) {
+		return zero, connectError("invalid_argument", fmt.Sprintf("name: %q must be 1-63 lowercase letters, digits or '-', starting and ending with a letter or digit", name))
+	}
 	o, ok := k.objs[name]
 	if !ok {
 		return zero, fmt.Errorf("%s %s: %w", k.what, name, hangar.ErrNotFound)
@@ -643,3 +664,15 @@ func (k *kind[T]) releaseLocked() {
 		}
 	}
 }
+
+// connectError is a hangar refusal of the code, as Connect says it.
+func connectError(code, msg string) error {
+	var c connect.Code
+	if err := c.UnmarshalText([]byte(code)); err != nil {
+		c = connect.CodeUnknown
+	}
+	return connect.NewError(c, errors.New(msg))
+}
+
+// validName is what hangar takes as an object's name: a DNS label.
+var validName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)

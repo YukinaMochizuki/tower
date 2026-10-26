@@ -11,8 +11,8 @@ the API.
 Status: early. The engine, authentication, secrets, the environment kinds
 and their controllers, workstream's data plane (EnvironmentService), the
 tunnel, hostd with its real drivers (ZFS, Docker, Cloud Hypervisor,
-BuildKit, git), the hangar provider's containers (without mirrors, builds,
-goldens or VMs yet) and the CLI exist. `make
+BuildKit, git), the hangar provider (containers, mirrors, builds and
+goldens; no VMs yet) and the CLI exist. `make
 e2e` runs the whole of it on a fake host (`docs/runbook/demo.md`), `make
 e2e-host` on a testbed's real one (`docs/runbook/testbed.md`).
 `docs/architecture.md` describes the target.

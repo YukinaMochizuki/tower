@@ -211,8 +211,20 @@
           "description": "The hangar project every environment of this target lives in.",
           "type": "string"
         },
+        "registryHost": {
+          "description": "The name hangar pulls tower's registry by, host[:port], such as its public name, which the images the target builds are named by; empty is the registry's own name (tower-apiserver's --registry). The target's system container pushes to the registry's own name, over the tailnet. See docs/decisions/images.md.",
+          "type": "string"
+        },
         "registryPullSecret": {
           "description": "A Secret in tower's reserved project \"system\" holding the login hangar pulls tower's images with, under the key \".dockerconfigjson\", in the Docker config format: a read-only login of the registry's, which hangar keeps as a registry-auth Secret of the project and names in its containers. Empty pulls anonymously. See docs/decisions/images.md.",
+          "type": "string"
+        },
+        "registryPushSecret": {
+          "description": "A Secret in tower's reserved project \"system\" holding the login the target's system container pushes its builds to the registry with, under \"username\" and \"password\". Empty pushes anonymously.",
+          "type": "string"
+        },
+        "tailnetAuthSecret": {
+          "description": "A Secret in tower's reserved project \"system\" holding, under \"authkey\", the tailnet auth key the target's system container joins the tailnet with, once: what it pushes to the registry over. Empty joins it to none.",
           "type": "string"
         }
       },

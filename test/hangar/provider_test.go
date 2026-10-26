@@ -12,7 +12,16 @@
 //   - TOWER_HANGAR_IMAGE, a box image by digest that carries
 //     test/testbed/guestbin in /usr/local/bin, and busybox;
 //   - TOWER_HANGAR_PULL_SECRET_FILE, if the image's registry needs one, a
-//     Docker config hangar pulls it with.
+//     Docker config hangar pulls it with;
+//   - for the mirrors and builds, which are skipped without them:
+//     TOWER_HANGAR_SYSTEM_IMAGE, the system image hangar pulls;
+//     TOWER_HANGAR_REGISTRY, tower's registry as the system container pushes
+//     to it, with TOWER_HANGAR_REGISTRY_PLAIN_HTTP=1 for one served over
+//     plain HTTP and TOWER_HANGAR_PUSH_LOGIN_FILE holding its user:password;
+//     TOWER_HANGAR_REGISTRY_HOST, the name hangar pulls it by, if another;
+//     TOWER_HANGAR_REMOTE, a repository the system container fetches and
+//     pushes to, whose main branch has a Dockerfile at docker/Dockerfile
+//     building from TOWER_HANGAR_IMAGE.
 //
 // What it makes it deletes as it ends; a network outlives it until the
 // next run's sweep.
@@ -38,6 +47,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/provider/hangar/hangartest"
 	"github.com/YukinaMochizuki/tower/internal/provider/providertest"
 	"github.com/YukinaMochizuki/tower/internal/streams"
+	"github.com/YukinaMochizuki/tower/internal/system"
 	"github.com/YukinaMochizuki/tower/internal/testutil"
 	"github.com/YukinaMochizuki/tower/internal/ticket"
 )
@@ -46,6 +56,10 @@ import (
 type config struct {
 	endpoint, project, token, image string
 	pull                            []byte
+	system, registry, registryHost  string
+	plainHTTP                       bool
+	push                            system.Login
+	remote                          string
 }
 
 func load(t *testing.T) config {
@@ -63,6 +77,16 @@ func load(t *testing.T) config {
 		if c.pull, err = os.ReadFile(f); err != nil {
 			t.Fatal(err)
 		}
+	}
+	c.system, c.registry, c.registryHost = os.Getenv("TOWER_HANGAR_SYSTEM_IMAGE"), os.Getenv("TOWER_HANGAR_REGISTRY"), os.Getenv("TOWER_HANGAR_REGISTRY_HOST")
+	c.plainHTTP, c.remote = os.Getenv("TOWER_HANGAR_REGISTRY_PLAIN_HTTP") == "1", os.Getenv("TOWER_HANGAR_REMOTE")
+	if f := os.Getenv("TOWER_HANGAR_PUSH_LOGIN_FILE"); f != "" {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		user, pass, _ := strings.Cut(strings.TrimSpace(string(b)), ":")
+		c.push = system.Login{Username: user, Password: pass}
 	}
 	return c
 }
@@ -87,15 +111,20 @@ func world(t *testing.T) *hangartest.World {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return hangartest.New(t, hangartest.Options{
+	opts := hangartest.Options{
 		API: hangar.NewConnect(c.endpoint, c.project, c.token, nil), Project: c.project, Guest: guest, PullSecret: c.pull, Image: c.image,
 		Configure: func(cfg *hangar.Config) {
 			cfg.SweepGrace = time.Minute
 			cfg.TicketKey = signer.PublicKey()
+			cfg.SystemImage, cfg.Registry, cfg.RegistryHost, cfg.RegistryPlainHTTP, cfg.PushLogin = c.system, c.registry, c.registryHost, c.plainHTTP, c.push
 		},
 		// A pull and a boot on a real hangar.
 		Wait: 5 * time.Minute,
-	})
+	}
+	if c.system != "" && c.remote != "" {
+		opts.Remote, opts.Branch, opts.RemoteDockerfile = c.remote, "main", "docker/Dockerfile"
+	}
+	return hangartest.New(t, opts)
 }
 
 // TestConformance holds the hangar provider, over a real hangar, to the

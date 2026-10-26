@@ -175,3 +175,8 @@ func (f FrameWriter) Write(p []byte) (int, error) {
 }
 
 func (f FrameWriter) Close() error { return WriteFrame(f.W, FrameEOF, nil) }
+
+// ReadData reads the data frames on in to w until the end frame, as an
+// operation takes what its call sends; an in that ends without it is an
+// error.
+func ReadData(in io.Reader, w io.Writer) error { return dataFrames(in, w) }

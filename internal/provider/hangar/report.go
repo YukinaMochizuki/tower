@@ -51,6 +51,18 @@ func (t *Target) Report(ctx context.Context) error {
 	default:
 		reach.Status, reach.Reason, reach.Message = metav1.ConditionStatus_CONDITION_STATUS_FALSE, "NoAnswer", perr.Error()
 	}
+	if t.cfg.SystemImage != "" {
+		ready, why, buildkit, tailnet := t.sys.get()
+		v := "ready"
+		if !ready {
+			v = "not ready: " + why
+		}
+		facts = append(facts, &targetsv1alpha1.Fact{Name: "system container", Value: v})
+		if ready {
+			facts = append(facts, &targetsv1alpha1.Fact{Name: "builder", Value: or(buildkit, "buildkitd does not answer")},
+				&targetsv1alpha1.Fact{Name: "builder on the tailnet", Value: strconv.FormatBool(tailnet)})
+		}
+	}
 	for range 10 {
 		o, err := t.c.Get(ctx, registry.Target, client.Key{Name: t.cfg.Target})
 		if err != nil {

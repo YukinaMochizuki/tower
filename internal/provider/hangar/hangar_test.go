@@ -1,11 +1,15 @@
 package hangar_test
 
 import (
+	"archive/tar"
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +26,7 @@ import (
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/conditions"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/object"
 	"github.com/YukinaMochizuki/tower/internal/apiserver/apiservertest"
 	"github.com/YukinaMochizuki/tower/internal/client"
 	"github.com/YukinaMochizuki/tower/internal/provider"
@@ -32,8 +37,9 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
-// towerGuest is tower-guest, built once for the package's tests.
-var towerGuest string
+// towerGuest and towerSystem are tower-guest and tower-system, built once
+// for the package's tests.
+var towerGuest, towerSystem string
 
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "tower-guest-")
@@ -41,6 +47,9 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	if towerGuest, err = hangartest.BuildGuest(dir); err != nil {
+		panic(err)
+	}
+	if towerSystem, err = hangartest.BuildSystem(dir); err != nil {
 		panic(err)
 	}
 	code := m.Run()
@@ -60,9 +69,21 @@ func newWorld(t *testing.T, configure func(*hangar.Config)) (*hangartest.World, 
 	if f.Bin, err = filepath.Abs("../../../test/testbed/guestbin"); err != nil {
 		t.Fatal(err)
 	}
+	f.System = towerSystem
 	t.Cleanup(f.Close)
+	const image = "registry.tower.internal/base@sha256:00"
+	remote, head := gitRemote(t, map[string]string{"go.mod": "module x\n", "docker/Dockerfile": "FROM " + image + "\nCOPY go.mod /go.mod\n"})
 	w := hangartest.New(t, hangartest.Options{
-		API: f, Project: fake.Project, Guest: guest, Image: "registry.tower.internal/base@sha256:00", Configure: configure,
+		API: f, Project: fake.Project, Guest: guest, Image: image,
+		Remote: remote, Branch: "main", RemoteHead: head, RemoteDockerfile: "docker/Dockerfile",
+		Configure: func(c *hangar.Config) {
+			c.SystemImage = "registry.tower.internal/tower/system@sha256:01"
+			// The registry by two names: the builder's and hangar's.
+			c.Registry, c.RegistryHost = "registry.tower.internal", "registry.example.com"
+			if configure != nil {
+				configure(c)
+			}
+		},
 	})
 	return w, f
 }
@@ -98,9 +119,14 @@ func TestWhatAnInstanceIsInHangar(t *testing.T) {
 	ref, _ := h.Start(t, "box", container("ws1"))
 	uid := w.Instance(t, "box").GetMetadata().GetUid()
 	name := "t-" + uid
-	if !strSet(f.ContainerNames()).has(name) || !strSet(f.DiskNames()).has(name) || len(f.NetworkNames()) != 1 {
+	nets, err := f.Networks().List(t.Context(), hangar.LabelNetwork+"=ws1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strSet(f.ContainerNames()).has(name) || !strSet(f.DiskNames()).has(name) || len(nets) != 1 {
 		t.Fatalf("hangar holds containers %v, disks %v, networks %v", f.ContainerNames(), f.DiskNames(), f.NetworkNames())
 	}
+	network := nets[0].GetMetadata().GetName()
 	ct, err := f.Containers().Get(t.Context(), name)
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +135,7 @@ func TestWhatAnInstanceIsInHangar(t *testing.T) {
 	if len(spec.GetVolumes()) != 1 || spec.GetVolumes()[0].GetSource() != name || spec.GetVolumes()[0].GetTarget() != hangar.WorkspaceDir {
 		t.Errorf("the container's volumes: %v", spec.GetVolumes())
 	}
-	if len(spec.GetInterfaces()) != 1 || spec.GetInterfaces()[0].GetNetwork() != f.NetworkNames()[0] {
+	if len(spec.GetInterfaces()) != 1 || spec.GetInterfaces()[0].GetNetwork() != network {
 		t.Errorf("the container's interfaces: %v, networks %v", spec.GetInterfaces(), f.NetworkNames())
 	}
 	if len(spec.GetImagePullSecrets()) != 1 || f.Secret(spec.GetImagePullSecrets()[0]).GetSpec().GetType() != hangarsecrets.SecretType_SECRET_TYPE_REGISTRY_AUTH {
@@ -120,13 +146,16 @@ func TestWhatAnInstanceIsInHangar(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.Eventually(t, "the instance's container and disk gone", func() (bool, string) {
-		return len(f.ContainerNames()) == 0 && len(f.DiskNames()) == 0, fmt.Sprint(f.ContainerNames(), f.DiskNames())
+		return !strSet(f.ContainerNames()).has(name) && !strSet(f.DiskNames()).has(name), fmt.Sprint(f.ContainerNames(), f.DiskNames())
 	})
 	if err := w.Target.Sweep(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if n := f.NetworkNames(); len(n) != 0 {
-		t.Errorf("networks %v outlived every container on them", n)
+	if n := f.NetworkNames(); strSet(n).has(network) {
+		t.Errorf("network %s outlived every container on it", network)
+	}
+	if !strSet(f.ContainerNames()).has(systemName(f)) {
+		t.Errorf("the sweep took the system container: %v", f.ContainerNames())
 	}
 }
 
@@ -171,8 +200,8 @@ func TestAProjectOutOfQuotaFailsTheInstance(t *testing.T) {
 }
 
 // TestTheTargetSaysWhetherHangarAnswers: the report says the project's
-// room from its quota while hangar answers, and that it does not once it
-// stops.
+// room from its quota while hangar answers (what the system container's
+// 50Gi disk leaves of 100Gi), and that it does not once it stops.
 func TestTheTargetSaysWhetherHangarAnswers(t *testing.T) {
 	w, f := newWorld(t, nil)
 	disk := "100Gi"
@@ -189,7 +218,7 @@ func TestTheTargetSaysWhetherHangarAnswers(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := target().GetStatus()
-	if !conditions.IsTrue(st.GetConditions(), hangar.TargetReachable) || st.GetCapacity().GetDiskTotal() != "100Gi" || st.GetCapacity().GetDiskFree() != "100Gi" {
+	if !conditions.IsTrue(st.GetConditions(), hangar.TargetReachable) || st.GetCapacity().GetDiskTotal() != "100Gi" || st.GetCapacity().GetDiskFree() != "50Gi" {
 		t.Errorf("the target's status while hangar answers: %v", st)
 	}
 	f.SetDown(connect.NewError(connect.CodeUnavailable, errors.New("hangar is down")))
@@ -264,5 +293,127 @@ func TestFirstUsesAtOnceWriteTowerGuestInOnce(t *testing.T) {
 	}
 	if n := f.Installs() - before; n > 1 {
 		t.Errorf("tower-guest written in %d times", n)
+	}
+}
+
+// gitRemote makes a bare repository of files, two commits on main, and
+// returns its path and its head.
+func gitRemote(t *testing.T, files map[string]string) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	bare, work := filepath.Join(dir, "remote.git"), filepath.Join(dir, "work")
+	run := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run(dir, "init", "--quiet", "--bare", "--initial-branch=main", bare)
+	run(dir, "init", "--quiet", "--initial-branch=main", work)
+	run(work, "commit", "--quiet", "--allow-empty", "-m", "first")
+	for name, content := range files {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(work, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(work, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run(work, "add", "-A")
+	run(work, "commit", "--quiet", "-m", "second")
+	run(work, "push", "--quiet", bare, "main")
+	return bare, run(work, "rev-parse", "HEAD")
+}
+
+// systemName is the fake's system container, the one named tower-sys-*.
+func systemName(f *fake.Fake) string {
+	for _, n := range f.ContainerNames() {
+		if strings.HasPrefix(n, "tower-sys-") {
+			return n
+		}
+	}
+	return "(none)"
+}
+
+// TestWhatTheTargetBuildsIsNamedAsHangarPullsIt: an image the system
+// container pushes to the registry by its own name comes back by the name
+// hangar pulls it by, and reads back by that name; the system container's
+// own image is named so too.
+func TestWhatTheTargetBuildsIsNamedAsHangarPullsIt(t *testing.T) {
+	w, f := newWorld(t, nil)
+	ctx := t.Context()
+	var b bytes.Buffer
+	tw := tar.NewWriter(&b)
+	df := "FROM registry.example.com/base@sha256:00\nUSER 7\n"
+	_ = tw.WriteHeader(&tar.Header{Name: "Dockerfile", Mode: 0o644, Size: int64(len(df))})
+	_, _ = tw.Write([]byte(df))
+	_ = tw.Close()
+	image, err := w.Target.BuildImage(ctx, provider.BuildRequest{Context: &b, Repository: "web/box"})
+	if err != nil || !strings.HasPrefix(image, "registry.example.com/web/box@sha256:") {
+		t.Fatalf("built %q, %v; want it by registry.example.com", image, err)
+	}
+	if cfg, err := w.Target.ResolveImage(ctx, image); err != nil || cfg.User != "7" {
+		t.Errorf("resolved %s as %+v, %v", image, cfg, err)
+	}
+	ct, err := f.Containers().Get(ctx, systemName(f))
+	if err != nil || ct.GetSpec().GetImage() != "registry.example.com/tower/system@sha256:01" {
+		t.Errorf("the system container runs %q, %v", ct.GetSpec().GetImage(), err)
+	}
+}
+
+// TestTheSweepKeepsWhatAGoldenNeeds: a golden's image is kept while a
+// Golden names it, or while the instance it is captured from is there,
+// and goes once neither holds.
+func TestTheSweepKeepsWhatAGoldenNeeds(t *testing.T) {
+	w, f := newWorld(t, func(c *hangar.Config) { c.SweepGrace = time.Nanosecond })
+	ctx := t.Context()
+	h := w.Harness()
+	src, _ := h.Start(t, "src", container("ws1"))
+	h.Stop(t, src)
+	art, err := w.Target.Capture(ctx, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Captured, its Golden not yet written: its instance holds it.
+	if err := w.Target.Sweep(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.CustomImages().Get(ctx, art.Name); err != nil {
+		t.Fatalf("the sweep took an image under capture: %v", err)
+	}
+	h.Golden(t, art)
+	if _, err := w.Env.AsSystem().Delete(ctx, registry.Instance, client.Key{Project: src.Project, Name: src.Name}); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Eventually(t, "the source's container gone", func() (bool, string) {
+		return !strSet(f.ContainerNames()).has("t-" + strings.TrimPrefix(art.Name, "g-")), fmt.Sprint(f.ContainerNames())
+	})
+	if err := w.Target.Sweep(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.CustomImages().Get(ctx, art.Name); err != nil {
+		t.Fatalf("the sweep took an image a Golden names: %v", err)
+	}
+	goldens, _, err := w.Env.AsSystem().ListAll(ctx, registry.Golden, client.ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range goldens {
+		_, _ = w.Env.AsSystem().Delete(ctx, registry.Golden, client.Key{Project: object.Meta(g).GetProject(), Name: object.Meta(g).GetName()})
+	}
+	testutil.Eventually(t, "the image swept once nothing names it", func() (bool, string) {
+		if err := w.Target.Sweep(ctx); err != nil {
+			return false, err.Error()
+		}
+		_, err := f.CustomImages().Get(ctx, art.Name)
+		return errors.Is(err, hangar.ErrNotFound), fmt.Sprint(err)
+	})
+	if !strSet(f.DiskNames()).has(systemName(f)) || !strSet(f.NetworkNames()).has(systemName(f)) {
+		t.Errorf("the sweep took the system container's disk or network: %v %v", f.DiskNames(), f.NetworkNames())
 	}
 }

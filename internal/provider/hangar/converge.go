@@ -128,9 +128,6 @@ func (t *Target) converge(ctx context.Context, in *envv1alpha1.Instance) (observ
 	if spec.GetKind() != envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER {
 		return failed("Unsupported", errors.New("a hangar target runs containers only, for now")), nil
 	}
-	if spec.GetDiskGolden() != "" {
-		return failed("Unsupported", errors.New("a hangar target clones no golden yet")), nil
-	}
 	name := objectName(in.GetMetadata().GetUid())
 	ct, err := t.api.Containers().Get(ctx, name)
 	if err != nil && !errors.Is(err, ErrNotFound) {
@@ -161,9 +158,19 @@ func (t *Target) converge(ctx context.Context, in *envv1alpha1.Instance) (observ
 		if size == "" {
 			size = DefaultDisk
 		}
+		var source *hangarstorage.DiskSource
+		if g := spec.GetDiskGolden(); g != "" {
+			var wait *observed
+			if source, size, wait, err = t.goldenSource(ctx, in, g, size); err != nil {
+				return observed{}, err
+			}
+			if wait != nil {
+				return *wait, nil
+			}
+		}
 		_, err := t.api.Disks().Apply(ctx, &hangarstorage.Disk{
 			Metadata: &hangarmeta.ObjectMeta{Name: name, Labels: labels},
-			Spec:     &hangarstorage.DiskSpec{Size: size},
+			Spec:     &hangarstorage.DiskSpec{Size: size, Source: source},
 		})
 		if err != nil {
 			return t.applyFailed(err)
