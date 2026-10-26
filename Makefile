@@ -5,7 +5,7 @@ GOLANGCI_LINT := $(TOOL) golangci-lint
 # Paths whose contents are produced by `make gen` and must never drift.
 GENERATED := gen internal/apiserver/servicegen internal/store/sqlite/db
 
-.PHONY: all gen check lint lint-proto lint-go breaking test e2e test-e2e-race e2e-host build-deploy gen-check dev tools deps
+.PHONY: all gen check lint lint-proto lint-go breaking test e2e test-e2e-race e2e-host e2e-hangar build-deploy gen-check dev tools deps
 
 all: check
 
@@ -30,6 +30,7 @@ lint-proto:
 lint-go:
 	$(GOLANGCI_LINT) run ./...
 	$(GOLANGCI_LINT) run --build-tags testbed ./test/testbed/...
+	$(GOLANGCI_LINT) run --build-tags hangar ./test/hangar/...
 
 # Compares against main; skipped while main has no schema to compare with.
 breaking:
@@ -73,6 +74,13 @@ test-e2e-race:
 TESTBED_PKGS = $(if $(PKG),./test/testbed/$(PKG),./test/testbed/...)
 e2e-host:
 	go test -exec 'sudo -E' -tags testbed -p 1 -count=1 -timeout 120m -v $(if $(RUN),-run '$(RUN)') $(TESTBED_PKGS)
+
+# The provider contract against the hangar provider over a real hangar,
+# whose endpoint, project, token and image TOWER_HANGAR_* name
+# (test/hangar, docs/runbook/testbed.md). As any user, from anywhere that
+# reaches the endpoint. RUN=regexp picks some.
+e2e-hangar:
+	go test -tags hangar -count=1 -timeout 60m -v $(if $(RUN),-run '$(RUN)') ./test/hangar/...
 
 # The binaries docs/runbook/deploy.md installs, tower-guest static.
 build-deploy:
