@@ -152,6 +152,13 @@ nft -c -f /etc/buildkit/build-network.nft
 	echo "  cniBinaryPath = \"$cni\""
 	echo "[worker.containerd]"
 	echo "  enabled = false"
+	# A build step resolves through public servers, as a guest does
+	# (hostd's --guest-dns). BuildKit gives it the host's resolv.conf
+	# otherwise, which on a tailnet host names tailscale's resolver at
+	# 100.100.100.100 and an fd7a:: address, both of which the build
+	# network drops (build-network.nft): no step could resolve a name.
+	echo "[dns]"
+	echo "  nameservers = [\"1.1.1.1\", \"9.9.9.9\"]"
 	if [ -n "${TOWER_REGISTRY_HTTP:-}" ]; then
 		echo "[registry.\"$TOWER_REGISTRY_HTTP\"]"
 		echo "  http = true"
