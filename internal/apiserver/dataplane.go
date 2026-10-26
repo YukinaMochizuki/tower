@@ -433,13 +433,21 @@ func (h environmentService) WriteFile(ctx context.Context, req *connect.Request[
 		return nil, err
 	}
 	defer e.release()
+	// The first chunk makes the file, and the directories it lacks, as
+	// root: what it made is handed to a run_as user, from the topmost
+	// directory made down. A later chunk appends to the file the first
+	// made, which keeps its owner.
+	give := ""
+	if m.GetOffset() == 0 && e.runAs != "" {
+		if give, err = e.firstMissing(ctx, m.GetPath()); err != nil {
+			return nil, err
+		}
+	}
 	if err := e.p.WriteFile(ctx, e.ref, m.GetPath(), mode, m.GetOffset(), bytes.NewReader(m.GetData())); err != nil {
 		return nil, providerError(e, err)
 	}
-	// A later chunk appends to the file the first made, which keeps its
-	// owner.
-	if m.GetOffset() == 0 {
-		if err := e.giveToRunAs(ctx, h.s, m.GetPath()); err != nil {
+	if give != "" {
+		if err := e.giveToRunAs(ctx, h.s, give); err != nil {
 			return nil, err
 		}
 	}
@@ -533,9 +541,31 @@ func cutPrefix(s, prefix []string) ([]string, bool) {
 // and the user's primary group.
 const giveToRunAsScript = `chown -R -- "$1:$(id -gn -- "$1")" "$2"`
 
+// firstMissingScript prints the topmost of the path $1 and the
+// directories above it that is not there yet: the path itself when its
+// directory is.
+const firstMissingScript = `p=$1; d=$(dirname -- "$p")
+while [ ! -e "$d" ] && [ ! -L "$d" ]; do p=$d; d=$(dirname -- "$d"); done
+printf '%s' "$p"`
+
+// firstMissing is what a write of path makes first, as root: the path,
+// or the topmost directory above it not there yet, which the write makes
+// with everything under it.
+func (e *environment) firstMissing(ctx context.Context, path string) (string, error) {
+	var out, errOut bytes.Buffer
+	code, err := e.p.Exec(ctx, provider.ExecRequest{Instance: e.ref, Command: []string{"sh", "-c", firstMissingScript, "sh", path}, Dir: "/", Stdout: &out, Stderr: &errOut})
+	if err != nil {
+		return "", providerError(e, err)
+	}
+	if code != 0 || out.Len() == 0 {
+		return "", providerError(e, fmt.Errorf("finding what writing %s makes: exited %d: %s: %w", path, code, strings.TrimSpace(errOut.String()), provider.ErrFailed))
+	}
+	return out.String(), nil
+}
+
 // giveToRunAs hands a path written into a machine, as root, to its
 // run_as user, so what the caller put there is the user's as its
-// commands are. Directories the write made above it stay root's.
+// commands are.
 func (e *environment) giveToRunAs(ctx context.Context, s *Server, path string) error {
 	if e.runAs == "" {
 		return nil
