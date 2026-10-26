@@ -146,7 +146,7 @@ the admin socket needs none.`,
 	root.PersistentFlags().StringVar(&a.tokenFile, "token-file", "", "file holding a service token's secret, mode 0600; $"+EnvTokenFile+" unless set")
 	root.PersistentFlags().StringVarP(&a.project, "project", "p", "", "project for project-scoped kinds; $"+EnvProject+" unless set")
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return &exitError{code: ExitUsage, err: err} })
-	root.AddCommand(a.applyCmd(), a.getCmd(), a.deleteCmd(), a.waitCmd(), a.tokenCmd(), a.secretCmd())
+	root.AddCommand(a.applyCmd(), a.getCmd(), a.deleteCmd(), a.waitCmd(), a.tokenCmd(), a.secretCmd(), a.retryCmd())
 	return root
 }
 

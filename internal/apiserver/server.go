@@ -209,6 +209,7 @@ func (s *Server) Handler(chain auth.Chain) http.Handler {
 	servicegen.Mount(mux, func(r registry.Resource) resource.Backend { return s.backend(r) },
 		s.interceptors(chain))
 	mux.Handle(iamv1alpha1connect.NewServiceTokenIssuerServiceHandler(tokenIssuer{s}, s.interceptors(chain)))
+	mux.Handle(environmentsv1alpha1connect.NewRetryServiceHandler(retryService{s}, s.interceptors(chain)))
 	mux.Handle(environmentsv1alpha1connect.NewEnvironmentServiceHandler(environmentService{s}, s.interceptors(chain),
 		connect.WithReadMaxBytes(maxEnvironmentMessage)))
 	mux.HandleFunc(tunnel.Path, s.openTunnel(chain))

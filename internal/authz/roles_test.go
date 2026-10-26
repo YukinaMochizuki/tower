@@ -109,6 +109,22 @@ func TestWhoMayUseEnvironments(t *testing.T) {
 	}
 }
 
+func TestWhoMayRetry(t *testing.T) {
+	for c, want := range map[authz.Caller]bool{
+		token(iamv1alpha1.Role_ROLE_ADMIN):                               true,
+		token(iamv1alpha1.Role_ROLE_WORKSTREAM):                          true,
+		token(iamv1alpha1.Role_ROLE_HOSTD):                               false,
+		token(iamv1alpha1.Role_ROLE_UNSPECIFIED):                         false,
+		{Principal: auth.Principal{Type: auth.Local, ID: "root@n1"}}:     true,
+		{Principal: auth.SystemPrincipal}:                                true,
+		{Principal: auth.Principal{}, Role: iamv1alpha1.Role_ROLE_ADMIN}: false,
+	} {
+		if got := authz.MayRetry(c); got != want {
+			t.Errorf("%v (role %v) may retry: %t, want %t", c.Principal, c.Role, got, want)
+		}
+	}
+}
+
 func TestWhoMayOpenATunnel(t *testing.T) {
 	hostd := token(iamv1alpha1.Role_ROLE_HOSTD)
 	hostd.Target = "t1"

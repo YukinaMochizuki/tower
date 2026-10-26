@@ -1,6 +1,6 @@
 # What failed waits out a backoff, and says so
 
-Status: accepted, 2026-10.
+Status: accepted, 2026-10; a retry asked for, 2026-10-26.
 
 ## Context
 
@@ -13,12 +13,30 @@ not there. A failure tried again at once, on every reconcile, is the same
 failure over and over, a load on the target, and an object whose status
 flips between FAILED and starting, which workstream cannot act on.
 
+But a failure often has a cause outside the work, fixed outside tower: on
+the first pilot, a registry's request timeout, and build steps without
+DNS on the host. Once each was fixed, the backoff kept answering the old
+failure for hours, read each time as a new one, and the only way past it
+was deleting tower's records by hand.
+
 ## Decision
 
 - **A failure waits out a backoff before the work runs again:** 10 minutes,
   doubled after each failure in a row, up to 6 hours. Meanwhile its golden,
-  box or machine is FAILED, and its condition says why and when it runs
-  again ("built again at", "tried again at").
+  box or machine is FAILED, and its condition says why, when it failed
+  ("failed at") and when it runs again ("built again at", "tried again
+  at"): a failure read later is seen to be the old one, not a new one.
+- **A retry a person asks for runs the work at once.** An administrator
+  (`tower retry golden|box|machine NAME -p PROJECT`), or workstream for
+  the person it acts for, calls RetryService
+  (`proto/tower/environments/v1alpha1/retry_service.proto`): the failures
+  counted against the work are forgotten, so it runs now, and a failure
+  again waits out the first backoff. Of a box or a machine, its golden
+  is built again if that failed, and its failed steps run again. It is a
+  call, not a field of the spec: it asks for an act once and leaves
+  nothing to undo, and a golden, which tower's controllers alone write,
+  has no spec a client may change. The automatic backoff is unchanged:
+  tower retries early only when asked.
 - **The failures are counted where a restart of tower keeps them**: in
   internal records of the store (`GoldenBackoff` per project and inputs,
   `StepBackoff` per box or machine and step), which no client reads.
@@ -36,5 +54,9 @@ flips between FAILED and starting, which workstream cannot act on.
 ## Consequences
 
 - A fix outside tower (a repository pushed, a registry back) is picked up
-  when the backoff runs out, or at once by changing the object's spec.
+  when the backoff runs out, or at once by a retry or by changing the
+  object's spec. tower does not notice the fix by itself.
+- RetryService is open to ROLE_ADMIN, ROLE_WORKSTREAM and root on the
+  host, not to hostd: what runs again is tower's decision
+  (`docs/decisions/layers.md`), made for a person.
 - A failed step's record goes with its box or machine.
