@@ -64,18 +64,36 @@ mount_root() {
 	for m in dev dev/pts proc sys run; do
 		mount --bind "/$m" "$mnt/$m"
 	done
-	# The image's resolv.conf is a link into /run; the chroot uses the
-	# host's own resolver through the bound /run.
+	# The image's resolv.conf is a link into /run, to systemd-resolved's
+	# stub: the chroot uses the host's resolver through the bound /run
+	# where the host runs systemd-resolved (Ubuntu). Where it does not
+	# (Debian), the link leads nowhere, and the host's resolv.conf stands
+	# in for it while the image is made.
+	if [ ! -e "$mnt/etc/resolv.conf" ]; then
+		mv "$mnt/etc/resolv.conf" "$mnt/etc/resolv.conf.tower-orig"
+		cp /etc/resolv.conf "$mnt/etc/resolv.conf"
+	fi
+}
+
+# restore_resolv puts the image's own resolv.conf back.
+restore_resolv() {
+	if [ -e "$mnt/etc/resolv.conf.tower-orig" ] || [ -L "$mnt/etc/resolv.conf.tower-orig" ]; then
+		rm -f "$mnt/etc/resolv.conf"
+		mv "$mnt/etc/resolv.conf.tower-orig" "$mnt/etc/resolv.conf"
+	fi
 }
 
 case "$name" in
 ubuntu-24.04)
 	fetch_image "$TOWER_UBUNTU_2404_URL" "$TOWER_UBUNTU_2404_SHA256"
 	mount_root
-	in_root apt-get update -q
+	# Fails rather than going on with stale lists: an install from them
+	# says only that the package is not there.
+	in_root apt-get update -q --error-on=any
 	in_root apt-get install -qy --no-install-recommends ansible-core
 	in_root apt-get clean
 	rm -rf "$mnt/var/lib/apt/lists/"*
+	restore_resolv
 	;;
 *)
 	fail "no base image $name"

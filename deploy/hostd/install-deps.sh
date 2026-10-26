@@ -48,28 +48,26 @@ install_packages() {
 		{ apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -qy --no-install-recommends "$@"; }
 }
 
-# enable_contrib adds the contrib component to Debian's own sources, which
-# have main without it: debian.sources (deb822, Debian 12 on), or the
-# lines of a .list naming a debian.org mirror. No other repository's
-# source is touched; none of them has contrib.
+# enable_contrib adds the contrib component of every Debian archive the
+# host uses (whatever mirror serves it: apt says which sources are
+# Debian's, by their Release files' Origin) that has main without it, in
+# a file of its own. No source file is edited, and no other repository's
+# is named.
 enable_contrib() {
-	local changed=0 f
-	f=/etc/apt/sources.list.d/debian.sources
-	if [ -f "$f" ] && grep -E '^Components:.*\bmain\b' "$f" | grep -vq '\bcontrib\b'; then
-		sed -i -E '/^Components:.*\bmain\b/{/\bcontrib\b/!s/$/ contrib/}' "$f"
-		changed=1
-	fi
-	for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
-		[ -f "$f" ] || continue
-		if grep -E '^deb(-src)? .*debian\.org/.* main( |$)' "$f" | grep -vq ' contrib\b'; then
-			sed -i -E '/^deb(-src)? .*debian\.org\/.* main( |$)/{/ contrib\b/!s/ main( |$)/ main contrib\1/}' "$f"
-			changed=1
-		fi
-	done
-	if [ "$changed" = 1 ]; then
-		echo "enabled contrib"
-		apt-get update -q
-	fi
+	local list=/etc/apt/sources.list.d/tower-debian-contrib.list wanted
+	apt-get update -q >/dev/null
+	wanted=$(apt-cache policy | awk '
+		$2 ~ /^https?:/ { url = $2; n = split($3, s, "/"); suite = s[1]; comp = s[n > 1 ? 2 : 1] }
+		/[ ,]o=Debian,/ && comp == "main" { main[url " " suite] = 1 }
+		/[ ,]o=Debian,/ && comp == "contrib" { contrib[url " " suite] = 1 }
+		END { for (k in main) if (!(k in contrib)) print "deb " k " contrib" }' | sort)
+	[ -n "$wanted" ] || return 0
+	{
+		echo "# Written by deploy/hostd/install-deps.sh: Debian's contrib, for zfs-dkms."
+		echo "$wanted"
+	} >"$list"
+	echo "enabled contrib: $list"
+	apt-get update -q
 }
 
 # shellcheck source=/dev/null
@@ -87,6 +85,9 @@ debian)
 		echo "Secure Boot is on: enroll DKMS's key (mokutil --import /var/lib/dkms/mok.pub) and reboot if modprobe zfs fails" >&2
 	fi
 	install_packages zfs-dkms
+	# Debian's docker.io only recommends its CLI, which the runbooks and
+	# the testbed use.
+	install_packages docker-cli
 	;;
 *) fail "$distro is neither Ubuntu nor Debian" ;;
 esac
