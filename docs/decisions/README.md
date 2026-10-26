@@ -8,7 +8,7 @@ the change.
 | File | Decision |
 |---|---|
 | `layers.md` | workstream states intent, tower makes every decision, hangar and hostd only provide resources; hostd is a node agent that keeps no state |
-| `placement.md` | All of a project's environments run on one target, set by an administrator; tower holds the targets and never spills a project elsewhere |
+| `placement.md` | All of a project's environments run on one target, set by an administrator; tower holds the targets and never spills a project elsewhere; a target goes once what tower made on it is gone, or an admin abandons it |
 | `declarative-api.md` | Clients apply intents and watch status, so a reclaimed box keeps its identity; policy is controllers; commands and files are RPCs on a resource |
 | `engine-from-hangar.md` | The resource engine is copied from hangar at a recorded commit, keeping hangar's approach, so it can be extracted later; which of hangar's decisions hold unchanged |
 | `traffic.md` | Traffic inside a target stays there; small data workstream consumes passes through tower; long-lived streams go to the target on a ticket |

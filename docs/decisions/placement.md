@@ -26,9 +26,25 @@ target, so environments spread over targets share none of them.
 - Moving a project to another target affects only environments made after
   the move; existing ones stay where they are until they are reclaimed or
   deleted.
+- **A target is deleted only once nothing tower made on it is left.** A
+  Target can be deleted once no Placement or Instance names it. Its
+  finalizer, `tower.hangarlab.cloud/teardown`, holds it, being deleted,
+  while tower deletes its Goldens (and through them their artifacts) and
+  then, on a hangar target, every object its provider made in the hangar
+  project, the system container's included. A hangar project is shared
+  and has a quota, and what tower leaves there counts against it, unseen
+  by anyone.
+- **An administrator may abandon a target whose teardown cannot finish**
+  (`TargetActionService.AbandonTarget`), such as one whose hangar refuses
+  its token, or a host gone for good. tower never gives up on its own: it
+  cannot tell a target gone for good from one down for a while. What the
+  teardown last found left is said, and logged, as not confirmed gone.
 
 ## Consequences
 
 - A project moved to another target starts cold there: its goldens and
   caches are rebuilt on the new target.
 - One target's outage stops every environment of the projects placed on it.
+- A target that does not answer cannot be deleted without an administrator:
+  it stays, being deleted, its status saying what is left and why, until
+  it answers again or is abandoned (`docs/runbook/deploy.md`).

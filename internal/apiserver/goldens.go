@@ -20,6 +20,7 @@ import (
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
+	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/conditions"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
@@ -328,6 +329,11 @@ func (s *Server) reconcileGolden(ctx context.Context, key controller.Key) error 
 		}
 		return s.setGolden(ctx, g, envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED, "BuildFailed", jerr.Error(), nil)
 	}
+	// No build starts on a target being deleted, whose teardown deletes
+	// the golden; one running already may finish.
+	if _, live, err := s.liveTarget(ctx, g.GetSpec().GetTarget()); err != nil || !live {
+		return err
+	}
 	p, err := s.providerFor(g.GetSpec().GetTarget())
 	if err != nil {
 		return fmt.Errorf("golden %s: %w: %w", key, controller.ErrWaiting, err)
@@ -597,6 +603,15 @@ func (s *Server) deleteGoldenArtifact(ctx context.Context, key controller.Key, g
 	}
 	art := g.GetStatus().GetArtifact()
 	if art == "" || goldenPhase(g) != envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY {
+		return s.RemoveFinalizer(ctx, registry.Golden, resource.Key{Project: key.Project, Name: key.Name}, GoldenArtifactFinalizer)
+	}
+	// A target's teardown deletes its Goldens before it lets the Target go;
+	// one whose Target is gone all the same, abandoned, has no one to ask.
+	if _, ok, err := getTyped[*targetsv1alpha1.Target](ctx, s, registry.Target, resource.Key{Name: g.GetSpec().GetTarget()}); err != nil {
+		return err
+	} else if !ok {
+		s.log.Warn("letting a golden go with its artifact unconfirmed deleted: its target is gone",
+			"project", key.Project, "golden", key.Name, "target", g.GetSpec().GetTarget(), "artifact", art)
 		return s.RemoveFinalizer(ctx, registry.Golden, resource.Key{Project: key.Project, Name: key.Name}, GoldenArtifactFinalizer)
 	}
 	p, err := s.providerFor(g.GetSpec().GetTarget())

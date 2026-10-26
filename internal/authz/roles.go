@@ -150,6 +150,19 @@ func MayOpenTunnel(c Caller) bool {
 	return c.Type == auth.ServiceToken && c.Role == iamv1alpha1.Role_ROLE_HOSTD && c.Target != ""
 }
 
+// MayAbandonTargets reports whether c may let a Target being deleted go
+// without its teardown done (TargetActionService.AbandonTarget): an
+// admin token, root on the host, and the system.
+func MayAbandonTargets(c Caller) bool {
+	switch c.Type {
+	case auth.System, auth.Local:
+		return true
+	case auth.ServiceToken:
+		return c.Role == iamv1alpha1.Role_ROLE_ADMIN
+	}
+	return false
+}
+
 // MayIssueTokens reports whether c may call ServiceTokenIssuerService: an
 // admin token, root on the host, and the system.
 func MayIssueTokens(c Caller) bool {

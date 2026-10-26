@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -96,14 +97,15 @@ func (s *Server) hangarTargetsOfSecret(ctx context.Context, o store.Object) []co
 
 // reconcileHangarTarget runs the target's provider as its spec and secrets
 // say, making it again when they changed, and stops one whose target is
-// gone or not hangar's.
+// gone or not hangar's. A Target being deleted keeps its provider, in
+// teardown, until it goes (teardown.go).
 func (s *Server) reconcileHangarTarget(ctx context.Context, key controller.Key) error {
-	t, live, err := s.liveTarget(ctx, key.Name)
+	t, ok, err := getTyped[*targetsv1alpha1.Target](ctx, s, registry.Target, resource.Key{Name: key.Name})
 	if err != nil {
 		return err
 	}
 	h := t.GetSpec().GetHangar()
-	if !live || h == nil {
+	if !ok || h == nil {
 		s.stopHangar(key.Name, "")
 		return nil
 	}
@@ -221,6 +223,7 @@ func (s *Server) hangarConfig(ctx context.Context, t *targetsv1alpha1.Target) (h
 	for _, part := range [][]byte{
 		[]byte(h.GetEndpoint()), []byte(h.GetProject()), []byte(token), pull,
 		[]byte(h.GetRegistryHost()), []byte(push.Username), []byte(push.Password), []byte(authKey),
+		[]byte(strconv.FormatBool(t.GetMetadata().GetDeleteTime() != nil)),
 	} {
 		_, _ = fmt.Fprintf(sum, "%d:", len(part))
 		_, _ = sum.Write(part)
@@ -235,7 +238,7 @@ func (s *Server) hangarConfig(ctx context.Context, t *targetsv1alpha1.Target) (h
 		Target: name, API: api(h.GetEndpoint(), h.GetProject(), token), Client: s.systemClient(), PullSecret: pull,
 		Guest: s.cfg.TowerGuest, StreamPrefix: HangarStreamPath + name + "/", Clock: s.clock, Log: s.log,
 		SystemImage: s.cfg.SystemImage, Registry: s.cfg.Registry, RegistryHost: h.GetRegistryHost(), RegistryPlainHTTP: s.cfg.RegistryPlainHTTP,
-		PushLogin: push, TailnetAuthKey: authKey,
+		PushLogin: push, TailnetAuthKey: authKey, Teardown: t.GetMetadata().GetDeleteTime() != nil,
 	}
 	if s.cfg.Tickets != nil {
 		cfg.TicketKey = s.cfg.Tickets.PublicKey()

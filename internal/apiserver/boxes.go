@@ -395,6 +395,10 @@ func (s *Server) followDevcontainerGolden(ctx context.Context, key controller.Ke
 		return err
 	}
 	if !ok {
+		// Nothing new is made on a target being deleted.
+		if _, live, err := s.liveTarget(ctx, st.Target); err != nil || !live {
+			return err
+		}
 		p, err := s.providerFor(st.Target)
 		if err != nil {
 			return fmt.Errorf("box %s: %w: %w", key, controller.ErrWaiting, err)

@@ -457,9 +457,54 @@ func (s *Server) collectOwned(ctx context.Context, b *backend, key resource.Key,
 	return true
 }
 
+// addFinalizer adds a finalizer to the object of the uid as the system,
+// unless it is gone or being deleted: a finalizer added then would hold
+// what its delete already let go.
+func (s *Server) addFinalizer(ctx context.Context, r registry.Resource, key resource.Key, uid, finalizer string) error {
+	b := s.backend(r)
+	sk := b.storeKey(key)
+	for range maxRetries {
+		cur, err := s.store.Get(ctx, sk)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return apiError(err)
+		}
+		obj, err := b.decode(cur)
+		if err != nil {
+			return err
+		}
+		meta := object.Meta(obj)
+		if meta.GetUid() != uid || meta.GetDeleteTime() != nil || slices.Contains(meta.GetFinalizers(), finalizer) {
+			return nil
+		}
+		meta.Finalizers = append(meta.Finalizers, finalizer)
+		data, err := encode(obj)
+		if err != nil {
+			return err
+		}
+		_, err = s.store.Update(ctx, sk, data, cur.Revision)
+		if errors.Is(err, store.ErrConflict) {
+			continue
+		}
+		return apiError(err)
+	}
+	return connect.NewError(connect.CodeAborted, errors.New("too many concurrent writers; retry"))
+}
+
 // RemoveFinalizer removes a finalizer from an object as the system, and
 // deletes the object if it was being deleted and that was the last one.
 func (s *Server) RemoveFinalizer(ctx context.Context, r registry.Resource, key resource.Key, finalizer string) error {
+	return s.removeFinalizerOf(ctx, r, key, "", finalizer)
+}
+
+// errOtherUID is an object of the name that is not the one of the uid.
+var errOtherUID = errors.New("the object of the name is another one")
+
+// removeFinalizerOf is RemoveFinalizer of the object of the uid, any with
+// "": another of its name is errOtherUID.
+func (s *Server) removeFinalizerOf(ctx context.Context, r registry.Resource, key resource.Key, uid, finalizer string) error {
 	b := s.backend(r)
 	sk := b.storeKey(key)
 	for range maxRetries {
@@ -472,6 +517,9 @@ func (s *Server) RemoveFinalizer(ctx context.Context, r registry.Resource, key r
 			return err
 		}
 		meta := object.Meta(obj)
+		if uid != "" && meta.GetUid() != uid {
+			return errOtherUID
+		}
 		if !slices.Contains(meta.GetFinalizers(), finalizer) {
 			return nil
 		}

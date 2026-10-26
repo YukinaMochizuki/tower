@@ -76,6 +76,9 @@ const dependentsFinalizer = registry.Domain + "/dependents"
 type kindHooks struct {
 	// cascades makes deleting the object delete everything it owns first.
 	cascades bool
+	// finalizers are the system's, which every object of the kind is made
+	// with: a user can neither leave them out nor drop them.
+	finalizers []string
 	// owner returns the object a new one belongs to, if any: deleting the
 	// owner deletes it.
 	owner func(ctx context.Context, s *Server, obj proto.Message) (registry.Resource, resource.Key, bool)

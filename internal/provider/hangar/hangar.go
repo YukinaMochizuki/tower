@@ -27,6 +27,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -106,8 +107,11 @@ type Config struct {
 	// container checked and every Instance read back; SweepEvery how often
 	// the sweep runs, SweepGrace its grace. Zero is each one's default.
 	ReportEvery, SweepEvery, SweepGrace time.Duration
-	Clock                               clockwork.Clock
-	Log                                 *slog.Logger
+	// Teardown starts the target in teardown, as Teardown puts it: for a
+	// Target being deleted.
+	Teardown bool
+	Clock    clockwork.Clock
+	Log      *slog.Logger
 }
 
 // Target is one hangar target. Make it with New and run it with Run.
@@ -129,6 +133,8 @@ type Target struct {
 	// pullWritten says the pull secret is in hangar, as of this run.
 	pullMu      sync.Mutex
 	pullWritten bool
+	// tearingDown says the target is in teardown (Teardown).
+	tearingDown atomic.Bool
 }
 
 var _ provider.Provider = (*Target)(nil)
@@ -147,6 +153,7 @@ func New(cfg Config) *Target {
 		t.log = slog.New(slog.DiscardHandler)
 	}
 	t.log = t.log.With("target", cfg.Target)
+	t.tearingDown.Store(cfg.Teardown)
 	t.guest = newGuestBinary(cfg.Guest)
 	t.ctrl = t.newController()
 	t.streams = t.newStreams()
