@@ -5,12 +5,15 @@ How tower and the registry are installed on their own machine
 target. Every listener is on the tailnet alone
 (`docs/decisions/authentication.md`): the apiserver's API, the registry and
 hostd's direct streams each bind the host's tailnet address, never every
-interface. The steps are run as root; `make` builds the binaries where Go
-is (`CGO_ENABLED=0` for `tower-guest`).
+interface. The steps are run as root, from a release unpacked on the host
+(`docs/runbook/release.md`), which holds `bin/` and `deploy/`; on a
+development machine, `make build-deploy` makes the same `bin/`.
 
-```sh
-make build-deploy   # bin/tower-apiserver, bin/tower, bin/hostd, bin/tower-guest
-```
+A host is Ubuntu or Debian. Its tailnet tags are the configuration
+repository's (`infra: tailnet/base.hujson`): tower's machine is
+`tag:tower-control`, a hostd host `tag:tower-hostd-target` (beside its
+`tag:host`), and workstream's `tag:workstream`; those grants are the whole
+of who reaches the apiserver, the registry and hostd's direct streams.
 
 ## On tower's machine
 
@@ -86,6 +89,43 @@ The `hostd` user is what every hostd pulls and pushes as; its password goes
 to each host (below). `tailscale cert` must run again before the
 certificate expires (a timer of the operator's), then `systemctl restart
 zot`.
+
+zot keeps its images in `/var/lib/zot`: give it a disk of its own, mounted
+there before install.sh runs. Images are rebuilt on demand, so the
+registry is not backed up.
+
+### 4. Backing up the store
+
+The store is `/var/lib/tower/tower.db` (SQLite). litestream replicates it
+continuously to an S3 bucket, here the configuration repository's Garage
+(`infra: stacks/garage`), with an access key that writes that bucket alone.
+The key-encryption key is never in that bucket: it is in the vault, and a
+backup restores only with both.
+
+```sh
+cat > /etc/litestream.yml <<EOF
+dbs:
+  - path: /var/lib/tower/tower.db
+    replicas:
+      - type: s3
+        endpoint: https://<garage's tailnet name>
+        bucket: tower-litestream
+        path: tower.db
+        region: garage
+        force-path-style: true
+EOF
+cat > /etc/default/litestream <<EOF
+LITESTREAM_ACCESS_KEY_ID=<key id>
+LITESTREAM_SECRET_ACCESS_KEY=<secret>
+EOF
+chmod 0600 /etc/default/litestream
+```
+
+Install litestream from its release (a `.deb`), run its unit as the `tower`
+user (`systemctl edit litestream`: `User=tower`, `EnvironmentFile=/etc/default/litestream`),
+and enable it. To restore, with the apiserver stopped:
+`litestream restore -o /var/lib/tower/tower.db /var/lib/tower/tower.db`,
+then the KEK from the vault into `/var/lib/tower/secrets-kek`.
 
 ## On each hostd host
 

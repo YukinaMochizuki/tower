@@ -4,7 +4,13 @@
 # firmware, and BuildKit as a service, each at the version
 # versions.env pins and checked against its sha256. It leaves Docker with
 # live-restore on, so containers and VMs outlive a restart of dockerd.
-# Idempotent. Run as root.
+# Idempotent. Run as root, on Ubuntu or Debian.
+#
+# Ubuntu ships ZFS's kernel module built. Debian ships it as source, in
+# contrib, built by DKMS against the headers of each kernel installed: the
+# script enables contrib and installs zfs-dkms with the headers of the
+# running kernel and of the kernel metapackage, so the module is built now
+# and again for every kernel an upgrade brings.
 #
 # TOWER_REGISTRY_HTTP, if set, is a registry (host:port) served over plain
 # HTTP, as the testbed's is, which Docker and BuildKit are told to use so.
@@ -35,9 +41,57 @@ fetch() {
 	echo "installed $dest"
 }
 
+# install_packages PACKAGE... installs packages, updating the package lists only
+# when they are not found as they are.
+install_packages() {
+	DEBIAN_FRONTEND=noninteractive apt-get install -qy --no-install-recommends "$@" >/dev/null ||
+		{ apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -qy --no-install-recommends "$@"; }
+}
+
+# enable_contrib adds the contrib component to Debian's own sources, which
+# have main without it: debian.sources (deb822, Debian 12 on), or the
+# lines of a .list naming a debian.org mirror. No other repository's
+# source is touched; none of them has contrib.
+enable_contrib() {
+	local changed=0 f
+	f=/etc/apt/sources.list.d/debian.sources
+	if [ -f "$f" ] && grep -E '^Components:.*\bmain\b' "$f" | grep -vq '\bcontrib\b'; then
+		sed -i -E '/^Components:.*\bmain\b/{/\bcontrib\b/!s/$/ contrib/}' "$f"
+		changed=1
+	fi
+	for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
+		[ -f "$f" ] || continue
+		if grep -E '^deb(-src)? .*debian\.org/.* main( |$)' "$f" | grep -vq ' contrib\b'; then
+			sed -i -E '/^deb(-src)? .*debian\.org\/.* main( |$)/{/ contrib\b/!s/ main( |$)/ main contrib\1/}' "$f"
+			changed=1
+		fi
+	done
+	if [ "$changed" = 1 ]; then
+		echo "enabled contrib"
+		apt-get update -q
+	fi
+}
+
+# shellcheck source=/dev/null
+distro=$(. /etc/os-release && echo "$ID")
+case $distro in
+ubuntu) ;;
+debian)
+	enable_contrib
+	# DKMS builds ZFS's module here; the metapackage's headers follow
+	# every kernel upgrade, the running kernel's build it now.
+	install_packages "linux-headers-$(uname -r)" "linux-headers-$(dpkg --print-architecture)" dkms
+	# Under Secure Boot the kernel loads the module only once DKMS's
+	# signing key is enrolled (mokutil --import, then a reboot).
+	if command -v mokutil >/dev/null && mokutil --sb-state 2>/dev/null | grep -q enabled; then
+		echo "Secure Boot is on: enroll DKMS's key (mokutil --import /var/lib/dkms/mok.pub) and reboot if modprobe zfs fails" >&2
+	fi
+	install_packages zfs-dkms
+	;;
+*) fail "$distro is neither Ubuntu nor Debian" ;;
+esac
 # shellcheck disable=SC2086
-DEBIAN_FRONTEND=noninteractive apt-get install -qy --no-install-recommends $TOWER_HOSTD_PACKAGES >/dev/null ||
-	{ apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -qy --no-install-recommends $TOWER_HOSTD_PACKAGES; }
+install_packages $TOWER_HOSTD_PACKAGES
 modprobe zfs
 
 fetch "$TOWER_CH_URL" "$TOWER_CH_SHA256" /usr/local/bin/cloud-hypervisor
