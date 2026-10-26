@@ -215,8 +215,23 @@ type HangarTarget struct {
 	// hangar keeps as a registry-auth Secret of the project and names in its
 	// containers. Empty pulls anonymously. See docs/decisions/images.md.
 	RegistryPullSecret string `protobuf:"bytes,4,opt,name=registry_pull_secret,json=registryPullSecret,proto3" json:"registry_pull_secret,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// The name hangar pulls tower's registry by, host[:port], such as its
+	// public name, which the images the target builds are named by; empty
+	// is the registry's own name (tower-apiserver's --registry). The
+	// target's system container pushes to the registry's own name, over
+	// the tailnet. See docs/decisions/images.md.
+	RegistryHost string `protobuf:"bytes,5,opt,name=registry_host,json=registryHost,proto3" json:"registry_host,omitempty"`
+	// A Secret in tower's reserved project "system" holding the login the
+	// target's system container pushes its builds to the registry with,
+	// under "username" and "password". Empty pushes anonymously.
+	RegistryPushSecret string `protobuf:"bytes,6,opt,name=registry_push_secret,json=registryPushSecret,proto3" json:"registry_push_secret,omitempty"`
+	// A Secret in tower's reserved project "system" holding, under
+	// "authkey", the tailnet auth key the target's system container joins
+	// the tailnet with, once: what it pushes to the registry over. Empty
+	// joins it to none.
+	TailnetAuthSecret string `protobuf:"bytes,7,opt,name=tailnet_auth_secret,json=tailnetAuthSecret,proto3" json:"tailnet_auth_secret,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *HangarTarget) Reset() {
@@ -273,6 +288,27 @@ func (x *HangarTarget) GetCredentialSecret() string {
 func (x *HangarTarget) GetRegistryPullSecret() string {
 	if x != nil {
 		return x.RegistryPullSecret
+	}
+	return ""
+}
+
+func (x *HangarTarget) GetRegistryHost() string {
+	if x != nil {
+		return x.RegistryHost
+	}
+	return ""
+}
+
+func (x *HangarTarget) GetRegistryPushSecret() string {
+	if x != nil {
+		return x.RegistryPushSecret
+	}
+	return ""
+}
+
+func (x *HangarTarget) GetTailnetAuthSecret() string {
+	if x != nil {
+		return x.TailnetAuthSecret
 	}
 	return ""
 }
@@ -1437,12 +1473,15 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\x05hostd\x18\x02 \x01(\v2#.tower.targets.v1alpha1.HostdTargetH\x00R\x05hostd\x12B\n" +
 	"\bsettings\x18\x03 \x01(\v2&.tower.targets.v1alpha1.TargetSettingsR\bsettingsB\n" +
 	"\n" +
-	"\bprovider\"\xb3\x01\n" +
+	"\bprovider\"\xba\x02\n" +
 	"\fHangarTarget\x12\"\n" +
 	"\bendpoint\x18\x01 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\bendpoint\x12 \n" +
 	"\aproject\x18\x02 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\aproject\x12+\n" +
 	"\x11credential_secret\x18\x03 \x01(\tR\x10credentialSecret\x120\n" +
-	"\x14registry_pull_secret\x18\x04 \x01(\tR\x12registryPullSecret\"\r\n" +
+	"\x14registry_pull_secret\x18\x04 \x01(\tR\x12registryPullSecret\x12#\n" +
+	"\rregistry_host\x18\x05 \x01(\tR\fregistryHost\x120\n" +
+	"\x14registry_push_secret\x18\x06 \x01(\tR\x12registryPushSecret\x12.\n" +
+	"\x13tailnet_auth_secret\x18\a \x01(\tR\x11tailnetAuthSecret\"\r\n" +
 	"\vHostdTarget\"\xa4\x02\n" +
 	"\x0eTargetSettings\x12A\n" +
 	"\x0fidle_stop_after\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\ridleStopAfter\x12\x1f\n" +

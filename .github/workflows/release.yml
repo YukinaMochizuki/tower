@@ -89,7 +89,7 @@ jobs:
             echo "::error::VERSION is $(cat VERSION), not this run's commit $GITHUB_SHA"
             exit 1
           fi
-          for f in "tower-host_${TAG}_linux_amd64.tar.gz" \
+          for f in "tower-host_${TAG}_linux_amd64.tar.gz" "tower-system_${TAG}_linux_amd64.tar" \
             "tower_${TAG}_linux_amd64.tar.gz" "tower_${TAG}_linux_arm64.tar.gz" \
             "tower_${TAG}_darwin_amd64.tar.gz" "tower_${TAG}_darwin_arm64.tar.gz"; do
             if [ ! -f "$f" ]; then

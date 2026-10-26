@@ -29,9 +29,14 @@ and hangar pulls with a read-only login of the registry's that is the
 hangar target's own (`HangarTarget.registry_pull_secret`, kept in hangar as
 a registry-auth Secret its containers name): every guest of the host leaves
 through the same public IP, so the address alone says nothing of who
-pulls. Pushing from a hangar target is its builder's: a container that
-joins the tailnet with an identity of its own, which the tailnet's ACL
-limits to the registry; the host never does.
+pulls. Pushing from a hangar target is its builder's: its system
+container (`internal/system`), whose buildkitd pushes through the
+tailscaled beside it, joined to the tailnet once with an auth key of the
+target's (`HangarTarget.tailnet_auth_secret`), an identity the tailnet's
+ACL limits to the registry; the host never joins. It pushes to the
+registry's tailnet name (`--registry`), and tower names what it built by
+the name hangar pulls (`HangarTarget.registry_host`): one registry, two
+names.
 
 ## Consequences
 

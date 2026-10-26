@@ -37,6 +37,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/controller"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/streams"
+	"github.com/YukinaMochizuki/tower/internal/system"
 )
 
 // Defaults of a Config.
@@ -81,9 +82,29 @@ type Config struct {
 	// https://tower.example/streams/hangar/t1/; empty refuses tickets.
 	// StreamPrefix is its path, which Streams serves.
 	StreamURL, StreamPrefix string
-	// ReportEvery is how often the Target's status is reported and every
-	// Instance read back; SweepEvery how often the sweep runs, SweepGrace
-	// its grace. Zero is each one's default.
+	// SystemImage is the system container's image, by digest
+	// (internal/system), in Registry by its name there, which hangar pulls
+	// by RegistryHost; empty makes none, and the target keeps no mirror and
+	// builds no image. SystemDisk, SystemCPU and SystemMemory size it;
+	// empty is each one's default.
+	SystemImage                         string
+	SystemDisk, SystemCPU, SystemMemory string
+	// Registry is tower's registry as the system container pushes to it,
+	// host[:port], over the tailnet; RegistryHost, the name hangar pulls
+	// from it by, which the images the target builds are named by. Empty
+	// is Registry.
+	Registry, RegistryHost string
+	// RegistryPlainHTTP says Registry is served over plain HTTP, as one on
+	// the tailnet alone may be, whose traffic the tailnet encrypts.
+	RegistryPlainHTTP bool
+	// PushLogin is the registry login the system container pushes with.
+	PushLogin system.Login
+	// TailnetAuthKey joins the system container to the tailnet, once: its
+	// state is kept on its disk.
+	TailnetAuthKey string
+	// ReportEvery is how often the Target's status is reported, the system
+	// container checked and every Instance read back; SweepEvery how often
+	// the sweep runs, SweepGrace its grace. Zero is each one's default.
 	ReportEvery, SweepEvery, SweepGrace time.Duration
 	Clock                               clockwork.Clock
 	Log                                 *slog.Logger
@@ -104,6 +125,7 @@ type Target struct {
 	limits  processLimits
 	procs   processCache
 	streams *streams.Server
+	sys     systemState
 	// pullWritten says the pull secret is in hangar, as of this run.
 	pullMu      sync.Mutex
 	pullWritten bool
@@ -116,6 +138,7 @@ func New(cfg Config) *Target {
 	cfg.ReportEvery = cmp.Or(cfg.ReportEvery, DefaultReportEvery)
 	cfg.SweepEvery = cmp.Or(cfg.SweepEvery, DefaultSweepEvery)
 	cfg.SweepGrace = cmp.Or(cfg.SweepGrace, DefaultSweepGrace)
+	cfg.RegistryHost = cmp.Or(cfg.RegistryHost, cfg.Registry)
 	t := &Target{cfg: cfg, api: cfg.API, c: cfg.Client, clock: cfg.Clock, log: cfg.Log}
 	if t.clock == nil {
 		t.clock = clockwork.NewRealClock()
@@ -135,6 +158,7 @@ func (t *Target) Run(ctx context.Context) error {
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return t.ctrl.Run(ctx) })
 	g.Go(func() error { t.every(ctx, t.cfg.ReportEvery, "report", t.Report); return nil })
+	g.Go(func() error { t.every(ctx, t.cfg.ReportEvery, "system check", t.EnsureSystem); return nil })
 	g.Go(func() error { t.every(ctx, t.cfg.SweepEvery, "sweep", t.Sweep); return nil })
 	return g.Wait()
 }

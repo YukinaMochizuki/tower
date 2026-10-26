@@ -52,6 +52,21 @@ message HangarTarget {
   // hangar keeps as a registry-auth Secret of the project and names in its
   // containers. Empty pulls anonymously. See docs/decisions/images.md.
   string registry_pull_secret = 4;
+  // The name hangar pulls tower's registry by, host[:port], such as its
+  // public name, which the images the target builds are named by; empty
+  // is the registry's own name (tower-apiserver's --registry). The
+  // target's system container pushes to the registry's own name, over
+  // the tailnet. See docs/decisions/images.md.
+  string registry_host = 5;
+  // A Secret in tower's reserved project "system" holding the login the
+  // target's system container pushes its builds to the registry with,
+  // under "username" and "password". Empty pushes anonymously.
+  string registry_push_secret = 6;
+  // A Secret in tower's reserved project "system" holding, under
+  // "authkey", the tailnet auth key the target's system container joins
+  // the tailnet with, once: what it pushes to the registry over. Empty
+  // joins it to none.
+  string tailnet_auth_secret = 7;
 }
 
 // HostdTarget is a host running hostd. The host is whoever holds a

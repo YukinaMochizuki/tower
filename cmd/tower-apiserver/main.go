@@ -40,6 +40,9 @@ type flags struct {
 	defaultImage string
 	towerGuest   string
 	publicURL    string
+	systemImage  string
+	registry     string
+	registryHTTP bool
 	dev          bool
 }
 
@@ -57,6 +60,9 @@ func main() {
 	flag.StringVar(&f.defaultImage, "default-box-image", "", "the image a box of a repository without a devcontainer is made of when it names no fallback_image, as workstream's own default box image; empty fails such a box")
 	flag.StringVar(&f.towerGuest, "tower-guest", "", "tower-guest, statically linked, which the provider of a hangar target writes into its machines and runs everything in them through; empty runs nothing in them")
 	flag.StringVar(&f.publicURL, "public-url", "", "where clients reach this apiserver, such as https://tower.example.ts.net:8080: direct streams to hangar targets' instances are served there; empty issues no ticket for them")
+	flag.StringVar(&f.systemImage, "system-image", "", "the image of a hangar target's system container, by digest in --registry, by its --registry name, which each hangar target pulls by its registry_host, as deploy/system-image builds it and docs/runbook/deploy.md pushes it; empty, a hangar target keeps no mirror and builds no image")
+	flag.StringVar(&f.registry, "registry", "", "tower's registry, host[:port], as a hangar target's system container pushes its builds to it, over the tailnet")
+	flag.BoolVar(&f.registryHTTP, "registry-plain-http", false, "--registry is served over plain HTTP, as one on the tailnet alone may be, whose traffic the tailnet encrypts")
 	flag.BoolVar(&f.dev, "dev", false, "for local development only: trust the "+auth.DevPrincipalHeader+" header as the caller, and take the admin socket from the uid the apiserver runs as; only on a loopback IP")
 	flag.Parse()
 
@@ -102,6 +108,9 @@ func run(ctx context.Context, f flags, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	if f.systemImage != "" && f.registry == "" {
+		return errors.New("--system-image needs --registry: a hangar target's builder pushes to it")
+	}
 	var guest []byte
 	if f.towerGuest != "" {
 		if guest, err = os.ReadFile(f.towerGuest); err != nil {
@@ -110,7 +119,7 @@ func run(ctx context.Context, f flags, log *slog.Logger) error {
 	}
 	srv := apiserver.New(apiserver.Config{
 		Store: st, Logger: log, Secrets: keys, Credentials: st, Tickets: tickets, DefaultBoxImage: f.defaultImage,
-		TowerGuest: guest, PublicURL: f.publicURL,
+		TowerGuest: guest, PublicURL: f.publicURL, SystemImage: f.systemImage, Registry: f.registry, RegistryPlainHTTP: f.registryHTTP,
 	})
 	tokens, ok := srv.ServiceTokens()
 	if !ok {

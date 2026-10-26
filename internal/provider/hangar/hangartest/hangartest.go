@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,12 +35,17 @@ import (
 const Target = "h1"
 
 // BuildGuest builds tower-guest into dir and returns its path.
-func BuildGuest(dir string) (string, error) {
-	path := filepath.Join(dir, "tower-guest")
-	build := exec.Command("go", "build", "-o", path, "github.com/YukinaMochizuki/tower/cmd/tower-guest")
-	build.Env = append(os.Environ(), "CGO_ENABLED=0")
-	if out, err := build.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("building tower-guest: %w: %s", err, out)
+func BuildGuest(dir string) (string, error) { return build(dir, "tower-guest") }
+
+// BuildSystem builds tower-system into dir and returns its path.
+func BuildSystem(dir string) (string, error) { return build(dir, "tower-system") }
+
+func build(dir, cmd string) (string, error) {
+	path := filepath.Join(dir, cmd)
+	b := exec.Command("go", "build", "-o", path, "github.com/YukinaMochizuki/tower/cmd/"+cmd)
+	b.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := b.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("building %s: %w: %s", cmd, err, out)
 	}
 	return path, nil
 }
@@ -55,6 +61,10 @@ type Options struct {
 	PullSecret []byte
 	// Image is what the harness's containers run, by digest.
 	Image string
+	// Remote is a repository the system container fetches and pushes to,
+	// on Branch, at RemoteHead, with a Dockerfile at RemoteDockerfile
+	// building from Image; empty skips the mirrors' and builds' tests.
+	Remote, Branch, RemoteHead, RemoteDockerfile string
 	// Configure, if set, adjusts the provider's config.
 	Configure func(*hangar.Config)
 	// Wait bounds a wait for an instance's phase; zero is testutil's. A
@@ -94,6 +104,14 @@ func New(t *testing.T, opts Options) *World {
 		opts.Configure(&cfg)
 	}
 	w.Target = hangar.New(cfg)
+	if cfg.SystemImage != "" {
+		// The system container made and answering before the suite asks it
+		// anything, as a target's is long before a box needs it.
+		testutil.EventuallyWithin(t, w.within(), "the system container answering", func() (bool, string) {
+			err := w.Target.EnsureSystem(t.Context())
+			return err == nil && w.Target.SystemReady(), fmt.Sprint(err)
+		})
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- w.Target.Run(ctx) }()
@@ -111,8 +129,10 @@ func New(t *testing.T, opts Options) *World {
 		// The provider deletes their containers and disks as it hears of
 		// it; on a real hangar, a delete takes until the machine is gone.
 		for deadline := time.Now().Add(3 * time.Minute); time.Now().Before(deadline); {
-			cts, err := opts.API.Containers().List(cleanup, hangar.LabelTarget+"="+Target)
-			disks, derr := opts.API.Disks().List(cleanup, hangar.LabelTarget+"="+Target)
+			// The system container stays, as a target's does.
+			instances := hangar.LabelTarget + "=" + Target + "," + hangar.LabelProject + "=" + apiservertest.Project
+			cts, err := opts.API.Containers().List(cleanup, instances)
+			disks, derr := opts.API.Disks().List(cleanup, instances)
 			if err == nil && derr == nil && len(cts) == 0 && len(disks) == 0 {
 				break
 			}
@@ -157,9 +177,33 @@ func (w *World) within() time.Duration {
 
 // Harness is the providertest harness of the world.
 func (w *World) Harness() providertest.Harness {
-	later := "a hangar target does not do it yet"
+	skip := map[string]string{}
+	if w.opts.Remote == "" {
+		why := "the run names no repository the system container reaches"
+		for _, name := range []string{"BuildImage", "ResolveImage", "ReadAndBuildAMirror", "MirrorAndCheckout", "PushNeedsItsLease"} {
+			skip[name] = why
+		}
+	}
 	return providertest.Harness{
 		Provider: w.Target, Target: Target, Image: w.opts.Image,
+		Remote: w.opts.Remote, Branch: w.opts.Branch, RemoteHead: w.opts.RemoteHead, RemoteDockerfile: w.opts.RemoteDockerfile,
+		Golden: func(t *testing.T, art provider.Artifact) string {
+			t.Helper()
+			key := client.Key{Project: apiservertest.Project, Name: "golden-" + strings.ToLower(art.Name)}
+			if _, err := w.Env.AsSystem().Apply(t.Context(), registry.Golden, &envv1alpha1.Golden{
+				Metadata: &metav1.ObjectMeta{Project: key.Project, Name: key.Name},
+				Spec: &envv1alpha1.GoldenSpec{Target: Target, InputHash: art.Name,
+					Inputs: &envv1alpha1.GoldenSpec_BoxWarm{BoxWarm: &envv1alpha1.BoxWarmInputs{Repository: "r"}}},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := w.Env.AsSystem().UpdateStatus(t.Context(), registry.Golden, key, &envv1alpha1.GoldenStatus{
+				Phase: envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY, Artifact: art.Name,
+			}, nil); err != nil {
+				t.Fatal(err)
+			}
+			return key.Name
+		},
 		Start: func(t *testing.T, name string, spec *envv1alpha1.InstanceSpec) (provider.Instance, *envv1alpha1.InstanceStatus) {
 			t.Helper()
 			if _, err := w.Env.AsSystem().Apply(t.Context(), registry.Instance, &envv1alpha1.Instance{
@@ -184,9 +228,6 @@ func (w *World) Harness() providertest.Harness {
 			w.WaitPhase(t, ref.Name, envv1alpha1.InstancePhase_INSTANCE_PHASE_STOPPED)
 		},
 		ProcessLimits: w.Target.SetProcessLimits,
-		Skip: map[string]string{
-			"BuildImage": later, "ResolveImage": later, "ReadAndBuildAMirror": later, "CaptureAndClone": later,
-			"MirrorAndCheckout": later, "PushNeedsItsLease": later,
-		},
+		Skip:          skip,
 	}
 }

@@ -34,6 +34,10 @@ versions at a given ref.
   requests (opening, editing, merging, reading checks) stay workstream's.
 - tower's write token is the narrowest the forge allows (on GitHub, a
   fine-grained token with contents:write), not workstream's own.
+- **On a hangar target, the mirrors are in its system container**
+  (`internal/system`), on its disk, kept by the same git driver as on a
+  hostd host; a token reaches only the one git command there that needs
+  it, as on a host.
 
 ## Consequences
 

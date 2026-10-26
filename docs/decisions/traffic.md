@@ -44,6 +44,15 @@ Traffic is split by who needs the bytes, not by size:
   has tokens scoped to one machine and port, short-lived; hangar does not
   take tickets tower signs, which would make it know tower
   (`layers.md`).
+- **A hangar target's checkouts and pushes pass through tower,** a second
+  exception, to point 1. Its mirrors are in its system container, on a
+  network of its own, which hangar keeps apart from every workstream's
+  and routes nothing between (a machine joins at most eight networks), so
+  a checkout's tar, an origin's and a push's `.git` cross from one to the
+  other through tower, read out of one and written into the other
+  (`internal/provider/hangar`). Builds read a mirror where it is. The way
+  out is a service one machine offers other networks of its project,
+  which hangar does not have yet (hangar#219).
 - **A copy between two instances goes across their workstream's
   network,** from one guest to the other (tower-guest's send and receive),
   never through tower: a copy is always within one workstream, whose

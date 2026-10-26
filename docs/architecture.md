@@ -72,8 +72,10 @@ hangar`, started by the apiserver from the Target and the Secrets it
 names): it makes the target's Instances real in its hangar project, one
 hangar Network per workstream and a Container with a Disk at /workspace
 per container instance, and runs tower-guest in them over hangar's exec,
-as hostd does in its guests. Containers only, for now: mirrors, image
-builds, goldens and VMs on hangar come next.
+as hostd does in its guests. Its mirrors and builds are in a system
+container of the target's own (`internal/system`), and its goldens are
+hangar CustomImages captured from a stopped box's disk. VMs on hangar come
+next.
 
 ## Data flow
 

@@ -8,6 +8,8 @@
 #                                       runbook and VERSION
 #   tower_TAG_OS_ARCH.tar.gz            the CLI, for Linux and macOS on
 #                                       amd64 and arm64
+#   tower-system_TAG_linux_amd64.tar    a hangar target's system image, an
+#                                       OCI layout (deploy/system-image)
 #   VERSION                             the commit
 #   SHA256SUMS                          every other file's sha256
 #
@@ -56,6 +58,8 @@ for os in linux darwin; do
 		tar_dir "$out/dist/tower_${tag}_${os}_${arch}.tar.gz" "$cli"
 	done
 done
+
+deploy/system-image/build.sh "$out/dist/tower-system_${tag}_linux_amd64.tar"
 
 echo "$commit" >"$out/dist/VERSION"
 (cd "$out/dist" && sha256sum -- * >SHA256SUMS)

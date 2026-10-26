@@ -91,10 +91,18 @@ func validateTarget(_ context.Context, _ *Server, _ authz.Caller, _, obj proto.M
 		if err := ValidName(h.GetCredentialSecret()); err != nil {
 			return invalid("spec.hangar.credential_secret: %v", err)
 		}
-		if p := h.GetRegistryPullSecret(); p != "" {
-			if err := ValidName(p); err != nil {
-				return invalid("spec.hangar.registry_pull_secret: %v", err)
+		for field, name := range map[string]string{
+			"registry_pull_secret": h.GetRegistryPullSecret(), "registry_push_secret": h.GetRegistryPushSecret(), "tailnet_auth_secret": h.GetTailnetAuthSecret(),
+		} {
+			if name == "" {
+				continue
 			}
+			if err := ValidName(name); err != nil {
+				return invalid("spec.hangar.%s: %v", field, err)
+			}
+		}
+		if r := h.GetRegistryHost(); r != "" && (strings.ContainsAny(r, "/@ ") || strings.Contains(r, "://")) {
+			return invalid("spec.hangar.registry_host %q is no host[:port]", r)
 		}
 	}
 	set := t.GetSpec().GetSettings()

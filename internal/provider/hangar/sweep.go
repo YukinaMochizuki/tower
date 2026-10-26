@@ -13,7 +13,9 @@ import (
 // Sweep deletes from hangar what this target made that no Instance of it
 // accounts for any more, once it is older than the sweep's grace: what a
 // reconcile missed, such as an Instance deleted while tower was down. A
-// network goes once no container of the target's is on it. It holds the
+// network goes once no container of the target's is on it, and a golden's
+// image once no Golden of the target names it. The system container's
+// objects are the target's own, and stay. It holds the
 // target's lock alone, so no reconcile makes anything meanwhile.
 func (t *Target) Sweep(ctx context.Context) error {
 	t.mu.Lock()
@@ -29,6 +31,18 @@ func (t *Target) Sweep(ctx context.Context) error {
 			live[in.GetMetadata().GetUid()] = true
 		}
 	}
+	goldens, _, err := t.c.ListAll(ctx, registry.Golden, client.ListOptions{})
+	if err != nil {
+		return err
+	}
+	named := map[string]bool{}
+	for _, o := range goldens {
+		g := o.(*envv1alpha1.Golden)
+		if g.GetSpec().GetTarget() == t.cfg.Target && g.GetStatus().GetArtifact() != "" {
+			named[g.GetStatus().GetArtifact()] = true
+		}
+	}
+	mine := func(labels map[string]string) bool { return t.mine(labels) && labels[LabelRole] != "system" }
 	old := func(created *timestamppb.Timestamp) bool {
 		return created != nil && t.clock.Since(created.AsTime()) >= t.cfg.SweepGrace
 	}
@@ -40,7 +54,10 @@ func (t *Target) Sweep(ctx context.Context) error {
 	held := map[string]bool{}
 	for _, ct := range cts {
 		meta := ct.GetMetadata()
-		if !t.mine(meta.GetLabels()) {
+		if !mine(meta.GetLabels()) {
+			for _, i := range ct.GetSpec().GetInterfaces() {
+				used[i.GetNetwork()] = true
+			}
 			continue
 		}
 		uid := meta.GetLabels()[LabelUID]
@@ -68,7 +85,7 @@ func (t *Target) Sweep(ctx context.Context) error {
 		meta := d.GetMetadata()
 		// A disk goes once the container of its name has: hangar refuses to
 		// delete one a machine has.
-		if !t.mine(meta.GetLabels()) || live[meta.GetLabels()[LabelUID]] || !old(meta.GetCreateTime()) ||
+		if !mine(meta.GetLabels()) || live[meta.GetLabels()[LabelUID]] || !old(meta.GetCreateTime()) ||
 			held[meta.GetName()] || meta.GetDeleteTime() != nil {
 			continue
 		}
@@ -83,11 +100,29 @@ func (t *Target) Sweep(ctx context.Context) error {
 	}
 	for _, n := range nets {
 		meta := n.GetMetadata()
-		if !t.mine(meta.GetLabels()) || used[meta.GetName()] || !old(meta.GetCreateTime()) || meta.GetDeleteTime() != nil {
+		if !mine(meta.GetLabels()) || used[meta.GetName()] || !old(meta.GetCreateTime()) || meta.GetDeleteTime() != nil {
 			continue
 		}
 		t.log.Info("sweeping a network no container is on", "network", meta.GetName())
 		if err := t.api.Networks().Delete(ctx, meta.GetName()); err != nil {
+			return err
+		}
+	}
+	// A golden's image no Golden names any more goes; hangar keeps its
+	// base until the disks made from it go.
+	imgs, err := t.api.CustomImages().List(ctx, t.selector())
+	if err != nil {
+		return err
+	}
+	for _, img := range imgs {
+		meta := img.GetMetadata()
+		// One whose instance is still there is being captured, or captured
+		// and not yet named by its Golden.
+		if !mine(meta.GetLabels()) || named[meta.GetName()] || live[meta.GetLabels()[LabelUID]] || !old(meta.GetCreateTime()) || meta.GetDeleteTime() != nil {
+			continue
+		}
+		t.log.Info("sweeping a golden's image no Golden names", "image", meta.GetName())
+		if err := t.api.CustomImages().Delete(ctx, meta.GetName()); err != nil {
 			return err
 		}
 	}

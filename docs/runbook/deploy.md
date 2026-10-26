@@ -129,6 +129,75 @@ and enable it. To restore, with the apiserver stopped:
 `litestream restore -o /var/lib/tower/tower.db /var/lib/tower/tower.db`,
 then the KEK from the vault into `/var/lib/tower/secrets-kek`.
 
+### 5. A hangar target
+
+A hangar target is one project of a hangar endpoint, which tower uses
+with that project's service token (`docs/decisions/layers.md`); tower
+runs its provider itself, and nothing is installed on the hangar host.
+Its boxes run tower-guest, which the apiserver writes into them; its
+mirrors and builds run in a system container of the target's own,
+`tower-sys-*`, made from the release's system image, which joins the
+tailnet to push to the registry (`docs/decisions/images.md`).
+
+```sh
+install -d -m 0755 /usr/local/lib/tower
+install -m 0755 bin/tower-guest /usr/local/lib/tower/tower-guest
+cat >> /etc/tower/apiserver.env <<END
+TOWER_GUEST=/usr/local/lib/tower/tower-guest
+TOWER_PUBLIC_URL=http://$(tailscale ip -4):8080
+TOWER_REGISTRY=<the registry's tailnet name>:5000
+TOWER_SYSTEM_IMAGE=<below>
+END
+```
+
+**The system image** is the release's `tower-system_TAG_linux_amd64.tar`,
+an OCI layout. Push it to the registry from a machine on the tailnet with
+this repository, and set `TOWER_SYSTEM_IMAGE` to it by the digest crane
+prints, named by `TOWER_REGISTRY` (each target pulls it by its own
+`registry_host`):
+
+```sh
+mkdir tower-system && tar -xf tower-system_TAG_linux_amd64.tar -C tower-system
+go tool -modfile=tools/tools.mod crane push tower-system <registry>/tower/system:TAG
+```
+
+**The registry's public side.** hangar pulls by a name the hangar host
+reaches, which the tailnet is not: the registry's public one, read-only,
+open to the hangar host's address alone, with a login of its own
+(`docs/decisions/images.md`). zot as installed above listens on the
+tailnet alone, with the tailnet name's certificate; these steps do not
+make the public side. Before a hangar target is made, the registry must
+answer at the target's `registry_host` with a certificate for that name,
+and serve nothing but pulls there.
+
+**The target**: its project's service token, a read-only registry login
+for hangar's pulls, a writing one for its builds, and a tailnet auth key
+for its builder, each a Secret in the reserved project `system`, then the
+Target:
+
+```yaml
+apiVersion: targets.tower.hangarlab.cloud/v1alpha1
+kind: Target
+metadata: {name: hangar-main}
+spec:
+  hangar:
+    endpoint: https://api.hangar.example
+    project: tower
+    credential_secret: hangar-token           # key "token"
+    registry_pull_secret: registry-pull       # key ".dockerconfigjson"
+    registry_host: registry.example.com:5000  # as hangar pulls
+    registry_push_secret: registry-push       # keys "username", "password"
+    tailnet_auth_secret: builder-authkey      # key "authkey"
+```
+
+`tower get target hangar-main` says whether hangar answers, the project's
+room by its quota, and whether the system container answers and is on
+the tailnet. The project's Plan must allow a network per workstream and
+one more, and the disk of every box plus the system container's 50Gi.
+Every editor stream and followed log holds one of hangar's machine
+calls the whole time: where the Plan has `machine_calls`, set it to
+that many at once and more; a hangar without it has a fixed cap.
+
 ## On each hostd host
 
 A hostd host needs a ZFS pool (`docs/decisions/hostd-storage.md`), KVM

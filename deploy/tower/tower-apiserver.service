@@ -14,6 +14,11 @@ Group=tower
 # TOWER_DEFAULT_BOX_IMAGE: what a box of a repository without a
 # devcontainer is made of when workstream names no fallback; empty fails
 # such a box (docs/decisions/devcontainers.md).
+# For hangar targets (docs/runbook/deploy.md), each empty without one:
+# TOWER_GUEST, tower-guest's path; TOWER_PUBLIC_URL, where clients reach
+# the apiserver, which serves hangar targets' direct streams;
+# TOWER_REGISTRY, the registry as a hangar target's builder pushes to it;
+# TOWER_SYSTEM_IMAGE, the system image by digest.
 EnvironmentFile=/etc/tower/apiserver.env
 # Its database, key-encryption key and ticket key are in /var/lib/tower,
 # the user's alone; the admin socket, root's way in, in /run/tower.
@@ -27,7 +32,11 @@ ExecStart=/usr/local/bin/tower-apiserver \
 	--admin-socket /run/tower/admin.sock \
 	--secrets-kek /var/lib/tower/secrets-kek \
 	--ticket-key /var/lib/tower/ticket-key \
-	--default-box-image ${TOWER_DEFAULT_BOX_IMAGE}
+	--default-box-image ${TOWER_DEFAULT_BOX_IMAGE} \
+	--tower-guest=${TOWER_GUEST} \
+	--public-url=${TOWER_PUBLIC_URL} \
+	--registry=${TOWER_REGISTRY} \
+	--system-image=${TOWER_SYSTEM_IMAGE}
 Restart=always
 RestartSec=2
 NoNewPrivileges=true

@@ -97,6 +97,16 @@ type Config struct {
 	// TowerGuest is tower-guest, statically linked, which a hangar target's
 	// provider writes into its machines; empty runs nothing in them.
 	TowerGuest []byte
+	// SystemImage is the image of a hangar target's system container, by
+	// digest (internal/system); empty makes none, and a hangar target
+	// keeps no mirror and builds no image.
+	SystemImage string
+	// Registry is tower's registry, host[:port], as a hangar target's
+	// system container pushes to it, over the tailnet.
+	Registry string
+	// RegistryPlainHTTP says Registry is served over plain HTTP, as one on
+	// the tailnet alone may be.
+	RegistryPlainHTTP bool
 	// PublicURL is where clients reach this apiserver, such as
 	// https://tower.example.ts.net:8080: the direct streams to hangar
 	// targets' instances are served there. Empty issues no ticket for them.
