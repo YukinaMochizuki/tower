@@ -273,7 +273,7 @@ func (s *Server) checkReady(ctx context.Context, key controller.Key, m *envv1alp
 		deadline := s.clock.Now().Add(timeout)
 		for {
 			var out bytes.Buffer
-			code, err := p.Exec(ctx, provider.ExecRequest{Instance: ref, Command: asUser(user, "sh", "-c", check.GetCommand()), Stdout: &out, Stderr: &out})
+			code, err := p.Exec(ctx, provider.ExecRequest{Instance: ref, Command: shellAsUser(user, check.GetCommand()), Stdout: &out, Stderr: &out})
 			if err != nil {
 				return err
 			}

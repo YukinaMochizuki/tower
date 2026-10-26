@@ -24,6 +24,23 @@ func asUser(user string, command ...string) []string {
 	return append([]string{"runuser", "-u", user, "--"}, command...)
 }
 
+// inHomeScript runs the shell command $1 in the home of the user it runs
+// as. runuser keeps the working directory, which for an exec with none
+// is one the user may not read (root's): a ready check calling go there
+// failed "cannot determine current directory". A command given as the
+// user starts where that user's login would, as a client's own VM
+// convention has it (ssh lands in the home).
+const inHomeScript = `cd "$HOME" || exit; exec sh -c "$1"`
+
+// shellAsUser is the shell command script run by sh as user, in the
+// user's home; as root, where it was, when user is empty.
+func shellAsUser(user, script string) []string {
+	if user == "" {
+		return []string{"sh", "-c", script}
+	}
+	return asUser(user, "sh", "-c", inHomeScript, "sh", script)
+}
+
 // prepareUserScript makes the user $1 if the VM has none of the name,
 // with a home directory and a group of its own; gives it a home if it
 // lacks one, and passwordless sudo, which a playbook's become tasks reach
