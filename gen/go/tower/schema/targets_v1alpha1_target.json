@@ -210,6 +210,10 @@
         "project": {
           "description": "The hangar project every environment of this target lives in.",
           "type": "string"
+        },
+        "registryPullSecret": {
+          "description": "A Secret in tower's reserved project \"system\" holding the login hangar pulls tower's images with, under the key \".dockerconfigjson\", in the Docker config format: a read-only login of the registry's, which hangar keeps as a registry-auth Secret of the project and names in its containers. Empty pulls anonymously. See docs/decisions/images.md.",
+          "type": "string"
         }
       },
       "type": "object"

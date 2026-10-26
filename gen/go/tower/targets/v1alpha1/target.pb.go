@@ -209,8 +209,14 @@ type HangarTarget struct {
 	// A Secret in tower's reserved project "system" holding the hangar
 	// service token tower calls the endpoint with, under the key "token".
 	CredentialSecret string `protobuf:"bytes,3,opt,name=credential_secret,json=credentialSecret,proto3" json:"credential_secret,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// A Secret in tower's reserved project "system" holding the login hangar
+	// pulls tower's images with, under the key ".dockerconfigjson", in the
+	// Docker config format: a read-only login of the registry's, which
+	// hangar keeps as a registry-auth Secret of the project and names in its
+	// containers. Empty pulls anonymously. See docs/decisions/images.md.
+	RegistryPullSecret string `protobuf:"bytes,4,opt,name=registry_pull_secret,json=registryPullSecret,proto3" json:"registry_pull_secret,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *HangarTarget) Reset() {
@@ -260,6 +266,13 @@ func (x *HangarTarget) GetProject() string {
 func (x *HangarTarget) GetCredentialSecret() string {
 	if x != nil {
 		return x.CredentialSecret
+	}
+	return ""
+}
+
+func (x *HangarTarget) GetRegistryPullSecret() string {
+	if x != nil {
+		return x.RegistryPullSecret
 	}
 	return ""
 }
@@ -1424,11 +1437,12 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\x05hostd\x18\x02 \x01(\v2#.tower.targets.v1alpha1.HostdTargetH\x00R\x05hostd\x12B\n" +
 	"\bsettings\x18\x03 \x01(\v2&.tower.targets.v1alpha1.TargetSettingsR\bsettingsB\n" +
 	"\n" +
-	"\bprovider\"\x81\x01\n" +
+	"\bprovider\"\xb3\x01\n" +
 	"\fHangarTarget\x12\"\n" +
 	"\bendpoint\x18\x01 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\bendpoint\x12 \n" +
 	"\aproject\x18\x02 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\aproject\x12+\n" +
-	"\x11credential_secret\x18\x03 \x01(\tR\x10credentialSecret\"\r\n" +
+	"\x11credential_secret\x18\x03 \x01(\tR\x10credentialSecret\x120\n" +
+	"\x14registry_pull_secret\x18\x04 \x01(\tR\x12registryPullSecret\"\r\n" +
 	"\vHostdTarget\"\xa4\x02\n" +
 	"\x0eTargetSettings\x12A\n" +
 	"\x0fidle_stop_after\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\ridleStopAfter\x12\x1f\n" +

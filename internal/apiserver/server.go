@@ -28,6 +28,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/controller"
 	"github.com/YukinaMochizuki/tower/internal/devcontainer"
 	"github.com/YukinaMochizuki/tower/internal/provider"
+	"github.com/YukinaMochizuki/tower/internal/provider/hangar"
 	"github.com/YukinaMochizuki/tower/internal/provider/hostd"
 	"github.com/YukinaMochizuki/tower/internal/secrets"
 	"github.com/YukinaMochizuki/tower/internal/store"
@@ -63,8 +64,8 @@ type Config struct {
 	Credentials store.Credentials
 	// Providers returns the provider of a target, by name. An error leaves
 	// the target's environments waiting. Nil is tower's own: a hostd
-	// target's is its host over the tunnel it opens; a hangar target has
-	// none yet.
+	// target's is its host over the tunnel it opens; a hangar target's one
+	// tower runs (hangar.go).
 	Providers func(target string) (provider.Provider, error)
 	// TunnelLiveness is the hostd tunnels'; zero is
 	// tunnel.DefaultLiveness.
@@ -90,6 +91,16 @@ type Config struct {
 	// DisableControllers leaves the policy controllers out, as tests of the
 	// generic machinery do.
 	DisableControllers bool
+	// HangarAPI makes a hangar target's API from its endpoint, project and
+	// token; nil is hangar's own (hangar.NewConnect). Tests give a fake.
+	HangarAPI func(endpoint, project, token string) hangar.API
+	// TowerGuest is tower-guest, statically linked, which a hangar target's
+	// provider writes into its machines; empty runs nothing in them.
+	TowerGuest []byte
+	// PublicURL is where clients reach this apiserver, such as
+	// https://tower.example.ts.net:8080: the direct streams to hangar
+	// targets' instances are served there. Empty issues no ticket for them.
+	PublicURL string
 }
 
 // Server is the API server. Create it with New, start its background work
@@ -133,6 +144,11 @@ type Server struct {
 	tunnels    *tunnel.Hub
 	reach      reachability
 	hostdCalls *hostd.Calls
+	// hangar are the hangar targets' providers tower runs, by hangarCtrl;
+	// inproc the client they act on the API with.
+	hangar     hangarTargets
+	hangarCtrl *controller.Controller
+	inproc     inprocClient
 }
 
 // New returns a server over cfg.Store.
@@ -185,6 +201,10 @@ func New(cfg Config) *Server {
 	}
 	if !cfg.DisableControllers {
 		s.controllers = s.newControllers()
+		if cfg.Providers == nil {
+			s.hangarCtrl = s.newHangarController()
+			s.controllers = append(s.controllers, s.hangarCtrl)
+		}
 	}
 	return s
 }
@@ -196,7 +216,7 @@ func (s *Server) ControllerStatus() []controller.Status {
 	for _, c := range s.controllers {
 		st = append(st, c.Status())
 	}
-	return st
+	return append(st, s.hangarStatus()...)
 }
 
 func (s *Server) backend(r registry.Resource) *backend { return s.backends[r.Kind] }
@@ -212,6 +232,8 @@ func (s *Server) Handler(chain auth.Chain) http.Handler {
 	mux.Handle(environmentsv1alpha1connect.NewEnvironmentServiceHandler(environmentService{s}, s.interceptors(chain),
 		connect.WithReadMaxBytes(maxEnvironmentMessage)))
 	mux.HandleFunc(tunnel.Path, s.openTunnel(chain))
+	// A stream's ticket is its credential, which its provider checks.
+	mux.HandleFunc(HangarStreamPath, s.serveHangarStream)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
 	})
@@ -257,6 +279,7 @@ func (s *Server) Run(ctx context.Context) error {
 		g.Go(func() error { return s.runLastUse(gctx) })
 	}
 	defer s.jobs.wg.Wait()
+	defer s.hangar.wg.Wait()
 	g.Go(func() error { return s.runCompaction(gctx) })
 	if s.sessions != nil {
 		g.Go(func() error { return s.sessions.Run(gctx) })
