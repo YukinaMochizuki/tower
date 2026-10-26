@@ -93,6 +93,15 @@ type goldenBackoff struct {
 	// failed, counted once.
 	Reason string `json:"reason"`
 	Golden string `json:"golden"`
+	// FailedAt is when the last failure was counted; zero in a record
+	// written before tower kept it.
+	FailedAt time.Time `json:"failedAt,omitzero"`
+}
+
+// message is the failure as a golden, and what waits on it, say it: why,
+// when it failed, and when it is built again.
+func (b goldenBackoff) message() string {
+	return failureMessage(b.Reason, b.FailedAt, "built again at", b.RetryAt)
 }
 
 // warmSizeRecord is a repository's last warm golden's size.

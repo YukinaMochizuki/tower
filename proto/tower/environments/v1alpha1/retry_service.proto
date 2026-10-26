@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package tower.environments.v1alpha1;
+
+import "tower/environments/v1alpha1/box.proto";
+import "tower/environments/v1alpha1/golden.proto";
+import "tower/environments/v1alpha1/machine.proto";
+
+// RetryService runs the failed work of a FAILED golden, box or machine
+// now, instead of when its backoff runs out: what a person, or an agent
+// acting for one, asks for once the cause of a failure is fixed. It
+// forgets the failures counted against the work, so the next failure
+// waits out the first backoff again; the automatic backoff is otherwise
+// unchanged. ROLE_ADMIN, ROLE_WORKSTREAM and root on the host may call
+// it. Each call answers at once, with the object as it was before the
+// work runs again; whoever waits for the result watches the object. It
+// is not a resource's service, so it is written by hand rather than
+// generated. See docs/decisions/failures.md.
+service RetryService {
+  // RetryGolden builds a FAILED golden again now: the failures of its
+  // inputs are forgotten and, if a box, a machine or the warm policy
+  // still asks for it, it is deleted and made again at once, as one whose
+  // backoff ran out is.
+  rpc RetryGolden(RetryGoldenRequest) returns (RetryGoldenResponse);
+  // RetryBox runs the failed work of a FAILED box now: its image golden,
+  // if that failed, is retried as RetryGolden does, and its failed
+  // instance steps (secret files, checkouts) run again.
+  rpc RetryBox(RetryBoxRequest) returns (RetryBoxResponse);
+  // RetryMachine runs the failed work of a FAILED machine now: its golden
+  // that failed is retried as RetryGolden does, and its failed instance
+  // steps (configure phase, ready check) run again.
+  rpc RetryMachine(RetryMachineRequest) returns (RetryMachineResponse);
+}
+
+message RetryGoldenRequest {
+  string project = 1;
+  string name = 2;
+}
+
+message RetryGoldenResponse {
+  // The golden as it was when the call came.
+  Golden golden = 1;
+  // Whether it was FAILED, and so is built again now. A golden that was
+  // not is left as it is: the call does nothing, and succeeds.
+  bool retried = 2;
+}
+
+message RetryBoxRequest {
+  string project = 1;
+  string name = 2;
+}
+
+message RetryBoxResponse {
+  // The box as it was when the call came.
+  Box box = 1;
+  // Whether it was FAILED, and so its work runs again now. A box that was
+  // not is left as it is: the call does nothing, and succeeds.
+  bool retried = 2;
+}
+
+message RetryMachineRequest {
+  string project = 1;
+  string name = 2;
+}
+
+message RetryMachineResponse {
+  // The machine as it was when the call came.
+  Machine machine = 1;
+  // Whether it was FAILED, and so its work runs again now. A machine that
+  // was not is left as it is: the call does nothing, and succeeds.
+  bool retried = 2;
+}

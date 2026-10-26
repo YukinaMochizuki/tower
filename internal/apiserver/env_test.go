@@ -192,6 +192,7 @@ type clients struct {
 	tokens   iamv1alpha1connect.ServiceTokenServiceClient
 	issuer   iamv1alpha1connect.ServiceTokenIssuerServiceClient
 	envs     environmentsv1alpha1connect.EnvironmentServiceClient
+	retry    environmentsv1alpha1connect.RetryServiceClient
 	generic  *client.Client
 }
 
@@ -202,6 +203,7 @@ func newClients(hc connect.HTTPClient, base string) clients {
 		tokens:   iamv1alpha1connect.NewServiceTokenServiceClient(hc, base),
 		issuer:   iamv1alpha1connect.NewServiceTokenIssuerServiceClient(hc, base),
 		envs:     environmentsv1alpha1connect.NewEnvironmentServiceClient(hc, base),
+		retry:    environmentsv1alpha1connect.NewRetryServiceClient(hc, base),
 		generic:  client.New(hc, base),
 	}
 }

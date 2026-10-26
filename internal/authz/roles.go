@@ -129,6 +129,21 @@ func MayUseEnvironments(c Caller) bool {
 	return false
 }
 
+// MayRetry reports whether c may call RetryService, and so run a failed
+// golden's, box's or machine's work before its backoff runs out: an admin
+// token, root on the host, ROLE_WORKSTREAM (for the person it acts for),
+// and the system. Not hostd, which has no say in tower's policy
+// (docs/decisions/layers.md).
+func MayRetry(c Caller) bool {
+	switch c.Type {
+	case auth.System, auth.Local:
+		return true
+	case auth.ServiceToken:
+		return c.Role == iamv1alpha1.Role_ROLE_ADMIN || c.Role == iamv1alpha1.Role_ROLE_WORKSTREAM
+	}
+	return false
+}
+
 // MayOpenTunnel reports whether c may open its target's tunnel: a
 // ROLE_HOSTD token, for its own target alone.
 func MayOpenTunnel(c Caller) bool {
