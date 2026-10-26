@@ -165,18 +165,20 @@ func (s *Server) setGolden(ctx context.Context, g *envv1alpha1.Golden, phase env
 	if change != nil {
 		change(st)
 	}
+	// The failure is counted before it is written, so whatever reads the
+	// golden failed finds when it is built again.
+	if phase == envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED && goldenPhase(g) != envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED {
+		b, err := s.goldenFailed(ctx, g, msg)
+		if err != nil {
+			return err
+		}
+		msg = b.message()
+	}
 	ready := &metav1.Condition{Type: GoldenReady, Status: metav1.ConditionStatus_CONDITION_STATUS_FALSE, Reason: reason, Message: msg, ObservedGeneration: st.ObservedGeneration}
 	if phase == envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY {
 		ready.Status = metav1.ConditionStatus_CONDITION_STATUS_TRUE
 	}
 	st.Conditions = conditions.Set(slices.Clone(st.GetConditions()), ready, s.clock.Now())
-	// The failure is counted before it is written, so whatever reads the
-	// golden failed finds when it is built again.
-	if phase == envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED && goldenPhase(g) != envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED {
-		if err := s.goldenFailed(ctx, g, msg); err != nil {
-			return err
-		}
-	}
 	if err := s.updateStatus(ctx, registry.Golden, g, st); err != nil {
 		return err
 	}
@@ -192,13 +194,13 @@ func goldenBackoffKey(g *envv1alpha1.Golden) store.Key {
 
 // goldenFailed counts a failure of the golden's inputs, once per golden,
 // and says when a golden of them is built again.
-func (s *Server) goldenFailed(ctx context.Context, g *envv1alpha1.Golden, reason string) error {
+func (s *Server) goldenFailed(ctx context.Context, g *envv1alpha1.Golden, reason string) (goldenBackoff, error) {
 	var b goldenBackoff
 	if _, err := s.getRecord(ctx, goldenBackoffKey(g), &b); err != nil {
-		return err
+		return b, err
 	}
 	if b.Golden == g.GetMetadata().GetUid() {
-		return nil
+		return b, nil
 	}
 	b.Golden = g.GetMetadata().GetUid()
 	wait := GoldenRetryFirst
@@ -209,10 +211,11 @@ func (s *Server) goldenFailed(ctx context.Context, g *envv1alpha1.Golden, reason
 		}
 	}
 	b.Failures++
-	b.RetryAt, b.Reason = s.clock.Now().Add(wait), reason
+	b.FailedAt = s.clock.Now()
+	b.RetryAt, b.Reason = b.FailedAt.Add(wait), reason
 	s.log.Warn("a golden failed", "project", g.GetMetadata().GetProject(), "name", g.GetMetadata().GetName(),
 		"failures", b.Failures, "retry_at", b.RetryAt, "reason", reason)
-	return s.putRecord(ctx, goldenBackoffKey(g), b)
+	return b, s.putRecord(ctx, goldenBackoffKey(g), b)
 }
 
 // goldenRetryAt is when a failed golden is built again, zero if tower
@@ -226,17 +229,19 @@ func (s *Server) goldenRetryAt(ctx context.Context, g *envv1alpha1.Golden) (time
 }
 
 // failedGoldenMessage is what waits on a failed golden say: why it
-// failed, and when it is built again.
+// failed, when, and when it is built again. A golden whose failure tower
+// no longer counts (retried, or never recorded) says what its condition
+// says.
 func (s *Server) failedGoldenMessage(ctx context.Context, g *envv1alpha1.Golden) (string, error) {
-	msg := conditions.Find(g.GetStatus().GetConditions(), GoldenReady).GetMessage()
-	at, err := s.goldenRetryAt(ctx, g)
+	var b goldenBackoff
+	ok, err := s.getRecord(ctx, goldenBackoffKey(g), &b)
 	if err != nil {
 		return "", err
 	}
-	if !at.IsZero() {
-		msg += "; built again at " + at.UTC().Format(time.RFC3339)
+	if ok && !b.RetryAt.IsZero() {
+		return b.message(), nil
 	}
-	return msg, nil
+	return conditions.Find(g.GetStatus().GetConditions(), GoldenReady).GetMessage(), nil
 }
 
 // retryGolden deletes a failed golden something still asks for once its

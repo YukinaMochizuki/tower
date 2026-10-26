@@ -34,6 +34,9 @@ type stepBackoff struct {
 	Failures   int       `json:"failures"`
 	RetryAt    time.Time `json:"retryAt"`
 	Reason     string    `json:"reason"`
+	// FailedAt is when the last failure was counted; zero in a record
+	// written before tower kept it.
+	FailedAt time.Time `json:"failedAt,omitzero"`
 }
 
 // stepRef names one step of one box or machine, in one run of its
@@ -48,10 +51,21 @@ func newStepRef(kind, project, name, step, run string, generation int64) stepRef
 	return stepRef{key: store.Key{Kind: stepBackoffKind, Project: project, Name: kind + "/" + name + "/" + step}, run: run, generation: generation}
 }
 
-// message is the failure as its owner says it: why, and when it runs
-// again.
+// message is the failure as its owner says it: why, when it failed, and
+// when it runs again.
 func (b stepBackoff) message() string {
-	return b.Reason + "; tried again at " + b.RetryAt.UTC().Format(time.RFC3339)
+	return failureMessage(b.Reason, b.FailedAt, "tried again at", b.RetryAt)
+}
+
+// failureMessage says a failure that waits out a backoff: why, when it
+// failed (if known), and when the work runs again, after next. A retry
+// asked for (retry.go) runs it before then.
+func failureMessage(reason string, failedAt time.Time, next string, at time.Time) string {
+	msg := reason
+	if !failedAt.IsZero() {
+		msg += "; failed at " + failedAt.UTC().Format(time.RFC3339)
+	}
+	return msg + "; " + next + " " + at.UTC().Format(time.RFC3339)
 }
 
 // stepWaiting reports the step's failure and whether it waits on it yet:
@@ -82,7 +96,8 @@ func (s *Server) stepFailed(ctx context.Context, ref stepRef, reason string) (st
 		}
 	}
 	b.Failures++
-	b.RetryAt, b.Reason = s.clock.Now().Add(wait), reason
+	b.FailedAt = s.clock.Now()
+	b.RetryAt, b.Reason = b.FailedAt.Add(wait), reason
 	s.log.Warn("an instance step failed", "project", ref.key.Project, "step", ref.key.Name,
 		"failures", b.Failures, "retry_at", b.RetryAt, "reason", reason)
 	return b, s.putRecord(ctx, ref.key, b)
