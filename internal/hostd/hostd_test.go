@@ -337,7 +337,11 @@ func TestAFailedListStopsTheSweep(t *testing.T) {
 // the grace; one an instance names stays; what the images hold is
 // reported in the target's usage.
 func TestAnImageNothingNamesIsSwept(t *testing.T) {
-	w := hostdtest.New(t, hostdtest.Options{Host: func(c *hostd.Config) { c.SweepGrace = 50 * time.Millisecond }})
+	// The harness sweeps on its own every 200 ms too, and the first sweep
+	// to see the image starts its grace: a grace of 1 s outlasts the gap
+	// between the pull and this test's first sweep on a slow runner, and
+	// ends well within Eventually's bound.
+	w := hostdtest.New(t, hostdtest.Options{Host: func(c *hostd.Config) { c.SweepGrace = time.Second }})
 	w.Apply(t, "kept", container("net-a"))
 	w.WaitPhase(t, "kept", envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING)
 	const stale = fake.Registry + "/web/box@sha256:5a"
