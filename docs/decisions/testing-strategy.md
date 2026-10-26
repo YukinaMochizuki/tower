@@ -29,6 +29,12 @@ ordinary workspace or CI runner. hangar solved the same problem
   lint; in-process timing runs in `testing/synctest`; tests that run the
   apiserver wait with `controllertest.WaitSettled`; "nothing happened" is
   checked on the object itself.
+- **The stress job** is tower's own `.github/workflows/stress.yml`, which
+  sets `TOWER_RUN_QUARANTINED=1`, so a test quarantined with
+  `testutil.Quarantine` still runs there. `make stress` (`PKG=`, `COUNT=`)
+  puts the same load on one machine, so a flake can be reproduced in a
+  workspace: on the branch and on `main`, to tell a change that broke a test
+  from a test that was already flaky.
 
 ## Consequences
 

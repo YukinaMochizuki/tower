@@ -5,7 +5,7 @@ GOLANGCI_LINT := $(TOOL) golangci-lint
 # Paths whose contents are produced by `make gen` and must never drift.
 GENERATED := gen internal/apiserver/servicegen internal/store/sqlite/db
 
-.PHONY: all gen check lint lint-proto lint-go breaking test e2e test-e2e-race e2e-host e2e-hangar build-deploy gen-check dev tools deps
+.PHONY: all gen check lint lint-proto lint-go breaking test e2e test-e2e-race stress e2e-host e2e-hangar build-deploy gen-check dev tools deps
 
 all: check
 
@@ -64,6 +64,14 @@ test-e2e-race:
 	else \
 		echo "test-e2e-race: no packages under test/e2e yet"; \
 	fi
+
+# The stress job's load on this machine (tools/stress.sh): -race
+# -shuffle=on with GOMAXPROCS=2 and CPU burners, quarantined tests included.
+# PKG=packages picks some (default ./...), COUNT=n the runs of each test
+# (default 20), RUN=regexp some tests. docs/decisions/testing-strategy.md
+# says when to run it.
+stress:
+	./tools/stress.sh
 
 # Real-host tests (L4) on a testbed test/testbed/setup.sh made: the
 # drivers' conformance suites against the real drivers, the provider

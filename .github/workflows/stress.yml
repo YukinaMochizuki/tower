@@ -1,0 +1,92 @@
+name: stress
+
+# Runs the tests many times, shuffled, on few CPUs under load, quarantined
+# tests included, to shake out flaky tests. Run by hand when needed; see
+# docs/decisions/testing-strategy.md. make stress runs the same on one
+# machine.
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'Packages to stress (go list patterns); empty runs every group'
+        default: ''
+      count:
+        description: 'Runs of each test'
+        default: '20'
+  pull_request:
+    paths:
+      - '.github/workflows/stress.yml'
+
+concurrency:
+  group: stress-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        # The slowest packages get a job each; "rest" is everything else.
+        group: [apiserver, e2e, rest]
+    env:
+      GOMAXPROCS: '2'
+      TOWER_RUN_QUARANTINED: '1'
+      COUNT: ${{ inputs.count || (github.event_name == 'pull_request' && '2') || '20' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - name: Pick the packages
+        id: pkgs
+        env:
+          GROUP: ${{ matrix.group }}
+          ONLY: ${{ inputs.packages }}
+        run: |
+          if [ -n "$ONLY" ]; then
+            if [ "$GROUP" != rest ]; then echo "list=" >> "$GITHUB_OUTPUT"; exit 0; fi
+            echo "list=$ONLY" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          case "$GROUP" in
+            apiserver) list=$(go list ./internal/apiserver/...) ;;
+            e2e) list=$(go list -tags e2e ./test/e2e/...) ;;
+            rest) list=$(go list ./... | grep -v -x -F -e "$(go list ./internal/apiserver/...)") ;;
+          esac
+          echo "list=$(echo $list)" >> "$GITHUB_OUTPUT"
+      - name: Load the CPUs
+        if: steps.pkgs.outputs.list != ''
+        run: |
+          sudo apt-get install -y -q stress-ng
+          nohup stress-ng --cpu 0 --cpu-load 50 > /dev/null 2>&1 &
+      - name: Stress
+        if: steps.pkgs.outputs.list != ''
+        env:
+          PKGS: ${{ steps.pkgs.outputs.list }}
+        run: |
+          set -o pipefail
+          # test/e2e builds under the e2e tag, and its tests run one at a
+          # time under the race detector, as make test-e2e-race runs them
+          # ("Run in parallel" in docs/conventions/testing.md), packages
+          # chosen by hand included.
+          e2e=()
+          if [ "${{ matrix.group }}" = e2e ] || [[ "$PKGS" == *test/e2e* ]]; then e2e=(-tags e2e -parallel 1); fi
+          # The race detector as make test runs it, the SQLite driver not
+          # instrumented (the Makefile's RACE).
+          # shellcheck disable=SC2086
+          go test -race -gcflags=modernc.org/...=-race=false "${e2e[@]}" -shuffle=on -count="$COUNT" -timeout 330m $PKGS 2>&1 | tee stress.log
+      - name: Summarize failures
+        if: failure()
+        run: |
+          {
+            echo "## Failures in ${{ matrix.group }}"
+            echo '```'
+            grep -E -e '^(--- FAIL|FAIL|panic:)' -e '-test\.shuffle' stress.log | head -200
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.pkgs.outputs.list != ''
+        with:
+          name: stress-${{ matrix.group }}
+          path: stress.log
+          retention-days: 14
