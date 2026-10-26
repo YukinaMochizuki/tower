@@ -230,6 +230,10 @@ func TestTheTargetSaysWhenItsProviderFallsSilentOrAJobFails(t *testing.T) {
 
 	w.fake.FailBuilds(fmt.Errorf("the registry refused the push: %w", provider.ErrFailed))
 	w.mustApply(registry.Repository, repository("api"))
+	// The mirror is fetched before the box asks for it: a box that finds
+	// none asks for a fetch of its own, whose success would clear the
+	// build's failure from last_error before it could be read.
+	w.waitSettled()
 	w.mustApply(registry.Box, box("dev", "api"))
 	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_FAILED)
 	when := w.clock.Now().UTC().Format(time.RFC3339)
