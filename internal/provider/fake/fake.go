@@ -98,6 +98,8 @@ type Fake struct {
 	vanished     map[string]bool
 	unavailable  bool
 	buildErr     error
+	// mirrorBuildErr fails builds from a mirror's work tree alone.
+	mirrorBuildErr error
 	// holdBuilds, while set, holds every build until it is closed.
 	holdBuilds   chan struct{}
 	captureErr   error
@@ -473,6 +475,11 @@ func (f *Fake) SetUnavailable(down bool) {
 
 // FailBuilds makes every build fail with err, or succeed again with nil.
 func (f *Fake) FailBuilds(err error) { f.mu.Lock(); f.buildErr = err; f.mu.Unlock() }
+
+// FailMirrorBuilds makes every build from a mirror's work tree (a
+// devcontainer's Dockerfile) fail with err, or succeed again with nil, as
+// a build step without DNS does; other builds are left as they are.
+func (f *Fake) FailMirrorBuilds(err error) { f.mu.Lock(); f.mirrorBuildErr = err; f.mu.Unlock() }
 
 // HoldBuilds holds every build, as a slow one, until release is called;
 // a build whose caller gives up ends with its context.
@@ -942,6 +949,9 @@ func (f *Fake) BuildImage(ctx context.Context, req provider.BuildRequest) (strin
 	// A build needs room to unpack its context before anything else.
 	if f.free() < ImageSize {
 		return "", provider.ErrNoSpace
+	}
+	if req.Mirror != nil && f.mirrorBuildErr != nil {
+		return "", f.mirrorBuildErr
 	}
 	if m := req.Mirror; m != nil {
 		repo, _, err := f.mirrorAt(m.Mirror, m.Ref)

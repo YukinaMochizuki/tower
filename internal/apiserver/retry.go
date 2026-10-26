@@ -72,11 +72,29 @@ func (h retryService) RetryBox(ctx context.Context, req *connect.Request[envv1al
 	if err != nil {
 		return nil, apiError(err)
 	}
-	if ok && box.GetStatus().GetPhase() == envv1alpha1.BoxPhase_BOX_PHASE_FAILED {
+	if !ok {
+		return connect.NewResponse(res), nil
+	}
+	if box.GetStatus().GetPhase() == envv1alpha1.BoxPhase_BOX_PHASE_FAILED {
 		if err := h.s.retryFailed(ctx, c, "box", key, box.GetStatus().GetImageGolden(), h.s.boxCtrl); err != nil {
 			return nil, apiError(err)
 		}
 		res.Retried = true
+	}
+	// Fallen back from its devcontainer's image, which did not build: that
+	// image is built again now, for the boxes made after; the box stays on
+	// the image it fell back to.
+	if dev := box.GetStatus().GetDevcontainerGolden(); dev != "" && fellBack(box.GetStatus()) {
+		g, live, err := h.s.liveGolden(ctx, key.Project, dev)
+		if err != nil {
+			return nil, apiError(err)
+		}
+		if live && goldenPhase(g) == envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED {
+			if err := h.s.retryFailedGolden(ctx, g, c); err != nil {
+				return nil, apiError(err)
+			}
+			res.Retried = true
+		}
 	}
 	return connect.NewResponse(res), nil
 }
@@ -102,7 +120,10 @@ func (h retryService) RetryMachine(ctx context.Context, req *connect.Request[env
 }
 
 // retryFailedGolden forgets the failures of a FAILED golden's inputs and
-// queues it, so its reconcile deletes it to be built again at once.
+// queues it, so its reconcile deletes it to be built again at once. The
+// FAILED goldens made on it (a warm checkout on its image), which failed
+// with it, are retried too: each is built again once it is
+// (retryGolden).
 func (s *Server) retryFailedGolden(ctx context.Context, g *envv1alpha1.Golden, by authz.Caller) error {
 	if err := s.deleteRecord(ctx, goldenBackoffKey(g)); err != nil {
 		return err
@@ -110,6 +131,18 @@ func (s *Server) retryFailedGolden(ctx context.Context, g *envv1alpha1.Golden, b
 	meta := g.GetMetadata()
 	s.log.Info("retrying a failed golden", "project", meta.GetProject(), "name", meta.GetName(), "by", by.String())
 	enqueue(s.goldenCtrl, controller.Key{Project: meta.GetProject(), Name: meta.GetName()})
+	goldens, err := listTyped[*envv1alpha1.Golden](ctx, s, registry.Golden, meta.GetProject())
+	if err != nil {
+		return err
+	}
+	for _, child := range goldens {
+		if child.GetSpec().GetParent() == meta.GetName() && child.GetMetadata().GetDeleteTime() == nil &&
+			goldenPhase(child) == envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED {
+			if err := s.retryFailedGolden(ctx, child, by); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 

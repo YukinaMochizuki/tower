@@ -90,6 +90,9 @@ func (s *Server) reconcileBox(ctx context.Context, key controller.Key) error {
 	st.ObservedGeneration = box.GetMetadata().GetGeneration()
 	bs := &boxState{s: s, st: st}
 	waitErr := s.boxSteps(ctx, key, box, bs)
+	if err := s.followDevcontainerGolden(ctx, key, box, bs); err != nil && waitErr == nil {
+		waitErr = err
+	}
 	write := func() error { return s.updateStatus(ctx, registry.Box, box, st) }
 	if !bs.idleStop {
 		if err := write(); err != nil {
@@ -198,8 +201,8 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 				return err
 			}
 			if err == nil && name != "" {
-				bs.cond(BoxDevcontainerFellBack, true, "BuildFailed", "its devcontainer's image did not build: "+msg)
-				st.ImageGolden = name
+				bs.cond(BoxDevcontainerFellBack, true, "BuildFailed", buildFailedMessage(st.ImageGolden, msg))
+				st.DevcontainerGolden, st.ImageGolden = st.ImageGolden, name
 				bs.not(envv1alpha1.BoxPhase_BOX_PHASE_BUILDING, "Building", "the image it falls back to is being built")
 				return fmt.Errorf("box %s: falling back: %w", key, controller.ErrWaiting)
 			}
@@ -373,6 +376,76 @@ func (s *Server) boxImageGolden(ctx context.Context, p provider.Provider, projec
 		return "", "", "", err
 	}
 	return name, "", img.FellBack, nil
+}
+
+// followDevcontainerGolden keeps a box that fell back from its
+// devcontainer's image, which did not build, saying where that image is,
+// and asks for it while it is not built: its golden is built again when
+// its backoff passes or a retry is asked for (RetryBox), deleted and made
+// again here as a box of the devcontainer would make it, so that a box
+// made after is made of it. The box itself stays on its image.
+func (s *Server) followDevcontainerGolden(ctx context.Context, key controller.Key, box *envv1alpha1.Box, bs *boxState) error {
+	st := bs.st
+	name := st.GetDevcontainerGolden()
+	if name == "" || !fellBack(st) {
+		return nil
+	}
+	g, ok, err := s.liveGolden(ctx, key.Project, name)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		p, err := s.providerFor(st.Target)
+		if err != nil {
+			return fmt.Errorf("box %s: %w: %w", key, controller.ErrWaiting, err)
+		}
+		made, _, why, err := s.boxImageGolden(ctx, p, key.Project, st.Target, box.GetSpec(), false)
+		switch {
+		case errors.Is(err, devcontainer.ErrUnresolvable):
+			// The repository changed since: no image of its devcontainer to
+			// wait for. A box made now says why.
+			st.DevcontainerGolden = ""
+			return nil
+		case err != nil:
+			return err
+		case made == "":
+			// Its repository's mirror is not there yet, whose change brings
+			// the box back.
+			return nil
+		case why != "":
+			st.DevcontainerGolden = ""
+			return nil
+		}
+		st.DevcontainerGolden = made
+		bs.cond(BoxDevcontainerFellBack, true, "Rebuilding", rebuildingMessage(made))
+		return nil
+	}
+	switch goldenPhase(g) {
+	case envv1alpha1.GoldenPhase_GOLDEN_PHASE_FAILED:
+		msg, err := s.failedGoldenMessage(ctx, g)
+		if err != nil {
+			return err
+		}
+		bs.cond(BoxDevcontainerFellBack, true, "BuildFailed", buildFailedMessage(name, msg))
+	case envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY:
+		st.DevcontainerGolden = ""
+		bs.cond(BoxDevcontainerFellBack, true, "BuiltSince", fmt.Sprintf(
+			"its devcontainer's image did not build when the box was made, and is built since (golden %s): a box made now is made of it; this one stays on the image it fell back to", name))
+	default:
+		bs.cond(BoxDevcontainerFellBack, true, "Rebuilding", rebuildingMessage(name))
+	}
+	return nil
+}
+
+// buildFailedMessage is what a box that fell back from the golden of its
+// devcontainer's image, which failed, says: msg is the golden's failure,
+// with when it failed and is built again.
+func buildFailedMessage(golden, msg string) string {
+	return fmt.Sprintf("its devcontainer's image did not build (golden %s): %s", golden, msg)
+}
+
+func rebuildingMessage(golden string) string {
+	return fmt.Sprintf("its devcontainer's image did not build, and is being built again (golden %s): a box made now is made of it once built", golden)
 }
 
 // fellBack says the box's image is the fallback, not its devcontainer's.

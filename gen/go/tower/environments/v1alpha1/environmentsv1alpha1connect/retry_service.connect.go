@@ -52,7 +52,11 @@ type RetryServiceClient interface {
 	RetryGolden(context.Context, *connect.Request[v1alpha1.RetryGoldenRequest]) (*connect.Response[v1alpha1.RetryGoldenResponse], error)
 	// RetryBox runs the failed work of a FAILED box now: its image golden,
 	// if that failed, is retried as RetryGolden does, and its failed
-	// instance steps (secret files, checkouts) run again.
+	// instance steps (secret files, checkouts) run again. Of a box that fell
+	// back from its devcontainer's image because it did not build (its
+	// status's devcontainer_golden), READY or not, that golden, if FAILED,
+	// is retried as RetryGolden does, so a box made after is made of it
+	// once built; the box itself stays on the image it fell back to.
 	RetryBox(context.Context, *connect.Request[v1alpha1.RetryBoxRequest]) (*connect.Response[v1alpha1.RetryBoxResponse], error)
 	// RetryMachine runs the failed work of a FAILED machine now: its golden
 	// that failed is retried as RetryGolden does, and its failed instance
@@ -123,7 +127,11 @@ type RetryServiceHandler interface {
 	RetryGolden(context.Context, *connect.Request[v1alpha1.RetryGoldenRequest]) (*connect.Response[v1alpha1.RetryGoldenResponse], error)
 	// RetryBox runs the failed work of a FAILED box now: its image golden,
 	// if that failed, is retried as RetryGolden does, and its failed
-	// instance steps (secret files, checkouts) run again.
+	// instance steps (secret files, checkouts) run again. Of a box that fell
+	// back from its devcontainer's image because it did not build (its
+	// status's devcontainer_golden), READY or not, that golden, if FAILED,
+	// is retried as RetryGolden does, so a box made after is made of it
+	// once built; the box itself stays on the image it fell back to.
 	RetryBox(context.Context, *connect.Request[v1alpha1.RetryBoxRequest]) (*connect.Response[v1alpha1.RetryBoxResponse], error)
 	// RetryMachine runs the failed work of a FAILED machine now: its golden
 	// that failed is retried as RetryGolden does, and its failed instance

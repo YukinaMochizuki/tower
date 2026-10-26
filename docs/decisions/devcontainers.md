@@ -84,6 +84,15 @@ target (`repositories.md`), and builds on the target (`images.md`).
   and workstream see it. Only with no image to fall back to does the box
   fail (`DevcontainerUnresolvable`, or its image's build failure), saying
   why.
+- **A box fallen back from an image that did not build asks for that image
+  until it builds,** for the boxes made after it: its status names the
+  failed golden (`devcontainer_golden`), its `DevcontainerFellBack` says
+  why it failed, when, and when it is built again (reason `BuildFailed`),
+  then `Rebuilding`, then `BuiltSince`. The golden is built again when its
+  backoff passes, or at once when the box is retried
+  (`docs/decisions/failures.md`). The box itself stays on the image it fell
+  back to: moving it would lose what is in it, so a person or workstream
+  makes a new box instead.
 
 Not workstream's code run by tower: tower is Go and builds on a target it
 reaches through a provider, and workstream's builder runs Docker on its own
