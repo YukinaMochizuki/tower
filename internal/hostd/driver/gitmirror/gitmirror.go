@@ -1,6 +1,8 @@
 // Package gitmirror is hostd's git driver (driver.Git): a bare mirror per
-// repository, each on a ZFS dataset of its own under Dataset, through the
-// git command (docs/decisions/repositories.md). A token reaches git only
+// repository, each on a ZFS dataset of its own under Dataset on a host, or
+// in a directory of its own under Root in a hangar target's system
+// container (cmd/tower-system), through the git command
+// (docs/decisions/repositories.md). A token reaches git only
 // as the environment of the one command that fetches or pushes with it,
 // as an HTTP header (http.extraHeader through GIT_CONFIG_*): no mirror, no
 // checkout and no guest ever holds it. A checkout's origin is the mirror,
@@ -25,6 +27,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/YukinaMochizuki/tower/internal/guest/tarx"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
@@ -40,6 +43,9 @@ type Config struct {
 	// tower/hostd/mirrors, made if need be; MountRoot is where they are
 	// mounted.
 	Dataset, MountRoot string
+	// Root, set in place of Dataset, is a directory the mirrors are kept
+	// in, each in a directory of its own.
+	Root string
 	// ScratchDir is a directory, root's alone, for checkouts and pushes
 	// being made.
 	ScratchDir string
@@ -57,6 +63,12 @@ var _ driver.Git = (*Driver)(nil)
 func New(ctx context.Context, cfg Config) (*Driver, error) {
 	if err := os.MkdirAll(cfg.ScratchDir, 0o700); err != nil {
 		return nil, err
+	}
+	if cfg.Root != "" {
+		if err := os.MkdirAll(cfg.Root, 0o700); err != nil {
+			return nil, fmt.Errorf("the mirrors' directory: %w", err)
+		}
+		return &Driver{cfg: cfg}, nil
 	}
 	if _, err := run(ctx, "", nil, "zfs", "list", "-H", "-o", "name", cfg.Dataset); err != nil {
 		if _, err := run(ctx, "", nil, "zfs", "create", "-p", "-o", "mountpoint="+cfg.MountRoot, cfg.Dataset); err != nil {
@@ -92,11 +104,57 @@ func shortHash(s string) string {
 	return strconv.FormatUint(uint64(h), 36)
 }
 
+// lock holds a mirror for one operation: in this process, and, in a
+// directory under Root, across processes too, as each of the system
+// container's calls is a process of its own (internal/system), by an
+// flock on a file beside the mirrors' directories, which the kernel lets
+// go with the process however it ends.
+func (d *Driver) lock(mirror string) func() {
+	unlock := d.locks.Lock(mirror)
+	if d.cfg.Root == "" {
+		return unlock
+	}
+	ds, err := d.dataset(mirror)
+	if err != nil {
+		// A name that names no mirror fails the operation itself.
+		return unlock
+	}
+	f, err := os.OpenFile(filepath.Join(d.cfg.Root, filepath.Base(ds)+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return unlock
+	}
+	for {
+		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+		if !errors.Is(err, syscall.EINTR) {
+			break
+		}
+	}
+	return func() {
+		_ = f.Close()
+		unlock()
+	}
+}
+
+// dirMirrorFile, in a mirror's directory under Root, names its mirror.
+const dirMirrorFile = "mirror"
+
 // repo is a mirror's bare repository, "" if the mirror was never made.
 func (d *Driver) repo(ctx context.Context, mirror string) (string, error) {
 	ds, err := d.dataset(mirror)
 	if err != nil {
 		return "", err
+	}
+	if d.cfg.Root != "" {
+		dir := filepath.Join(d.cfg.Root, filepath.Base(ds))
+		name, err := os.ReadFile(filepath.Join(dir, dirMirrorFile))
+		if err != nil || string(name) != mirror {
+			return "", nil //nolint:nilerr // a directory not there is a mirror never made
+		}
+		r := filepath.Join(dir, "repo.git")
+		if _, err := os.Stat(filepath.Join(r, "HEAD")); err != nil {
+			return "", nil //nolint:nilerr // a mirror not yet made whole
+		}
+		return r, nil
 	}
 	out, err := run(ctx, "", nil, "zfs", "get", "-H", "-o", "value", propMirror+",mountpoint", ds)
 	if err != nil {
@@ -141,18 +199,16 @@ func (d *Driver) Fetch(ctx context.Context, spec driver.FetchSpec) (string, erro
 	if err != nil {
 		return "", err
 	}
-	unlock := d.locks.Lock(spec.Mirror)
+	unlock := d.lock(spec.Mirror)
 	defer unlock()
 	r, err := d.repo(ctx, spec.Mirror)
 	if err != nil {
 		return "", err
 	}
 	if r == "" {
-		mnt := filepath.Join(d.cfg.MountRoot, filepath.Base(ds))
-		if _, err := run(ctx, "", nil, "zfs", "list", "-H", ds); err != nil {
-			if _, err := run(ctx, "", nil, "zfs", "create", "-o", "mountpoint="+mnt, "-o", propMirror+"="+spec.Mirror, ds); err != nil {
-				return "", err
-			}
+		mnt, err := d.makeMirror(ctx, spec.Mirror, ds)
+		if err != nil {
+			return "", err
 		}
 		r = filepath.Join(mnt, "repo.git")
 		if _, err := git(ctx, "", nil, "init", "--quiet", "--bare", r); err != nil {
@@ -188,6 +244,29 @@ func (d *Driver) Fetch(ctx context.Context, spec driver.FetchSpec) (string, erro
 	}
 	head, err := git(ctx, r, nil, "rev-parse", "--verify", "refs/heads/"+branch)
 	return strings.TrimSpace(head), err
+}
+
+// makeMirror makes a mirror's dataset, or its directory under Root, and
+// returns where its repository goes.
+func (d *Driver) makeMirror(ctx context.Context, mirror, ds string) (string, error) {
+	if d.cfg.Root != "" {
+		dir := filepath.Join(d.cfg.Root, filepath.Base(ds))
+		// A repository half made goes with what made it.
+		if err := os.RemoveAll(filepath.Join(dir, "repo.git")); err != nil {
+			return "", err
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return "", err
+		}
+		return dir, os.WriteFile(filepath.Join(dir, dirMirrorFile), []byte(mirror), 0o600)
+	}
+	mnt := filepath.Join(d.cfg.MountRoot, filepath.Base(ds))
+	if _, err := run(ctx, "", nil, "zfs", "list", "-H", ds); err != nil {
+		if _, err := run(ctx, "", nil, "zfs", "create", "-o", "mountpoint="+mnt, "-o", propMirror+"="+mirror, ds); err != nil {
+			return "", err
+		}
+	}
+	return mnt, nil
 }
 
 // redact takes a token out of an error, should git have quoted it, as
@@ -230,7 +309,7 @@ func (d *Driver) Checkout(ctx context.Context, mirror, ref string, w io.Writer) 
 		return "", err
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
-	unlock := d.locks.Lock(mirror)
+	unlock := d.lock(mirror)
 	commit, err := commitOf(ctx, r, ref)
 	if err == nil {
 		_, err = git(ctx, "", nil, "clone", "--quiet", "--no-hardlinks", "--no-checkout", "--", r, filepath.Join(tmp, "co"))
@@ -271,7 +350,7 @@ func (d *Driver) Origin(ctx context.Context, mirror string, w io.Writer) error {
 		return err
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
-	unlock := d.locks.Lock(mirror)
+	unlock := d.lock(mirror)
 	refs, err := git(ctx, r, nil, "for-each-ref", "--format=%(objectname) %(refname:strip=2)", "refs/heads/")
 	if err == nil {
 		_, err = gitIn(ctx, r, nil, strings.NewReader(""), "pack-objects", "--all", "--revs", "--quiet", filepath.Join(tmp, "pack"))
@@ -342,7 +421,7 @@ func (d *Driver) Push(ctx context.Context, spec driver.PushSpec, gitDir io.Reade
 	if _, err := git(ctx, in, nil, "update-ref", "refs/tower/push", commit); err != nil {
 		return err
 	}
-	unlock := d.locks.Lock(spec.Mirror)
+	unlock := d.lock(spec.Mirror)
 	defer unlock()
 	if _, err := git(ctx, r, nil, "fetch", "--quiet", "--no-tags", "--", in, "+refs/tower/push:refs/tower/push"); err != nil {
 		return err
@@ -444,7 +523,7 @@ func (d *Driver) Archive(ctx context.Context, mirror, ref string, w io.Writer) (
 		return "", err
 	}
 	// The commit's objects stay as they are while a fetch moves its refs.
-	unlock := d.locks.Lock(mirror)
+	unlock := d.lock(mirror)
 	commit, err := commitOf(ctx, r, ref)
 	unlock()
 	if err != nil {
@@ -478,7 +557,7 @@ func (d *Driver) Read(ctx context.Context, mirror, ref string, paths []string, m
 	if err != nil {
 		return "", nil, err
 	}
-	unlock := d.locks.Lock(mirror)
+	unlock := d.lock(mirror)
 	commit, err := commitOf(ctx, r, ref)
 	unlock()
 	if err != nil {

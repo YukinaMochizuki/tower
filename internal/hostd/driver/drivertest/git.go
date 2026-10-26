@@ -48,14 +48,18 @@ func RunGit(t *testing.T, h Harness) {
 				t.Errorf("the checkout's %s holds the repository's token", name)
 			}
 		}
-		// What a guest sees of it once extracted.
-		c := h.containers()
-		guest := c.guestWithDisk(t, h, "checkout")
-		mustNot(t, "extracting the checkout", c.Driver.CopyIn(ctx, guest, c.Workspace, bytes.NewReader(checkout.Bytes())))
-		var seen bytes.Buffer
-		mustNot(t, "reading the guest's workspace", c.Driver.CopyOut(ctx, guest, c.Workspace, &seen))
-		if bytes.Contains(seen.Bytes(), []byte(token)) {
-			t.Error("the guest's checkout holds the repository's token")
+		// What a guest sees of it once extracted, where the harness has
+		// guests: a git driver alone, as a hangar target's system
+		// container runs it, has none.
+		if h.Drivers.Containers != nil {
+			c := h.containers()
+			guest := c.guestWithDisk(t, h, "checkout")
+			mustNot(t, "extracting the checkout", c.Driver.CopyIn(ctx, guest, c.Workspace, bytes.NewReader(checkout.Bytes())))
+			var seen bytes.Buffer
+			mustNot(t, "reading the guest's workspace", c.Driver.CopyOut(ctx, guest, c.Workspace, &seen))
+			if bytes.Contains(seen.Bytes(), []byte(token)) {
+				t.Error("the guest's checkout holds the repository's token")
+			}
 		}
 		_, err = g.Checkout(ctx, "drivertest/never-fetched", "", io.Discard)
 		is(t, "checking out a mirror never fetched", err, driver.ErrNotFound)
