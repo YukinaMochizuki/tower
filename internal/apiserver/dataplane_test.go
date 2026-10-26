@@ -6,8 +6,10 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -395,10 +397,20 @@ func TestAMachinesWorkIsItsRunAsUsers(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var calls []call
+	// The directories the machine has, for what a write is to make first.
+	dirs := map[string]bool{"/": true, "/home": true, "/home/dev": true}
 	w.fake.OnExec(func(req provider.ExecRequest) (int, bool) {
 		mu.Lock()
 		defer mu.Unlock()
 		calls = append(calls, call{slices.Clone(req.Command), req.Dir, maps.Clone(req.Env)})
+		if len(req.Command) == 5 && req.Command[0] == "sh" && strings.Contains(req.Command[2], "dirname") {
+			p := req.Command[4]
+			for d := path.Dir(p); !dirs[d]; d = path.Dir(d) {
+				p = d
+			}
+			_, _ = io.WriteString(req.Stdout, p)
+			return 0, true
+		}
 		return 0, false
 	})
 	since := func() func() []call {
@@ -457,14 +469,27 @@ func TestAMachinesWorkIsItsRunAsUsers(t *testing.T) {
 	chown := func(path string) call {
 		return call{[]string{"sh", "-c", `chown -R -- "$1:$(id -gn -- "$1")" "$2"`, "sh", "dev", path}, "/", nil}
 	}
+	missing := func(path string) call {
+		return call{[]string{"sh", "-c", "", "sh", path}, "/", nil}
+	}
 	same := func(a, b []call) bool {
-		return slices.EqualFunc(a, b, func(x, y call) bool { return slices.Equal(x.command, y.command) && x.dir == y.dir && len(x.env) == 0 })
+		return slices.EqualFunc(a, b, func(x, y call) bool {
+			if len(x.command) == 5 && strings.Contains(x.command[2], "dirname") {
+				x.command = slices.Clone(x.command)
+				x.command[2] = ""
+			}
+			return slices.Equal(x.command, y.command) && x.dir == y.dir && len(x.env) == 0
+		})
 	}
 	got = since()
 	if err := writeFile(ctx, envs, machineEnv("dev"), "/home/dev/notes.txt", "a", 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeFile(ctx, envs, machineEnv("dev"), "/home/dev/notes.txt", "b", 1); err != nil {
+		t.Fatal(err)
+	}
+	// The directories a write makes are the user's too, from the topmost.
+	if err := writeFile(ctx, envs, machineEnv("dev"), "/home/dev/a/b/f.txt", "f", 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeFile(ctx, envs, boxEnv("box"), "/tmp/out/x", "built", 0); err != nil {
@@ -476,7 +501,11 @@ func TestAMachinesWorkIsItsRunAsUsers(t *testing.T) {
 	if _, err := envs.CopyFile(ctx, connect.NewRequest(&envv1alpha1.CopyFileRequest{From: boxEnv("box"), FromPath: "/tmp/out", To: machineEnv("root"), ToPath: "/root/in"})); err != nil {
 		t.Fatal(err)
 	}
-	if c := got(); !same(c, []call{chown("/home/dev/notes.txt"), chown("/home/dev/in")}) {
+	if c := got(); !same(c, []call{
+		missing("/home/dev/notes.txt"), chown("/home/dev/notes.txt"),
+		missing("/home/dev/a/b/f.txt"), chown("/home/dev/a"),
+		chown("/home/dev/in"),
+	}) {
 		t.Errorf("writes and copies ran %+v", c)
 	}
 	if f := w.fake.Files(provider.Instance{Project: "web", Name: devIn}); f["/home/dev/notes.txt"] != "ab" || f["/home/dev/in/x"] != "built" {

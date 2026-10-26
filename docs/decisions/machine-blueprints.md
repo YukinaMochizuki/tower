@@ -69,11 +69,13 @@ hostname the same from its golden to every clone of it.
   client runs in a machine through EnvironmentService (`Exec`,
   `StartProcess`) runs through `runuser -u USER --` as well, in the
   user's home unless the call names a directory, its arguments passed
-  through `"$@"` rather than parsed again; a file `WriteFile` or
-  `CopyFile` puts there is handed to the user (`chown -R`), as root wrote
-  it. A client's VM convention is that of a login over ssh as that user,
-  which is what workstream did before tower: the machine the blueprint
-  built as the user is worked in as the user, and `sudo` reaches root.
+  through `"$@"` rather than parsed again; what `WriteFile` or
+  `CopyFile` puts there, as root, is handed to the user (`chown -R`): a
+  copy whole, a written file with the directories its write made above
+  it, from the topmost. A client's VM convention is that of a login over
+  ssh as that user, which is what workstream did before tower: the
+  machine the blueprint built as the user is worked in as the user, and
+  `sudo` reaches root.
   runuser keeps the process group, so a signal to a process's group
   reaches the command. A machine without `run_as`, and a box (which runs
   as its image's user), are unchanged. There is no per-call user: the
@@ -104,8 +106,7 @@ clone has it.
   ssh as its VM user; it gives the same user as `run_as` for the two to
   agree.
 - A command a client runs in a machine with `run_as` that needs root
-  asks for it through `sudo`. The directories a `WriteFile` makes above
-  its file stay root's.
+  asks for it through `sudo`.
 - `ansible_user` is not set by tower: a blueprint reading it (as
   workstream's `workstream-dev` does, with a default) is given it by its
   client, in its golden vars.
