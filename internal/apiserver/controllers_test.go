@@ -331,6 +331,87 @@ func TestAMachineComesUpAndIsNeverIdle(t *testing.T) {
 	}
 }
 
+// TestAMachineRunsAsItsRunAsUser: a blueprint naming a run_as user has
+// the user made, as root, in its golden's builder before its golden
+// phase, and its golden phase, configure phase and ready check run as it,
+// its secrets still reaching its configure phase; the user is part of
+// what its golden is. One without run_as runs all of it as root.
+func TestAMachineRunsAsItsRunAsUser(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.mustApply(registry.Secret, secret("web", "k3s", map[string]string{"TOKEN": "t"}))
+	const check = "test -x ~/.local/bin/tool"
+	m := machine("dev")
+	m.Spec.Blueprint.RunAs = &envv1alpha1.RunAs{User: "dev"}
+	m.Spec.Blueprint.ReadyCheck = &envv1alpha1.ReadyCheck{Command: check}
+	m.Spec.Secrets = []*envv1alpha1.SecretRef{{Secret: "k3s", Key: "TOKEN", As: "K3S_TOKEN"}}
+	w.mustApply(registry.Machine, m)
+	st := w.waitMachine("dev", envv1alpha1.MachinePhase_MACHINE_PHASE_READY).GetStatus()
+	g, _ := w.golden(st.GetGolden())
+	if got := g.GetSpec().GetMachine().GetRunAs(); got != "dev" {
+		t.Errorf("the golden's inputs say run_as %q", got)
+	}
+	builder := "build-" + g.GetMetadata().GetName()
+
+	var ran []string
+	for _, e := range w.fake.Execs() {
+		switch {
+		case len(e.Command) > 4 && e.Command[0] == "sh" && e.Command[1] == "-c" && e.Command[3] == "sh":
+			if e.Command[4] != "dev" || len(e.Env) > 0 {
+				t.Errorf("the user was made as %v with %v", e.Command[3:], e.Env)
+			}
+			ran = append(ran, "prepare "+e.Instance.Name)
+		case slices.Contains(e.Command, "ansible-playbook"):
+			if !slices.Equal(e.Command[:4], []string{"runuser", "-u", "dev", "--"}) {
+				t.Errorf("a phase ran as %v", e.Command)
+			}
+			phase := e.Command[7]
+			if phase == "--tags=configure" && e.Env["K3S_TOKEN"] != "t" {
+				t.Error("the configure phase, run as the user, was not given its secret")
+			}
+			ran = append(ran, phase+" "+e.Instance.Name)
+		case slices.Contains(e.Command, check):
+			if !slices.Equal(e.Command, []string{"runuser", "-u", "dev", "--", "sh", "-c", check}) {
+				t.Errorf("the ready check ran as %v", e.Command)
+			}
+			ran = append(ran, "ready "+e.Instance.Name)
+		}
+	}
+	want := []string{
+		"prepare " + builder, "--skip-tags=configure " + builder,
+		"prepare " + st.GetInstance(), "--tags=configure " + st.GetInstance(),
+		"ready " + st.GetInstance(),
+	}
+	if !slices.Equal(ran, want) {
+		t.Errorf("ran %v, want %v", ran, want)
+	}
+
+	// The same blueprint as root is another golden, and runs as root.
+	before := len(w.fake.Execs())
+	root := machine("root")
+	root.Spec.Blueprint.ReadyCheck = &envv1alpha1.ReadyCheck{Command: check}
+	w.mustApply(registry.Machine, root)
+	rst := w.waitMachine("root", envv1alpha1.MachinePhase_MACHINE_PHASE_READY).GetStatus()
+	if rst.GetGolden() == st.GetGolden() {
+		t.Error("a blueprint with and without run_as share a golden")
+	}
+	if rg, _ := w.golden(rst.GetGolden()); rg.GetSpec().GetMachine().GetRunAs() != "" {
+		t.Errorf("a golden without run_as has inputs %v", rg.GetSpec().GetMachine())
+	}
+	var rootRan []string
+	for _, e := range w.fake.Execs()[before:] {
+		if e.Command[0] == "runuser" || (e.Command[0] == "sh" && len(e.Command) > 3) {
+			t.Errorf("a machine without run_as ran %v", e.Command)
+		}
+		if e.Command[0] == "ansible-playbook" || slices.Equal(e.Command, []string{"sh", "-c", check}) {
+			rootRan = append(rootRan, e.Command[len(e.Command)-1])
+		}
+	}
+	if !slices.Equal(rootRan, []string{"blueprint.yml", "blueprint.yml", check}) {
+		t.Errorf("a machine without run_as ran %v", rootRan)
+	}
+}
+
 // readyCheck answers a machine's ready check in the fake: it passes once
 // pass is set, and prints why not until then.
 type readyCheck struct {

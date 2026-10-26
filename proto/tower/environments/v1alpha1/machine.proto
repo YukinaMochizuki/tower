@@ -62,13 +62,29 @@ message Blueprint {
   // reports its node Ready only after the playbook ends). workstream's
   // blueprints declare one as readyCheck. None is ready once configured.
   ReadyCheck ready_check = 7;
+  // The user its phases and ready check run as; unset is root. It is the
+  // client's to name: tower names none of its own
+  // (docs/decisions/machine-blueprints.md). Part of what the golden is.
+  RunAs run_as = 8;
+}
+
+// RunAs is the user a blueprint's playbook runs as, as a playbook written
+// to be run over ssh by a user with passwordless sudo expects: tasks with
+// become get root through sudo, the others and ~ are the user's.
+message RunAs {
+  // A POSIX user name (lower case letters, digits, '_' and '-', starting
+  // with a letter or '_', at most 32), not root. tower makes the user in
+  // the golden's builder unless the base image has one of the name, and
+  // gives it a home directory and passwordless sudo.
+  string user = 1;
 }
 
 // ReadyCheck is a shell command run in the machine after its configure
 // phase, every 5 seconds until it exits 0. It is checked again after each
 // start of the machine, since what it checks starts again with it.
 message ReadyCheck {
-  // Run as sh -c command, as root, without the machine's secrets.
+  // Run as sh -c command, as the blueprint's run_as user (root if it has
+  // none), without the machine's secrets.
   string command = 1;
   // How long it may take to pass before the machine fails; unset is 200
   // seconds, as workstream allows (40 tries, 5 seconds apart).

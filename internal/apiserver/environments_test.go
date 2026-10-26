@@ -319,6 +319,7 @@ func TestAMachineNamesItsSecrets(t *testing.T) {
 	w := e.as(workstream)
 	ok := machine("ok")
 	ok.Spec.Secrets = []*envv1alpha1.SecretRef{{Secret: "s", Key: "A", As: "K3S_TOKEN"}}
+	ok.Spec.Blueprint.RunAs = &envv1alpha1.RunAs{User: "_build-1"}
 	if err := applyAs(t, w, registry.Machine, ok); err != nil {
 		t.Fatal(err)
 	}
@@ -342,6 +343,24 @@ func TestAMachineNamesItsSecrets(t *testing.T) {
 		}, connect.CodeInvalidArgument},
 		"a ready check that times out at once": {func(s *envv1alpha1.MachineSpec) {
 			s.Blueprint.ReadyCheck = &envv1alpha1.ReadyCheck{Command: "true", Timeout: durationpb.New(0)}
+		}, connect.CodeInvalidArgument},
+		"run_as root": {func(s *envv1alpha1.MachineSpec) {
+			s.Blueprint.RunAs = &envv1alpha1.RunAs{User: "root"}
+		}, connect.CodeInvalidArgument},
+		"run_as no user": {func(s *envv1alpha1.MachineSpec) {
+			s.Blueprint.RunAs = &envv1alpha1.RunAs{}
+		}, connect.CodeInvalidArgument},
+		"run_as a user name with upper case": {func(s *envv1alpha1.MachineSpec) {
+			s.Blueprint.RunAs = &envv1alpha1.RunAs{User: "Dev"}
+		}, connect.CodeInvalidArgument},
+		"run_as a user name starting with a digit": {func(s *envv1alpha1.MachineSpec) {
+			s.Blueprint.RunAs = &envv1alpha1.RunAs{User: "1dev"}
+		}, connect.CodeInvalidArgument},
+		"run_as a user name with a shell's characters": {func(s *envv1alpha1.MachineSpec) {
+			s.Blueprint.RunAs = &envv1alpha1.RunAs{User: "dev;id"}
+		}, connect.CodeInvalidArgument},
+		"run_as a user name of 33": {func(s *envv1alpha1.MachineSpec) {
+			s.Blueprint.RunAs = &envv1alpha1.RunAs{User: strings.Repeat("a", 33)}
 		}, connect.CodeInvalidArgument},
 	} {
 		m := machine("m")
