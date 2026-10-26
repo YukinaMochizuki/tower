@@ -334,8 +334,10 @@ func TestAMachineComesUpAndIsNeverIdle(t *testing.T) {
 // TestAMachineRunsAsItsRunAsUser: a blueprint naming a run_as user has
 // the user made, as root, in its golden's builder before its golden
 // phase, and its golden phase, configure phase and ready check run as it,
-// its secrets still reaching its configure phase; the user is part of
-// what its golden is. One without run_as runs all of it as root.
+// its secrets still reaching its configure phase, and the ready check in
+// the user's home (a directory it may read, where its login would
+// start); the user is part of what its golden is. One without run_as runs
+// all of it as root.
 func TestAMachineRunsAsItsRunAsUser(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -371,7 +373,7 @@ func TestAMachineRunsAsItsRunAsUser(t *testing.T) {
 			}
 			ran = append(ran, phase+" "+e.Instance.Name)
 		case slices.Contains(e.Command, check):
-			if !slices.Equal(e.Command, []string{"runuser", "-u", "dev", "--", "sh", "-c", check}) {
+			if !slices.Equal(e.Command, []string{"runuser", "-u", "dev", "--", "sh", "-c", `cd "$HOME" || exit; exec sh -c "$1"`, "sh", check}) {
 				t.Errorf("the ready check ran as %v", e.Command)
 			}
 			ran = append(ran, "ready "+e.Instance.Name)
