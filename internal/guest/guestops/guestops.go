@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"strconv"
 	"strings"
 
 	"github.com/YukinaMochizuki/tower/internal/guest"
@@ -165,6 +166,36 @@ func (o Ops) CopyOut(ctx context.Context, path string, w io.Writer) error {
 func (o Ops) CopyIn(ctx context.Context, dir string, r io.Reader) error {
 	code, msg, err := o.call(ctx, guestbin.Header{Op: guestbin.OpCopyIn, Path: dir}, r, nil)
 	return result("copying into "+dir, code, msg, err)
+}
+
+// Receive listens in the guest for a tar Send sends with token, and
+// extracts it into dir. listening hears the port it listens on, every
+// address of the guest's, once it does; it then waits for the sender until
+// it is done or ctx is.
+func (o Ops) Receive(ctx context.Context, dir, token string, listening func(port int)) error {
+	pr, pw := io.Pipe()
+	got := make(chan struct{})
+	go func() {
+		defer close(got)
+		sc := bufio.NewScanner(pr)
+		if sc.Scan() {
+			if port, err := strconv.Atoi(strings.TrimSpace(sc.Text())); err == nil {
+				listening(port)
+			}
+		}
+		_, _ = io.Copy(io.Discard, pr)
+	}()
+	code, msg, err := o.call(ctx, guestbin.Header{Op: guestbin.OpReceive, Path: dir, Token: token}, nil, pw)
+	_ = pw.Close()
+	<-got
+	return result("receiving into "+dir, code, msg, err)
+}
+
+// Send connects to a guest's Receive at addr and sends it a tar of path,
+// its top name to, or path's own when empty.
+func (o Ops) Send(ctx context.Context, path, addr, token, to string) error {
+	code, msg, err := o.call(ctx, guestbin.Header{Op: guestbin.OpSend, Path: path, Addr: addr, Token: token, To: to}, nil, nil)
+	return result("sending "+path, code, msg, err)
 }
 
 // StartProcess starts a process under a supervisor of its own and returns

@@ -37,8 +37,8 @@ import (
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1/environmentsv1alpha1connect"
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
-	"github.com/YukinaMochizuki/tower/internal/hostd"
 	"github.com/YukinaMochizuki/tower/internal/secrets"
+	"github.com/YukinaMochizuki/tower/internal/streams"
 	"github.com/YukinaMochizuki/tower/internal/testutil"
 	"github.com/YukinaMochizuki/tower/test/testbed/internal/testbed"
 )
@@ -457,7 +457,7 @@ func TestTheDemo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conn, err := hostd.DialStream(ctx, tk.Msg.GetUrl(), tk.Msg.GetTicket())
+	conn, err := streams.Dial(ctx, tk.Msg.GetUrl(), tk.Msg.GetTicket())
 	if err != nil {
 		t.Fatal(err)
 	}

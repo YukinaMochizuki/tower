@@ -1,7 +1,6 @@
 package hostd
 
 import (
-	"archive/tar"
 	"context"
 	"errors"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
 	"github.com/YukinaMochizuki/tower/internal/client"
+	"github.com/YukinaMochizuki/tower/internal/guest/tarx"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 )
@@ -117,41 +117,10 @@ func (h *Host) Copy(ctx context.Context, from provider.Instance, fromPath string
 	go func() {
 		pw.CloseWithError(src.g.CopyOut(ctx, src.name, fromPath, pw))
 	}()
-	renamed := rename(pr, path.Base(fromPath), path.Base(toPath))
+	renamed := tarx.Rename(pr, path.Base(fromPath), path.Base(toPath))
 	err = dst.g.CopyIn(ctx, dst.name, path.Dir(toPath), renamed)
 	_ = pr.CloseWithError(errors.New("copy ended"))
 	return providerError(err)
-}
-
-// rename is the tar r with its top name from changed to to.
-func rename(r io.Reader, from, to string) io.Reader {
-	pr, pw := io.Pipe()
-	go func() {
-		tr, tw := tar.NewReader(r), tar.NewWriter(pw)
-		for {
-			hdr, err := tr.Next()
-			if errors.Is(err, io.EOF) {
-				pw.CloseWithError(tw.Close())
-				return
-			}
-			if err != nil {
-				pw.CloseWithError(err)
-				return
-			}
-			if rest, ok := strings.CutPrefix(hdr.Name, from); ok && (rest == "" || rest[0] == '/') {
-				hdr.Name = to + rest
-			}
-			if err := tw.WriteHeader(hdr); err != nil {
-				pw.CloseWithError(err)
-				return
-			}
-			if _, err := io.Copy(tw, tr); err != nil {
-				pw.CloseWithError(err)
-				return
-			}
-		}
-	}()
-	return pr
 }
 
 // BuildImage builds a context tower sent, or a mirror's work tree, which

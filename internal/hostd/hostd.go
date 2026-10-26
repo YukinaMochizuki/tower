@@ -30,6 +30,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/controller"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
 	"github.com/YukinaMochizuki/tower/internal/provider"
+	"github.com/YukinaMochizuki/tower/internal/streams"
 )
 
 // Version is hostd's, as it reports it.
@@ -79,7 +80,7 @@ type Host struct {
 	ctrl *controller.Controller
 	// limits are SetProcessLimits'; nil is provider's defaults.
 	limits  atomic.Pointer[processLimits]
-	streams streamCount
+	streams *streams.Server
 	pulls   *pulls
 	// unnamedImages are the images of the host no Instance or Golden
 	// named at a sweep, by ID, since when (sweepImages). Under mu.
@@ -101,6 +102,7 @@ func New(cfg Config) *Host {
 		h.log = slog.New(slog.DiscardHandler)
 	}
 	h.ctrl = h.newController()
+	h.streams = h.newStreams()
 	h.pulls = newPulls(cfg.Drivers.Images, h.clock, func(k controller.Key) { h.ctrl.Enqueue(k) })
 	return h
 }
