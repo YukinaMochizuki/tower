@@ -6,7 +6,8 @@
 //
 // It is configured by the container's environment: TOWER_SYSTEM_ROOT, the
 // container's disk (default /var/lib/tower); TOWER_REGISTRY, tower's
-// registry as the container pushes to it; BUILDKIT_HOST, buildkitd's
+// registry as the container pushes to it, with TOWER_REGISTRY_PLAIN_HTTP=1
+// for one served over plain HTTP; BUILDKIT_HOST, buildkitd's
 // address (default its socket); TAILSCALE_SOCKET, tailscaled's.
 package main
 
@@ -28,11 +29,16 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-	cfg := system.Config{
-		Root:      cmp.Or(os.Getenv("TOWER_SYSTEM_ROOT"), "/var/lib/tower"),
-		BuildKit:  cmp.Or(os.Getenv("BUILDKIT_HOST"), "unix:///run/buildkit/buildkitd.sock"),
-		Registry:  os.Getenv("TOWER_REGISTRY"),
-		Tailscale: []string{"tailscale", "--socket=" + cmp.Or(os.Getenv("TAILSCALE_SOCKET"), "/var/run/tailscale/tailscaled.sock")},
+	os.Exit(system.Serve(ctx, configOf(os.Getenv), os.Stdin, os.Stdout, os.Stderr))
+}
+
+// configOf is the configuration the environment getenv reads says.
+func configOf(getenv func(string) string) system.Config {
+	return system.Config{
+		Root:              cmp.Or(getenv("TOWER_SYSTEM_ROOT"), "/var/lib/tower"),
+		BuildKit:          cmp.Or(getenv("BUILDKIT_HOST"), "unix:///run/buildkit/buildkitd.sock"),
+		Registry:          getenv("TOWER_REGISTRY"),
+		RegistryPlainHTTP: getenv("TOWER_REGISTRY_PLAIN_HTTP") == "1",
+		Tailscale:         []string{"tailscale", "--socket=" + cmp.Or(getenv("TAILSCALE_SOCKET"), "/var/run/tailscale/tailscaled.sock")},
 	}
-	os.Exit(system.Serve(ctx, cfg, os.Stdin, os.Stdout, os.Stderr))
 }

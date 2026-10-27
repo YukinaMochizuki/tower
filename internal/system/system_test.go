@@ -153,3 +153,18 @@ func TestABuildNeedsItsBuilder(t *testing.T) {
 		t.Error("a build with no buildkitd succeeded")
 	}
 }
+
+// TestTheStatusAnswersWithoutDocker: the container has no Docker, and its
+// status answers, the builder made without it, saying only that
+// buildkitd does not answer when it does not.
+func TestTheStatusAnswersWithoutDocker(t *testing.T) {
+	root := t.TempDir()
+	o := system.Ops{R: local{cfg: system.Config{Root: root, Registry: "registry.example", RegistryPlainHTTP: true, BuildKit: "unix://" + filepath.Join(root, "none.sock")}}}
+	st, err := o.Status(t.Context())
+	if err != nil {
+		t.Fatalf("the status: %v", err)
+	}
+	if st.BuildKit != "" {
+		t.Errorf("buildkitd said to answer as %q, with none there", st.BuildKit)
+	}
+}

@@ -8,6 +8,11 @@
 // configuration, held in memory and handed to Docker with each pull, to
 // BuildKit through its session and to the push; they are never written to
 // a Docker config or anywhere else on the host.
+//
+// Without Docker (Config.NoDocker), as in a hangar target's system
+// container (internal/system), the driver builds and resolves alone, and
+// nothing is held: BuildKit pushes each build to the registry as it
+// exports it, through its own proxy, and Build answers once it has.
 package images
 
 import (
@@ -28,7 +33,6 @@ import (
 	"github.com/docker/cli/cli/config/types"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb/sourceresolver"
-	"github.com/moby/buildkit/exporter/containerimage/exptypes"
 	gateway "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/auth/authprovider"
@@ -61,11 +65,26 @@ type Config struct {
 	// UnpushedDir is a directory, root's alone, where what was built is
 	// held until it is pushed; it must outlive a restart (held.go).
 	UnpushedDir string
+	// NoDocker builds and resolves without Docker, and holds nothing:
+	// Build has BuildKit push to the registry as it exports. Docker and
+	// UnpushedDir are then not set, and what needs Docker fails with
+	// ErrNoDocker.
+	NoDocker bool
+	// PlainHTTP, without Docker, says Registry is served over plain HTTP,
+	// to the exporter that pushes a build alone: BuildKit resolves and
+	// pulls by its own configuration (deploy/system-image/init.sh writes
+	// it). With Docker, Docker's configuration says it.
+	PlainHTTP bool
 }
+
+// ErrNoDocker is what needs Docker asked of a driver without it.
+var ErrNoDocker = errors.New("images: this driver has no Docker")
 
 // Driver is the image driver. It is safe for concurrent use.
 type Driver struct {
 	cfg Config
+	// solve is BuildKit's Solve, which a test replaces.
+	solve solveFunc
 	// held guards UnpushedDir's entries: what reads one (a build FROM it,
 	// Resolve) holds it shared, what puts one in place or removes it
 	// alone, so a push ending never removes what a build reads.
@@ -79,6 +98,18 @@ var _ driver.Images = (*Driver)(nil)
 func New(cfg Config) (*Driver, error) {
 	if cfg.Registry == "" {
 		return nil, errors.New("no registry")
+	}
+	if cfg.NoDocker {
+		if cfg.Docker != nil || cfg.UnpushedDir != "" {
+			return nil, errors.New("a driver without Docker has no Docker client and holds no images")
+		}
+		if err := os.MkdirAll(cfg.ScratchDir, 0o700); err != nil {
+			return nil, err
+		}
+		return &Driver{cfg: cfg, solve: buildkitSolve}, nil
+	}
+	if cfg.Docker == nil {
+		return nil, errors.New("no Docker client: a driver without Docker says so (NoDocker)")
 	}
 	if cfg.UnpushedDir == "" {
 		return nil, errors.New("no directory to hold images until they are pushed")
@@ -99,7 +130,7 @@ func New(cfg Config) (*Driver, error) {
 			}
 		}
 	}
-	return &Driver{cfg: cfg}, nil
+	return &Driver{cfg: cfg, solve: buildkitSolve}, nil
 }
 
 func (d *Driver) Version(ctx context.Context) (string, error) {
@@ -128,6 +159,9 @@ func registryOf(ref string) string {
 // it is tower's. One there already, pulled or built here, is not pulled
 // again.
 func (d *Driver) Pull(ctx context.Context, ref string) error {
+	if d.cfg.NoDocker {
+		return ErrNoDocker
+	}
 	if _, err := d.Local(ctx, ref); err == nil {
 		return nil
 	}
@@ -150,6 +184,9 @@ func (d *Driver) Pull(ctx context.Context, ref string) error {
 // Local is ref itself if Docker knows it by it, as one pulled; else the
 // name a build here loaded it as (localName).
 func (d *Driver) Local(ctx context.Context, ref string) (string, error) {
+	if d.cfg.NoDocker {
+		return "", ErrNoDocker
+	}
 	names := []string{ref}
 	if l, ok := localName(ref); ok {
 		names = append(names, l)
@@ -171,6 +208,9 @@ func (d *Driver) Local(ctx context.Context, ref string) (string, error) {
 // or one pulled by hand, is not listed. One built here is listed by the
 // reference by digest its tag stands for.
 func (d *Driver) List(ctx context.Context) ([]driver.HostImage, error) {
+	if d.cfg.NoDocker {
+		return nil, ErrNoDocker
+	}
 	res, err := d.cfg.Docker.ImageList(ctx, dockerclient.ImageListOptions{})
 	if err != nil {
 		return nil, err
@@ -200,6 +240,9 @@ func (d *Driver) List(ctx context.Context) ([]driver.HostImage, error) {
 // forcing them: Docker refuses one a container is made of. What is held
 // to be pushed stays.
 func (d *Driver) Remove(ctx context.Context, ref string) error {
+	if d.cfg.NoDocker {
+		return ErrNoDocker
+	}
 	names := []string{ref}
 	if l, ok := localName(ref); ok {
 		names = append(names, l)
@@ -220,6 +263,9 @@ func (d *Driver) Remove(ctx context.Context, ref string) error {
 // DiskUsage is what Docker says its images hold, and what is held to be
 // pushed.
 func (d *Driver) DiskUsage(ctx context.Context) (uint64, error) {
+	if d.cfg.NoDocker {
+		return 0, ErrNoDocker
+	}
 	res, err := d.cfg.Docker.DiskUsage(ctx, dockerclient.DiskUsageOptions{Images: true})
 	if err != nil {
 		return 0, err
@@ -292,9 +338,11 @@ func within(root, rel string) (string, error) {
 	return resolved, nil
 }
 
-// Build builds a context with its Dockerfile into an OCI layout it holds
-// to be pushed to Registry/repository (Push), loads that into Docker, and
-// returns its reference by digest. Timestamps are the epoch
+// Build builds a context with its Dockerfile and returns its reference by
+// digest in Registry/repository. With Docker, it builds into an OCI layout
+// it holds to be pushed (Push) and loads that into Docker; without it,
+// BuildKit pushes the image as it exports it, tagged with a tag of its
+// own (pushExports), and Build answers once it has. Timestamps are the epoch
 // (SOURCE_DATE_EPOCH=0, rewritten in the layers), so the same context
 // builds the same digest. The context is the tar's Dir; the Dockerfile,
 // anywhere in the tar, is given to BuildKit apart from it, as docker build
@@ -354,6 +402,23 @@ func (d *Driver) Build(ctx context.Context, spec driver.BuildSpec) (string, erro
 	defer func() { _ = c.Close() }()
 	name := d.cfg.Registry + "/" + repository
 	attrs := map[string]string{"build-arg:SOURCE_DATE_EPOCH": "0", "filename": path.Base(dockerfile)}
+	if d.cfg.NoDocker {
+		exports, err := d.pushExports(name)
+		if err != nil {
+			return "", err
+		}
+		dgst, err := d.solveQuoting(ctx, c, client.SolveOpt{
+			Frontend:      "dockerfile.v0",
+			FrontendAttrs: attrs,
+			LocalMounts:   map[string]fsutil.FS{"context": fs, "dockerfile": dfs},
+			Exports:       exports,
+			Session:       []session.Attachable{authprovider.NewDockerAuthProvider(authprovider.DockerAuthProviderConfig{AuthConfigProvider: d.auth})},
+		}, repository, func() {})
+		if err != nil {
+			return "", err
+		}
+		return name + "@" + dgst, nil
+	}
 	from, release, err := d.heldFrom(filepath.Join(dockerfileDir, path.Base(dockerfile)), attrs)
 	if err != nil {
 		return "", err
@@ -365,26 +430,7 @@ func (d *Driver) Build(ctx context.Context, spec driver.BuildSpec) (string, erro
 	}
 	defer func() { _ = os.RemoveAll(partial) }()
 	layout := filepath.Join(partial, entryLayout)
-	// What the build's steps write, the end of which a failure quotes: a
-	// RUN that failed says why there, not in BuildKit's error.
-	status := make(chan *client.SolveStatus)
-	logged := make(chan string, 1)
-	go func() {
-		var tail []byte
-		for s := range status {
-			for _, l := range s.Logs {
-				tail = append(tail, l.Data...)
-				if len(tail) > 2*maxQuoted {
-					tail = tail[len(tail)-maxQuoted:]
-				}
-			}
-		}
-		if len(tail) > maxQuoted {
-			tail = tail[len(tail)-maxQuoted:]
-		}
-		logged <- strings.TrimSpace(string(tail))
-	}()
-	resp, err := c.Solve(ctx, nil, client.SolveOpt{
+	dgst, err := d.solveQuoting(ctx, c, client.SolveOpt{
 		Frontend:      "dockerfile.v0",
 		FrontendAttrs: attrs,
 		LocalMounts:   map[string]fsutil.FS{"context": fs, "dockerfile": dfs},
@@ -393,21 +439,9 @@ func (d *Driver) Build(ctx context.Context, spec driver.BuildSpec) (string, erro
 			"name": name, "tar": "false", "oci-mediatypes": "true", "rewrite-timestamp": "true",
 		}}},
 		Session: []session.Attachable{authprovider.NewDockerAuthProvider(authprovider.DockerAuthProviderConfig{AuthConfigProvider: d.auth})},
-	}, status)
-	release()
-	tail := <-logged // Solve closes status as it returns
+	}, repository, release)
 	if err != nil {
-		if strings.Contains(err.Error(), "no space left") {
-			return "", fmt.Errorf("building %s: %w: %w", repository, err, driver.ErrNoSpace)
-		}
-		if tail != "" {
-			return "", fmt.Errorf("building %s: %w; it last wrote: %s", repository, err, tail)
-		}
-		return "", fmt.Errorf("building %s: %w", repository, err)
-	}
-	dgst := resp.ExporterResponse[exptypes.ExporterImageDigestKey]
-	if dgst == "" {
-		return "", fmt.Errorf("building %s: BuildKit named no digest", repository)
+		return "", err
 	}
 	ref := name + "@" + dgst
 	local, ok := localName(ref)
@@ -478,6 +512,9 @@ func regularFile(p string) string {
 // resolve in its registry, with the registry's credentials for tower's,
 // reading its manifest and config but none of its layers.
 func (d *Driver) Resolve(ctx context.Context, ref string) (driver.ImageConfig, error) {
+	if d.cfg.NoDocker {
+		return d.resolveInRegistry(ctx, ref)
+	}
 	d.held.RLock()
 	h, ok, err := d.heldOf(ref)
 	if err == nil && ok {
@@ -490,6 +527,11 @@ func (d *Driver) Resolve(ctx context.Context, ref string) (driver.ImageConfig, e
 	if err != nil {
 		return driver.ImageConfig{}, err
 	}
+	return d.resolveInRegistry(ctx, ref)
+}
+
+// resolveInRegistry has BuildKit resolve ref in its registry.
+func (d *Driver) resolveInRegistry(ctx context.Context, ref string) (driver.ImageConfig, error) {
 	c, err := client.New(ctx, d.cfg.BuildKit)
 	if err != nil {
 		return driver.ImageConfig{}, err
