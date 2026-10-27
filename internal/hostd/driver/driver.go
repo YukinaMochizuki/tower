@@ -336,7 +336,10 @@ type Images interface {
 	// digest, which Push pushes it as. The same context builds the same
 	// digest. A Dockerfile may be FROM an image built here and not pushed
 	// yet. A Dir or Dockerfile outside the tar fails as a context that does
-	// not build does.
+	// not build does. A builder without Docker, as a hangar target's
+	// system container is, pushes it to the registry as it builds it and
+	// keeps nothing: Build answers once it is pushed, Push and Unpushed
+	// have nothing to do, and Pull, Local, List, Remove and DiskUsage fail.
 	Build(ctx context.Context, spec BuildSpec) (string, error)
 	// Push pushes an image built here to the registry, by the digest Build
 	// returned, and no longer keeps it to be pushed; one already pushed, or

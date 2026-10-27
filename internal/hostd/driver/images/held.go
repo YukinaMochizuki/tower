@@ -121,6 +121,9 @@ func (d *Driver) keep(partial, ref string) error {
 }
 
 func (d *Driver) Unpushed(context.Context) ([]string, error) {
+	if d.cfg.NoDocker {
+		return nil, nil
+	}
 	d.held.RLock()
 	defer d.held.RUnlock()
 	list, err := d.heldImages()
@@ -347,6 +350,10 @@ func writeArchive(w io.Writer, layout string, m ocispec.Manifest, desc ocispec.D
 // then it is no longer held. A blob the registry holds already is not
 // sent again, so a push cut short goes on where it ended.
 func (d *Driver) Push(ctx context.Context, ref string) error {
+	if d.cfg.NoDocker {
+		// Build pushed it.
+		return nil
+	}
 	d.held.RLock()
 	h, ok, err := d.heldOf(ref)
 	d.held.RUnlock()

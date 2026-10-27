@@ -17,8 +17,8 @@ images would branch by provider.
 - **tower decides when an image is built; the build runs on the project's
   target:** with Docker or BuildKit on a hostd host, with a builder in the
   hangar project on hangar. The result is pushed to the registry.
-- **The target that built an image uses it at once, from its own Docker;
-  the push to the registry runs in the background.** (2026-10, after a
+- **On a hostd host, the target that built an image uses it at once,
+  from its own Docker; the push to the registry runs in the background.** (2026-10, after a
   cold box on a target behind a ~14 Mbit/s uplink spent ~8.5 of its ~10
   minutes sending a 1.6 GB image to the registry and pulling it straight
   back.) On a hostd host BuildKit exports the build to an OCI layout
@@ -31,6 +31,16 @@ images would branch by provider.
   byte for byte, so the registry holds the very digest the target runs,
   tagged with it so the registry's collection of untagged manifests never
   takes it. Other targets still pull from the registry.
+- **On a hangar target, buildkitd pushes each build to the registry as it
+  exports it, and the build answers once it has.** Its builder, the
+  system container (`internal/system`), has no Docker to run an image
+  from, and each of its calls is a process of its own, so it keeps
+  nothing between them. The push goes through the container's tailscale
+  proxy, as buildkitd's pulls do. Each build is pushed under a tag of its
+  own (`build-<random>`): pushed untagged, it would take `latest` from
+  the build before it, and the registry's collection of untagged
+  manifests would take that one while a golden still names it. What goes
+  from the registry stays tower's to decide.
 - tower also decides what is pruned from the registry.
 
 Not a public registry: these images are gigabytes each, built often, and

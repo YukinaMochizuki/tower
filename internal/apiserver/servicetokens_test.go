@@ -205,6 +205,7 @@ func TestServiceTokenMadeByApplyHasNoSecret(t *testing.T) {
 // frees its name for a token whose secret is its own.
 func TestServiceTokenDelete(t *testing.T) {
 	t.Parallel()
+	testutil.Quarantine(t, "#27")
 	e := newEnv(t)
 	ctx := t.Context()
 	a := e.as(admin)

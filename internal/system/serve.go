@@ -31,6 +31,8 @@ type Config struct {
 	// Registry is tower's registry as the container pushes to it,
 	// host[:port], over the tailnet.
 	Registry string
+	// RegistryPlainHTTP says Registry is served over plain HTTP.
+	RegistryPlainHTTP bool
 	// Tailscale is the tailscale command, talking to the container's
 	// tailscaled.
 	Tailscale []string
@@ -81,18 +83,24 @@ func failed(stderr io.Writer, err error) int {
 	return ExitFailed
 }
 
+// builderConfig is the image driver's for the call h: without Docker,
+// which the container has not, so buildkitd pushes each build itself,
+// through its proxy, as it exports it, and nothing is held between calls.
+func builderConfig(cfg Config, h Header) images.Config {
+	return images.Config{
+		BuildKit: cfg.BuildKit, Registry: cfg.Registry, ScratchDir: filepath.Join(cfg.Root, "scratch", "build"),
+		NoDocker: true, PlainHTTP: cfg.RegistryPlainHTTP,
+		Username: h.Env[EnvRegistryUsername], Password: h.Env[EnvRegistryPassword],
+	}
+}
+
 // serve runs h, and returns its result and, for a checkout, what writes
 // its tar after it.
 func serve(ctx context.Context, cfg Config, h Header, in io.Reader, stderr io.Writer) (Result, func(io.Writer) error, error) {
 	git := func() (*gitmirror.Driver, error) {
 		return gitmirror.New(ctx, gitmirror.Config{Root: filepath.Join(cfg.Root, "mirrors"), ScratchDir: filepath.Join(cfg.Root, "scratch", "git")})
 	}
-	builder := func() (*images.Driver, error) {
-		return images.New(images.Config{
-			BuildKit: cfg.BuildKit, Registry: cfg.Registry, ScratchDir: filepath.Join(cfg.Root, "scratch", "build"),
-			Username: h.Env[EnvRegistryUsername], Password: h.Env[EnvRegistryPassword],
-		})
-	}
+	builder := func() (*images.Driver, error) { return images.New(builderConfig(cfg, h)) }
 	switch h.Op {
 	case OpFetch:
 		g, err := git()

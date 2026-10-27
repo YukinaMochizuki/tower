@@ -32,10 +32,13 @@
 package hangar
 
 import (
+	"archive/tar"
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -390,5 +393,91 @@ func TestAGoldenWithoutTheSSHDDropInGetsIt(t *testing.T) {
 	}
 	if err := w.Target.DeleteArtifact(ctx, art.Name); err != nil {
 		t.Error(err)
+	}
+}
+
+// TestEachBuildIsTaggedInTheRegistry: two builds into one repository, as
+// a devcontainer's base and its layer are, are each in the registry under
+// a tag of its own, which names the very digest the build answered, so a
+// registry that collects untagged manifests takes neither.
+func TestEachBuildIsTaggedInTheRegistry(t *testing.T) {
+	c := load(t)
+	if c.system == "" || c.registry == "" {
+		t.Skip("TOWER_HANGAR_SYSTEM_IMAGE and TOWER_HANGAR_REGISTRY name no builder")
+	}
+	w := world(t)
+	ctx := t.Context()
+	const repository = "conformance/tagged"
+	build := func(content string) string {
+		t.Helper()
+		var b bytes.Buffer
+		tw := tar.NewWriter(&b)
+		files := map[string]string{"Dockerfile": "FROM " + c.image + "\nCOPY f /f\n", "f": content}
+		for _, name := range []string{"Dockerfile", "f"} {
+			if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(files[name]))}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tw.Write([]byte(files[name])); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := tw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		ref, err := w.Target.BuildImage(ctx, provider.BuildRequest{Context: &b, Repository: repository})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, dgst, ok := strings.Cut(ref, "@")
+		if !ok {
+			t.Fatalf("the build answered %q, no digest", ref)
+		}
+		return dgst
+	}
+	base, layer := build("base\n"), build("layer\n")
+	scheme := "https"
+	if c.plainHTTP {
+		scheme = "http"
+	}
+	get := func(method, path string, out any) http.Header {
+		t.Helper()
+		req, err := http.NewRequestWithContext(ctx, method, scheme+"://"+c.registry+"/v2/"+repository+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Accept", "application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json")
+		if c.push.Username != "" {
+			req.SetBasicAuth(c.push.Username, c.push.Password)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s %s: %s", method, path, resp.Status)
+		}
+		if out != nil {
+			if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return resp.Header
+	}
+	var list struct{ Tags []string }
+	get(http.MethodGet, "/tags/list", &list)
+	tagged := map[string][]string{}
+	for _, tag := range list.Tags {
+		if strings.HasPrefix(tag, "build-") {
+			d := get(http.MethodHead, "/manifests/"+tag, nil).Get("Docker-Content-Digest")
+			tagged[d] = append(tagged[d], tag)
+		}
+	}
+	for what, dgst := range map[string]string{"the base": base, "the layer": layer} {
+		if len(tagged[dgst]) == 0 {
+			t.Errorf("%s, %s, is under no build's tag in %s: %v", what, dgst, repository, tagged)
+		} else {
+			t.Logf("%s, %s, is tagged %v", what, dgst, tagged[dgst])
+		}
 	}
 }

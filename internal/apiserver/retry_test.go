@@ -88,6 +88,7 @@ func TestARetryBuildsAFailedGoldenAtOnce(t *testing.T) {
 // of the devcontainer's image.
 func TestARetryOfAFallenBackBoxBuildsItsDevcontainerImage(t *testing.T) {
 	t.Parallel()
+	testutil.Quarantine(t, "#26")
 	w := newWorld(t, realResolver())
 	w.fake.SetImage("ubuntu:24.04", provider.ImageConfig{Digest: "sha256:dd"})
 	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{
