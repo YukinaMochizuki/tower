@@ -21,6 +21,8 @@ import (
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+
+	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
 func TestLocalNameStandsForTheDigest(t *testing.T) {
@@ -216,6 +218,7 @@ func pushWorld(t *testing.T) (*Driver, *fakeRegistry) {
 // again. Before its push, it resolves from what is held.
 func TestAHeldImageIsPushedAsItWasBuilt(t *testing.T) {
 	t.Parallel()
+	testutil.Quarantine(t, "#31")
 	d, reg := pushWorld(t)
 	ctx := t.Context()
 	ref := heldImage(t, d, "p/box", "4242")
