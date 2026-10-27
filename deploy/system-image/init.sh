@@ -21,14 +21,35 @@ if [ "${TOWER_REGISTRY_PLAIN_HTTP:-}" = 1 ] && [ -n "${TOWER_REGISTRY:-}" ]; the
 	printf '[registry."%s"]\n  http = true\n  insecure = true\n' "$TOWER_REGISTRY" >"$config"
 fi
 
+# tailscaled's proxy, which the image's environment names
+# (deploy/system-image/build.sh), so that tower-system's calls, which
+# hangar's exec starts in it, have it too: the tailnet, and its names, are
+# reached through it alone.
+proxy=${TOWER_SYSTEM_GIT_PROXY:-http://127.0.0.1:1055}
+export TOWER_SYSTEM_GIT_PROXY="$proxy"
+# tailscaled listens on its host:port; anything but http://host:port, a
+# trailing slash allowed, ends the container rather than leave git
+# without the tailnet.
+listen=
+case $proxy in http://*) listen=${proxy#http://} ;; esac
+listen=${listen%/}
+case $listen in *:*) port=${listen##*:} ;; *) port= ;; esac
+case $listen in :* | */* | *@*) listen= ;; esac
+case $port in '' | *[!0-9]*) listen= ;; esac
+if [ -z "$listen" ]; then
+	echo "tower-system-init: TOWER_SYSTEM_GIT_PROXY=$proxy is not http://host:port" >&2
+	exit 1
+fi
+
 tailscaled --tun=userspace-networking --state="$root/tailscale/tailscaled.state" \
 	--socket=/var/run/tailscale/tailscaled.sock \
-	--outbound-http-proxy-listen=127.0.0.1:1055 &
+	--outbound-http-proxy-listen="$listen" &
 ts=$!
 
-# The registry is on the tailnet; tailscaled's proxy dials it there, and
-# anything else as the container would.
-HTTP_PROXY=http://127.0.0.1:1055 HTTPS_PROXY=http://127.0.0.1:1055 NO_PROXY=127.0.0.1,localhost \
+# The registry and the tailnet's repositories are on the tailnet;
+# tailscaled's proxy dials them there, and anything else, such as GitHub,
+# as the container would. tower-system gives git the proxy itself.
+HTTP_PROXY=$proxy HTTPS_PROXY=$proxy NO_PROXY=127.0.0.1,localhost \
 	buildkitd --config "$config" --root "$root/buildkit" --addr unix:///run/buildkit/buildkitd.sock &
 bk=$!
 

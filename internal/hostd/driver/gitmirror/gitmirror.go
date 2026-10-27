@@ -49,6 +49,10 @@ type Config struct {
 	// ScratchDir is a directory, root's alone, for checkouts and pushes
 	// being made.
 	ScratchDir string
+	// Proxy is the HTTP proxy the commands reaching a repository go
+	// through, none if empty: tailscaled's in a hangar target's system
+	// container, never hostd's (docs/decisions/repositories.md).
+	Proxy string
 }
 
 // Driver is the git driver. It is safe for concurrent use.
@@ -194,6 +198,21 @@ func tokenEnv(token string) []string {
 		"GIT_CONFIG_KEY_1=http.extraHeader", "GIT_CONFIG_VALUE_1=Authorization: Basic " + basic}
 }
 
+// remoteEnv is the environment a command reaching a repository with
+// token is given: tokenEnv's, and the proxy, if any, for all but loopback.
+// curl reads http_proxy in lower case alone, https_proxy in either.
+func (d *Driver) remoteEnv(token string) []string {
+	env := tokenEnv(token)
+	if p := d.cfg.Proxy; p != "" {
+		env = append(env, "http_proxy="+p, "https_proxy="+p, "HTTPS_PROXY="+p,
+			"no_proxy="+noProxy, "NO_PROXY="+noProxy)
+	}
+	return env
+}
+
+// noProxy is what is reached without the proxy: loopback.
+const noProxy = "127.0.0.1,localhost,::1"
+
 func (d *Driver) Fetch(ctx context.Context, spec driver.FetchSpec) (string, error) {
 	ds, err := d.dataset(spec.Mirror)
 	if err != nil {
@@ -215,7 +234,7 @@ func (d *Driver) Fetch(ctx context.Context, spec driver.FetchSpec) (string, erro
 			return "", err
 		}
 	}
-	env := tokenEnv(spec.Token)
+	env := d.remoteEnv(spec.Token)
 	branch := spec.Branch
 	if branch == "" {
 		out, err := git(ctx, r, env, "ls-remote", "--symref", "--", spec.URL, "HEAD")
@@ -435,7 +454,7 @@ func (d *Driver) Push(ctx context.Context, spec driver.PushSpec, gitDir io.Reade
 		lease = strings.TrimSpace(full)
 	}
 	ref := "refs/heads/" + spec.Branch
-	_, err = git(ctx, r, tokenEnv(spec.Token), "push", "--quiet", "--force-with-lease="+ref+":"+lease, "--", spec.URL, commit+":"+ref)
+	_, err = git(ctx, r, d.remoteEnv(spec.Token), "push", "--quiet", "--force-with-lease="+ref+":"+lease, "--", spec.URL, commit+":"+ref)
 	if err != nil {
 		msg := err.Error()
 		if strings.Contains(msg, "stale info") || strings.Contains(msg, "rejected") || strings.Contains(msg, "already exists") {
