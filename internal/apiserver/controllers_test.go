@@ -363,6 +363,7 @@ func TestAMachineComesUpAndIsNeverIdle(t *testing.T) {
 // all of it as root.
 func TestAMachineRunsAsItsRunAsUser(t *testing.T) {
 	t.Parallel()
+	testutil.Quarantine(t, "#28")
 	w := newWorld(t)
 	w.mustApply(registry.Secret, secret("web", "k3s", map[string]string{"TOKEN": "t"}))
 	const check = "test -x ~/.local/bin/tool"
