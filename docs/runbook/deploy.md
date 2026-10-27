@@ -141,7 +141,11 @@ leaving no environment reachable by its name.
 Its boxes run tower-guest, which the apiserver writes into them; its
 mirrors and builds run in a system container of the target's own,
 `tower-sys-*`, made from the release's system image, which joins the
-tailnet to push to the registry (`docs/decisions/images.md`).
+tailnet to push to the registry (`docs/decisions/images.md`). The
+mirrors reach their repositories through the container's tailscaled's
+proxy: a repository on the tailnet, such as workstream's own git
+service, needs a tailnet grant from the container's tag (tag:tower-system)
+to its port, and GitHub is reached directly through the same proxy.
 
 ```sh
 install -d -m 0755 /usr/local/lib/tower

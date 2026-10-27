@@ -37,12 +37,21 @@ versions at a given ref.
 - **On a hangar target, the mirrors are in its system container**
   (`internal/system`), on its disk, kept by the same git driver as on a
   hostd host; a token reaches only the one git command there that needs
-  it, as on a host. A box takes a checkout or an origin from the
+  it, as on a host. Its git reaches the repositories through the
+  container's tailscaled's HTTP proxy (`TOWER_SYSTEM_GIT_PROXY`, which
+  the system image sets), as the container is on the tailnet in
+  userspace alone: tailnet names, such as workstream's own git service,
+  resolve there, and the proxy dials GitHub and the like directly. The
+  proxy never sees a token because a Repository's URL must be https
+  (the apiserver's `validateRepository` refuses any other): git reaches
+  it through the proxy as a CONNECT tunnel, TLS inside. Over plain
+  http the token's header would reach the proxy in the clear. hostd's
+  git has no proxy. A box takes a checkout or an origin from the
   container's server, and posts a push's `.git` to it, over hangar's
-  endpoint service, each on a single-use credential tower grants for that
-  operation and mirror alone, from the box's network alone, for a mirror
-  of the box's project alone; where the endpoint cannot carry it, tower
-  relays it (`traffic.md`).
+  endpoint service, each on a single-use credential tower grants for
+  that operation and mirror alone, from the box's network alone, for a
+  mirror of the box's project alone; where the endpoint cannot carry
+  it, tower relays it (`traffic.md`).
 
 ## Consequences
 

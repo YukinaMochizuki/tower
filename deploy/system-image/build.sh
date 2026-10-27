@@ -2,11 +2,13 @@
 # build.sh OUT builds a hangar target's system image (internal/system) as
 # an image tarball at OUT, from the checked-out commit: BuildKit's own
 # image (TOWER_SYSTEM_BASE, which carries git) with a layer of tower-system,
-# tailscale and init.sh, its entrypoint. No Docker: crane appends the layer
-# to the base by digest, in a registry of its own on loopback for the
-# build's length. The deploy pushes OUT to tower's registry and names it
-# with tower-apiserver's --system-image (docs/runbook/deploy.md). Run from
-# the repository's root.
+# tailscale and init.sh, its entrypoint, and an environment naming
+# tailscaled's proxy (TOWER_SYSTEM_GIT_PROXY), which init.sh starts it on
+# and hangar's exec gives tower-system's calls. No Docker: crane appends
+# the layer to the base by digest, in a registry of its own on loopback
+# for the build's length. The deploy pushes OUT to tower's registry and
+# names it with tower-apiserver's --system-image (docs/runbook/deploy.md).
+# Run from the repository's root.
 set -euo pipefail
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -50,7 +52,7 @@ done
 ref=127.0.0.1:$port/tower/system:build
 crane append --platform linux/amd64 -b "$TOWER_SYSTEM_BASE" -f "$work/layer.tar" -t "$ref"
 crane mutate --entrypoint /usr/local/bin/tower-system-init --cmd "" \
-	--env TOWER_SYSTEM_ROOT=/var/lib/tower -t "$ref" "$ref" >/dev/null
+	--env TOWER_SYSTEM_ROOT=/var/lib/tower --env TOWER_SYSTEM_GIT_PROXY=http://127.0.0.1:1055 -t "$ref" "$ref" >/dev/null
 crane pull --format oci "$ref" "$out.dir"
 tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="$when" -C "$out.dir" -cf "$out" .
 rm -rf "$out.dir"

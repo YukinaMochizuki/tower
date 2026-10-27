@@ -11,8 +11,12 @@
 // registry as the container pushes to it, with TOWER_REGISTRY_PLAIN_HTTP=1
 // for one served over plain HTTP; BUILDKIT_HOST, buildkitd's address
 // (default its socket); TAILSCALE_SOCKET, tailscaled's;
-// TOWER_SYSTEM_LISTEN, where the server serves boxes (default :7480), and
-// TOWER_SYSTEM_CONTROL, its control socket, which the calls reach it by.
+// TOWER_SYSTEM_LISTEN, where the server serves boxes (default :7480);
+// TOWER_SYSTEM_CONTROL, its control socket, which the calls reach it by,
+// and TOWER_SYSTEM_GIT_PROXY, the HTTP proxy git reaches repositories
+// through (none if unset): tailscaled's, which the image's environment
+// names, so that the calls, which hangar's exec starts in it, have it as
+// the server does.
 package main
 
 import (
@@ -57,5 +61,6 @@ func configOf(getenv func(string) string) system.Config {
 		Tailscale:         []string{"tailscale", "--socket=" + cmp.Or(getenv("TAILSCALE_SOCKET"), "/var/run/tailscale/tailscaled.sock")},
 		Listen:            getenv("TOWER_SYSTEM_LISTEN"),
 		Control:           getenv("TOWER_SYSTEM_CONTROL"),
+		GitProxy:          getenv("TOWER_SYSTEM_GIT_PROXY"),
 	}
 }

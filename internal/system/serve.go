@@ -40,6 +40,10 @@ type Config struct {
 	// Listen is where the server serves boxes, ":7480" when empty;
 	// Control its control socket, DefaultControl when empty.
 	Listen, Control string
+	// GitProxy is the HTTP proxy git reaches repositories through:
+	// tailscaled's, as the tailnet's repositories, a workstream's own
+	// among them, are reached through it alone. None when empty.
+	GitProxy string
 }
 
 func (c Config) control() string {
@@ -51,7 +55,9 @@ func (c Config) control() string {
 
 // mirrors is the git driver over the container's mirrors.
 func mirrors(ctx context.Context, cfg Config) (*gitmirror.Driver, error) {
-	return gitmirror.New(ctx, gitmirror.Config{Root: filepath.Join(cfg.Root, "mirrors"), ScratchDir: filepath.Join(cfg.Root, "scratch", "git")})
+	return gitmirror.New(ctx, gitmirror.Config{
+		Root: filepath.Join(cfg.Root, "mirrors"), ScratchDir: filepath.Join(cfg.Root, "scratch", "git"), Proxy: cfg.GitProxy,
+	})
 }
 
 // checkoutFile writes a tar of a clone of a mirror at ref into a scratch
