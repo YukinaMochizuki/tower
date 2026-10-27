@@ -166,7 +166,9 @@ func (f *Fake) system(ctx context.Context, name, uid string, stdin io.Reader, st
 	}
 	switch h.Op {
 	case system.OpStatus:
-		return answer(system.Result{BuildKit: "fake"})
+		// Whether the server answers, as the real status asks it.
+		srv, err := f.startServer(uid, registry)
+		return answer(system.Result{BuildKit: "fake", Serving: err == nil && controlAnswers(srv.control)})
 	case system.OpTailnetUp:
 		return answer(system.Result{Tailnet: true})
 	case system.OpResolve:
@@ -262,6 +264,11 @@ func (f *Fake) runSystem(ctx context.Context, uid, registry string, h system.Hea
 	}
 	cmd := exec.CommandContext(ctx, f.System, "call")
 	cmd.Env = append(os.Environ(), "TOWER_SYSTEM_ROOT="+filepath.Join(f.root(uid), "var", "lib", "tower"), "TOWER_REGISTRY="+registry)
+	f.mu.Lock()
+	if s, ok := f.servers[uid]; ok {
+		cmd.Env = append(cmd.Env, "TOWER_SYSTEM_CONTROL="+s.control)
+	}
+	f.mu.Unlock()
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	pipe, err := cmd.StdinPipe()
 	if err != nil {

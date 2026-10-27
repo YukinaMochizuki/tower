@@ -62,6 +62,8 @@ func (t *Target) Report(ctx context.Context) error {
 			facts = append(facts, &targetsv1alpha1.Fact{Name: "builder", Value: or(buildkit, "buildkitd does not answer")},
 				&targetsv1alpha1.Fact{Name: "builder on the tailnet", Value: strconv.FormatBool(tailnet)})
 		}
+		facts = append(facts, &targetsv1alpha1.Fact{Name: "mirror transport", Value: t.transportFact()},
+			&targetsv1alpha1.Fact{Name: "mirror transfers", Value: t.transfersFact()})
 	}
 	for range 10 {
 		o, err := t.c.Get(ctx, registry.Target, client.Key{Name: t.cfg.Target})
@@ -132,6 +134,7 @@ func quota(p *hangartenancy.Project, facts []*targetsv1alpha1.Fact) (*targetsv1a
 	count("hangar machines", use.GetMachines(), lim.Machines)
 	count("hangar networks", use.GetNetworks(), lim.Networks)
 	count("hangar custom images", use.GetCustomImages(), lim.CustomImages)
+	count("hangar network endpoints", use.GetNetworkEndpoints(), lim.NetworkEndpoints)
 	facts = append(facts, &targetsv1alpha1.Fact{Name: "hangar disk", Value: fmt.Sprintf("%s of %s", or(use.GetDisk(), "0"), or(lim.GetDisk(), "unlimited"))})
 	return c, facts
 }

@@ -81,6 +81,53 @@ func (t *Target) Teardown(ctx context.Context) (left []string, err error) {
 		}
 	}
 
+	// The endpoints and the service go at once; hangar keeps each until its
+	// node lets go of it. The security group goes once no interface names
+	// it: hangar refuses it before. A hangar without the kinds has none.
+	neps, err := t.api.NetworkEndpoints().List(ctx, t.selector())
+	if err != nil && !unsupported(err) {
+		return nil, err
+	}
+	for _, ne := range neps {
+		if meta := ne.GetMetadata(); t.mine(meta.GetLabels()) {
+			del("networkendpoint", meta.GetName(), meta, false, t.api.NetworkEndpoints().Delete)
+			t.forgetEndpoint(ne.GetSpec().GetNetwork())
+		}
+	}
+	svcs, err := t.api.EndpointServices().List(ctx, t.selector())
+	if err != nil && !unsupported(err) {
+		return nil, err
+	}
+	for _, svc := range svcs {
+		if meta := svc.GetMetadata(); t.mine(meta.GetLabels()) {
+			del("endpointservice", meta.GetName(), meta, false, t.api.EndpointServices().Delete)
+		}
+	}
+	grouped := map[string]bool{}
+	for _, ct := range all {
+		for _, i := range ct.GetSpec().GetInterfaces() {
+			for _, g := range i.GetSecurityGroups() {
+				grouped[g] = true
+			}
+		}
+	}
+	for _, vm := range allVMs {
+		for _, i := range vm.GetSpec().GetInterfaces() {
+			for _, g := range i.GetSecurityGroups() {
+				grouped[g] = true
+			}
+		}
+	}
+	sgs, err := t.api.SecurityGroups().List(ctx, t.selector())
+	if err != nil && !unsupported(err) {
+		return nil, err
+	}
+	for _, sg := range sgs {
+		if meta := sg.GetMetadata(); t.mine(meta.GetLabels()) {
+			del("securitygroup", meta.GetName(), meta, grouped[meta.GetName()], t.api.SecurityGroups().Delete)
+		}
+	}
+
 	disks, err := t.api.Disks().List(ctx, t.selector())
 	if err != nil {
 		return nil, err

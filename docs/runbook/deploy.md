@@ -201,6 +201,23 @@ room by its quota, and whether the system container answers and is on
 the tailnet. The project's Plan must allow a network per workstream and
 one more, and the disk of every box plus the system container's 50Gi.
 
+**Checkouts and pushes over hangar's endpoint service.** On a hangar with
+EndpointService and NetworkEndpoint (hangar#224, or later), a box takes
+its checkouts from the system container, and posts its pushes to it,
+directly (`docs/decisions/traffic.md`). The system container offers port
+7480 to the target's networks as EndpointService `tower-sys-*`, with a
+SecurityGroup of the same name that lets each workstream network in.
+Each workstream network has a NetworkEndpoint `tower-ep-*`, so the
+Plan's `network_endpoints` must allow one per workstream network (20 by
+default). The first tower with this to start on a target restarts its
+system container once, to put it in the security group. hangar#224 is
+optional: on a hangar without it, out of `network_endpoints`, or with an
+endpoint not Connected, tower relays the tars through itself. The
+target's facts say which: `mirror transport` (`endpoint`, or `relay:`
+and why), and `mirror transfers`, counted each way since tower started,
+with why the last was relayed. The system image must be this release's,
+which runs `tower-system serve`; an older one is relayed to.
+
 **VMs.** A machine's VM boots one of hangar's catalogue Images (hangar's
 `deploy/catalog`), by the name `base_images` maps its blueprint's
 `base_image` to; a base image not in the map, or an Image the hangar does
@@ -365,7 +382,9 @@ snapshot deleted on the target, then, on a hangar target, every object
 labelled `tower/target=<name>` in the hangar project: containers and
 VMs, then their disks, networks once nothing is on them, the golden
 images and the registry login, the system container `tower-sys-*`, its
-50Gi disk and its network included. The target's ssh key Secret goes
+50Gi disk and its network included, and the network endpoints, the
+endpoint service and, once the system container is gone, its security
+group. The target's ssh key Secret goes
 with the Target. hangar deletes in its own time. `status.remaining`
 lists what is left, and `last_error` what keeps it, such as hangar
 refusing the token: write the credential Secret again and the teardown
@@ -393,7 +412,8 @@ is left is unknown. On a hangar target, what is left counts against the
 project's quota; list it, and delete it there by hand:
 
 ```sh
-for k in containers virtualmachines disks networks customimages secrets; do
+for k in containers virtualmachines disks networks customimages secrets \
+    networkendpoints endpointservices securitygroups; do
   hangar get "$k" -p <project> -l tower/target=hangar-main
 done
 ```

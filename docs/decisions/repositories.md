@@ -37,7 +37,12 @@ versions at a given ref.
 - **On a hangar target, the mirrors are in its system container**
   (`internal/system`), on its disk, kept by the same git driver as on a
   hostd host; a token reaches only the one git command there that needs
-  it, as on a host.
+  it, as on a host. A box takes a checkout or an origin from the
+  container's server, and posts a push's `.git` to it, over hangar's
+  endpoint service, each on a single-use credential tower grants for that
+  operation and mirror alone, from the box's network alone, for a mirror
+  of the box's project alone; where the endpoint cannot carry it, tower
+  relays it (`traffic.md`).
 
 ## Consequences
 

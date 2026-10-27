@@ -63,6 +63,18 @@ func labelled(ctx context.Context, api hangar.API, target string) ([]string, err
 	if err := add("secret", names(secrets), err); err != nil {
 		return nil, err
 	}
+	neps, err := api.NetworkEndpoints().List(ctx, sel)
+	if err := add("networkendpoint", names(neps), err); err != nil {
+		return nil, err
+	}
+	svcs, err := api.EndpointServices().List(ctx, sel)
+	if err := add("endpointservice", names(svcs), err); err != nil {
+		return nil, err
+	}
+	sgs, err := api.SecurityGroups().List(ctx, sel)
+	if err := add("securitygroup", names(sgs), err); err != nil {
+		return nil, err
+	}
 	slices.Sort(out)
 	return out, nil
 }
@@ -76,9 +88,10 @@ func names[T interface{ GetMetadata() *hangarmeta.ObjectMeta }](objs []T) []stri
 }
 
 // TestDeletingATargetLeavesNothingInHangar runs a hangar target's
-// provider as tower does, over a real hangar, with its system container
-// and a golden image, then deletes the Target: once it is gone, the
-// project holds nothing labelled with it.
+// provider as tower does, over a real hangar, with its system container,
+// its endpoint service and security group, a network endpoint and a
+// golden image, then deletes the Target: once it is gone, the project
+// holds nothing labelled with it.
 func TestDeletingATargetLeavesNothingInHangar(t *testing.T) {
 	c := load(t)
 	if c.system == "" {
@@ -141,7 +154,7 @@ func TestDeletingATargetLeavesNothingInHangar(t *testing.T) {
 	}
 
 	sysName := ""
-	testutil.EventuallyWithin(t, 5*time.Minute, "the system container, its disk and its network in hangar", func() (bool, string) {
+	testutil.EventuallyWithin(t, 5*time.Minute, "the system container, its disk, network, endpoint service and security group in hangar", func() (bool, string) {
 		got, err := labelled(ctx, api, target)
 		if err != nil {
 			return false, err.Error()
@@ -151,7 +164,8 @@ func TestDeletingATargetLeavesNothingInHangar(t *testing.T) {
 				sysName = n
 			}
 		}
-		return sysName != "" && slices.Contains(got, "disk/"+sysName) && slices.Contains(got, "network/"+sysName), fmt.Sprint(got)
+		return sysName != "" && slices.Contains(got, "disk/"+sysName) && slices.Contains(got, "network/"+sysName) &&
+			slices.Contains(got, "endpointservice/"+sysName) && slices.Contains(got, "securitygroup/"+sysName), fmt.Sprint(got)
 	})
 
 	// A golden of the target's, as its provider captures one: an image of
@@ -165,6 +179,11 @@ func TestDeletingATargetLeavesNothingInHangar(t *testing.T) {
 	}
 	if _, err := api.Disks().Apply(ctx, &hangarstorage.Disk{
 		Metadata: &hangarmeta.ObjectMeta{Name: name, Labels: labels}, Spec: &hangarstorage.DiskSpec{Size: "1Gi"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.NetworkEndpoints().Apply(ctx, &hangarnetwork.NetworkEndpoint{
+		Metadata: &hangarmeta.ObjectMeta{Name: "ep-" + target, Labels: labels}, Spec: &hangarnetwork.NetworkEndpointSpec{Network: "w-" + target, Service: sysName},
 	}); err != nil {
 		t.Fatal(err)
 	}

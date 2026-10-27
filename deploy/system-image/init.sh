@@ -1,10 +1,11 @@
 #!/bin/sh
 # init.sh is a hangar target's system container's process
 # (internal/system): it starts tailscaled, in userspace, its state on the
-# container's disk, and buildkitd, which reaches tower's registry through
-# tailscaled's proxy, and ends when either does, so hangar starts the
-# container again. tower-system runs beside them, a call at a time, as the
-# provider asks through hangar's exec.
+# container's disk, buildkitd, which reaches tower's registry through
+# tailscaled's proxy, and tower-system serve, which boxes reach over the
+# target's EndpointService, and ends when any of them does, so hangar
+# starts the container again. tower-system also runs beside them, a call
+# at a time, as the provider asks through hangar's exec.
 set -eu
 
 root=${TOWER_SYSTEM_ROOT:-/var/lib/tower}
@@ -31,10 +32,13 @@ HTTP_PROXY=http://127.0.0.1:1055 HTTPS_PROXY=http://127.0.0.1:1055 NO_PROXY=127.
 	buildkitd --config "$config" --root "$root/buildkit" --addr unix:///run/buildkit/buildkitd.sock &
 bk=$!
 
-trap 'kill "$ts" "$bk" 2>/dev/null' TERM INT
+tower-system serve &
+sv=$!
+
+trap 'kill "$ts" "$bk" "$sv" 2>/dev/null' TERM INT
 # Whichever ends first ends the container.
-while kill -0 "$ts" 2>/dev/null && kill -0 "$bk" 2>/dev/null; do
+while kill -0 "$ts" 2>/dev/null && kill -0 "$bk" 2>/dev/null && kill -0 "$sv" 2>/dev/null; do
 	sleep 5
 done
-kill "$ts" "$bk" 2>/dev/null || true
+kill "$ts" "$bk" "$sv" 2>/dev/null || true
 exit 1

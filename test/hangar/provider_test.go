@@ -151,10 +151,20 @@ func world(t *testing.T) *hangartest.World {
 const baseImage = "ubuntu-24.04"
 
 // TestConformance holds the hangar provider, over a real hangar, to the
-// provider contract.
+// provider contract. With a system container and a hangar with endpoint
+// services (hangar#224), the mirrors' transfers go over the endpoint, and
+// no tar crosses tower.
 func TestConformance(t *testing.T) {
+	c := load(t)
 	w := world(t)
 	providertest.Run(t, w.Harness())
+	m := w.Target.MirrorTransfers()
+	t.Logf("the mirrors' transfers: %d over the endpoint, %d relayed through tower (%d bytes); the last relayed as %q",
+		m.Direct, m.Relayed, m.RelayedBytes, m.LastRelay)
+	// Only where a mirror case ran: a run may name some cases alone.
+	if c.system != "" && c.remote != "" && m.Direct+m.Relayed > 0 && (m.Relayed != 0 || m.RelayedBytes != 0) {
+		t.Errorf("the mirrors' transfers: %+v, want every one over the endpoint", m)
+	}
 }
 
 // TestAStreamReachesAnInstanceThroughHangar serves a page in an instance

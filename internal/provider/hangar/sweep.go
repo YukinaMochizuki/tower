@@ -124,15 +124,36 @@ func (t *Target) Sweep(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	kept := map[string]bool{}
 	for _, n := range nets {
 		meta := n.GetMetadata()
 		if !mine(meta.GetLabels()) || used[meta.GetName()] || !old(meta.GetCreateTime()) || meta.GetDeleteTime() != nil {
+			kept[meta.GetName()] = meta.GetDeleteTime() == nil
 			continue
 		}
 		t.log.Info("sweeping a network no machine is on", "network", meta.GetName())
 		if err := t.api.Networks().Delete(ctx, meta.GetName()); err != nil {
 			return err
 		}
+		t.forgetEndpoint(meta.GetName())
+	}
+	// A network's endpoint goes with it, as hangar deletes it with its
+	// network; one whose network is no workstream network of the target's
+	// any more goes here.
+	neps, err := t.api.NetworkEndpoints().List(ctx, t.selector())
+	if err != nil && !unsupported(err) {
+		return err
+	}
+	for _, ne := range neps {
+		meta := ne.GetMetadata()
+		if !t.mine(meta.GetLabels()) || kept[ne.GetSpec().GetNetwork()] || !old(meta.GetCreateTime()) || meta.GetDeleteTime() != nil {
+			continue
+		}
+		t.log.Info("sweeping a network endpoint whose network is going", "endpoint", meta.GetName(), "network", ne.GetSpec().GetNetwork())
+		if err := t.api.NetworkEndpoints().Delete(ctx, meta.GetName()); err != nil {
+			return err
+		}
+		t.forgetEndpoint(ne.GetSpec().GetNetwork())
 	}
 	// A golden's image no Golden names any more goes; hangar keeps its
 	// base until the disks made from it go.

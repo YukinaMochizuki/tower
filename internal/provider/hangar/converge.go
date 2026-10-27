@@ -251,13 +251,15 @@ func (t *Target) containerSpec(in *envv1alpha1.Instance, name, network, pull str
 	return s
 }
 
-// ensureNetwork makes a workstream's network once.
+// ensureNetwork makes a workstream's network once, with its endpoint to
+// the system container's server.
 func (t *Target) ensureNetwork(ctx context.Context, name, project, network string) error {
 	n, err := t.api.Networks().Get(ctx, name)
 	if err == nil {
 		if n.GetMetadata().GetDeleteTime() != nil {
 			return fmt.Errorf("network %s is being deleted; it is made again once it is gone", name)
 		}
+		t.ensureNetworkEndpoint(ctx, name, project)
 		return nil
 	}
 	if !errors.Is(err, ErrNotFound) {
@@ -267,7 +269,11 @@ func (t *Target) ensureNetwork(ctx context.Context, name, project, network strin
 		Metadata: &hangarmeta.ObjectMeta{Name: name, Labels: map[string]string{LabelTarget: t.cfg.Target, LabelProject: project, LabelNetwork: label(network)}},
 		Spec:     &hangarnetwork.NetworkSpec{Ipv4Cidr: NetworkCIDR},
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	t.ensureNetworkEndpoint(ctx, name, project)
+	return nil
 }
 
 // ensurePullSecret makes the target's registry login a hangar Secret once

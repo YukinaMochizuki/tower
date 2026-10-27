@@ -36,6 +36,9 @@ type Connect struct {
 	vms        Kind[*hangarcompute.VirtualMachine]
 	secrets    Kind[*hangarsecrets.Secret]
 	images     Kind[*hangarstorage.CustomImage]
+	epsvcs     Kind[*hangarnetwork.EndpointService]
+	neps       Kind[*hangarnetwork.NetworkEndpoint]
+	sgs        Kind[*hangarnetwork.SecurityGroup]
 	machines   computev1alpha1connect.MachineServiceClient
 	globals    storagev1alpha1connect.ImageServiceClient
 	projects   tenancyv1alpha1connect.ProjectServiceClient
@@ -177,19 +180,85 @@ func NewConnect(endpoint, project, token string, hc *http.Client) *Connect {
 			return err
 		},
 	}
+	epsvcsC := networkv1alpha1connect.NewEndpointServiceServiceClient(hc, c.endpoint, opts...)
+	c.epsvcs = kind[*hangarnetwork.EndpointService]{
+		project: project, what: "endpoint service",
+		get: func(ctx context.Context, name string) (*hangarnetwork.EndpointService, error) {
+			r, err := epsvcsC.GetEndpointService(ctx, connect.NewRequest(&hangarnetwork.GetEndpointServiceRequest{Project: project, Name: name}))
+			return msg(r).GetEndpointService(), err
+		},
+		list: func(ctx context.Context, sel, page string) ([]*hangarnetwork.EndpointService, string, error) {
+			r, err := epsvcsC.ListEndpointServices(ctx, connect.NewRequest(&hangarnetwork.ListEndpointServicesRequest{Project: project, LabelSelector: sel, PageToken: page}))
+			return msg(r).GetItems(), msg(r).GetNextPageToken(), err
+		},
+		apply: func(ctx context.Context, o *hangarnetwork.EndpointService) (*hangarnetwork.EndpointService, error) {
+			o.GetMetadata().Project = project
+			r, err := epsvcsC.ApplyEndpointService(ctx, connect.NewRequest(&hangarnetwork.ApplyEndpointServiceRequest{EndpointService: o}))
+			return msg(r).GetEndpointService(), err
+		},
+		del: func(ctx context.Context, name string) error {
+			_, err := epsvcsC.DeleteEndpointService(ctx, connect.NewRequest(&hangarnetwork.DeleteEndpointServiceRequest{Project: project, Name: name}))
+			return err
+		},
+	}
+	nepsC := networkv1alpha1connect.NewNetworkEndpointServiceClient(hc, c.endpoint, opts...)
+	c.neps = kind[*hangarnetwork.NetworkEndpoint]{
+		project: project, what: "network endpoint",
+		get: func(ctx context.Context, name string) (*hangarnetwork.NetworkEndpoint, error) {
+			r, err := nepsC.GetNetworkEndpoint(ctx, connect.NewRequest(&hangarnetwork.GetNetworkEndpointRequest{Project: project, Name: name}))
+			return msg(r).GetNetworkEndpoint(), err
+		},
+		list: func(ctx context.Context, sel, page string) ([]*hangarnetwork.NetworkEndpoint, string, error) {
+			r, err := nepsC.ListNetworkEndpoints(ctx, connect.NewRequest(&hangarnetwork.ListNetworkEndpointsRequest{Project: project, LabelSelector: sel, PageToken: page}))
+			return msg(r).GetItems(), msg(r).GetNextPageToken(), err
+		},
+		apply: func(ctx context.Context, o *hangarnetwork.NetworkEndpoint) (*hangarnetwork.NetworkEndpoint, error) {
+			o.GetMetadata().Project = project
+			r, err := nepsC.ApplyNetworkEndpoint(ctx, connect.NewRequest(&hangarnetwork.ApplyNetworkEndpointRequest{NetworkEndpoint: o}))
+			return msg(r).GetNetworkEndpoint(), err
+		},
+		del: func(ctx context.Context, name string) error {
+			_, err := nepsC.DeleteNetworkEndpoint(ctx, connect.NewRequest(&hangarnetwork.DeleteNetworkEndpointRequest{Project: project, Name: name}))
+			return err
+		},
+	}
+	sgsC := networkv1alpha1connect.NewSecurityGroupServiceClient(hc, c.endpoint, opts...)
+	c.sgs = kind[*hangarnetwork.SecurityGroup]{
+		project: project, what: "security group",
+		get: func(ctx context.Context, name string) (*hangarnetwork.SecurityGroup, error) {
+			r, err := sgsC.GetSecurityGroup(ctx, connect.NewRequest(&hangarnetwork.GetSecurityGroupRequest{Project: project, Name: name}))
+			return msg(r).GetSecurityGroup(), err
+		},
+		list: func(ctx context.Context, sel, page string) ([]*hangarnetwork.SecurityGroup, string, error) {
+			r, err := sgsC.ListSecurityGroups(ctx, connect.NewRequest(&hangarnetwork.ListSecurityGroupsRequest{Project: project, LabelSelector: sel, PageToken: page}))
+			return msg(r).GetItems(), msg(r).GetNextPageToken(), err
+		},
+		apply: func(ctx context.Context, o *hangarnetwork.SecurityGroup) (*hangarnetwork.SecurityGroup, error) {
+			o.GetMetadata().Project = project
+			r, err := sgsC.ApplySecurityGroup(ctx, connect.NewRequest(&hangarnetwork.ApplySecurityGroupRequest{SecurityGroup: o}))
+			return msg(r).GetSecurityGroup(), err
+		},
+		del: func(ctx context.Context, name string) error {
+			_, err := sgsC.DeleteSecurityGroup(ctx, connect.NewRequest(&hangarnetwork.DeleteSecurityGroupRequest{Project: project, Name: name}))
+			return err
+		},
+	}
 	c.machines = computev1alpha1connect.NewMachineServiceClient(hc, c.endpoint, opts...)
 	c.globals = storagev1alpha1connect.NewImageServiceClient(hc, c.endpoint, opts...)
 	c.projects = tenancyv1alpha1connect.NewProjectServiceClient(hc, c.endpoint, opts...)
 	return c
 }
 
-func (c *Connect) Networks() Kind[*hangarnetwork.Network]               { return c.networks }
-func (c *Connect) Disks() Kind[*hangarstorage.Disk]                     { return c.disks }
-func (c *Connect) Containers() Kind[*hangarcompute.Container]           { return c.containers }
-func (c *Connect) VirtualMachines() Kind[*hangarcompute.VirtualMachine] { return c.vms }
-func (c *Connect) Secrets() Kind[*hangarsecrets.Secret]                 { return c.secrets }
-func (c *Connect) CustomImages() Kind[*hangarstorage.CustomImage]       { return c.images }
-func (c *Connect) ProjectName() string                                  { return c.project }
+func (c *Connect) Networks() Kind[*hangarnetwork.Network]                 { return c.networks }
+func (c *Connect) Disks() Kind[*hangarstorage.Disk]                       { return c.disks }
+func (c *Connect) Containers() Kind[*hangarcompute.Container]             { return c.containers }
+func (c *Connect) VirtualMachines() Kind[*hangarcompute.VirtualMachine]   { return c.vms }
+func (c *Connect) Secrets() Kind[*hangarsecrets.Secret]                   { return c.secrets }
+func (c *Connect) CustomImages() Kind[*hangarstorage.CustomImage]         { return c.images }
+func (c *Connect) ProjectName() string                                    { return c.project }
+func (c *Connect) EndpointServices() Kind[*hangarnetwork.EndpointService] { return c.epsvcs }
+func (c *Connect) NetworkEndpoints() Kind[*hangarnetwork.NetworkEndpoint] { return c.neps }
+func (c *Connect) SecurityGroups() Kind[*hangarnetwork.SecurityGroup]     { return c.sgs }
 
 func (c *Connect) Image(ctx context.Context, name string) (*hangarstorage.Image, error) {
 	r, err := c.globals.GetImage(ctx, connect.NewRequest(&hangarstorage.GetImageRequest{Name: name}))
