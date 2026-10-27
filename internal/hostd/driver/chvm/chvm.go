@@ -55,13 +55,14 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/YukinaMochizuki/tower/internal/guest/guestops"
+	"github.com/YukinaMochizuki/tower/internal/guest/vmssh"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver/chvm/launcher"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver/docker"
 )
 
 // Hostname is every VM's (see the package's comment).
-const Hostname = "machine"
+const Hostname = vmssh.Hostname
 
 // Defaults of a Config.
 const (
@@ -527,35 +528,11 @@ func macOf(name string) string {
 	return fmt.Sprintf("02:%02x:%02x:%02x:%02x:%02x", sum[0], sum[1], sum[2], sum[3], sum[4])
 }
 
-// userData is a VM's cloud-config: hostd's key for root, the host key
-// hostd made for it, which hostd checks it answers with (its only one),
-// and the one hostname. A root locked by its password field ("!", as
-// Alpine's is) takes no key either; it is given one that only locks its
-// password. The workstream's aliases are single labels, which
-// systemd-resolved (as Ubuntu's) sends to no DNS server unless told to: it
-// is told to, at each boot.
+// userData is a VM's cloud-config (vmssh.UserData): hostd's key for
+// root, and the host key hostd made for it, which hostd checks it answers
+// with.
 func (d *Driver) userData(hostKeyPEM string, hostPub ssh.PublicKey) string {
-	var key strings.Builder
-	for _, line := range strings.Split(strings.TrimSpace(hostKeyPEM), "\n") {
-		key.WriteString("    " + line + "\n")
-	}
-	return "#cloud-config\n" +
-		"hostname: " + Hostname + "\n" +
-		"preserve_hostname: false\n" +
-		"disable_root: false\n" +
-		"ssh_pwauth: false\n" +
-		"ssh_authorized_keys:\n" +
-		"  - " + d.keys.authorized + "\n" +
-		"ssh_deletekeys: true\n" +
-		"ssh_genkeytypes: []\n" +
-		"ssh_keys:\n" +
-		"  ed25519_private: |\n" + key.String() +
-		"  ed25519_public: " + strings.TrimSpace(string(ssh.MarshalAuthorizedKey(hostPub))) + "\n" +
-		"bootcmd:\n" +
-		"  - [sh, -c, \"sed -i 's/^root:![^:]*:/root:*:/' /etc/shadow\"]\n" +
-		"  - [sh, -c, \"if [ -d /etc/systemd ]; then mkdir -p /etc/systemd/resolved.conf.d && " +
-		"printf '[Resolve]\\\\nResolveUnicastSingleLabel=yes\\\\n' > /etc/systemd/resolved.conf.d/tower.conf && " +
-		"(systemctl try-restart systemd-resolved || true); fi\"]\n"
+	return vmssh.UserData{Authorized: d.keys.Authorized, HostKeyPEM: hostKeyPEM, HostKey: hostPub}.String()
 }
 
 func (d *Driver) Stop(ctx context.Context, name string) error {
@@ -597,9 +574,8 @@ func (d *Driver) RemoveNetwork(ctx context.Context, name string) error {
 	return docker.Networks{Cli: d.cli}.Remove(ctx, name)
 }
 
-// ProcRoot is where a VM keeps its processes: a directory of the guest's
-// name, so a clone of a golden never lists its builder's.
-func ProcRoot(name string) string { return "/var/lib/tower/processes/" + name }
+// ProcRoot is where a VM keeps its processes (vmssh.ProcRoot).
+func ProcRoot(name string) string { return vmssh.ProcRoot(name) }
 
 // ops are the operations in a running VM, over ssh once it answers.
 func (d *Driver) ops(ctx context.Context, name string) (guestops.Ops, error) {
@@ -607,7 +583,7 @@ func (d *Driver) ops(ctx context.Context, name string) (guestops.Ops, error) {
 	if err != nil {
 		return guestops.Ops{}, err
 	}
-	return guestops.Ops{R: r, ProcRoot: ProcRoot(name)}, nil
+	return guestops.Ops{R: r.conn, ProcRoot: ProcRoot(name)}, nil
 }
 
 func (d *Driver) Exec(ctx context.Context, name string, s driver.ExecSpec) (int, error) {
