@@ -53,6 +53,11 @@ const (
 	// before the sweep removes it: an object made as its Instance was
 	// listed.
 	DefaultSweepGrace = 10 * time.Minute
+	// DefaultMirrorOps is how many of a target's mirror operations run at
+	// once: each holds an exec in the system container, and the rest wait,
+	// so a project of many repositories leaves the connections hangar's
+	// front door allows to the target's boxes and VMs as well.
+	DefaultMirrorOps = 8
 )
 
 // Labels the provider sets on what it makes in hangar. It touches only
@@ -124,6 +129,12 @@ type Config struct {
 	// container checked and every Instance read back; SweepEvery how often
 	// the sweep runs, SweepGrace its grace. Zero is each one's default.
 	ReportEvery, SweepEvery, SweepGrace time.Duration
+	// MirrorOps caps the target's mirror operations running at once:
+	// fetches, reads, checkouts, origins and pushes. Those that are not
+	// interactive (provider.Interactive) take at most three quarters of
+	// them, so a person's push or fetch never waits behind a reconcile's.
+	// Zero is DefaultMirrorOps.
+	MirrorOps int
 	// Teardown starts the target in teardown, as Teardown puts it: for a
 	// Target being deleted.
 	Teardown bool
@@ -159,6 +170,9 @@ type Target struct {
 	pullWritten bool
 	// tearingDown says the target is in teardown (Teardown).
 	tearingDown atomic.Bool
+	// mirrorOps holds a token for each mirror operation running
+	// (MirrorOps), and backgroundOps for each of those not interactive.
+	mirrorOps, backgroundOps chan struct{}
 }
 
 var _ provider.Provider = (*Target)(nil)
@@ -172,7 +186,19 @@ func New(cfg Config) *Target {
 	cfg.ReadyTimeout = cmp.Or(cfg.ReadyTimeout, DefaultReadyTimeout)
 	cfg.KeepAliveEvery = cmp.Or(cfg.KeepAliveEvery, DefaultKeepAliveEvery)
 	cfg.KeepAliveTimeout = cmp.Or(cfg.KeepAliveTimeout, DefaultKeepAliveTimeout)
-	t := &Target{cfg: cfg, api: cfg.API, c: cfg.Client, clock: cfg.Clock, log: cfg.Log}
+	if cfg.MirrorOps <= 0 {
+		cfg.MirrorOps = DefaultMirrorOps
+	}
+	// A quarter of the operations, one at least once there are two, are
+	// kept for the interactive.
+	kept := cfg.MirrorOps / 4
+	if kept == 0 && cfg.MirrorOps > 1 {
+		kept = 1
+	}
+	t := &Target{
+		cfg: cfg, api: cfg.API, c: cfg.Client, clock: cfg.Clock, log: cfg.Log,
+		mirrorOps: make(chan struct{}, cfg.MirrorOps), backgroundOps: make(chan struct{}, cfg.MirrorOps-kept),
+	}
 	if t.clock == nil {
 		t.clock = clockwork.NewRealClock()
 	}

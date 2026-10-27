@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -219,7 +220,7 @@ func newHangarWorldWith(t *testing.T, token string) *hangarWorld {
 	w.env = apiservertest.Start(t, func(c *apiserver.Config) {
 		c.Providers = nil
 		c.SystemImage = "registry.tower.internal/tower/system@sha256:01"
-		c.HangarAPI = func(_, _, token string) hangar.API {
+		c.HangarAPI = func(_, _, token string, _ *http.Client) hangar.API {
 			w.mu.Lock()
 			defer w.mu.Unlock()
 			w.lastToken = token

@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -51,6 +52,12 @@ type hangarTargets struct {
 	running map[string]*runningHangar
 	// failed says why a target has no provider, by its name.
 	failed map[string]string
+	// fronts are the hangar endpoints' Fronts, by hangarEndpointKey: every
+	// target of an endpoint reaches it from this tower's one address, and
+	// keeps its front door's limits with the others. A Front outlives the
+	// providers it serves, so one made again starts with no fresh burst; a
+	// tower restarted starts with a full one, which its retries cover.
+	fronts map[string]*hangar.Front
 	wg     sync.WaitGroup
 }
 
@@ -250,16 +257,17 @@ func (s *Server) hangarConfig(ctx context.Context, t *targetsv1alpha1.Target) (h
 	}
 	api := s.cfg.HangarAPI
 	if api == nil {
-		api = func(endpoint, project, token string) hangar.API {
-			return hangar.NewConnect(endpoint, project, token, nil)
+		api = func(endpoint, project, token string, hc *http.Client) hangar.API {
+			return hangar.NewConnect(endpoint, project, token, hc)
 		}
 	}
+	hc := s.hangarFront(h.GetEndpoint()).Client()
 	cfg := hangar.Config{
-		Target: name, API: api(h.GetEndpoint(), h.GetProject(), token), Client: s.systemClient(), PullSecret: pull,
+		Target: name, API: api(h.GetEndpoint(), h.GetProject(), token, hc), Client: s.systemClient(), PullSecret: pull,
 		Guest: s.cfg.TowerGuest, StreamPrefix: HangarStreamPath + name + "/", Clock: s.clock, Log: s.log,
 		SystemImage: s.cfg.SystemImage, Registry: s.cfg.Registry, RegistryHost: h.GetRegistryHost(), RegistryPlainHTTP: s.cfg.RegistryPlainHTTP,
 		PushLogin: push, TailnetAuthKey: authKey, Teardown: t.GetMetadata().GetDeleteTime() != nil,
-		SSHKey: sshKey, BaseImages: maps.Clone(baseImages),
+		SSHKey: sshKey, BaseImages: maps.Clone(baseImages), MirrorOps: s.cfg.HangarMirrorOps,
 	}
 	if s.cfg.Tickets != nil {
 		cfg.TicketKey = s.cfg.Tickets.PublicKey()
@@ -268,6 +276,39 @@ func (s *Server) hangarConfig(ctx context.Context, t *targetsv1alpha1.Target) (h
 		cfg.StreamURL = strings.TrimSuffix(s.cfg.PublicURL, "/") + cfg.StreamPrefix
 	}
 	return cfg, hex.EncodeToString(sum.Sum(nil)), nil
+}
+
+// hangarFront is the Front of a hangar endpoint, made at its first use.
+func (s *Server) hangarFront(endpoint string) *hangar.Front {
+	key := hangarEndpointKey(endpoint)
+	s.hangar.mu.Lock()
+	defer s.hangar.mu.Unlock()
+	if f := s.hangar.fronts[key]; f != nil {
+		return f
+	}
+	if s.hangar.fronts == nil {
+		s.hangar.fronts = map[string]*hangar.Front{}
+	}
+	f := hangar.NewFront(hangar.FrontOptions{Limits: s.cfg.HangarFront, Log: s.log.With("hangar_endpoint", key)})
+	s.hangar.fronts[key] = f
+	return f
+}
+
+// hangarEndpointKey is what names one front door: an endpoint's scheme,
+// host and port, whatever case, path, default port or trailing dot it is
+// written with.
+func hangarEndpointKey(endpoint string) string {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || u.Host == "" {
+		return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(endpoint), "/"))
+	}
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	port := u.Port()
+	if port == "" {
+		port = map[string]string{"https": "443", "http": "80"}[scheme]
+	}
+	return scheme + "://" + net.JoinHostPort(host, port)
 }
 
 // hangarSSHKeySecret is the Secret of the reserved project holding a

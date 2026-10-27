@@ -16,6 +16,9 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	hangarcompute "github.com/YukinaMochizuki/hangar/gen/go/hangar/compute/v1alpha1"
+	hangarmeta "github.com/YukinaMochizuki/hangar/gen/go/hangar/meta/v1"
+	hangartenancy "github.com/YukinaMochizuki/hangar/gen/go/hangar/tenancy/v1alpha1"
+	"github.com/YukinaMochizuki/hangar/gen/go/hangar/tenancy/v1alpha1/tenancyv1alpha1connect"
 
 	"github.com/YukinaMochizuki/tower/internal/provider/hangar"
 )
@@ -26,8 +29,19 @@ import (
 // its command's first word.
 func wire(t *testing.T) *hangar.Connect {
 	t.Helper()
+	srv := httptest.NewServer(wireMux(t))
+	t.Cleanup(srv.Close)
+	return hangar.NewConnect(srv.URL, "p", "tok", nil)
+}
+
+// wireMux is wire's handler, and the project p's ProjectService.
+func wireMux(t *testing.T) *http.ServeMux {
+	t.Helper()
 	mux := http.NewServeMux()
+	mux.Handle(tenancyv1alpha1connect.NewProjectServiceHandler(projectP{}))
 	mux.HandleFunc("GET /v1/projects/p/containers/{nameAction}", func(w http.ResponseWriter, r *http.Request) {
+		// hangar refuses as Connect's ErrorWriter does, in JSON.
+		w.Header().Set("Content-Type", "application/json")
 		if r.Header.Get("Authorization") != "Bearer tok" {
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = io.WriteString(w, `{"code":"unauthenticated","message":"no token"}`)
@@ -98,6 +112,9 @@ func wire(t *testing.T) *hangar.Connect {
 			send(&hangarcompute.MachineExecResponse{Message: &hangarcompute.MachineExecResponse_Stderr{Stderr: []byte("user=" + start.GetUser())}})
 			send(&hangarcompute.MachineExecResponse{Message: &hangarcompute.MachineExecResponse_Exit{Exit: &hangarcompute.MachineExecExit{Code: 3}}})
 			_ = c.Close(websocket.StatusNormalClosure, "")
+		case "true":
+			send(&hangarcompute.MachineExecResponse{Message: &hangarcompute.MachineExecResponse_Exit{Exit: &hangarcompute.MachineExecExit{}}})
+			_ = c.Close(websocket.StatusNormalClosure, "")
 		case "no-exit":
 			_ = c.Close(websocket.StatusNormalClosure, "")
 		case "fail":
@@ -108,9 +125,25 @@ func wire(t *testing.T) *hangar.Connect {
 			}
 		}
 	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return hangar.NewConnect(srv.URL, "p", "tok", nil)
+	return mux
+}
+
+// projectP is a ProjectService that knows the project p alone.
+type projectP struct {
+	tenancyv1alpha1connect.UnimplementedProjectServiceHandler
+}
+
+func (projectP) GetProject(_ context.Context, r *connect.Request[hangartenancy.GetProjectRequest]) (*connect.Response[hangartenancy.GetProjectResponse], error) {
+	if r.Header().Get("Authorization") != "Bearer tok" {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("no token"))
+	}
+	if r.Msg.GetName() == "slow" {
+		time.Sleep(300 * time.Millisecond) //nolint:forbidigo // the server's own work, which holds the request in flight
+	}
+	if r.Msg.GetName() != "p" {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("no such project"))
+	}
+	return connect.NewResponse(&hangartenancy.GetProjectResponse{Project: &hangartenancy.Project{Metadata: &hangarmeta.ObjectMeta{Name: "p"}}}), nil
 }
 
 func execIn(t *testing.T, c *hangar.Connect, ctx context.Context, name string, stdin io.Reader, command ...string) (hangar.ExecExit, string, string, error) {

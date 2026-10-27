@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -58,7 +59,7 @@ func TestTowerRunsAHangarTargetsProvider(t *testing.T) {
 	}
 	signer := ticket.NewSigner(key)
 	env := apiservertest.Start(t, func(c *apiserver.Config) {
-		c.HangarAPI = func(endpoint, project, token string) hangar.API {
+		c.HangarAPI = func(endpoint, project, token string, _ *http.Client) hangar.API {
 			mu.Lock()
 			defer mu.Unlock()
 			tokens = append(tokens, token)
@@ -171,6 +172,85 @@ func TestTowerRunsAHangarTargetsProvider(t *testing.T) {
 	})
 }
 
+// TestHangarTargetsOfOneEndpointShareItsPace: every hangar target of one
+// endpoint, however it is written (its case, a path, its default port, a
+// trailing dot), is given the same client, which paces them together under
+// the endpoint's front door, and keeps it as its provider is made again; a
+// target of another endpoint, or another port, has its own.
+func TestHangarTargetsOfOneEndpointShareItsPace(t *testing.T) {
+	t.Parallel()
+	f := fake.New("", t.TempDir(), clockwork.NewRealClock())
+	var mu sync.Mutex
+	clients := map[string][]*http.Client{}
+	env := apiservertest.Start(t, func(c *apiserver.Config) {
+		c.HangarAPI = func(endpoint, _, token string, hc *http.Client) hangar.API {
+			mu.Lock()
+			defer mu.Unlock()
+			clients[endpoint+" "+token] = append(clients[endpoint+" "+token], hc)
+			return f
+		}
+	})
+	env.Setup()
+	admin := env.As(apiservertest.Admin)
+	ctx := t.Context()
+	if _, err := admin.Apply(ctx, registry.Project, &tenancyv1alpha1.Project{Metadata: &metav1.ObjectMeta{Name: "system"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Apply(ctx, registry.Secret, secret("system", "hangar-token", map[string]string{"token": "one"})); err != nil {
+		t.Fatal(err)
+	}
+	endpoints := map[string]string{
+		"h1": "https://hangar.example", "h2": "https://Hangar.example/", "h3": "https://other.example",
+		"h4": "https://hangar.example:443", "h5": "https://hangar.example./v1", "h6": "https://hangar.example:8443",
+	}
+	// The endpoint each target's is the same as.
+	same := map[string]string{"h1": "h1", "h2": "h1", "h3": "h3", "h4": "h1", "h5": "h1", "h6": "h6"}
+	for name, endpoint := range endpoints {
+		if _, err := admin.Apply(ctx, registry.Target, &targetsv1alpha1.Target{
+			Metadata: &metav1.ObjectMeta{Name: name},
+			Spec: &targetsv1alpha1.TargetSpec{Provider: &targetsv1alpha1.TargetSpec_Hangar{Hangar: &targetsv1alpha1.HangarTarget{
+				Endpoint: endpoint, Project: fake.Project, CredentialSecret: "hangar-token",
+			}}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	made := func(token string) map[string]*http.Client {
+		mu.Lock()
+		defer mu.Unlock()
+		out := map[string]*http.Client{}
+		for name, endpoint := range endpoints {
+			if hcs := clients[endpoint+" "+token]; len(hcs) > 0 {
+				out[name] = hcs[len(hcs)-1]
+			}
+		}
+		return out
+	}
+	testutil.Eventually(t, "every target's provider made", func() (bool, string) {
+		return len(made("one")) == len(endpoints), fmt.Sprint(made("one"))
+	})
+	first := made("one")
+	for a := range endpoints {
+		for b := range endpoints {
+			if shared := first[a] == first[b]; shared != (same[a] == same[b]) {
+				t.Errorf("targets of %s and %s share a client: %v, want %v", endpoints[a], endpoints[b], shared, !shared)
+			}
+		}
+	}
+	// A token rotated makes every provider again, with the clients they had.
+	if _, err := admin.Apply(ctx, registry.Secret, secret("system", "hangar-token", map[string]string{"token": "two"})); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Eventually(t, "every target's provider made again", func() (bool, string) {
+		return len(made("two")) == len(endpoints), fmt.Sprint(made("two"))
+	})
+	for name, hc := range made("two") {
+		if hc != first[name] {
+			t.Errorf("target %s's provider made again was given another client", name)
+		}
+	}
+}
+
 // TestAHangarTargetsVMsGetAKeyTowerKeeps: tower makes a hangar target's
 // key for its VMs' root once, as a Secret of the reserved project which
 // no answer holds, and runs the target's VMs of its base images with it; a
@@ -180,7 +260,7 @@ func TestAHangarTargetsVMsGetAKeyTowerKeeps(t *testing.T) {
 	f := fake.New("", t.TempDir(), clockwork.NewRealClock())
 	f.AddImage("ubuntu-24-04", "3Gi")
 	env := apiservertest.Start(t, func(c *apiserver.Config) {
-		c.HangarAPI = func(string, string, string) hangar.API { return f }
+		c.HangarAPI = func(string, string, string, *http.Client) hangar.API { return f }
 	})
 	env.Setup()
 	admin := env.As(apiservertest.Admin)

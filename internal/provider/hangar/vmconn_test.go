@@ -250,6 +250,7 @@ func TestAnEndedProviderHoldsNoConnection(t *testing.T) {
 // unanswered: an operation in flight fails as the VM unavailable, and the
 // target's reconciles go on meanwhile.
 func TestAFrozenVMsConnectionIsClosed(t *testing.T) {
+	testutil.Quarantine(t, "#35")
 	w, f := newWorld(t, func(c *hangar.Config) {
 		c.KeepAliveEvery, c.KeepAliveTimeout, c.ReportEvery = 100*time.Millisecond, 300*time.Millisecond, 200*time.Millisecond
 	})

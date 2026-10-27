@@ -47,10 +47,11 @@ type Connect struct {
 var _ API = (*Connect)(nil)
 
 // NewConnect returns the API of a project at endpoint, as token, through
-// hc; nil is http.DefaultClient.
+// hc, the endpoint's Front's client, which every Connect of the endpoint
+// shares; nil is the client of a Front of its own.
 func NewConnect(endpoint, project, token string, hc *http.Client) *Connect {
 	if hc == nil {
-		hc = http.DefaultClient
+		hc = NewFront(FrontOptions{}).Client()
 	}
 	c := &Connect{endpoint: strings.TrimSuffix(endpoint, "/"), project: project, token: token, hc: hc}
 	opts := []connect.ClientOption{connect.WithInterceptors(bearer(token))}

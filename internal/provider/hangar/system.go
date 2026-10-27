@@ -296,6 +296,44 @@ func (t *Target) sysOps() (system.Ops, error) {
 	return t.systemOps(systemName(t.cfg.Target)), nil
 }
 
+// mirrorOp is the system container's calls for one mirror operation, and
+// what ends it, once one of the target's MirrorOps is free (mirrorSlot).
+func (t *Target) mirrorOp(ctx context.Context) (system.Ops, func(), error) {
+	o, err := t.sysOps()
+	if err != nil {
+		return system.Ops{}, nil, err
+	}
+	end, err := t.mirrorSlot(ctx)
+	return o, end, err
+}
+
+// mirrorSlot waits for one of the target's MirrorOps, and for one of those
+// work that is not interactive may take, and returns what gives them back.
+func (t *Target) mirrorSlot(ctx context.Context) (func(), error) {
+	background := !provider.IsInteractive(ctx)
+	if background {
+		select {
+		case t.backgroundOps <- struct{}{}:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	select {
+	case t.mirrorOps <- struct{}{}:
+	case <-ctx.Done():
+		if background {
+			<-t.backgroundOps
+		}
+		return nil, ctx.Err()
+	}
+	return func() {
+		<-t.mirrorOps
+		if background {
+			<-t.backgroundOps
+		}
+	}, nil
+}
+
 // errRelayEnded ends the pipe between a box and the system container once
 // one side is done with it.
 var errRelayEnded = errors.New("the relay ended")
@@ -317,19 +355,21 @@ func driverError(err error) error {
 }
 
 func (t *Target) Fetch(ctx context.Context, req provider.FetchRequest) (string, error) {
-	o, err := t.sysOps()
+	o, end, err := t.mirrorOp(ctx)
 	if err != nil {
 		return "", err
 	}
+	defer end()
 	head, err := o.Fetch(ctx, driver.FetchSpec{Mirror: req.Mirror, URL: req.URL, Token: req.Token, Branch: req.Branch})
 	return head, driverError(err)
 }
 
 func (t *Target) ReadMirror(ctx context.Context, req provider.MirrorReadRequest) (provider.MirrorRead, error) {
-	o, err := t.sysOps()
+	o, end, err := t.mirrorOp(ctx)
 	if err != nil {
 		return provider.MirrorRead{}, err
 	}
+	defer end()
 	var most int64
 	if req.Content {
 		most = provider.MaxMirrorContent
@@ -346,10 +386,11 @@ func (t *Target) ReadMirror(ctx context.Context, req provider.MirrorReadRequest)
 }
 
 func (t *Target) CommitsBehind(ctx context.Context, mirror, commit, branch string) (int, error) {
-	o, err := t.sysOps()
+	o, end, err := t.mirrorOp(ctx)
 	if err != nil {
 		return 0, err
 	}
+	defer end()
 	n, err := o.CommitsBehind(ctx, mirror, commit, branch)
 	return n, driverError(err)
 }
@@ -365,6 +406,13 @@ func (t *Target) Checkout(ctx context.Context, in provider.Instance, mirror, ref
 	if err != nil {
 		return "", err
 	}
+	// Once the instance runs, which may take a VM's boot: no slot is held
+	// meanwhile.
+	end, err := t.mirrorSlot(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer end()
 	res, done, why, err := t.overEndpoint(ctx, o, p, box, system.GrantSpec{Op: system.GrantCheckout, Mirror: mirror, Ref: ref}, path.Clean("/"+dir))
 	if done {
 		return res.Commit, driverError(err)
@@ -410,6 +458,13 @@ func (t *Target) UpdateOrigin(ctx context.Context, in provider.Instance, mirror,
 	if err != nil {
 		return err
 	}
+	// Once the instance runs, which may take a VM's boot: no slot is held
+	// meanwhile.
+	end, err := t.mirrorSlot(ctx)
+	if err != nil {
+		return err
+	}
+	defer end()
 	gitDir := path.Join(path.Clean("/"+dir), ".git")
 	_, done, why, err := t.overEndpoint(ctx, o, p, box, system.GrantSpec{Op: system.GrantOrigin, Mirror: mirror}, gitDir)
 	if done {
@@ -443,6 +498,13 @@ func (t *Target) Push(ctx context.Context, req provider.PushRequest) error {
 	if err != nil {
 		return err
 	}
+	// Once the instance runs, which may take a VM's boot: no slot is held
+	// meanwhile.
+	end, err := t.mirrorSlot(ctx)
+	if err != nil {
+		return err
+	}
+	defer end()
 	gitDir := path.Join(path.Clean("/"+req.Dir), ".git")
 	g := system.GrantSpec{Op: system.GrantPush, Mirror: req.Mirror, URL: req.URL, Token: req.Token, Branch: req.Branch, Lease: req.Lease}
 	_, done, why, err := t.overEndpoint(ctx, o, p, box, g, gitDir)

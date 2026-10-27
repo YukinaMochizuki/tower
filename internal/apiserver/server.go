@@ -93,8 +93,16 @@ type Config struct {
 	// generic machinery do.
 	DisableControllers bool
 	// HangarAPI makes a hangar target's API from its endpoint, project and
-	// token; nil is hangar's own (hangar.NewConnect). Tests give a fake.
-	HangarAPI func(endpoint, project, token string) hangar.API
+	// token, through hc, the endpoint's client, which every hangar target
+	// of the endpoint shares; nil is hangar's own (hangar.NewConnect).
+	// Tests give a fake.
+	HangarAPI func(endpoint, project, token string, hc *http.Client) hangar.API
+	// HangarFront paces what tower asks of each hangar endpoint, for all
+	// its targets together; zero is hangar.DefaultFrontLimits.
+	HangarFront hangar.FrontLimits
+	// HangarMirrorOps caps each hangar target's mirror operations running
+	// at once; zero is hangar.DefaultMirrorOps.
+	HangarMirrorOps int
 	// TowerGuest is tower-guest, statically linked, which a hangar target's
 	// provider writes into its machines; empty runs nothing in them.
 	TowerGuest []byte
@@ -249,7 +257,7 @@ func (s *Server) Handler(chain auth.Chain) http.Handler {
 	mux.Handle(environmentsv1alpha1connect.NewRetryServiceHandler(retryService{s}, s.interceptors(chain)))
 	mux.Handle(targetsv1alpha1connect.NewTargetActionServiceHandler(targetActionService{s}, s.interceptors(chain)))
 	mux.Handle(environmentsv1alpha1connect.NewEnvironmentServiceHandler(environmentService{s}, s.interceptors(chain),
-		connect.WithReadMaxBytes(maxEnvironmentMessage)))
+		connect.WithInterceptors(interactive{}), connect.WithReadMaxBytes(maxEnvironmentMessage)))
 	mux.HandleFunc(tunnel.Path, s.openTunnel(chain))
 	// A stream's ticket is its credential, which its provider checks.
 	mux.HandleFunc(HangarStreamPath, s.serveHangarStream)
@@ -263,6 +271,26 @@ func (s *Server) Handler(chain auth.Chain) http.Handler {
 // recheck its streams on the server's clock.
 func (s *Server) interceptors(chain auth.Chain) connect.HandlerOption {
 	return connect.WithInterceptors(chain.InterceptorOn(s.clock, s.log))
+}
+
+// interactive marks the data plane's calls as a person's, which a
+// provider may put before its controllers' work (provider.Interactive).
+type interactive struct{}
+
+func (interactive) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
+	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+		return next(provider.Interactive(ctx), req)
+	}
+}
+
+func (interactive) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+	return next
+}
+
+func (interactive) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
+		return next(provider.Interactive(ctx), conn)
+	}
 }
 
 // ServiceTokens authenticates service tokens' secrets; ok is false without
