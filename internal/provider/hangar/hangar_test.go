@@ -275,7 +275,7 @@ func TestAProjectOutOfQuotaFailsTheInstance(t *testing.T) {
 
 // TestTheTargetSaysWhetherHangarAnswers: the report says the project's
 // room from its quota while hangar answers (what the system container's
-// 50Gi disk leaves of 100Gi), and that it does not once it stops.
+// 20Gi disk leaves of 100Gi), and that it does not once it stops.
 func TestTheTargetSaysWhetherHangarAnswers(t *testing.T) {
 	w, f := newWorld(t, nil)
 	disk := "100Gi"
@@ -292,7 +292,7 @@ func TestTheTargetSaysWhetherHangarAnswers(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := target().GetStatus()
-	if !conditions.IsTrue(st.GetConditions(), hangar.TargetReachable) || st.GetCapacity().GetDiskTotal() != "100Gi" || st.GetCapacity().GetDiskFree() != "50Gi" {
+	if !conditions.IsTrue(st.GetConditions(), hangar.TargetReachable) || st.GetCapacity().GetDiskTotal() != "100Gi" || st.GetCapacity().GetDiskFree() != "80Gi" {
 		t.Errorf("the target's status while hangar answers: %v", st)
 	}
 	f.SetDown(connect.NewError(connect.CodeUnavailable, errors.New("hangar is down")))

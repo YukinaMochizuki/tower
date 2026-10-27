@@ -53,7 +53,7 @@ const (
 // empty.
 var defaultResources = map[envv1alpha1.InstanceKind]*envv1alpha1.Resources{
 	envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER: {Cpu: "2", Memory: "4Gi", Disk: "40Gi"},
-	envv1alpha1.InstanceKind_INSTANCE_KIND_VM:        {Cpu: "2", Memory: "4Gi", Disk: "40Gi"},
+	envv1alpha1.InstanceKind_INSTANCE_KIND_VM:        {Cpu: "2", Memory: "4Gi", Disk: "20Gi"},
 }
 
 // withDefaults is r with each empty field tower's default for kind.
