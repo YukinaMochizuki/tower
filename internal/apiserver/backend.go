@@ -495,6 +495,10 @@ func (b *backend) create(ctx context.Context, p authz.Caller, key resource.Key, 
 	if err := checkMetaKeys(p, meta, nil); err != nil {
 		return resource.ApplyResult{}, err
 	}
+	if b.hooks.serialize != nil {
+		unlock := b.s.admitting.lock(b.hooks.serialize(in))
+		defer unlock()
+	}
 	if err := b.s.admit(ctx, b, p, nil, in); err != nil {
 		return resource.ApplyResult{}, err
 	}

@@ -84,6 +84,10 @@ type kindHooks struct {
 	owner func(ctx context.Context, s *Server, obj proto.Message) (registry.Resource, resource.Key, bool)
 	// validate checks rules specific to the kind; old is nil on create.
 	validate func(ctx context.Context, s *Server, p authz.Caller, old, obj proto.Message) error
+	// serialize, if set, keys a create: creates of one key are admitted
+	// and stored one at a time, so what validate checked against others of
+	// the key still holds as it is stored.
+	serialize func(obj proto.Message) string
 	// afterDelete runs once a delete is stored, whether it marked the
 	// object or removed it, and again on every later delete of an object
 	// being deleted, so it must be idempotent: it ends what the object

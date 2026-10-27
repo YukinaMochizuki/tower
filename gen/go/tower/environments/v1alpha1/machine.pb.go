@@ -276,7 +276,9 @@ type Blueprint struct {
 	GoldenVars *structpb.Struct `protobuf:"bytes,4,opt,name=golden_vars,json=goldenVars,proto3" json:"golden_vars,omitempty"`
 	// Ports a box on the network reaches it at.
 	ExposePorts []int32 `protobuf:"varint,5,rep,packed,name=expose_ports,json=exposePorts,proto3" json:"expose_ports,omitempty"`
-	// Its name on the workstream's network; empty is the blueprint's name.
+	// Its name on the workstream's network; empty is the machine's own name,
+	// as a box's is the box's. Another machine or box of the workstream that
+	// already answers to it refuses the machine.
 	NetAlias string `protobuf:"bytes,6,opt,name=net_alias,json=netAlias,proto3" json:"net_alias,omitempty"`
 	// What says the machine is ready, which its configure phase finishing
 	// does not: a service it starts may take a while to come up after (k3s

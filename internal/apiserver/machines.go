@@ -151,10 +151,7 @@ func (s *Server) machineSteps(ctx context.Context, key controller.Key, m *envv1a
 
 	// Its instance, cloned from the golden.
 	name := childName("mc", key.Name)
-	alias := spec.GetBlueprint().GetNetAlias()
-	if alias == "" {
-		alias = spec.GetBlueprint().GetName()
-	}
+	alias := machineAlias(m)
 	in, ok, err := getTyped[*envv1alpha1.Instance](ctx, s, registry.Instance, resource.Key{Project: key.Project, Name: name})
 	if err != nil {
 		return err
@@ -195,7 +192,9 @@ func (s *Server) machineSteps(ctx context.Context, key controller.Key, m *envv1a
 		not(envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING, "Starting", "its instance is being made")
 		return nil
 	}
-	st.Instance, st.Alias, st.Address = name, alias, in.GetStatus().GetAddress()
+	// The alias the instance has: one made before machines were named by
+	// their own names keeps its blueprint's until it is made again.
+	st.Instance, st.Alias, st.Address = name, in.GetSpec().GetAlias(), in.GetStatus().GetAddress()
 	if in.GetSpec().GetRunState() != desired {
 		if err := s.setRunState(ctx, in, desired); err != nil {
 			return err

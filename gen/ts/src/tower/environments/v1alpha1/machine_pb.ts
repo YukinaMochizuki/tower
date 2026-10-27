@@ -156,7 +156,9 @@ export type Blueprint = Message<"tower.environments.v1alpha1.Blueprint"> & {
   exposePorts: number[];
 
   /**
-   * Its name on the workstream's network; empty is the blueprint's name.
+   * Its name on the workstream's network; empty is the machine's own name,
+   * as a box's is the box's. Another machine or box of the workstream that
+   * already answers to it refuses the machine.
    *
    * @generated from field: string net_alias = 6;
    */
