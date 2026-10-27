@@ -353,12 +353,21 @@ type InstanceStatus struct {
 	UsedDisk  string                 `protobuf:"bytes,5,opt,name=used_disk,json=usedDisk,proto3" json:"used_disk,omitempty"`
 	StartTime *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
 	// How many processes started in it (StartProcess) are running. tower
-	// never stops for idleness a box whose instance runs one.
+	// never stops for idleness a box whose instance runs one. For a VM on a
+	// hangar target it is the last known: read over a connection tower holds
+	// to the VM, as an operation in it leaves one, never by connecting for
+	// it; until then it is what it last was.
 	ProcessesRunning int32 `protobuf:"varint,7,opt,name=processes_running,json=processesRunning,proto3" json:"processes_running,omitempty"`
 	// How many direct streams to it are open (docs/decisions/traffic.md).
 	// tower never stops for idleness a box whose instance has one open, and
 	// counts the last one's end as a use.
-	StreamsOpen   int32 `protobuf:"varint,8,opt,name=streams_open,json=streamsOpen,proto3" json:"streams_open,omitempty"`
+	StreamsOpen int32 `protobuf:"varint,8,opt,name=streams_open,json=streamsOpen,proto3" json:"streams_open,omitempty"`
+	// The host key a VM's sshd answered tower with the first time, in
+	// authorized_keys form, such as "ssh-ed25519 AAAA...", on a provider that
+	// pins it so (a hangar target's): every later connection must present
+	// it, and one that does not is refused. A public key, not a secret. See
+	// docs/decisions/traffic.md.
+	SshHostKey    string `protobuf:"bytes,9,opt,name=ssh_host_key,json=sshHostKey,proto3" json:"ssh_host_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -447,6 +456,13 @@ func (x *InstanceStatus) GetStreamsOpen() int32 {
 		return x.StreamsOpen
 	}
 	return 0
+}
+
+func (x *InstanceStatus) GetSshHostKey() string {
+	if x != nil {
+		return x.SshHostKey
+	}
+	return ""
 }
 
 type GetInstanceRequest struct {
@@ -1152,7 +1168,7 @@ const file_tower_environments_v1alpha1_instance_proto_rawDesc = "" +
 	" \x03(\v22.tower.environments.v1alpha1.InstanceSpec.EnvEntryB\x06\xca\xf3\x18\x02\b\x01R\x03env\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xff\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa1\x03\n" +
 	"\x0eInstanceStatus\x12/\n" +
 	"\x13observed_generation\x18\x01 \x01(\x03R\x12observedGeneration\x128\n" +
 	"\n" +
@@ -1164,7 +1180,9 @@ const file_tower_environments_v1alpha1_instance_proto_rawDesc = "" +
 	"\n" +
 	"start_time\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x12+\n" +
 	"\x11processes_running\x18\a \x01(\x05R\x10processesRunning\x12!\n" +
-	"\fstreams_open\x18\b \x01(\x05R\vstreamsOpen\"B\n" +
+	"\fstreams_open\x18\b \x01(\x05R\vstreamsOpen\x12 \n" +
+	"\fssh_host_key\x18\t \x01(\tR\n" +
+	"sshHostKey\"B\n" +
 	"\x12GetInstanceRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"X\n" +

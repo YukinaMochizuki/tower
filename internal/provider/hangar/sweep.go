@@ -13,9 +13,9 @@ import (
 // Sweep deletes from hangar what this target made that no Instance of it
 // accounts for any more, once it is older than the sweep's grace: what a
 // reconcile missed, such as an Instance deleted while tower was down. A
-// network goes once no container of the target's is on it, and a golden's
-// image once no Golden of the target names it. The system container's
-// objects are the target's own, and stay. It holds the
+// network goes once no container or VM of the target's is on it, and a
+// golden's image once no Golden of the target names it. The system
+// container's objects are the target's own, and stay. It holds the
 // target's lock alone, so no reconcile makes anything meanwhile.
 func (t *Target) Sweep(ctx context.Context) error {
 	t.mu.Lock()
@@ -77,14 +77,40 @@ func (t *Target) Sweep(ctx context.Context) error {
 		}
 		t.procs.forget(meta.GetUid())
 	}
+	vms, err := t.api.VirtualMachines().List(ctx, t.selector())
+	if err != nil {
+		return err
+	}
+	for _, vm := range vms {
+		meta := vm.GetMetadata()
+		for _, i := range vm.GetSpec().GetInterfaces() {
+			used[i.GetNetwork()] = true
+		}
+		if !mine(meta.GetLabels()) {
+			continue
+		}
+		held[vm.GetSpec().GetRootDisk().GetDisk()] = true
+		uid := meta.GetLabels()[LabelUID]
+		if live[uid] || !old(meta.GetCreateTime()) {
+			continue
+		}
+		if meta.GetDeleteTime() == nil {
+			t.log.Info("sweeping a VM no instance accounts for", "vm", meta.GetName(), "uid", uid)
+			if err := t.api.VirtualMachines().Delete(ctx, meta.GetName()); err != nil {
+				return err
+			}
+		}
+		t.procs.forget(meta.GetUid())
+		t.vms.forget(meta.GetUid())
+	}
 	disks, err := t.api.Disks().List(ctx, t.selector())
 	if err != nil {
 		return err
 	}
 	for _, d := range disks {
 		meta := d.GetMetadata()
-		// A disk goes once the container of its name has: hangar refuses to
-		// delete one a machine has.
+		// A disk goes once the container or VM of its name has: hangar
+		// refuses to delete one a machine has.
 		if !mine(meta.GetLabels()) || live[meta.GetLabels()[LabelUID]] || !old(meta.GetCreateTime()) ||
 			held[meta.GetName()] || meta.GetDeleteTime() != nil {
 			continue
@@ -103,7 +129,7 @@ func (t *Target) Sweep(ctx context.Context) error {
 		if !mine(meta.GetLabels()) || used[meta.GetName()] || !old(meta.GetCreateTime()) || meta.GetDeleteTime() != nil {
 			continue
 		}
-		t.log.Info("sweeping a network no container is on", "network", meta.GetName())
+		t.log.Info("sweeping a network no machine is on", "network", meta.GetName())
 		if err := t.api.Networks().Delete(ctx, meta.GetName()); err != nil {
 			return err
 		}

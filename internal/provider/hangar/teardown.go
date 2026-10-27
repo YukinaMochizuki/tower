@@ -46,7 +46,21 @@ func (t *Target) Teardown(ctx context.Context) (left []string, err error) {
 		del("container", meta.GetName(), meta, false, t.api.Containers().Delete)
 		t.procs.forget(meta.GetUid())
 	}
-	// Whoever's container is on a network holds it.
+	vms, err := t.api.VirtualMachines().List(ctx, t.selector())
+	if err != nil {
+		return nil, err
+	}
+	for _, vm := range vms {
+		meta := vm.GetMetadata()
+		if !t.mine(meta.GetLabels()) {
+			continue
+		}
+		mounted[vm.GetSpec().GetRootDisk().GetDisk()] = true
+		del("virtualmachine", meta.GetName(), meta, false, t.api.VirtualMachines().Delete)
+		t.procs.forget(meta.GetUid())
+		t.vms.forget(meta.GetUid())
+	}
+	// Whoever's container or VM is on a network holds it.
 	all, err := t.api.Containers().List(ctx, "")
 	if err != nil {
 		return nil, err
@@ -57,12 +71,22 @@ func (t *Target) Teardown(ctx context.Context) (left []string, err error) {
 			used[i.GetNetwork()] = true
 		}
 	}
+	allVMs, err := t.api.VirtualMachines().List(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	for _, vm := range allVMs {
+		for _, i := range vm.GetSpec().GetInterfaces() {
+			used[i.GetNetwork()] = true
+		}
+	}
 
 	disks, err := t.api.Disks().List(ctx, t.selector())
 	if err != nil {
 		return nil, err
 	}
-	// A disk goes once no container mounts it: hangar refuses it before.
+	// A disk goes once no container mounts it and no VM boots from it:
+	// hangar refuses it before.
 	for _, d := range disks {
 		if meta := d.GetMetadata(); t.mine(meta.GetLabels()) {
 			del("disk", meta.GetName(), meta, mounted[meta.GetName()], t.api.Disks().Delete)

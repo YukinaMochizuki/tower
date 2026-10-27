@@ -53,6 +53,36 @@ Traffic is split by who needs the bytes, not by size:
   (`internal/provider/hangar`). Builds read a mirror where it is. The way
   out is a service one machine offers other networks of its project,
   which hangar does not have yet (hangar#219).
+- **tower reaches root in a hangar target's VM with its own SSH, over
+  hangar's port forward to the VM's port 22,** as hostd reaches its VMs
+  over their address (`internal/guest/vmssh`). hangar's exec into a VM is
+  an SSH login by hangar's apiserver as the image's default user, never
+  root, which tower's guest operations need; and to hangar, tower is an
+  ordinary user, which adds nothing to its catalogue or platform. The
+  provider keeps one connection to each running VM, each operation a
+  session on it, up to 60 at once (the VM's user_data sets its sshd's
+  MaxSessions to 64, a drop-in hostd's VMs do not need), one more waiting
+  for one to end; it makes the connection again once it drops, and closes
+  one whose sshd stops answering its keepalives. A reconcile never
+  connects: connecting waits for a VM's sshd, and a reconcile waits on
+  nothing of a VM's. tower's key is the
+  target's (`docs/runbook/deploy.md`), which cloud-init gives root; no
+  private key is ever in a VM's user_data, which the project's readers
+  read.
+- **A hangar VM's host key is pinned as it first answers tower** (trust
+  on first use), on its Instance (`status.ssh_host_key`), so it outlives
+  tower's restarts; every later connection must present it, and one that
+  presents another is refused, naming the instance and both keys'
+  fingerprints, never taken in its place. hostd makes each VM's host key
+  and gives it to the VM; a hangar provider could do so only through
+  user_data, which the project's readers read, and every other way to
+  learn the key (hangar's own record in the VM's status, which only its
+  exec makes, or the VM's console) comes through hangar's API as the port
+  forward does, so one that impersonates hangar defeats them all alike:
+  the first connection trusts nothing beyond hangar. A VM made from a
+  golden is a new cloud-init instance, which makes its own host keys, so
+  each Instance pins its own; a stop and a start keep the disk, and the
+  key. tower does not use hangar's VM exec, nor need its platform SSH CA.
 - **A copy between two instances goes across their workstream's
   network,** from one guest to the other (tower-guest's send and receive),
   never through tower: a copy is always within one workstream, whose

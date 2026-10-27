@@ -188,7 +188,7 @@ func (t *Target) makeSystem(ctx context.Context) (*hangarcompute.Container, erro
 func (t *Target) checkSystem(ctx context.Context, ct *hangarcompute.Container) error {
 	name := ct.GetMetadata().GetName()
 	m, err := t.api.Machine(ctx, machineOf(name))
-	if errors.Is(err, ErrNotFound) || (err == nil && (!ownedBy(m, ct) || m.GetStatus().GetPhase() != hangarcompute.MachinePhase_MACHINE_PHASE_RUNNING)) {
+	if errors.Is(err, ErrNotFound) || (err == nil && (!ownedBy(m, ct.GetMetadata().GetUid()) || m.GetStatus().GetPhase() != hangarcompute.MachinePhase_MACHINE_PHASE_RUNNING)) {
 		why := "the system container is not running yet"
 		if r := conditionOf(ct.GetStatus().GetConditions(), "Ready"); r.GetMessage() != "" {
 			why += ": " + r.GetMessage()

@@ -59,6 +59,20 @@ func (f *Fake) imageApplied(img *hangarstorage.CustomImage, isNew bool) error {
 			}
 		}
 	}
+	// A VM's root disk is its whole filesystem.
+	for _, vm := range f.vms.objs {
+		if vm.GetSpec().GetRootDisk().GetDisk() != disk {
+			continue
+		}
+		if m := f.machines["vm-"+vm.GetMetadata().GetName()]; m.GetStatus().GetPhase() == hangarcompute.MachinePhase_MACHINE_PHASE_RUNNING {
+			return connectError("failed_precondition", fmt.Sprintf("disk %s's machine runs", disk))
+		}
+	}
+	if _, err := os.Stat(f.diskDir(d.GetMetadata().GetUid())); err == nil {
+		if err := copyDir(f.diskDir(d.GetMetadata().GetUid()), f.imagesDir(img.GetMetadata().GetUid())); err != nil {
+			return err
+		}
+	}
 	img.Status = &hangarstorage.CustomImageStatus{
 		DiskSize: d.GetSpec().GetSize(), UsedSize: "1Gi",
 		Conditions: []*hangarmeta.Condition{{Type: "Ready", Status: hangarmeta.ConditionStatus_CONDITION_STATUS_TRUE, Reason: "Ready"}},

@@ -79,12 +79,21 @@ message InstanceStatus {
   string used_disk = 5;
   google.protobuf.Timestamp start_time = 6;
   // How many processes started in it (StartProcess) are running. tower
-  // never stops for idleness a box whose instance runs one.
+  // never stops for idleness a box whose instance runs one. For a VM on a
+  // hangar target it is the last known: read over a connection tower holds
+  // to the VM, as an operation in it leaves one, never by connecting for
+  // it; until then it is what it last was.
   int32 processes_running = 7;
   // How many direct streams to it are open (docs/decisions/traffic.md).
   // tower never stops for idleness a box whose instance has one open, and
   // counts the last one's end as a use.
   int32 streams_open = 8;
+  // The host key a VM's sshd answered tower with the first time, in
+  // authorized_keys form, such as "ssh-ed25519 AAAA...", on a provider that
+  // pins it so (a hangar target's): every later connection must present
+  // it, and one that does not is refused. A public key, not a secret. See
+  // docs/decisions/traffic.md.
+  string ssh_host_key = 9;
 }
 
 // InstanceService manages instances.

@@ -25,6 +25,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/apiserver"
 	"github.com/YukinaMochizuki/tower/internal/apiserver/apiservertest"
 	"github.com/YukinaMochizuki/tower/internal/client"
+	"github.com/YukinaMochizuki/tower/internal/guest/vmssh"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/provider/hangar"
 	"github.com/YukinaMochizuki/tower/internal/provider/providertest"
@@ -61,6 +62,10 @@ type Options struct {
 	PullSecret []byte
 	// Image is what the harness's containers run, by digest.
 	Image string
+	// BaseImage is the base image the harness's VMs boot, tower's name for
+	// it, which BaseImages maps to a hangar Image; empty runs no VM.
+	BaseImage  string
+	BaseImages map[string]string
 	// Remote is a repository the system container fetches and pushes to,
 	// on Branch, at RemoteHead, with a Dockerfile at RemoteDockerfile
 	// building from Image; empty skips the mirrors' and builds' tests.
@@ -76,6 +81,9 @@ type Options struct {
 type World struct {
 	Env    *apiservertest.Env
 	Target *hangar.Target
+	// Config is what Target was made with: another provider of it, as
+	// after tower restarts, is made with it again.
+	Config hangar.Config
 	opts   Options
 }
 
@@ -95,14 +103,22 @@ func New(t *testing.T, opts Options) *World {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// The target's key for its VMs' root, as tower makes one for each
+	// hangar target.
+	key, err := vmssh.NewKeyPEM("tower")
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := hangar.Config{
 		Log:    slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
 		Target: Target, API: opts.API, Client: w.Env.AsSystem(), Guest: opts.Guest, PullSecret: opts.PullSecret,
+		SSHKey: key, BaseImages: opts.BaseImages,
 		StreamURL: "https://tower.example/streams/hangar/" + Target + "/", StreamPrefix: "/streams/hangar/" + Target + "/",
 	}
 	if opts.Configure != nil {
 		opts.Configure(&cfg)
 	}
+	w.Config = cfg
 	w.Target = hangar.New(cfg)
 	if cfg.SystemImage != "" {
 		// The system container made and answering before the suite asks it
@@ -132,8 +148,9 @@ func New(t *testing.T, opts Options) *World {
 			// The system container stays, as a target's does.
 			instances := hangar.LabelTarget + "=" + Target + "," + hangar.LabelProject + "=" + apiservertest.Project
 			cts, err := opts.API.Containers().List(cleanup, instances)
+			vms, verr := opts.API.VirtualMachines().List(cleanup, instances)
 			disks, derr := opts.API.Disks().List(cleanup, instances)
-			if err == nil && derr == nil && len(cts) == 0 && len(disks) == 0 {
+			if err == nil && verr == nil && derr == nil && len(cts) == 0 && len(vms) == 0 && len(disks) == 0 {
 				break
 			}
 			<-time.After(500 * time.Millisecond)
@@ -185,7 +202,7 @@ func (w *World) Harness() providertest.Harness {
 		}
 	}
 	return providertest.Harness{
-		Provider: w.Target, Target: Target, Image: w.opts.Image,
+		Provider: w.Target, Target: Target, Image: w.opts.Image, BaseImage: w.opts.BaseImage,
 		Remote: w.opts.Remote, Branch: w.opts.Branch, RemoteHead: w.opts.RemoteHead, RemoteDockerfile: w.opts.RemoteDockerfile,
 		Golden: func(t *testing.T, art provider.Artifact) string {
 			t.Helper()
@@ -226,6 +243,34 @@ func (w *World) Harness() providertest.Harness {
 				return err == nil, fmt.Sprint(err)
 			})
 			w.WaitPhase(t, ref.Name, envv1alpha1.InstancePhase_INSTANCE_PHASE_STOPPED)
+		},
+		Delete: func(t *testing.T, ref provider.Instance) {
+			t.Helper()
+			// Its own context: a test's ends before its cleanups run.
+			ctx, cancel := context.WithTimeout(context.Background(), w.within()+time.Minute)
+			defer cancel()
+			key := client.Key{Project: ref.Project, Name: ref.Name}
+			o, err := w.Env.AsSystem().Get(ctx, registry.Instance, key)
+			if connect.CodeOf(err) == connect.CodeNotFound {
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			uid := o.(*envv1alpha1.Instance).GetMetadata().GetUid()
+			if _, err := w.Env.AsSystem().Delete(ctx, registry.Instance, key); err != nil && connect.CodeOf(err) != connect.CodeNotFound {
+				t.Fatal(err)
+			}
+			// Its machine's room is the node's again once hangar has deleted
+			// it, and its disk.
+			sel := hangar.LabelTarget + "=" + Target + "," + hangar.LabelUID + "=" + uid
+			testutil.EventuallyWithin(t, w.within(), "instance "+ref.Name+" gone from hangar", func() (bool, string) {
+				cts, err := w.opts.API.Containers().List(ctx, sel)
+				vms, verr := w.opts.API.VirtualMachines().List(ctx, sel)
+				disks, derr := w.opts.API.Disks().List(ctx, sel)
+				return err == nil && verr == nil && derr == nil && len(cts)+len(vms)+len(disks) == 0,
+					fmt.Sprintf("%d containers, %d VMs, %d disks; %v %v %v", len(cts), len(vms), len(disks), err, verr, derr)
+			})
 		},
 		ProcessLimits: w.Target.SetProcessLimits,
 		Skip:          skip,

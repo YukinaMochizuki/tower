@@ -20,9 +20,12 @@ import (
 )
 
 // A golden on a hangar target is a hangar CustomImage, captured from a
-// stopped instance's Disk: a copy of it the node makes on its own, which
-// outlives the disk (hangar: docs/decisions/custom-images.md). A disk
-// cloned from a golden is a Disk made from that image.
+// stopped instance's Disk, a container's /workspace or a VM's root disk: a
+// copy of it the node makes on its own, which outlives the disk (hangar:
+// docs/decisions/custom-images.md). A disk cloned from a golden is a Disk
+// made from that image. A VM's is not generalized, as hostd's is not: a
+// VM made from it is a new cloud-init instance, which makes its own host
+// keys, and keeps the hostname every tower VM has.
 
 // goldenName is the CustomImage captured from an instance's disk.
 func goldenName(uid string) string { return "g-" + uid }
@@ -39,20 +42,20 @@ func (t *Target) Capture(ctx context.Context, in provider.Instance) (provider.Ar
 	name := goldenName(uid)
 	img, err := t.api.CustomImages().Get(ctx, name)
 	if errors.Is(err, ErrNotFound) {
-		ct, err := t.api.Containers().Get(ctx, p.container)
+		obj, err := t.object(ctx, p)
 		if err != nil {
 			return provider.Artifact{}, fmt.Errorf("instance %s/%s: %w", in.Project, in.Name, providerError(err))
 		}
-		m, err := t.api.Machine(ctx, machineOf(p.container))
-		if err == nil && ownedBy(m, ct) && !machineStopped(m) {
+		m, err := t.api.Machine(ctx, obj.machine())
+		if err == nil && ownedBy(m, obj.uid) && !machineStopped(m) {
 			return provider.Artifact{}, fmt.Errorf("instance %s/%s is running; capture takes a stopped one: %w", in.Project, in.Name, provider.ErrFailed)
 		}
 		labels := t.labels(p.in)
 		img, err = t.api.CustomImages().Apply(ctx, &hangarstorage.CustomImage{
 			Metadata: &hangarmeta.ObjectMeta{Name: name, Labels: labels},
 			Spec: &hangarstorage.CustomImageSpec{Source: &hangarstorage.CustomImageSource{
-				// The instance's disk is named as its container is.
-				Source: &hangarstorage.CustomImageSource_Disk{Disk: &hangarstorage.CustomImageDiskSource{Name: p.container}},
+				// The instance's disk is named as its container or VM is.
+				Source: &hangarstorage.CustomImageSource_Disk{Disk: &hangarstorage.CustomImageDiskSource{Name: p.name}},
 			}},
 		})
 		if err != nil {
@@ -137,12 +140,6 @@ func (t *Target) goldenSource(ctx context.Context, in *envv1alpha1.Instance, g, 
 	if err != nil {
 		return nil, "", nil, err
 	}
-	if min := img.GetStatus().GetDiskSize(); min != "" {
-		want, werr := quantity.Bytes(size)
-		have, herr := quantity.Bytes(min)
-		if werr == nil && herr == nil && have > want {
-			size = min
-		}
-	}
+	size = atLeast(size, img.GetStatus().GetDiskSize())
 	return &hangarstorage.DiskSource{Source: &hangarstorage.DiskSource_Image{Image: &hangarstorage.ImageSource{Name: art, Project: t.api.ProjectName()}}}, size, nil, nil
 }

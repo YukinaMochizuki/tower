@@ -8,9 +8,12 @@
 //
 // Each workstream network of a tower project is a hangar Network of its
 // own, which hangar keeps apart from every other. A container Instance is
-// a hangar Container on it with a Disk at /workspace. What runs in it runs
-// through tower-guest (internal/guest), which the provider writes into the
-// container over hangar's exec and drives there as hostd does in its
+// a hangar Container on it with a Disk at /workspace; a VM Instance a
+// VirtualMachine on it booting from a Disk of its own (vm.go). Either is
+// named on the network by the Instance's alias. What runs in it runs
+// through tower-guest (internal/guest), which the provider writes into a
+// container over hangar's exec, and into a VM over its own SSH as root
+// through hangar's port forward, and drives there as hostd does in its
 // guests, so processes outlive the exec that starts them. Direct streams
 // are relayed by tower to hangar's port forward
 // (docs/decisions/traffic.md).
@@ -36,6 +39,7 @@ import (
 
 	"github.com/YukinaMochizuki/tower/internal/client"
 	"github.com/YukinaMochizuki/tower/internal/controller"
+	"github.com/YukinaMochizuki/tower/internal/guest/vmssh"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/streams"
 	"github.com/YukinaMochizuki/tower/internal/system"
@@ -76,6 +80,19 @@ type Config struct {
 	// Guest is tower-guest, statically linked, which the provider writes
 	// into each machine.
 	Guest []byte
+	// SSHKey is the target's key for its VMs' root, an ed25519 key in
+	// OpenSSH's PEM: cloud-init gives root its public half. nil runs no VM.
+	SSHKey []byte
+	// BaseImages maps tower's base images, such as ubuntu-24.04, to the
+	// hangar Images VMs of them boot from, such as ubuntu-24-04.
+	BaseImages map[string]string
+	// ReadyTimeout bounds how long an operation in a VM just started waits
+	// for its ssh; zero is DefaultReadyTimeout.
+	ReadyTimeout time.Duration
+	// KeepAliveEvery is how often a VM's sshd is asked whether it answers,
+	// KeepAliveTimeout how long it has to; a connection to one that does
+	// not is closed. Zero is each one's default.
+	KeepAliveEvery, KeepAliveTimeout time.Duration
 	// TicketKey is tower's public key, which direct streams' tickets are
 	// verified with; nil refuses every stream.
 	TicketKey ed25519.PublicKey
@@ -124,8 +141,11 @@ type Target struct {
 	ctrl  *controller.Controller
 	// mu keeps reconciles, which share it, apart from sweeps, so a sweep
 	// never removes what a reconcile is making.
-	mu      sync.RWMutex
-	guest   guestBinary
+	mu    sync.RWMutex
+	guest guestBinary
+	// key is the target's key for its VMs' root, nil without one.
+	key     *vmssh.Key
+	vms     vmConns
 	limits  processLimits
 	procs   processCache
 	streams *streams.Server
@@ -145,6 +165,9 @@ func New(cfg Config) *Target {
 	cfg.SweepEvery = cmp.Or(cfg.SweepEvery, DefaultSweepEvery)
 	cfg.SweepGrace = cmp.Or(cfg.SweepGrace, DefaultSweepGrace)
 	cfg.RegistryHost = cmp.Or(cfg.RegistryHost, cfg.Registry)
+	cfg.ReadyTimeout = cmp.Or(cfg.ReadyTimeout, DefaultReadyTimeout)
+	cfg.KeepAliveEvery = cmp.Or(cfg.KeepAliveEvery, DefaultKeepAliveEvery)
+	cfg.KeepAliveTimeout = cmp.Or(cfg.KeepAliveTimeout, DefaultKeepAliveTimeout)
 	t := &Target{cfg: cfg, api: cfg.API, c: cfg.Client, clock: cfg.Clock, log: cfg.Log}
 	if t.clock == nil {
 		t.clock = clockwork.NewRealClock()
@@ -153,6 +176,13 @@ func New(cfg Config) *Target {
 		t.log = slog.New(slog.DiscardHandler)
 	}
 	t.log = t.log.With("target", cfg.Target)
+	if len(cfg.SSHKey) > 0 {
+		if k, err := vmssh.ParseKey(cfg.SSHKey, "tower-hangar-"+cfg.Target); err != nil {
+			t.log.Error("the target's ssh key is not one; it runs no VM", "error", err)
+		} else {
+			t.key = &k
+		}
+	}
 	t.tearingDown.Store(cfg.Teardown)
 	t.guest = newGuestBinary(cfg.Guest)
 	t.ctrl = t.newController()
@@ -160,8 +190,11 @@ func New(cfg Config) *Target {
 	return t
 }
 
-// Run converges the target, reports and sweeps until ctx is done.
+// Run converges the target, reports and sweeps until ctx is done, then
+// closes every connection to its VMs: a provider made again, as when its
+// target's secrets change, makes its own.
 func (t *Target) Run(ctx context.Context) error {
+	defer t.vms.closeAll()
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return t.ctrl.Run(ctx) })
 	g.Go(func() error { t.every(ctx, t.cfg.ReportEvery, "report", t.Report); return nil })

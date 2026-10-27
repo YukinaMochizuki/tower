@@ -178,7 +178,9 @@ func (s *Server) reconcileTeardown(ctx context.Context, t *targetsv1alpha1.Targe
 	return nil
 }
 
-// letTargetGo removes a torn down Target's finalizer, which lets it go.
+// letTargetGo removes a torn down Target's finalizer, which lets it go,
+// then deletes the ssh key tower made for that Target's VMs, none of
+// which is left.
 func (s *Server) letTargetGo(ctx context.Context, name, uid string) error {
 	err := s.removeFinalizerOf(ctx, registry.Target, resource.Key{Name: name}, uid, TargetTeardownFinalizer)
 	if errors.Is(err, errOtherUID) {
@@ -186,6 +188,11 @@ func (s *Server) letTargetGo(ctx context.Context, name, uid string) error {
 	}
 	if err != nil {
 		return err
+	}
+	if err := s.deleteHangarSSHKey(ctx, name, uid); err != nil {
+		// The Target is gone; the hangar target controller deletes it
+		// as it hears so (reconcileHangarTarget).
+		s.log.Warn("deleting a gone target's ssh key failed", "target", name, "error", err)
 	}
 	s.teardowns.forget(name)
 	s.log.Info("tore down a target: nothing tower made is left on it", "target", name)
@@ -237,6 +244,9 @@ func (h targetActionService) AbandonTarget(ctx context.Context, req *connect.Req
 		return nil, err
 	}
 	h.s.teardowns.forget(key.Name)
+	if err := h.s.deleteHangarSSHKey(ctx, key.Name, t.GetMetadata().GetUid()); err != nil {
+		h.s.log.Warn("deleting an abandoned target's ssh key failed", "target", key.Name, "error", err)
+	}
 	h.s.log.Warn("abandoned a target's teardown: what it last found left is not confirmed gone",
 		"target", key.Name, "by", c.String(), "unconfirmed", unconfirmed, "listed", known, "last_error", t.GetStatus().GetLastError())
 	return connect.NewResponse(&targetsv1alpha1.AbandonTargetResponse{Target: t, Unconfirmed: unconfirmed, UnconfirmedKnown: known}), nil

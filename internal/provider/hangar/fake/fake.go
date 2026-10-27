@@ -13,7 +13,7 @@
 // tower-guest in, are answered as hangar's container would. Every
 // container's address is 127.0.0.1, so a copy's sender reaches its
 // receiver, and a port forward dials the host's port; hangar gives it with
-// its prefix length, as 127.0.0.1/8.
+// its prefix length, as 127.0.0.1/8. A VirtualMachine is in vm.go.
 package fake
 
 import (
@@ -31,10 +31,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/jonboulle/clockwork"
@@ -75,9 +77,17 @@ type Fake struct {
 	networks   *kind[*hangarnetwork.Network]
 	disks      *kind[*hangarstorage.Disk]
 	containers *kind[*hangarcompute.Container]
+	vms        *kind[*hangarcompute.VirtualMachine]
 	secrets    *kind[*hangarsecrets.Secret]
 	images     *kind[*hangarstorage.CustomImage]
 	machines   map[string]*hangarcompute.Machine
+	// globals are hangar's catalogue (AddImage); vmStates each VM
+	// instance's, by its uid; sshLn every VM's sshd. bootDelay is how long a
+	// VM's sshd refuses connections after it boots (SetBootDelay).
+	globals   map[string]*hangarstorage.Image
+	vmStates  map[string]*vmState
+	sshLn     net.Listener
+	bootDelay time.Duration
 	// installed is the hash of the tower-guest written into each
 	// container, by its uid.
 	installed map[string]string
@@ -99,10 +109,13 @@ var _ hangar.API = (*Fake)(nil)
 // New returns an empty project whose containers run guest, tower-guest,
 // each in a directory under dir.
 func New(guest, dir string, clock clockwork.Clock) *Fake {
-	f := &Fake{clock: clock, guest: guest, dir: dir, machines: map[string]*hangarcompute.Machine{}, installed: map[string]string{}}
+	f := &Fake{clock: clock, guest: guest, dir: dir, machines: map[string]*hangarcompute.Machine{}, installed: map[string]string{}, vmStates: map[string]*vmState{}}
 	f.networks = &kind[*hangarnetwork.Network]{f: f, what: "network", objs: map[string]*hangarnetwork.Network{}}
 	f.disks = &kind[*hangarstorage.Disk]{f: f, what: "disk", objs: map[string]*hangarstorage.Disk{}}
 	f.containers = &kind[*hangarcompute.Container]{f: f, what: "container", objs: map[string]*hangarcompute.Container{}}
+	f.vms = &kind[*hangarcompute.VirtualMachine]{f: f, what: "virtual machine", objs: map[string]*hangarcompute.VirtualMachine{}}
+	f.vms.applied = f.vmApplied
+	f.vms.deleting = f.vmDeleting
 	f.secrets = &kind[*hangarsecrets.Secret]{f: f, what: "secret", objs: map[string]*hangarsecrets.Secret{}}
 	f.images = &kind[*hangarstorage.CustomImage]{f: f, what: "custom image", objs: map[string]*hangarstorage.CustomImage{}}
 	f.images.applied = f.imageApplied
@@ -122,6 +135,12 @@ func (f *Fake) Close() {
 	for _, ct := range f.containers.objs {
 		f.killProcesses(ct.GetMetadata().GetUid())
 	}
+	for _, vm := range f.vms.objs {
+		f.stopVMLocked(vm)
+	}
+	if f.sshLn != nil {
+		_ = f.sshLn.Close()
+	}
 }
 
 // HoldDeletes makes a delete leave its object being deleted, its
@@ -139,6 +158,7 @@ func (f *Fake) ReleaseDeletes() {
 	defer f.mu.Unlock()
 	f.holdDeletes = false
 	f.containers.releaseLocked()
+	f.vms.releaseLocked()
 	f.disks.releaseLocked()
 	f.networks.releaseLocked()
 	f.secrets.releaseLocked()
@@ -223,7 +243,7 @@ func (f *Fake) usageLocked() *hangartenancy.Usage {
 		n, _ := strconv.ParseInt(strings.TrimSuffix(d.GetSpec().GetSize(), "Gi"), 10, 64)
 		gi += n
 	}
-	return &hangartenancy.Usage{Machines: int32(len(f.containers.objs)), Networks: int32(len(f.networks.objs)), Disk: strconv.FormatInt(gi, 10) + "Gi"}
+	return &hangartenancy.Usage{Machines: f.machinesLocked(), Networks: int32(len(f.networks.objs)), Disk: strconv.FormatInt(gi, 10) + "Gi"}
 }
 
 // Objects are the project's objects of a kind, for tests to look at.
@@ -249,7 +269,7 @@ func (f *Fake) root(uid string) string { return filepath.Join(f.dir, uid) }
 // refusing a new one past the quota. f.mu is held.
 func (f *Fake) containerApplied(ct *hangarcompute.Container, isNew bool) error {
 	if isNew {
-		if m := f.limitsLocked().Machines; m != nil && int32(len(f.containers.objs)) >= *m {
+		if m := f.limitsLocked().Machines; m != nil && f.machinesLocked() >= *m {
 			return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("the project holds %d machines, its limit", *m))
 		}
 		for _, v := range ct.GetSpec().GetVolumes() {
@@ -262,6 +282,9 @@ func (f *Fake) containerApplied(ct *hangarcompute.Container, isNew bool) error {
 				return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("network %s is not there", i.GetNetwork()))
 			}
 		}
+	}
+	if err := f.aliasesFreeLocked(ct.GetMetadata().GetName(), ct.GetSpec().GetInterfaces()); err != nil {
+		return err
 	}
 	name := "ct-" + ct.GetMetadata().GetName()
 	m, ok := f.machines[name]
@@ -282,7 +305,7 @@ func (f *Fake) containerApplied(ct *hangarcompute.Container, isNew bool) error {
 	}
 	m.Spec.Interfaces = nil
 	for i, ni := range ct.GetSpec().GetInterfaces() {
-		m.Spec.Interfaces = append(m.Spec.Interfaces, &hangarcompute.MachineInterface{Name: "eth" + strconv.Itoa(i), Network: ni.GetNetwork(), Ipv4: "127.0.0.1/8"})
+		m.Spec.Interfaces = append(m.Spec.Interfaces, &hangarcompute.MachineInterface{Name: "eth" + strconv.Itoa(i), Network: ni.GetNetwork(), Ipv4: "127.0.0.1/8", Aliases: ni.GetAliases()})
 	}
 	running := ct.GetSpec().GetRunState() != hangarcompute.ContainerRunState_CONTAINER_RUN_STATE_STOPPED
 	if f.failPull[ct.GetSpec().GetImage()] {
@@ -304,6 +327,41 @@ func (f *Fake) containerApplied(ct *hangarcompute.Container, isNew bool) error {
 	return nil
 }
 
+// aliasesFreeLocked refuses an alias another machine holds on the same
+// network, as hangar's admission does. f.mu is held.
+func (f *Fake) aliasesFreeLocked(self string, ifs []*hangarcompute.NetworkInterface) error {
+	held := func(other string, theirs []*hangarcompute.NetworkInterface) error {
+		// other is as hangar names a holder: its kind and name.
+		if other == "container "+self || other == "virtual machine "+self {
+			return nil
+		}
+		for _, mine := range ifs {
+			for _, them := range theirs {
+				if mine.GetNetwork() != them.GetNetwork() {
+					continue
+				}
+				for _, a := range mine.GetAliases() {
+					if slices.Contains(them.GetAliases(), a) {
+						return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("alias %q is held on network %q by %s", a, mine.GetNetwork(), other))
+					}
+				}
+			}
+		}
+		return nil
+	}
+	for _, ct := range f.containers.objs {
+		if err := held("container "+ct.GetMetadata().GetName(), ct.GetSpec().GetInterfaces()); err != nil {
+			return err
+		}
+	}
+	for _, vm := range f.vms.objs {
+		if err := held("virtual machine "+vm.GetMetadata().GetName(), vm.GetSpec().GetInterfaces()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // containerDeleting takes its machine and filesystem with it. f.mu is
 // held.
 func (f *Fake) containerDeleting(ct *hangarcompute.Container) error {
@@ -316,7 +374,12 @@ func (f *Fake) containerDeleting(ct *hangarcompute.Container) error {
 // killProcesses ends every process of a container, as its machine
 // stopping does.
 func (f *Fake) killProcesses(uid string) {
-	root := filepath.Join(f.root(uid), strings.TrimPrefix(procRoot, "/"))
+	killProcessesIn(filepath.Join(f.root(uid), strings.TrimPrefix(procRoot, "/")))
+}
+
+// killProcessesIn ends every process a tower-guest supervises under root,
+// its processes' directory.
+func killProcessesIn(root string) {
 	entries, _ := os.ReadDir(root)
 	for _, e := range entries {
 		b, err := os.ReadFile(filepath.Join(root, e.Name(), proclog.PIDFile))
@@ -337,7 +400,12 @@ func (f *Fake) diskDeleting(d *hangarstorage.Disk) error {
 			}
 		}
 	}
-	return nil
+	for _, vm := range f.vms.objs {
+		if vm.GetSpec().GetRootDisk().GetDisk() == d.GetMetadata().GetName() {
+			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("disk %s is VM %s's root disk", d.GetMetadata().GetName(), vm.GetMetadata().GetName()))
+		}
+	}
+	return os.RemoveAll(f.diskDir(d.GetMetadata().GetUid()))
 }
 
 func (f *Fake) networkDeleting(n *hangarnetwork.Network) error {
@@ -345,6 +413,13 @@ func (f *Fake) networkDeleting(n *hangarnetwork.Network) error {
 		for _, i := range ct.GetSpec().GetInterfaces() {
 			if i.GetNetwork() == n.GetMetadata().GetName() {
 				return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("network %s has container %s on it", i.GetNetwork(), ct.GetMetadata().GetName()))
+			}
+		}
+	}
+	for _, vm := range f.vms.objs {
+		for _, i := range vm.GetSpec().GetInterfaces() {
+			if i.GetNetwork() == n.GetMetadata().GetName() {
+				return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("network %s has VM %s on it", i.GetNetwork(), vm.GetMetadata().GetName()))
 			}
 		}
 	}
@@ -364,7 +439,9 @@ func (f *Fake) running(plural, name string) (string, error) {
 		return "", f.down
 	}
 	if plural != hangar.PluralContainers {
-		return "", connect.NewError(connect.CodeUnimplemented, fmt.Errorf("the fake has no %s", plural))
+		// tower reaches a VM by its own SSH over a port forward, never by
+		// hangar's exec, which logs in as the image's default user.
+		return "", connect.NewError(connect.CodeUnimplemented, fmt.Errorf("the fake execs in no %s", plural))
 	}
 	ct, ok := f.containers.objs[name]
 	if !ok {
@@ -504,6 +581,9 @@ func (f *Fake) shim(ctx context.Context, root string, stdin io.Reader, stdout, s
 }
 
 func (f *Fake) PortForward(ctx context.Context, plural, name string, port int32) (net.Conn, error) {
+	if plural == hangar.PluralVirtualMachines {
+		return f.vmPortForward(ctx, name, port)
+	}
 	if _, err := f.running(plural, name); err != nil {
 		return nil, err
 	}

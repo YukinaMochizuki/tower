@@ -199,6 +199,13 @@
       "additionalProperties": false,
       "description": "HangarTarget is one project of a hangar endpoint, which tower uses as an ordinary client.",
       "properties": {
+        "baseImages": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The hangar Image each of tower's base images is, by tower's name, such as \"ubuntu-24.04\": \"ubuntu-24-04\", one of hangar's catalogue. A VM of a base image not here fails. See docs/runbook/deploy.md.",
+          "type": "object"
+        },
         "credentialSecret": {
           "description": "A Secret in tower's reserved project \"system\" holding the hangar service token tower calls the endpoint with, under the key \"token\".",
           "type": "string"

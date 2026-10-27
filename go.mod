@@ -9,7 +9,7 @@ tool (
 
 require (
 	connectrpc.com/connect v1.21.0
-	github.com/YukinaMochizuki/hangar v0.2.0-rc.12.0.20261026064908-5da800074647
+	github.com/YukinaMochizuki/hangar v0.2.0-rc.12.0.20261026153110-2c787ade931f
 	github.com/coder/websocket v1.8.15
 	github.com/containerd/containerd/v2 v2.4.1
 	github.com/containerd/errdefs v1.0.0

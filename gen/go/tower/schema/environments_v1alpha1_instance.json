@@ -93,9 +93,13 @@
           "type": "string"
         },
         "processesRunning": {
-          "description": "How many processes started in it (StartProcess) are running. tower never stops for idleness a box whose instance runs one.",
+          "description": "How many processes started in it (StartProcess) are running. tower never stops for idleness a box whose instance runs one. For a VM on a hangar target it is the last known: read over a connection tower holds to the VM, as an operation in it leaves one, never by connecting for it; until then it is what it last was.",
           "format": "int32",
           "type": "integer"
+        },
+        "sshHostKey": {
+          "description": "The host key a VM's sshd answered tower with the first time, in authorized_keys form, such as \"ssh-ed25519 AAAA...\", on a provider that pins it so (a hangar target's): every later connection must present it, and one that does not is refused. A public key, not a secret. See docs/decisions/traffic.md.",
+          "type": "string"
         },
         "startTime": {
           "format": "date-time",
