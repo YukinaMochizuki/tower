@@ -25,6 +25,7 @@ import (
 
 	"github.com/YukinaMochizuki/tower/internal/apiserver"
 	"github.com/YukinaMochizuki/tower/internal/auth"
+	"github.com/YukinaMochizuki/tower/internal/provider/hangar"
 	"github.com/YukinaMochizuki/tower/internal/secrets"
 	"github.com/YukinaMochizuki/tower/internal/store/sqlite"
 	"github.com/YukinaMochizuki/tower/internal/ticket"
@@ -44,6 +45,10 @@ type flags struct {
 	registry     string
 	registryHTTP bool
 	dev          bool
+	// hangarFront paces each hangar endpoint, hangarMirrorOps caps each
+	// hangar target's mirror operations.
+	hangarFront     hangar.FrontLimits
+	hangarMirrorOps int
 }
 
 func main() {
@@ -63,6 +68,14 @@ func main() {
 	flag.StringVar(&f.systemImage, "system-image", "", "the image of a hangar target's system container, by digest in --registry, by its --registry name, which each hangar target pulls by its registry_host, as deploy/system-image builds it and docs/runbook/deploy.md pushes it; empty, a hangar target keeps no mirror and builds no image")
 	flag.StringVar(&f.registry, "registry", "", "tower's registry, host[:port], as a hangar target's system container pushes its builds to it, over the tailnet")
 	flag.BoolVar(&f.registryHTTP, "registry-plain-http", false, "--registry is served over plain HTTP, as one on the tailnet alone may be, whose traffic the tailnet encrypts")
+	f.hangarFront = hangar.DefaultFrontLimits
+	flag.Float64Var(&f.hangarFront.ConnRate, "hangar-conn-rate", f.hangarFront.ConnRate, "new connections a second tower opens to each hangar endpoint, all its targets together; keep it below the endpoint's front door's (hangar-edge's 10 a second), as docs/runbook/deploy.md says")
+	flag.IntVar(&f.hangarFront.ConnBurst, "hangar-conn-burst", f.hangarFront.ConnBurst, "new connections tower opens to each hangar endpoint at once, after a lull; keep it below its front door's (hangar-edge's 50)")
+	flag.Float64Var(&f.hangarFront.RequestRate, "hangar-request-rate", f.hangarFront.RequestRate, "requests a second tower sends each hangar endpoint, all its targets together; keep it below its front door's (hangar-edge's 20 a second)")
+	flag.IntVar(&f.hangarFront.RequestBurst, "hangar-request-burst", f.hangarFront.RequestBurst, "requests tower sends each hangar endpoint at once, after a lull; keep it below its front door's (hangar-edge's 100)")
+	flag.IntVar(&f.hangarFront.MaxConns, "hangar-max-conns", f.hangarFront.MaxConns, "connections tower keeps open to each hangar endpoint at once, all its targets together, each exec, port forward and VM connection one; keep it below its front door's (hangar-edge's 64)")
+	flag.IntVar(&f.hangarFront.MaxInFlight, "hangar-max-requests", f.hangarFront.MaxInFlight, "requests tower has in flight to each hangar endpoint at once, each open exec, port forward and VM connection one; keep it below its front door's (hangar-edge's 128)")
+	flag.IntVar(&f.hangarMirrorOps, "hangar-mirror-ops", hangar.DefaultMirrorOps, "mirror operations (fetches, reads, checkouts, origins, pushes) each hangar target runs at once; the rest wait")
 	flag.BoolVar(&f.dev, "dev", false, "for local development only: trust the "+auth.DevPrincipalHeader+" header as the caller, and take the admin socket from the uid the apiserver runs as; only on a loopback IP")
 	flag.Parse()
 
@@ -78,6 +91,16 @@ func main() {
 func run(ctx context.Context, f flags, log *slog.Logger) error {
 	if err := checkDev(f); err != nil {
 		return err
+	}
+	// Unset, as by a test, they are the defaults.
+	if f.hangarFront == (hangar.FrontLimits{}) {
+		f.hangarFront = hangar.DefaultFrontLimits
+	}
+	if err := f.hangarFront.Validate(); err != nil {
+		return fmt.Errorf("--hangar-conn-*, --hangar-request-* and --hangar-max-*: %w", err)
+	}
+	if f.hangarMirrorOps < 0 {
+		return errors.New("--hangar-mirror-ops must not be negative; 0 is its default")
 	}
 	host, err := os.Hostname()
 	if err != nil {
@@ -120,6 +143,7 @@ func run(ctx context.Context, f flags, log *slog.Logger) error {
 	srv := apiserver.New(apiserver.Config{
 		Store: st, Logger: log, Secrets: keys, Credentials: st, Tickets: tickets, DefaultBoxImage: f.defaultImage,
 		TowerGuest: guest, PublicURL: f.publicURL, SystemImage: f.systemImage, Registry: f.registry, RegistryPlainHTTP: f.registryHTTP,
+		HangarFront: f.hangarFront, HangarMirrorOps: f.hangarMirrorOps,
 	})
 	tokens, ok := srv.ServiceTokens()
 	if !ok {

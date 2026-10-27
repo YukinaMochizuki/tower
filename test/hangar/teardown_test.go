@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -121,7 +122,10 @@ func TestDeletingATargetLeavesNothingInHangar(t *testing.T) {
 
 	env := apiservertest.Start(t, func(cfg *apiserver.Config) {
 		cfg.Providers = nil
-		cfg.HangarAPI = func(_, _, _ string) hangar.API { return api }
+		// Through the apiserver's own client of the endpoint, as tower's is.
+		cfg.HangarAPI = func(_, _, _ string, hc *http.Client) hangar.API {
+			return hangar.NewConnect(c.endpoint, c.project, c.token, hc)
+		}
 		cfg.SystemImage, cfg.Registry, cfg.RegistryPlainHTTP = c.system, c.registry, c.plainHTTP
 	})
 	env.Setup()

@@ -3,6 +3,7 @@ package hangar
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
 	"time"
 
@@ -28,6 +29,14 @@ func ApplyRefused(err error) (reason string, waits bool) {
 	o, _ := (&Target{}).applyFailed(err)
 	return o.reason, o.wait
 }
+
+// SetDial has f open its TCP connections with dial, before it is used.
+func (f *Front) SetDial(dial func(ctx context.Context, network, addr string) (net.Conn, error)) {
+	f.dialNet = dial
+}
+
+// ProviderError is what an error of hangar's is to tower.
+func ProviderError(err error) error { return providerError(err) }
 
 // VMConnections is how many live connections the provider holds to its
 // VMs.

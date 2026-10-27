@@ -249,6 +249,60 @@ writes through the VM's user_data); one more waits for one to end. Where
 the Plan has `machine_calls`, set it to the most of these open at once,
 and more; a hangar without it has a fixed cap of 64 a tenant.
 
+**hangar's front door.** A hangar reached at an `https` endpoint is reached
+through its front door, hangar-edge, which holds each client address to
+limits of its own (hangar's `internal/edge/front/limits.go` and
+`docs/decisions/front-door.md`). Every hangar target of a tower reaches an
+endpoint from the tower host's one address, so they share those limits,
+with whatever else on the host calls the same hangar. Past them the front
+door closes a new connection as it accepts it, which tower sees as `EOF`
+in a WebSocket's or a call's handshake, and answers a request 429. tower
+paces each endpoint's targets together, below the front door's defaults
+(`internal/provider/hangar/front.go`):
+
+| What | hangar-edge allows a client | tower's default | Flag of `tower-apiserver` |
+|---|---|---|---|
+| new connections: one for each exec and each port forward, and the few that every call shares | 10/s, burst 50 | 8/s, burst 40 | `--hangar-conn-rate`, `--hangar-conn-burst` |
+| requests: each call, and each WebSocket's upgrade | 20/s, burst 100 | 16/s, burst 80 | `--hangar-request-rate`, `--hangar-request-burst` |
+| connections open at once: each open exec, port forward and VM connection holds one | 64 | 48, of which the WebSockets may hold 40 | `--hangar-max-conns` |
+| requests in flight at once, each open WebSocket one | 128 | 96 | `--hangar-max-requests` |
+| a target's mirror operations running at once (fetches, reads, checkouts, origins, pushes) | | 8 | `--hangar-mirror-ops` |
+
+An operation waits for its turn rather than failing. A WebSocket past
+the 40 open waits for one to close; the calls always keep 8 connections
+of their own.
+
+**What comes first.** The data plane's calls (`EnvironmentService`:
+a person's push, fetch, exec and the rest) go before the controllers'
+work. Background work takes at most three quarters of each rate and of
+a target's mirror operations (6 of 8). The rest is kept for the data
+plane, so a push does not queue behind a reconcile's fetches of a large
+product. Within each class, work waits first come, first served.
+
+**Refusals.** The front door refuses a connection by closing it as it
+accepts it. tower sees that as an `EOF`, or a reset, on a connection it
+had opened, before its request was answered. Such a request, and the
+front door's own 429 or 503, is tried again after a jittered backoff, up
+to 6 times, waiting out a 429's `Retry-After` and a little more. After
+that it fails as unavailable, and the controller's own backoff applies.
+A connection that cannot be opened at all, refused, timed out, a name
+that does not resolve or a certificate that does not verify, is no
+refusal. It fails at once as unavailable, as hangar being down does. tower
+logs the refusals at most every 30 seconds, as `hangar's front door
+refused requests`, with how many there were. To see whether the front
+door refuses tower from its side, look in hangar-edge's log for `refused
+connections past the limits`, and for tower's address among the 429s.
+
+The calls share a few HTTP/2 connections, opened one at a time, and each
+exec or port forward opens one of its own. So the connection rate is
+mostly a rate of execs. A product of many repositories fetches at most 6
+at a time on each target, which leaves the rest of the rate to its boxes
+and VMs. If the front door's limits are lowered, lower tower's flags
+below them. An `http` endpoint, such as a testbed's hangar without its
+front door, is paced the same way, and served over HTTP/1.1 with up to 8
+calls in flight. A tower restarted starts with full bursts, which the
+retries cover if the front door's are not.
+
 On hostd, a machine whose blueprint names no `net_alias` is named on its
 workstream's network by the machine's own name, not its blueprint's: what
 reached a machine by its blueprint's name reaches it by the machine's, or
