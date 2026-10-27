@@ -129,6 +129,10 @@ type Server struct {
 	// status names the secret that works. A delete does not take it; see
 	// issueTokenSecret. Keyed by the token's name.
 	tokenSecrets keyLocks
+	// admitting serializes the admission and the store write of creates
+	// that kindHooks.serialize keys, as boxes' and machines' of one
+	// workstream, whose aliases are checked against each other's.
+	admitting keyLocks
 	// tokenUses queues service tokens' uses to record in their status.
 	tokenUses chan tokenUse
 	// gc is how far garbage collection has come, and ownerIdx the index of

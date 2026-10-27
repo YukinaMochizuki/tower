@@ -31,11 +31,15 @@ type Harness struct {
 	// Stop sets the instance's run_state STOPPED and waits until its
 	// provider reports it STOPPED.
 	Stop func(t *testing.T, in provider.Instance)
+	// Delete, if set, deletes an instance and waits until its provider has
+	// released what it held: what a test no longer needs, on a target too
+	// small to hold every test's instances at once. Unset, it is stopped.
+	Delete func(t *testing.T, in provider.Instance)
 	// Golden makes a READY Golden holding the artifact and returns its
 	// name, for an Instance to clone its disk from.
 	Golden func(t *testing.T, artifact provider.Artifact) string
 	// Image and BaseImage are what a container and a VM boot from; an
-	// empty BaseImage skips the VM, for a provider that runs none yet.
+	// empty BaseImage skips the VMs' tests, for a provider that runs none.
 	Image, BaseImage string
 	// Skip names the tests the provider does not pass, each with why, such
 	// as a hangar target's mirrors.
@@ -69,6 +73,8 @@ func Run(t *testing.T, h Harness) {
 		{"ResolveImage", testResolveImage},
 		{"ReadAndBuildAMirror", testReadAndBuildAMirror},
 		{"CaptureAndClone", testCaptureAndClone},
+		{"VMs", testVMs},
+		{"VMCaptureAndClone", testVMCaptureAndClone},
 		{"MirrorAndCheckout", testMirrorAndCheckout},
 		{"PushNeedsItsLease", testPushNeedsItsLease},
 		{"Ticket", testTicket},
@@ -88,15 +94,17 @@ func Run(t *testing.T, h Harness) {
 	}
 }
 
-func (h Harness) container(network string) *envv1alpha1.InstanceSpec {
+// container is a container's spec on network, named there alias: an
+// alias is one instance's on its network, as hangar holds it.
+func (h Harness) container(network, alias string) *envv1alpha1.InstanceSpec {
 	return &envv1alpha1.InstanceSpec{
 		Target: h.Target, Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, Image: h.Image,
-		Network: network, Alias: "conformance",
+		Network: network, Alias: alias,
 	}
 }
 
 func testInstancesRun(t *testing.T, h Harness) {
-	in, st := h.Start(t, "runs", h.container("net-a"))
+	in, st := h.start(t, "runs", h.container("net-a", "runs"))
 	if st.GetAddress() == "" || st.GetStartTime() == nil {
 		t.Errorf("a running instance's status: %v, want its address and start time", st)
 	}
@@ -104,17 +112,132 @@ func testInstancesRun(t *testing.T, h Harness) {
 	if _, err := h.Provider.Exec(t.Context(), provider.ExecRequest{Instance: in, Command: []string{"true"}}); err == nil {
 		t.Error("a command ran in a stopped instance")
 	}
-	if h.BaseImage == "" {
-		return
-	}
-	// Its resources given, as tower's controllers always give a VM's: its
-	// disk must hold its base image.
-	vm := &envv1alpha1.InstanceSpec{
-		Target: h.Target, Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_VM, Image: h.BaseImage, Network: "net-a", Alias: "vm",
+}
+
+// vm is a VM's spec, its resources given, as tower's controllers always
+// give a VM's: its disk must hold its base image. The VMs' tests are on a
+// network of their own.
+func (h Harness) vm(alias string) *envv1alpha1.InstanceSpec {
+	return &envv1alpha1.InstanceSpec{
+		Target: h.Target, Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_VM, Image: h.BaseImage, Network: "net-vm", Alias: alias,
 		Resources: &envv1alpha1.Resources{Cpu: "1", Memory: "1Gi", Disk: "2Gi"},
 	}
-	if _, st := h.Start(t, "vm", vm); st.GetAddress() == "" {
-		t.Errorf("a running VM's status: %v, want its address", st)
+}
+
+// testVMs: what is asked of a container is asked of a VM: commands, files,
+// a copy in from a container on its network, processes and a ticket. It
+// runs only what every base image has.
+func testVMs(t *testing.T, h Harness) {
+	if h.BaseImage == "" {
+		t.Skip("the harness names no base image")
+	}
+	ctx := t.Context()
+	vm, st := h.start(t, "vm", h.vm("vm"))
+	if st.GetAddress() == "" || st.GetStartTime() == nil {
+		t.Errorf("a running VM's status: %v, want its address and start time", st)
+	}
+	if code, out := run(t, h, vm, nil, "echo", "hello", "vm"); code != 0 || out != "hello vm\n" {
+		t.Errorf("echo in a VM: %d %q", code, out)
+	}
+	if code, _ := run(t, h, vm, nil, "false"); code != 1 {
+		t.Errorf("false in a VM exited %d, want 1", code)
+	}
+	if err := h.Provider.WriteFile(ctx, vm, "/tmp/conformance/vm.txt", 0o644, 0, strings.NewReader("in a vm")); err != nil {
+		t.Fatal(err)
+	}
+	var got bytes.Buffer
+	if err := h.Provider.ReadFile(ctx, vm, "/tmp/conformance/vm.txt", &got); err != nil || got.String() != "in a vm" {
+		t.Errorf("a VM's file read back %q, %v", got.String(), err)
+	}
+	box, _ := h.start(t, "vm-peer", h.container("net-vm", "vm-peer"))
+	if err := h.Provider.WriteFile(ctx, box, "/tmp/out/result.txt", 0o644, 0, strings.NewReader("built")); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Provider.Copy(ctx, box, "/tmp/out", vm, "/tmp/in"); err != nil {
+		t.Fatalf("a copy from a container into a VM: %v", err)
+	}
+	got.Reset()
+	if err := h.Provider.ReadFile(ctx, vm, "/tmp/in/result.txt", &got); err != nil || got.String() != "built" {
+		t.Errorf("the copy into a VM: %q, %v", got.String(), err)
+	}
+	id, err := h.Provider.StartProcess(ctx, provider.ProcessRequest{Instance: vm, Command: []string{"echo", "from a vm"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	att, err := h.Provider.AttachProcess(ctx, vm, id, 0, true, func(c provider.OutputChunk) error {
+		out.Write(c.Data)
+		return nil
+	})
+	if err != nil || out.String() != "from a vm\n" || att.Exit == nil || att.Exit.Code != 0 {
+		t.Errorf("a VM's process: %q, %+v, %v", out.String(), att, err)
+	}
+	list, err := h.Provider.ListProcesses(ctx, vm)
+	if err != nil || !slices.ContainsFunc(list, func(p provider.Process) bool { return p.ID == id }) {
+		t.Errorf("a VM's processes %+v, %v; want %s", list, err, id)
+	}
+	if tk, err := h.Provider.Ticket(ctx, vm, 22); err != nil || tk.URL == "" {
+		t.Errorf("a ticket to a VM's port: %+v, %v", tk, err)
+	}
+	h.release(t, box)
+	h.Stop(t, vm)
+	if _, err := h.Provider.Exec(ctx, provider.ExecRequest{Instance: vm, Command: []string{"true"}}); err == nil {
+		t.Error("a command ran in a stopped VM")
+	}
+	h.release(t, vm)
+}
+
+// start starts an instance as Start does, deleted as the test ends where
+// the harness deletes: a test's instances leave its target's room, and
+// their network's, to the tests after (hangar's networks hold about fifteen
+// machines, hangar#221).
+func (h Harness) start(t *testing.T, name string, spec *envv1alpha1.InstanceSpec) (provider.Instance, *envv1alpha1.InstanceStatus) {
+	t.Helper()
+	in, st := h.Start(t, name, spec)
+	if h.Delete != nil {
+		t.Cleanup(func() { h.Delete(t, in) })
+	}
+	return in, st
+}
+
+// release deletes an instance a test no longer needs, leaving its target's
+// room to the tests after, or stops it where the harness deletes none.
+func (h Harness) release(t *testing.T, in provider.Instance) {
+	t.Helper()
+	if h.Delete == nil {
+		h.Stop(t, in)
+		return
+	}
+	h.Delete(t, in)
+}
+
+// testVMCaptureAndClone: a stopped VM's disk is captured, as a machine's
+// golden is, and a VM cloned from it holds what the first one wrote.
+func testVMCaptureAndClone(t *testing.T, h Harness) {
+	if h.BaseImage == "" {
+		t.Skip("the harness names no base image")
+	}
+	ctx := t.Context()
+	src, _ := h.start(t, "vm-builder", h.vm("builder"))
+	if err := h.Provider.WriteFile(ctx, src, "/var/lib/conformance/warm.txt", 0o644, 0, strings.NewReader("installed")); err != nil {
+		t.Fatal(err)
+	}
+	h.Stop(t, src)
+	art, err := h.Provider.Capture(ctx, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.release(t, src)
+	spec := h.vm("clone")
+	spec.DiskGolden = h.Golden(t, art)
+	clone, _ := h.start(t, "vm-clone", spec)
+	var got bytes.Buffer
+	if err := h.Provider.ReadFile(ctx, clone, "/var/lib/conformance/warm.txt", &got); err != nil || got.String() != "installed" {
+		t.Errorf("a clone of a VM's golden holds %q, %v", got.String(), err)
+	}
+	h.release(t, clone)
+	if err := h.Provider.DeleteArtifact(ctx, art.Name); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -130,7 +253,7 @@ func run(t *testing.T, h Harness, in provider.Instance, env map[string]string, c
 }
 
 func testExec(t *testing.T, h Harness) {
-	in, _ := h.Start(t, "exec", h.container("net-a"))
+	in, _ := h.start(t, "exec", h.container("net-a", "exec"))
 	if code, out := run(t, h, in, nil, "echo", "hello", "world"); code != 0 || out != "hello world\n" {
 		t.Errorf("echo: %d %q", code, out)
 	}
@@ -173,7 +296,7 @@ type writerFunc func([]byte) (int, error)
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
 func testEnvironmentIsPerCommand(t *testing.T, h Harness) {
-	in, _ := h.Start(t, "env", h.container("net-a"))
+	in, _ := h.start(t, "env", h.container("net-a", "env"))
 	if _, out := run(t, h, in, map[string]string{"TOWER_CONFORMANCE": "given"}, "env"); !strings.Contains(out, "TOWER_CONFORMANCE=given\n") {
 		t.Errorf("the environment given a command is not its own: %q", out)
 	}
@@ -183,7 +306,7 @@ func testEnvironmentIsPerCommand(t *testing.T, h Harness) {
 }
 
 func testFiles(t *testing.T, h Harness) {
-	in, _ := h.Start(t, "files", h.container("net-a"))
+	in, _ := h.start(t, "files", h.container("net-a", "files"))
 	ctx := t.Context()
 	if err := h.Provider.WriteFile(ctx, in, "/tmp/conformance/a.txt", 0o644, 0, strings.NewReader("cont")); err != nil {
 		t.Fatal(err)
@@ -214,8 +337,8 @@ func testFiles(t *testing.T, h Harness) {
 }
 
 func testCopy(t *testing.T, h Harness) {
-	a, _ := h.Start(t, "copy-a", h.container("net-a"))
-	b, _ := h.Start(t, "copy-b", h.container("net-a"))
+	a, _ := h.start(t, "copy-a", h.container("net-a", "copy-a"))
+	b, _ := h.start(t, "copy-b", h.container("net-a", "copy-b"))
 	ctx := t.Context()
 	if err := h.Provider.WriteFile(ctx, a, "/tmp/out/result.txt", 0o644, 0, strings.NewReader("built")); err != nil {
 		t.Fatal(err)
@@ -230,7 +353,7 @@ func testCopy(t *testing.T, h Harness) {
 }
 
 func testWhatIsNotThere(t *testing.T, h Harness) {
-	in, _ := h.Start(t, "present", h.container("net-a"))
+	in, _ := h.start(t, "present", h.container("net-a", "present"))
 	absent := provider.Instance{Project: in.Project, Name: "absent"}
 	ctx := t.Context()
 	if _, err := h.Provider.Exec(ctx, provider.ExecRequest{Instance: absent, Command: []string{"true"}}); !errors.Is(err, provider.ErrNotFound) {
@@ -358,7 +481,7 @@ func testReadAndBuildAMirror(t *testing.T, h Harness) {
 
 func testCaptureAndClone(t *testing.T, h Harness) {
 	ctx := t.Context()
-	src, _ := h.Start(t, "capture-src", h.container("net-a"))
+	src, _ := h.start(t, "capture-src", h.container("net-a", "capture-src"))
 	if err := h.Provider.WriteFile(ctx, src, "/workspace/warm.txt", 0o644, 0, strings.NewReader("installed")); err != nil {
 		t.Fatal(err)
 	}
@@ -370,9 +493,9 @@ func testCaptureAndClone(t *testing.T, h Harness) {
 	if art.Name == "" || art.Size == 0 {
 		t.Errorf("artifact %+v, want a name and a size", art)
 	}
-	spec := h.container("net-a")
+	spec := h.container("net-a", "capture-clone")
 	spec.DiskGolden = h.Golden(t, art)
-	clone, _ := h.Start(t, "capture-clone", spec)
+	clone, _ := h.start(t, "capture-clone", spec)
 	var got bytes.Buffer
 	if err := h.Provider.ReadFile(ctx, clone, "/workspace/warm.txt", &got); err != nil || got.String() != "installed" {
 		t.Errorf("a clone of the artifact holds %q, %v", got.String(), err)
@@ -397,7 +520,7 @@ func testMirrorAndCheckout(t *testing.T, h Harness) {
 	if n, err := h.Provider.CommitsBehind(ctx, "conformance/repo", head, h.Branch); err != nil || n != 0 {
 		t.Errorf("the head is %d commits behind its branch, %v", n, err)
 	}
-	in, _ := h.Start(t, "checkout", h.container("net-a"))
+	in, _ := h.start(t, "checkout", h.container("net-a", "checkout"))
 	commit, err := h.Provider.Checkout(ctx, in, "conformance/repo", "", "/workspace")
 	if err != nil || commit != head {
 		t.Errorf("checked out %q, %v; want %q", commit, err, head)
@@ -419,7 +542,7 @@ func testPushNeedsItsLease(t *testing.T, h Harness) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in, _ := h.Start(t, "push", h.container("net-a"))
+	in, _ := h.start(t, "push", h.container("net-a", "push"))
 	if _, err := h.Provider.Checkout(ctx, in, "conformance/push", "", "/workspace"); err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +557,7 @@ func testPushNeedsItsLease(t *testing.T, h Harness) {
 }
 
 func testTicket(t *testing.T, h Harness) {
-	in, _ := h.Start(t, "ticket", h.container("net-a"))
+	in, _ := h.start(t, "ticket", h.container("net-a", "ticket"))
 	tk, err := h.Provider.Ticket(t.Context(), in, 8080)
 	if err != nil {
 		t.Fatal(err)

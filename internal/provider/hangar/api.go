@@ -22,13 +22,17 @@ type API interface {
 	Networks() Kind[*hangarnetwork.Network]
 	Disks() Kind[*hangarstorage.Disk]
 	Containers() Kind[*hangarcompute.Container]
+	VirtualMachines() Kind[*hangarcompute.VirtualMachine]
 	Secrets() Kind[*hangarsecrets.Secret]
 	CustomImages() Kind[*hangarstorage.CustomImage]
 	// ProjectName is the project's name, which a Disk names to be made from
 	// one of its CustomImages.
 	ProjectName() string
-	// Machine reads the machine a container runs as (MachineOf); one not
-	// made yet is ErrNotFound.
+	// Image reads one of hangar's global Images, its catalogue; one not
+	// there is ErrNotFound.
+	Image(ctx context.Context, name string) (*hangarstorage.Image, error)
+	// Machine reads the machine a container or VM runs as (machineOf,
+	// vmMachineOf); one not made yet is ErrNotFound.
 	Machine(ctx context.Context, name string) (*hangarcompute.Machine, error)
 	// Project reads the project, its limits and usage among its status.
 	Project(ctx context.Context) (*hangartenancy.Project, error)

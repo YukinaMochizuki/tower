@@ -70,11 +70,13 @@ func newWorld(t *testing.T, configure func(*hangar.Config)) (*hangartest.World, 
 		t.Fatal(err)
 	}
 	f.System = towerSystem
+	f.AddImage("ubuntu-24-04", "3Gi")
 	t.Cleanup(f.Close)
 	const image = "registry.tower.internal/base@sha256:00"
 	remote, head := gitRemote(t, map[string]string{"go.mod": "module x\n", "docker/Dockerfile": "FROM " + image + "\nCOPY go.mod /go.mod\n"})
 	w := hangartest.New(t, hangartest.Options{
 		API: f, Project: fake.Project, Guest: guest, Image: image,
+		BaseImage: "ubuntu-24.04", BaseImages: map[string]string{"ubuntu-24.04": "ubuntu-24-04"},
 		Remote: remote, Branch: "main", RemoteHead: head, RemoteDockerfile: "docker/Dockerfile",
 		Configure: func(c *hangar.Config) {
 			c.SystemImage = "registry.tower.internal/tower/system@sha256:01"
@@ -249,10 +251,12 @@ func TestAnImageThatCannotBePulledFailsTheInstance(t *testing.T) {
 	}
 }
 
-// TestAnInstanceDoesNotWaitForAnEarlierOneOfItsName: an Instance made
-// again under a name whose earlier one hangar is still deleting runs at
-// once; the earlier one's objects go once hangar lets them.
-func TestAnInstanceDoesNotWaitForAnEarlierOneOfItsName(t *testing.T) {
+// TestAnInstanceWaitsOnlyForTheAliasOfAnEarlierOneOfItsName: an Instance
+// made again under a name whose earlier one hangar is still deleting
+// waits only for its alias, which hangar holds until the earlier one is
+// gone, saying so, and runs then; the earlier one's objects go once hangar
+// lets them.
+func TestAnInstanceWaitsOnlyForTheAliasOfAnEarlierOneOfItsName(t *testing.T) {
 	w, f := newWorld(t, func(c *hangar.Config) { c.SweepGrace = time.Nanosecond })
 	h := w.Harness()
 	ref, _ := h.Start(t, "box", container("ws1"))
@@ -265,8 +269,21 @@ func TestAnInstanceDoesNotWaitForAnEarlierOneOfItsName(t *testing.T) {
 		ct, err := f.Containers().Get(t.Context(), old)
 		return err == nil && ct.GetMetadata().GetDeleteTime() != nil, fmt.Sprint(err)
 	})
-	h.Start(t, "box", container("ws1"))
+	// Its objects are named apart, but its alias is the earlier one's,
+	// which hangar holds until the earlier container is gone: it waits for
+	// it, saying so, and runs once it is.
+	if _, err := w.Env.AsSystem().Apply(t.Context(), registry.Instance, &envv1alpha1.Instance{
+		Metadata: &metav1.ObjectMeta{Project: ref.Project, Name: ref.Name}, Spec: container("ws1"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Eventually(t, "the new instance waiting for its alias", func() (bool, string) {
+		in := w.Instance(t, "box")
+		c := conditions.Find(in.GetStatus().GetConditions(), hangar.InstanceReady)
+		return in.GetStatus().GetPhase() == envv1alpha1.InstancePhase_INSTANCE_PHASE_PENDING && c.GetReason() == "AliasHeld", in.GetStatus().String()
+	})
 	f.ReleaseDeletes()
+	w.WaitPhase(t, "box", envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING)
 	testutil.Eventually(t, "the earlier disk gone", func() (bool, string) {
 		_ = w.Target.Sweep(t.Context())
 		return !strSet(f.DiskNames()).has(old), fmt.Sprint(f.DiskNames())

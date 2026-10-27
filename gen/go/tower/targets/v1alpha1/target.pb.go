@@ -230,8 +230,12 @@ type HangarTarget struct {
 	// the tailnet with, once: what it pushes to the registry over. Empty
 	// joins it to none.
 	TailnetAuthSecret string `protobuf:"bytes,7,opt,name=tailnet_auth_secret,json=tailnetAuthSecret,proto3" json:"tailnet_auth_secret,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The hangar Image each of tower's base images is, by tower's name, such
+	// as "ubuntu-24.04": "ubuntu-24-04", one of hangar's catalogue. A VM of a
+	// base image not here fails. See docs/runbook/deploy.md.
+	BaseImages    map[string]string `protobuf:"bytes,8,rep,name=base_images,json=baseImages,proto3" json:"base_images,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *HangarTarget) Reset() {
@@ -311,6 +315,13 @@ func (x *HangarTarget) GetTailnetAuthSecret() string {
 		return x.TailnetAuthSecret
 	}
 	return ""
+}
+
+func (x *HangarTarget) GetBaseImages() map[string]string {
+	if x != nil {
+		return x.BaseImages
+	}
+	return nil
 }
 
 // HostdTarget is a host running hostd. The host is whoever holds a
@@ -1496,7 +1507,7 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\x05hostd\x18\x02 \x01(\v2#.tower.targets.v1alpha1.HostdTargetH\x00R\x05hostd\x12B\n" +
 	"\bsettings\x18\x03 \x01(\v2&.tower.targets.v1alpha1.TargetSettingsR\bsettingsB\n" +
 	"\n" +
-	"\bprovider\"\xba\x02\n" +
+	"\bprovider\"\xd0\x03\n" +
 	"\fHangarTarget\x12\"\n" +
 	"\bendpoint\x18\x01 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\bendpoint\x12 \n" +
 	"\aproject\x18\x02 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\aproject\x12+\n" +
@@ -1504,7 +1515,12 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\x14registry_pull_secret\x18\x04 \x01(\tR\x12registryPullSecret\x12#\n" +
 	"\rregistry_host\x18\x05 \x01(\tR\fregistryHost\x120\n" +
 	"\x14registry_push_secret\x18\x06 \x01(\tR\x12registryPushSecret\x12.\n" +
-	"\x13tailnet_auth_secret\x18\a \x01(\tR\x11tailnetAuthSecret\"\r\n" +
+	"\x13tailnet_auth_secret\x18\a \x01(\tR\x11tailnetAuthSecret\x12U\n" +
+	"\vbase_images\x18\b \x03(\v24.tower.targets.v1alpha1.HangarTarget.BaseImagesEntryR\n" +
+	"baseImages\x1a=\n" +
+	"\x0fBaseImagesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\r\n" +
 	"\vHostdTarget\"\xa4\x02\n" +
 	"\x0eTargetSettings\x12A\n" +
 	"\x0fidle_stop_after\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\ridleStopAfter\x12\x1f\n" +
@@ -1616,7 +1632,7 @@ func file_tower_targets_v1alpha1_target_proto_rawDescGZIP() []byte {
 	return file_tower_targets_v1alpha1_target_proto_rawDescData
 }
 
-var file_tower_targets_v1alpha1_target_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_tower_targets_v1alpha1_target_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_tower_targets_v1alpha1_target_proto_goTypes = []any{
 	(*Target)(nil),                     // 0: tower.targets.v1alpha1.Target
 	(*TargetSpec)(nil),                 // 1: tower.targets.v1alpha1.TargetSpec
@@ -1640,56 +1656,58 @@ var file_tower_targets_v1alpha1_target_proto_goTypes = []any{
 	(*DeleteTargetResponse)(nil),       // 19: tower.targets.v1alpha1.DeleteTargetResponse
 	(*UpdateTargetStatusRequest)(nil),  // 20: tower.targets.v1alpha1.UpdateTargetStatusRequest
 	(*UpdateTargetStatusResponse)(nil), // 21: tower.targets.v1alpha1.UpdateTargetStatusResponse
-	nil,                                // 22: tower.targets.v1alpha1.Counts.InstancesEntry
-	(*v1.ObjectMeta)(nil),              // 23: tower.meta.v1.ObjectMeta
-	(*durationpb.Duration)(nil),        // 24: google.protobuf.Duration
-	(*v1.Condition)(nil),               // 25: tower.meta.v1.Condition
-	(*timestamppb.Timestamp)(nil),      // 26: google.protobuf.Timestamp
-	(v1.EventType)(0),                  // 27: tower.meta.v1.EventType
+	nil,                                // 22: tower.targets.v1alpha1.HangarTarget.BaseImagesEntry
+	nil,                                // 23: tower.targets.v1alpha1.Counts.InstancesEntry
+	(*v1.ObjectMeta)(nil),              // 24: tower.meta.v1.ObjectMeta
+	(*durationpb.Duration)(nil),        // 25: google.protobuf.Duration
+	(*v1.Condition)(nil),               // 26: tower.meta.v1.Condition
+	(*timestamppb.Timestamp)(nil),      // 27: google.protobuf.Timestamp
+	(v1.EventType)(0),                  // 28: tower.meta.v1.EventType
 }
 var file_tower_targets_v1alpha1_target_proto_depIdxs = []int32{
-	23, // 0: tower.targets.v1alpha1.Target.metadata:type_name -> tower.meta.v1.ObjectMeta
+	24, // 0: tower.targets.v1alpha1.Target.metadata:type_name -> tower.meta.v1.ObjectMeta
 	1,  // 1: tower.targets.v1alpha1.Target.spec:type_name -> tower.targets.v1alpha1.TargetSpec
 	5,  // 2: tower.targets.v1alpha1.Target.status:type_name -> tower.targets.v1alpha1.TargetStatus
 	2,  // 3: tower.targets.v1alpha1.TargetSpec.hangar:type_name -> tower.targets.v1alpha1.HangarTarget
 	3,  // 4: tower.targets.v1alpha1.TargetSpec.hostd:type_name -> tower.targets.v1alpha1.HostdTarget
 	4,  // 5: tower.targets.v1alpha1.TargetSpec.settings:type_name -> tower.targets.v1alpha1.TargetSettings
-	24, // 6: tower.targets.v1alpha1.TargetSettings.idle_stop_after:type_name -> google.protobuf.Duration
-	24, // 7: tower.targets.v1alpha1.TargetSettings.warm_window:type_name -> google.protobuf.Duration
-	24, // 8: tower.targets.v1alpha1.TargetSettings.warm_max_age:type_name -> google.protobuf.Duration
-	25, // 9: tower.targets.v1alpha1.TargetStatus.conditions:type_name -> tower.meta.v1.Condition
-	26, // 10: tower.targets.v1alpha1.TargetStatus.last_report_time:type_name -> google.protobuf.Timestamp
-	6,  // 11: tower.targets.v1alpha1.TargetStatus.capacity:type_name -> tower.targets.v1alpha1.Capacity
-	7,  // 12: tower.targets.v1alpha1.TargetStatus.usage:type_name -> tower.targets.v1alpha1.Usage
-	8,  // 13: tower.targets.v1alpha1.TargetStatus.counts:type_name -> tower.targets.v1alpha1.Counts
-	9,  // 14: tower.targets.v1alpha1.TargetStatus.facts:type_name -> tower.targets.v1alpha1.Fact
-	22, // 15: tower.targets.v1alpha1.Counts.instances:type_name -> tower.targets.v1alpha1.Counts.InstancesEntry
-	0,  // 16: tower.targets.v1alpha1.GetTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
-	0,  // 17: tower.targets.v1alpha1.ListTargetsResponse.items:type_name -> tower.targets.v1alpha1.Target
-	27, // 18: tower.targets.v1alpha1.WatchTargetsResponse.type:type_name -> tower.meta.v1.EventType
-	0,  // 19: tower.targets.v1alpha1.WatchTargetsResponse.target:type_name -> tower.targets.v1alpha1.Target
-	0,  // 20: tower.targets.v1alpha1.ApplyTargetRequest.target:type_name -> tower.targets.v1alpha1.Target
-	0,  // 21: tower.targets.v1alpha1.ApplyTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
-	0,  // 22: tower.targets.v1alpha1.DeleteTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
-	5,  // 23: tower.targets.v1alpha1.UpdateTargetStatusRequest.status:type_name -> tower.targets.v1alpha1.TargetStatus
-	0,  // 24: tower.targets.v1alpha1.UpdateTargetStatusResponse.target:type_name -> tower.targets.v1alpha1.Target
-	10, // 25: tower.targets.v1alpha1.TargetService.GetTarget:input_type -> tower.targets.v1alpha1.GetTargetRequest
-	12, // 26: tower.targets.v1alpha1.TargetService.ListTargets:input_type -> tower.targets.v1alpha1.ListTargetsRequest
-	14, // 27: tower.targets.v1alpha1.TargetService.WatchTargets:input_type -> tower.targets.v1alpha1.WatchTargetsRequest
-	16, // 28: tower.targets.v1alpha1.TargetService.ApplyTarget:input_type -> tower.targets.v1alpha1.ApplyTargetRequest
-	18, // 29: tower.targets.v1alpha1.TargetService.DeleteTarget:input_type -> tower.targets.v1alpha1.DeleteTargetRequest
-	20, // 30: tower.targets.v1alpha1.TargetService.UpdateTargetStatus:input_type -> tower.targets.v1alpha1.UpdateTargetStatusRequest
-	11, // 31: tower.targets.v1alpha1.TargetService.GetTarget:output_type -> tower.targets.v1alpha1.GetTargetResponse
-	13, // 32: tower.targets.v1alpha1.TargetService.ListTargets:output_type -> tower.targets.v1alpha1.ListTargetsResponse
-	15, // 33: tower.targets.v1alpha1.TargetService.WatchTargets:output_type -> tower.targets.v1alpha1.WatchTargetsResponse
-	17, // 34: tower.targets.v1alpha1.TargetService.ApplyTarget:output_type -> tower.targets.v1alpha1.ApplyTargetResponse
-	19, // 35: tower.targets.v1alpha1.TargetService.DeleteTarget:output_type -> tower.targets.v1alpha1.DeleteTargetResponse
-	21, // 36: tower.targets.v1alpha1.TargetService.UpdateTargetStatus:output_type -> tower.targets.v1alpha1.UpdateTargetStatusResponse
-	31, // [31:37] is the sub-list for method output_type
-	25, // [25:31] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	22, // 6: tower.targets.v1alpha1.HangarTarget.base_images:type_name -> tower.targets.v1alpha1.HangarTarget.BaseImagesEntry
+	25, // 7: tower.targets.v1alpha1.TargetSettings.idle_stop_after:type_name -> google.protobuf.Duration
+	25, // 8: tower.targets.v1alpha1.TargetSettings.warm_window:type_name -> google.protobuf.Duration
+	25, // 9: tower.targets.v1alpha1.TargetSettings.warm_max_age:type_name -> google.protobuf.Duration
+	26, // 10: tower.targets.v1alpha1.TargetStatus.conditions:type_name -> tower.meta.v1.Condition
+	27, // 11: tower.targets.v1alpha1.TargetStatus.last_report_time:type_name -> google.protobuf.Timestamp
+	6,  // 12: tower.targets.v1alpha1.TargetStatus.capacity:type_name -> tower.targets.v1alpha1.Capacity
+	7,  // 13: tower.targets.v1alpha1.TargetStatus.usage:type_name -> tower.targets.v1alpha1.Usage
+	8,  // 14: tower.targets.v1alpha1.TargetStatus.counts:type_name -> tower.targets.v1alpha1.Counts
+	9,  // 15: tower.targets.v1alpha1.TargetStatus.facts:type_name -> tower.targets.v1alpha1.Fact
+	23, // 16: tower.targets.v1alpha1.Counts.instances:type_name -> tower.targets.v1alpha1.Counts.InstancesEntry
+	0,  // 17: tower.targets.v1alpha1.GetTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
+	0,  // 18: tower.targets.v1alpha1.ListTargetsResponse.items:type_name -> tower.targets.v1alpha1.Target
+	28, // 19: tower.targets.v1alpha1.WatchTargetsResponse.type:type_name -> tower.meta.v1.EventType
+	0,  // 20: tower.targets.v1alpha1.WatchTargetsResponse.target:type_name -> tower.targets.v1alpha1.Target
+	0,  // 21: tower.targets.v1alpha1.ApplyTargetRequest.target:type_name -> tower.targets.v1alpha1.Target
+	0,  // 22: tower.targets.v1alpha1.ApplyTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
+	0,  // 23: tower.targets.v1alpha1.DeleteTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
+	5,  // 24: tower.targets.v1alpha1.UpdateTargetStatusRequest.status:type_name -> tower.targets.v1alpha1.TargetStatus
+	0,  // 25: tower.targets.v1alpha1.UpdateTargetStatusResponse.target:type_name -> tower.targets.v1alpha1.Target
+	10, // 26: tower.targets.v1alpha1.TargetService.GetTarget:input_type -> tower.targets.v1alpha1.GetTargetRequest
+	12, // 27: tower.targets.v1alpha1.TargetService.ListTargets:input_type -> tower.targets.v1alpha1.ListTargetsRequest
+	14, // 28: tower.targets.v1alpha1.TargetService.WatchTargets:input_type -> tower.targets.v1alpha1.WatchTargetsRequest
+	16, // 29: tower.targets.v1alpha1.TargetService.ApplyTarget:input_type -> tower.targets.v1alpha1.ApplyTargetRequest
+	18, // 30: tower.targets.v1alpha1.TargetService.DeleteTarget:input_type -> tower.targets.v1alpha1.DeleteTargetRequest
+	20, // 31: tower.targets.v1alpha1.TargetService.UpdateTargetStatus:input_type -> tower.targets.v1alpha1.UpdateTargetStatusRequest
+	11, // 32: tower.targets.v1alpha1.TargetService.GetTarget:output_type -> tower.targets.v1alpha1.GetTargetResponse
+	13, // 33: tower.targets.v1alpha1.TargetService.ListTargets:output_type -> tower.targets.v1alpha1.ListTargetsResponse
+	15, // 34: tower.targets.v1alpha1.TargetService.WatchTargets:output_type -> tower.targets.v1alpha1.WatchTargetsResponse
+	17, // 35: tower.targets.v1alpha1.TargetService.ApplyTarget:output_type -> tower.targets.v1alpha1.ApplyTargetResponse
+	19, // 36: tower.targets.v1alpha1.TargetService.DeleteTarget:output_type -> tower.targets.v1alpha1.DeleteTargetResponse
+	21, // 37: tower.targets.v1alpha1.TargetService.UpdateTargetStatus:output_type -> tower.targets.v1alpha1.UpdateTargetStatusResponse
+	32, // [32:38] is the sub-list for method output_type
+	26, // [26:32] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_tower_targets_v1alpha1_target_proto_init() }
@@ -1709,7 +1727,7 @@ func file_tower_targets_v1alpha1_target_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tower_targets_v1alpha1_target_proto_rawDesc), len(file_tower_targets_v1alpha1_target_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   23,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

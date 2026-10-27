@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/netip"
+	"regexp"
 	"slices"
 
 	"connectrpc.com/connect"
@@ -125,8 +126,12 @@ func (t *Target) labels(in *envv1alpha1.Instance) map[string]string {
 // what it holds now. Its error is one to read everything again for.
 func (t *Target) converge(ctx context.Context, in *envv1alpha1.Instance) (observed, error) {
 	spec := in.GetSpec()
-	if spec.GetKind() != envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER {
-		return failed("Unsupported", errors.New("a hangar target runs containers only, for now")), nil
+	switch spec.GetKind() {
+	case envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER:
+	case envv1alpha1.InstanceKind_INSTANCE_KIND_VM:
+		return t.convergeVM(ctx, in)
+	default:
+		return failed("Unsupported", fmt.Errorf("a hangar target runs containers and VMs, not %v", spec.GetKind())), nil
 	}
 	name := objectName(in.GetMetadata().GetUid())
 	ct, err := t.api.Containers().Get(ctx, name)
@@ -190,13 +195,21 @@ func (t *Target) converge(ctx context.Context, in *envv1alpha1.Instance) (observ
 			return t.applyFailed(err)
 		}
 	}
-	return t.observe(ctx, in, ct)
+	return t.observe(ctx, in, containerObj(ct))
 }
 
 // applyFailed is what an apply hangar refused says of the instance: a
 // project out of quota is out of space, and one hangar refuses for its
-// spec failed; anything else is read again.
+// spec failed; anything else is read again. An alias another machine
+// holds on the network is waited for: tower's admission gives an alias to
+// one box or machine of a workstream, so what holds it is most likely an
+// earlier instance of the same, being deleted, whose names hangar holds
+// until it is gone; the provider does not know which, and says what hangar
+// said.
 func (t *Target) applyFailed(err error) (observed, error) {
+	if connect.CodeOf(err) == connect.CodeFailedPrecondition && aliasHeld.MatchString(err.Error()) {
+		return pending("AliasHeld", "waiting for hangar to free the alias, which another machine on the network holds: "+err.Error()), nil
+	}
 	switch connect.CodeOf(err) {
 	case connect.CodeResourceExhausted:
 		return failed("NoSpace", fmt.Errorf("%w: %w", err, provider.ErrNoSpace)), nil
@@ -205,6 +218,11 @@ func (t *Target) applyFailed(err error) (observed, error) {
 	}
 	return observed{}, err
 }
+
+// aliasHeld matches hangar's refusal of an alias another machine holds on
+// the network (hangar: internal/apiserver/aliases.go, checkAliasesFree),
+// which carries no code or field of its own but its words.
+var aliasHeld = regexp.MustCompile(`alias "[^"]+" is held on network "[^"]+" by `)
 
 // containerSpec is the Container the instance is, as hangar keeps what
 // its client wrote: one read back equal to it needs no apply.
@@ -226,9 +244,7 @@ func (t *Target) containerSpec(in *envv1alpha1.Instance, name, network, pull str
 	for _, k := range slices.Sorted(maps.Keys(spec.GetEnv())) {
 		s.Env = append(s.Env, &hangarcompute.EnvVar{Name: k, Value: spec.GetEnv()[k]})
 	}
-	if network != "" {
-		s.Interfaces = []*hangarcompute.NetworkInterface{{Network: network}}
-	}
+	s.Interfaces = interfaces(network, spec.GetAlias())
 	if pull != "" {
 		s.ImagePullSecrets = []string{pull}
 	}
@@ -281,11 +297,14 @@ func (t *Target) ensurePullSecret(ctx context.Context) (string, error) {
 	return name, nil
 }
 
-// observe reads back the container's machine: whether it runs, and where.
-func (t *Target) observe(ctx context.Context, in *envv1alpha1.Instance, ct *hangarcompute.Container) (observed, error) {
-	stopped := ct.GetSpec().GetRunState() == hangarcompute.ContainerRunState_CONTAINER_RUN_STATE_STOPPED
-	m, err := t.api.Machine(ctx, machineOf(ct.GetMetadata().GetName()))
-	ready := conditionOf(ct.GetStatus().GetConditions(), "Ready")
+// observe reads back the machine of the instance's Container or
+// VirtualMachine: whether it runs, and where. A VM is RUNNING once its
+// machine runs, as a container is; what is run in it waits for its sshd
+// (vmOps).
+func (t *Target) observe(ctx context.Context, in *envv1alpha1.Instance, obj machineObj) (observed, error) {
+	stopped := obj.stopped
+	m, err := t.api.Machine(ctx, obj.machine())
+	ready := obj.ready
 	if ready.GetReason() == "ImagePullSecretNotFound" {
 		// Gone from hangar since it was written: written again.
 		t.pullMu.Lock()
@@ -297,7 +316,7 @@ func (t *Target) observe(ctx context.Context, in *envv1alpha1.Instance, ct *hang
 		// login, which is a new instance: tower decides.
 		return observed{phase: envv1alpha1.InstancePhase_INSTANCE_PHASE_FAILED, reason: "PullFailed", msg: ready.GetMessage()}, nil
 	}
-	if errors.Is(err, ErrNotFound) || (err == nil && !ownedBy(m, ct)) {
+	if errors.Is(err, ErrNotFound) || (err == nil && !ownedBy(m, obj.uid)) {
 		if ready.GetMessage() != "" {
 			return pending(ready.GetReason(), ready.GetMessage()), nil
 		}
@@ -312,9 +331,9 @@ func (t *Target) observe(ctx context.Context, in *envv1alpha1.Instance, ct *hang
 			return observed{phase: envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING, reason: "Stopping", msg: "hangar is stopping it", wait: true}, nil
 		}
 		o := observed{phase: envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING, reason: "Running", started: m.GetStatus().GetBootTime()}
-		o.address = addressOf(m)
+		o.address = obj.address(m)
 		ref := provider.Instance{Project: in.GetMetadata().GetProject(), Name: in.GetMetadata().GetName()}
-		n, err := t.processesRunning(ctx, ref, ct)
+		n, err := t.processesRunning(ctx, ref, in, obj, m)
 		if err != nil {
 			// What runs is reported as running; its processes are counted at
 			// the next read.
@@ -326,7 +345,8 @@ func (t *Target) observe(ctx context.Context, in *envv1alpha1.Instance, ct *hang
 		if !stopped {
 			return pending("Starting", "hangar is starting it"), nil
 		}
-		t.procs.stopped(ct.GetMetadata().GetUid())
+		t.procs.stopped(obj.uid)
+		t.vms.forget(obj.uid)
 		return observed{phase: envv1alpha1.InstancePhase_INSTANCE_PHASE_STOPPED, reason: "Stopped"}, nil
 	case hangarcompute.MachinePhase_MACHINE_PHASE_FAILED:
 		msg := "its machine failed"
@@ -360,11 +380,11 @@ func addressOf(m *hangarcompute.Machine) string {
 	return p.Addr().String()
 }
 
-// ownedBy reports whether m is ct's machine, not an earlier container's of
-// the same name.
-func ownedBy(m *hangarcompute.Machine, ct *hangarcompute.Container) bool {
+// ownedBy reports whether m is the machine of the object of uid, not an
+// earlier one's of the same name.
+func ownedBy(m *hangarcompute.Machine, uid string) bool {
 	for _, o := range m.GetMetadata().GetOwnerReferences() {
-		if o.GetUid() == ct.GetMetadata().GetUid() {
+		if o.GetUid() == uid {
 			return true
 		}
 	}
@@ -411,9 +431,9 @@ func (t *Target) report(ctx context.Context, in *envv1alpha1.Instance, o observe
 
 // release deletes from hangar what this target made for the instance of
 // key but for the uid keep (none when empty): what an earlier Instance of
-// the name, or a deleted one, left. A disk goes once its container has:
-// hangar refuses to delete a disk a machine has, so until then the key is
-// read again. Networks go with the sweep.
+// the name, or a deleted one, left. A disk goes once its container or VM
+// has: hangar refuses to delete a disk a machine has, so until then the
+// key is read again. Networks go with the sweep.
 func (t *Target) release(ctx context.Context, key controller.Key, keep string) error {
 	sel := t.selector(LabelProject+"="+key.Project, LabelInstance+"="+key.Name)
 	cts, err := t.api.Containers().List(ctx, sel)
@@ -435,6 +455,25 @@ func (t *Target) release(ctx context.Context, key controller.Key, keep string) e
 		}
 		t.procs.forget(ct.GetMetadata().GetUid())
 	}
+	vms, err := t.api.VirtualMachines().List(ctx, sel)
+	if err != nil {
+		return err
+	}
+	for _, vm := range vms {
+		uid := vm.GetMetadata().GetLabels()[LabelUID]
+		if uid == keep || !t.mine(vm.GetMetadata().GetLabels()) {
+			continue
+		}
+		held[uid] = true
+		if vm.GetMetadata().GetDeleteTime() == nil {
+			t.log.Info("deleting a VM of an instance gone", "project", key.Project, "instance", key.Name, "vm", vm.GetMetadata().GetName())
+			if err := t.api.VirtualMachines().Delete(ctx, vm.GetMetadata().GetName()); err != nil {
+				return err
+			}
+		}
+		t.procs.forget(vm.GetMetadata().GetUid())
+		t.vms.forget(vm.GetMetadata().GetUid())
+	}
 	disks, err := t.api.Disks().List(ctx, sel)
 	if err != nil {
 		return err
@@ -454,7 +493,7 @@ func (t *Target) release(ctx context.Context, key controller.Key, keep string) e
 		}
 	}
 	if len(waiting) > 0 {
-		return fmt.Errorf("disks %v wait for their containers to go: %w", waiting, controller.ErrWaiting)
+		return fmt.Errorf("disks %v wait for their machines to go: %w", waiting, controller.ErrWaiting)
 	}
 	return nil
 }

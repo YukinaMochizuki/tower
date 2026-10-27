@@ -13,6 +13,10 @@
 //     test/testbed/guestbin in /usr/local/bin, and busybox;
 //   - TOWER_HANGAR_PULL_SECRET_FILE, if the image's registry needs one, a
 //     Docker config hangar pulls it with;
+//   - for the VMs, which are skipped without it: TOWER_HANGAR_BASE_IMAGE,
+//     one of the hangar's catalogue Images, which tower's base image
+//     ubuntu-24.04 maps to; its VMs must reach its package repositories,
+//     as a machine's builder installs ansible-core from them;
 //   - for the mirrors and builds, which are skipped without them:
 //     TOWER_HANGAR_SYSTEM_IMAGE, the system image hangar pulls;
 //     TOWER_HANGAR_REGISTRY, tower's registry as the system container pushes
@@ -29,6 +33,7 @@ package hangar
 
 import (
 	"bufio"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
@@ -38,10 +43,17 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
+	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
+	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
+	"github.com/YukinaMochizuki/tower/internal/apiserver/apiservertest"
+	"github.com/YukinaMochizuki/tower/internal/client"
+	"github.com/YukinaMochizuki/tower/internal/guest/vmssh"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/provider/hangar"
 	"github.com/YukinaMochizuki/tower/internal/provider/hangar/hangartest"
@@ -60,6 +72,7 @@ type config struct {
 	plainHTTP                       bool
 	push                            system.Login
 	remote                          string
+	baseImage                       string
 }
 
 func load(t *testing.T) config {
@@ -80,6 +93,7 @@ func load(t *testing.T) config {
 	}
 	c.system, c.registry, c.registryHost = os.Getenv("TOWER_HANGAR_SYSTEM_IMAGE"), os.Getenv("TOWER_HANGAR_REGISTRY"), os.Getenv("TOWER_HANGAR_REGISTRY_HOST")
 	c.plainHTTP, c.remote = os.Getenv("TOWER_HANGAR_REGISTRY_PLAIN_HTTP") == "1", os.Getenv("TOWER_HANGAR_REMOTE")
+	c.baseImage = os.Getenv("TOWER_HANGAR_BASE_IMAGE")
 	if f := os.Getenv("TOWER_HANGAR_PUSH_LOGIN_FILE"); f != "" {
 		b, err := os.ReadFile(f)
 		if err != nil {
@@ -121,11 +135,17 @@ func world(t *testing.T) *hangartest.World {
 		// A pull and a boot on a real hangar.
 		Wait: 5 * time.Minute,
 	}
+	if c.baseImage != "" {
+		opts.BaseImage, opts.BaseImages = baseImage, map[string]string{baseImage: c.baseImage}
+	}
 	if c.system != "" && c.remote != "" {
 		opts.Remote, opts.Branch, opts.RemoteDockerfile = c.remote, "main", "docker/Dockerfile"
 	}
 	return hangartest.New(t, opts)
 }
+
+// baseImage is tower's name for the base image the run's VMs boot.
+const baseImage = "ubuntu-24.04"
 
 // TestConformance holds the hangar provider, over a real hangar, to the
 // provider contract.
@@ -181,4 +201,194 @@ func TestAStreamReachesAnInstanceThroughHangar(t *testing.T) {
 		_ = resp.Body.Close()
 		return string(b) == "hello from hangar\n", fmt.Sprint(resp.Status, " ", string(b))
 	})
+}
+
+// TestAMachineOnHangar converges a machine on the hangar target through
+// tower, as workstream asks for one: its golden builder, a VM booted from
+// the catalogue image, gets ansible-core and runs the blueprint's golden
+// phase, is captured, and the machine is a VM cloned from it, configured.
+// It runs as root, is called machine, and it and a box of its workstream
+// reach each other by their aliases.
+func TestAMachineOnHangar(t *testing.T) {
+	c := load(t)
+	if c.baseImage == "" {
+		t.Skip("TOWER_HANGAR_BASE_IMAGE names no catalogue image")
+	}
+	w := world(t)
+	ctx := t.Context()
+	admin := w.Env.As(apiservertest.Admin)
+	if _, err := admin.Apply(ctx, registry.Placement, &targetsv1alpha1.Placement{
+		Metadata: &metav1.ObjectMeta{Name: apiservertest.Project}, Spec: &targetsv1alpha1.PlacementSpec{Target: hangartest.Target},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	const playbook = `- hosts: all
+  tasks:
+    - name: the golden phase
+      ansible.builtin.copy: {dest: /etc/tower-l3-golden, content: "converged\n"}
+    - name: the configure phase
+      ansible.builtin.copy: {dest: /etc/tower-l3-configured, content: "configured\n"}
+      tags: [configure]
+`
+	if _, err := w.Env.AsSystem().Apply(ctx, registry.Machine, &envv1alpha1.Machine{
+		Metadata: &metav1.ObjectMeta{Project: apiservertest.Project, Name: "m1"},
+		Spec: &envv1alpha1.MachineSpec{
+			Workstream: "ws1",
+			Blueprint:  &envv1alpha1.Blueprint{Name: "l3", Content: playbook, BaseImage: baseImage, NetAlias: "m1"},
+			Resources:  &envv1alpha1.Resources{Cpu: "2", Memory: "2Gi", Disk: "10Gi"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Deleted however the test ends, before the world's cleanup, so its
+	// controllers make no instance of it again.
+	t.Cleanup(func() {
+		_, _ = w.Env.AsSystem().Delete(context.Background(), registry.Machine, client.Key{Project: apiservertest.Project, Name: "m1"})
+	})
+	var m *envv1alpha1.Machine
+	testutil.EventuallyWithin(t, 30*time.Minute, "the machine READY", func() (bool, string) {
+		o, err := w.Env.AsSystem().Get(ctx, registry.Machine, client.Key{Project: apiservertest.Project, Name: "m1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m = o.(*envv1alpha1.Machine)
+		if m.GetStatus().GetPhase() == envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED {
+			t.Fatalf("the machine failed: %v", m.GetStatus())
+		}
+		return m.GetStatus().GetPhase() == envv1alpha1.MachinePhase_MACHINE_PHASE_READY, m.GetStatus().String()
+	})
+	in := provider.Instance{Project: apiservertest.Project, Name: m.GetStatus().GetInstance()}
+	run := func(ref provider.Instance, command ...string) string {
+		t.Helper()
+		var out strings.Builder
+		code, err := w.Target.Exec(ctx, provider.ExecRequest{Instance: ref, Command: command, Stdout: &out, Stderr: &out})
+		if err != nil || code != 0 {
+			t.Errorf("%v in %s: exit %d, %v: %s", command, ref.Name, code, err, out.String())
+		}
+		return out.String()
+	}
+	for cmd, want := range map[string]string{
+		"id -u": "0", "hostname": "machine", "cat /etc/tower-l3-golden": "converged", "cat /etc/tower-l3-configured": "configured",
+	} {
+		if got := strings.TrimSpace(run(in, "sh", "-c", cmd)); got != want {
+			t.Errorf("%s in the machine: %q, want %q", cmd, got, want)
+		}
+	}
+	run(in, "ansible-playbook", "--version")
+	golden, err := w.Env.AsSystem().Get(ctx, registry.Golden, client.Key{Project: apiservertest.Project, Name: m.GetStatus().GetGolden()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("the machine's golden %s is hangar CustomImage %s", m.GetStatus().GetGolden(), golden.(*envv1alpha1.Golden).GetStatus().GetArtifact())
+
+	// A direct stream on a ticket reaches a port of the VM: its sshd's
+	// banner.
+	srv := httptest.NewServer(w.Target.Streams())
+	defer srv.Close()
+	where, err := w.Target.Ticket(ctx, in, 22)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(where.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := signer.Issue(ticket.Claims{Target: hangartest.Target, Project: in.Project, Instance: in.Name, Port: 22, Expires: time.Now().Add(5 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := streams.Dial(ctx, srv.URL+u.Path, tk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	banner, err := bufio.NewReader(conn).ReadString('\n')
+	_ = conn.Close()
+	if err != nil || !strings.HasPrefix(banner, "SSH-2.0-") {
+		t.Errorf("the VM's port 22 through a stream: %q, %v", banner, err)
+	}
+
+	box, _ := w.Harness().Start(t, "box", &envv1alpha1.InstanceSpec{
+		Target: hangartest.Target, Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, Image: c.image, Network: "ws1", Alias: "box",
+	})
+	testutil.EventuallyWithin(t, 2*time.Minute, "each reaching the other by its alias", func() (bool, string) {
+		var a, b strings.Builder
+		ca, erra := w.Target.Exec(ctx, provider.ExecRequest{Instance: box, Command: []string{"getent", "hosts", "m1"}, Stdout: &a, Stderr: &a})
+		cb, errb := w.Target.Exec(ctx, provider.ExecRequest{Instance: in, Command: []string{"getent", "hosts", "box"}, Stdout: &b, Stderr: &b})
+		return erra == nil && errb == nil && ca == 0 && cb == 0, fmt.Sprintf("box: %d %v %q; machine: %d %v %q", ca, erra, a.String(), cb, errb, b.String())
+	})
+}
+
+// TestAGoldenWithoutTheSSHDDropInGetsIt: a VM cloned from a golden whose
+// disk lacks the sshd drop-in tower's user_data writes, as one captured
+// before tower wrote it, has it again, as its user_data runs at each boot:
+// its sshd takes the sessions tower opens, many operations at once on one
+// connection.
+func TestAGoldenWithoutTheSSHDDropInGetsIt(t *testing.T) {
+	c := load(t)
+	if c.baseImage == "" {
+		t.Skip("TOWER_HANGAR_BASE_IMAGE names no catalogue image")
+	}
+	w := world(t)
+	h := w.Harness()
+	ctx := t.Context()
+	vm := func(alias string) *envv1alpha1.InstanceSpec {
+		return &envv1alpha1.InstanceSpec{
+			Target: hangartest.Target, Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_VM, Image: baseImage, Network: "net-old", Alias: alias,
+			Resources: &envv1alpha1.Resources{Cpu: "1", Memory: "1Gi", Disk: "2Gi"},
+		}
+	}
+	maxSessions := func(in provider.Instance) string {
+		t.Helper()
+		var out strings.Builder
+		code, err := w.Target.Exec(ctx, provider.ExecRequest{Instance: in, Command: []string{"sh", "-c", "/usr/sbin/sshd -T 2>/dev/null | grep -i '^maxsessions'"}, Stdout: &out, Stderr: &out})
+		if err != nil || code != 0 {
+			t.Fatalf("sshd -T: exit %d, %v: %s", code, err, out.String())
+		}
+		return strings.TrimSpace(out.String())
+	}
+	src, _ := h.Start(t, "old-builder", vm("old-builder"))
+	if got := maxSessions(src); got != "maxsessions 64" {
+		t.Errorf("a VM tower made: %q, want maxsessions 64", got)
+	}
+	var out strings.Builder
+	if code, err := w.Target.Exec(ctx, provider.ExecRequest{Instance: src, Command: []string{"rm", "-f", vmssh.SSHDDropIn}, Stdout: &out, Stderr: &out}); err != nil || code != 0 {
+		t.Fatalf("removing the drop-in: %d, %v: %s", code, err, out.String())
+	}
+	h.Stop(t, src)
+	art, err := w.Target.Capture(ctx, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Delete(t, src)
+	spec := vm("old-clone")
+	spec.DiskGolden = h.Golden(t, art)
+	clone, _ := h.Start(t, "old-clone", spec)
+	defer h.Delete(t, clone)
+	if got := maxSessions(clone); got != "maxsessions 64" {
+		t.Errorf("a clone of a golden without the drop-in: %q, want maxsessions 64", got)
+	}
+	const n = 40
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			code, err := w.Target.Exec(ctx, provider.ExecRequest{Instance: clone, Command: []string{"sleep", "2"}})
+			if err == nil && code != 0 {
+				err = fmt.Errorf("exit %d", code)
+			}
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("an operation of %d at once in the clone: %v", n, err)
+		}
+	}
+	if err := w.Target.DeleteArtifact(ctx, art.Name); err != nil {
+		t.Error(err)
+	}
 }

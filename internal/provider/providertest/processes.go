@@ -68,7 +68,7 @@ func waitEnded(t *testing.T, h Harness, in provider.Instance, id string) {
 }
 
 func testProcessOutput(t *testing.T, h Harness) {
-	in, _ := h.Start(t, "proc-output", h.container("net-a"))
+	in, _ := h.start(t, "proc-output", h.container("net-a", "proc-output"))
 	id := start(t, h, in, "emitter", "emit", "out:one", "err:two", "out:three")
 	a, err := attach(t, h, t.Context(), in, id, 0, true)
 	if err != nil {
@@ -102,7 +102,7 @@ func testProcessOutput(t *testing.T, h Harness) {
 var errDropped = errors.New("dropped")
 
 func testProcessReattach(t *testing.T, h Harness) {
-	in, _ := h.Start(t, "proc-reattach", h.container("net-a"))
+	in, _ := h.start(t, "proc-reattach", h.container("net-a", "proc-reattach"))
 	id := start(t, h, in, "", "emit", "out:a", "out:b", "out:c")
 	var got string
 	var at int64
@@ -123,7 +123,7 @@ func testProcessReattach(t *testing.T, h Harness) {
 }
 
 func testProcessSignalAndList(t *testing.T, h Harness) {
-	in, _ := h.Start(t, "proc-signal", h.container("net-a"))
+	in, _ := h.start(t, "proc-signal", h.container("net-a", "proc-signal"))
 	done := start(t, h, in, "quick", "exit", "3")
 	waitEnded(t, h, in, done)
 	running := start(t, h, in, "server", "sleep", "3600")
@@ -156,7 +156,7 @@ func testProcessSignalAndList(t *testing.T, h Harness) {
 }
 
 func testProcessesDieWithTheirInstance(t *testing.T, h Harness) {
-	in, _ := h.Start(t, "proc-die", h.container("net-a"))
+	in, _ := h.start(t, "proc-die", h.container("net-a", "proc-die"))
 	id := start(t, h, in, "", "sleep", "3600")
 	h.Stop(t, in)
 	list, err := h.Provider.ListProcesses(t.Context(), in)
@@ -177,7 +177,7 @@ func testProcessLimits(t *testing.T, h Harness) {
 	}
 	h.ProcessLimits(16, 2)
 	defer h.ProcessLimits(provider.DefaultProcessLogCap, provider.DefaultFinishedProcesses)
-	in, _ := h.Start(t, "proc-limits", h.container("net-a"))
+	in, _ := h.start(t, "proc-limits", h.container("net-a", "proc-limits"))
 	id := start(t, h, in, "", "emit", "out:0123456789", "out:abcdefghij", "out:ABCDEFGHIJ")
 	waitEnded(t, h, in, id)
 	a, err := attach(t, h, t.Context(), in, id, 0, false)

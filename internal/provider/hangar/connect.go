@@ -33,9 +33,11 @@ type Connect struct {
 	networks   Kind[*hangarnetwork.Network]
 	disks      Kind[*hangarstorage.Disk]
 	containers Kind[*hangarcompute.Container]
+	vms        Kind[*hangarcompute.VirtualMachine]
 	secrets    Kind[*hangarsecrets.Secret]
 	images     Kind[*hangarstorage.CustomImage]
 	machines   computev1alpha1connect.MachineServiceClient
+	globals    storagev1alpha1connect.ImageServiceClient
 	projects   tenancyv1alpha1connect.ProjectServiceClient
 }
 
@@ -112,6 +114,27 @@ func NewConnect(endpoint, project, token string, hc *http.Client) *Connect {
 			return err
 		},
 	}
+	vms := computev1alpha1connect.NewVirtualMachineServiceClient(hc, c.endpoint, opts...)
+	c.vms = kind[*hangarcompute.VirtualMachine]{
+		project: project, what: "virtual machine",
+		get: func(ctx context.Context, name string) (*hangarcompute.VirtualMachine, error) {
+			r, err := vms.GetVirtualMachine(ctx, connect.NewRequest(&hangarcompute.GetVirtualMachineRequest{Project: project, Name: name}))
+			return msg(r).GetVirtualMachine(), err
+		},
+		list: func(ctx context.Context, sel, page string) ([]*hangarcompute.VirtualMachine, string, error) {
+			r, err := vms.ListVirtualMachines(ctx, connect.NewRequest(&hangarcompute.ListVirtualMachinesRequest{Project: project, LabelSelector: sel, PageToken: page}))
+			return msg(r).GetItems(), msg(r).GetNextPageToken(), err
+		},
+		apply: func(ctx context.Context, o *hangarcompute.VirtualMachine) (*hangarcompute.VirtualMachine, error) {
+			o.GetMetadata().Project = project
+			r, err := vms.ApplyVirtualMachine(ctx, connect.NewRequest(&hangarcompute.ApplyVirtualMachineRequest{VirtualMachine: o}))
+			return msg(r).GetVirtualMachine(), err
+		},
+		del: func(ctx context.Context, name string) error {
+			_, err := vms.DeleteVirtualMachine(ctx, connect.NewRequest(&hangarcompute.DeleteVirtualMachineRequest{Project: project, Name: name}))
+			return err
+		},
+	}
 	secs := secretsv1alpha1connect.NewSecretServiceClient(hc, c.endpoint, opts...)
 	c.secrets = kind[*hangarsecrets.Secret]{
 		project: project, what: "secret",
@@ -155,16 +178,26 @@ func NewConnect(endpoint, project, token string, hc *http.Client) *Connect {
 		},
 	}
 	c.machines = computev1alpha1connect.NewMachineServiceClient(hc, c.endpoint, opts...)
+	c.globals = storagev1alpha1connect.NewImageServiceClient(hc, c.endpoint, opts...)
 	c.projects = tenancyv1alpha1connect.NewProjectServiceClient(hc, c.endpoint, opts...)
 	return c
 }
 
-func (c *Connect) Networks() Kind[*hangarnetwork.Network]         { return c.networks }
-func (c *Connect) Disks() Kind[*hangarstorage.Disk]               { return c.disks }
-func (c *Connect) Containers() Kind[*hangarcompute.Container]     { return c.containers }
-func (c *Connect) Secrets() Kind[*hangarsecrets.Secret]           { return c.secrets }
-func (c *Connect) CustomImages() Kind[*hangarstorage.CustomImage] { return c.images }
-func (c *Connect) ProjectName() string                            { return c.project }
+func (c *Connect) Networks() Kind[*hangarnetwork.Network]               { return c.networks }
+func (c *Connect) Disks() Kind[*hangarstorage.Disk]                     { return c.disks }
+func (c *Connect) Containers() Kind[*hangarcompute.Container]           { return c.containers }
+func (c *Connect) VirtualMachines() Kind[*hangarcompute.VirtualMachine] { return c.vms }
+func (c *Connect) Secrets() Kind[*hangarsecrets.Secret]                 { return c.secrets }
+func (c *Connect) CustomImages() Kind[*hangarstorage.CustomImage]       { return c.images }
+func (c *Connect) ProjectName() string                                  { return c.project }
+
+func (c *Connect) Image(ctx context.Context, name string) (*hangarstorage.Image, error) {
+	r, err := c.globals.GetImage(ctx, connect.NewRequest(&hangarstorage.GetImageRequest{Name: name}))
+	if err != nil {
+		return nil, apiError("image "+name, err)
+	}
+	return r.Msg.GetImage(), nil
+}
 
 func (c *Connect) Machine(ctx context.Context, name string) (*hangarcompute.Machine, error) {
 	r, err := c.machines.GetMachine(ctx, connect.NewRequest(&hangarcompute.GetMachineRequest{Project: c.project, Name: name}))

@@ -28,9 +28,16 @@ hostname the same from its golden to every clone of it.
   `configure`.
 - **Every VM hostd runs has one hostname, `machine`**, set by its
   cloud-init, the same in a golden's builder and in each clone. A machine
-  is reached by its alias on its workstream's network, which is its own.
-- The base image carries ansible (`deploy/hostd/base-image.sh`), so the
-  golden phase can run at all.
+  is reached by its alias on its workstream's network, which is its own:
+  its blueprint's `net_alias`, else the machine's name, as a box's is the
+  box's name, on every provider (decided 2026-10-27: a machine has an
+  identity of its own, and two machines of one blueprint are two names).
+  A machine or box whose alias another of its workstream already answers
+  to is refused as it is made, so an alias names one environment on
+  hostd and hangar alike.
+- A base image carries ansible (`deploy/hostd/base-image.sh`); one that
+  does not, as a hangar target's catalogue images, gets ansible-core in
+  the golden's builder before its golden phase.
 - **A machine is READY when its blueprint's ready check passes**, not when
   its configure phase ends: a service it starts can take minutes more
   (k3s reports its node Ready well after the playbook). The check is

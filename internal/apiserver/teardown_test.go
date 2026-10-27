@@ -399,6 +399,11 @@ func TestAbandonTarget(t *testing.T) {
 		t.Errorf("abandoning a target not being deleted: %v", err)
 	}
 
+	keySecret := client.Key{Project: "system", Name: "hangar-ssh-h1"}
+	if _, err := w.env.As(apiservertest.Admin).Get(ctx, registry.Secret, keySecret); err != nil {
+		t.Fatalf("the target's ssh key: %v", err)
+	}
+
 	// hangar keeps what is deleted, being deleted.
 	w.f.HoldDeletes()
 	defer w.f.ReleaseDeletes()
@@ -428,6 +433,10 @@ func TestAbandonTarget(t *testing.T) {
 	}
 	if tg := getTarget(t, sys, "h1"); tg != nil {
 		t.Errorf("the target abandoned is still there: %v", proto.Clone(tg))
+	}
+	// Its ssh key goes with it, as the abandon answers.
+	if _, err := w.env.As(apiservertest.Admin).Get(ctx, registry.Secret, keySecret); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("the abandoned target's ssh key: %v, want it gone", err)
 	}
 }
 

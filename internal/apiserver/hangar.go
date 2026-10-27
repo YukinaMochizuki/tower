@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"slices"
@@ -17,12 +18,14 @@ import (
 
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
+	secretsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/secrets/v1alpha1"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/conditions"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/auth"
 	"github.com/YukinaMochizuki/tower/internal/client"
 	"github.com/YukinaMochizuki/tower/internal/controller"
+	"github.com/YukinaMochizuki/tower/internal/guest/vmssh"
 	"github.com/YukinaMochizuki/tower/internal/provider/hangar"
 	"github.com/YukinaMochizuki/tower/internal/store"
 	"github.com/YukinaMochizuki/tower/internal/system"
@@ -88,7 +91,8 @@ func (s *Server) hangarTargetsOfSecret(ctx context.Context, o store.Object) []co
 	for _, t := range targets {
 		h := t.GetSpec().GetHangar()
 		if h != nil && (h.GetCredentialSecret() == o.Name || h.GetRegistryPullSecret() == o.Name ||
-			h.GetRegistryPushSecret() == o.Name || h.GetTailnetAuthSecret() == o.Name) {
+			h.GetRegistryPushSecret() == o.Name || h.GetTailnetAuthSecret() == o.Name ||
+			hangarSSHKeySecret(t.GetMetadata().GetName()) == o.Name) {
 			keys = append(keys, controller.Key{Name: t.GetMetadata().GetName()})
 		}
 	}
@@ -107,7 +111,14 @@ func (s *Server) reconcileHangarTarget(ctx context.Context, key controller.Key) 
 	h := t.GetSpec().GetHangar()
 	if !ok || h == nil {
 		s.stopHangar(key.Name, "")
-		return nil
+		// The key of a Target gone goes too, should letTargetGo not have
+		// deleted it; so does one made for a Target of the name that is no
+		// hangar target, which has no use for it (a Target's provider
+		// cannot change, but a key is kept by the uid it was made for).
+		if err := s.deleteHangarSSHKey(ctx, key.Name, ""); err != nil || !ok {
+			return err
+		}
+		return s.deleteHangarSSHKey(ctx, key.Name, t.GetMetadata().GetUid())
 	}
 	cfg, inputs, err := s.hangarConfig(ctx, t)
 	if errors.Is(err, errSecretMissing) {
@@ -219,12 +230,21 @@ func (s *Server) hangarConfig(ctx context.Context, t *targetsv1alpha1.Target) (h
 			return hangar.Config{}, "", fmt.Errorf("its tailnet auth secret %q holds no \"authkey\": %w", a, errSecretMissing)
 		}
 	}
+	sshKey, err := s.hangarSSHKey(ctx, name, t.GetMetadata().GetUid(), t.GetMetadata().GetDeleteTime() == nil)
+	if err != nil {
+		return hangar.Config{}, "", err
+	}
+	baseImages := h.GetBaseImages()
 	sum := sha256.New()
-	for _, part := range [][]byte{
+	parts := [][]byte{
 		[]byte(h.GetEndpoint()), []byte(h.GetProject()), []byte(token), pull,
 		[]byte(h.GetRegistryHost()), []byte(push.Username), []byte(push.Password), []byte(authKey),
-		[]byte(strconv.FormatBool(t.GetMetadata().GetDeleteTime() != nil)),
-	} {
+		[]byte(strconv.FormatBool(t.GetMetadata().GetDeleteTime() != nil)), sshKey,
+	}
+	for _, k := range slices.Sorted(maps.Keys(baseImages)) {
+		parts = append(parts, []byte(k), []byte(baseImages[k]))
+	}
+	for _, part := range parts {
 		_, _ = fmt.Fprintf(sum, "%d:", len(part))
 		_, _ = sum.Write(part)
 	}
@@ -239,6 +259,7 @@ func (s *Server) hangarConfig(ctx context.Context, t *targetsv1alpha1.Target) (h
 		Guest: s.cfg.TowerGuest, StreamPrefix: HangarStreamPath + name + "/", Clock: s.clock, Log: s.log,
 		SystemImage: s.cfg.SystemImage, Registry: s.cfg.Registry, RegistryHost: h.GetRegistryHost(), RegistryPlainHTTP: s.cfg.RegistryPlainHTTP,
 		PushLogin: push, TailnetAuthKey: authKey, Teardown: t.GetMetadata().GetDeleteTime() != nil,
+		SSHKey: sshKey, BaseImages: maps.Clone(baseImages),
 	}
 	if s.cfg.Tickets != nil {
 		cfg.TicketKey = s.cfg.Tickets.PublicKey()
@@ -247,6 +268,111 @@ func (s *Server) hangarConfig(ctx context.Context, t *targetsv1alpha1.Target) (h
 		cfg.StreamURL = strings.TrimSuffix(s.cfg.PublicURL, "/") + cfg.StreamPrefix
 	}
 	return cfg, hex.EncodeToString(sum.Sum(nil)), nil
+}
+
+// hangarSSHKeySecret is the Secret of the reserved project holding a
+// hangar target's key for its VMs' root, which tower makes.
+func hangarSSHKeySecret(target string) string { return childName("hangar-ssh", target) }
+
+// hangarSSHKeyData is the key of the key in its Secret.
+const hangarSSHKeyData = "SSH_PRIVATE_KEY"
+
+// hangarSSHKey is a hangar target's key for its VMs' root (an ed25519 key
+// in OpenSSH's PEM), made once, when the target has none: cloud-init gives
+// its public half to root in each of the target's VMs, and the provider
+// logs in as root with it (internal/provider/hangar/vm.go). It is kept as
+// a Secret of the reserved project, which no answer and no log holds,
+// marked with the uid of the Target it is for, and goes with that Target
+// (deleteHangarSSHKey). A Target being deleted gets none made (create
+// false), so none outlives it: its provider then runs no VM. A key of an
+// earlier Target of the name is not this one's: it is deleted.
+func (s *Server) hangarSSHKey(ctx context.Context, target, uid string, create bool) ([]byte, error) {
+	name := hangarSSHKeySecret(target)
+	for range 3 {
+		sec, ok, err := getTyped[*secretsv1alpha1.Secret](ctx, s, registry.Secret, resource.Key{Project: systemProject, Name: name})
+		if err != nil {
+			return nil, err
+		}
+		if ok && sec.GetMetadata().GetAnnotations()[targetUIDAnnotation] != uid {
+			if err := s.deleteHangarSSHKey(ctx, target, ""); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		data, err := s.OpenSecret(s.system(ctx), resource.Key{Project: systemProject, Name: name})
+		if err == nil {
+			if k := data[hangarSSHKeyData]; len(k) > 0 {
+				return k, nil
+			}
+			return nil, fmt.Errorf("its ssh key secret %q holds no %q: %w", name, hangarSSHKeyData, errSecretMissing)
+		}
+		if connect.CodeOf(err) != connect.CodeNotFound {
+			return nil, fmt.Errorf("its ssh key secret %q: %w", name, err)
+		}
+		if !create {
+			return nil, nil
+		}
+		key, err := vmssh.NewKeyPEM("tower")
+		if err != nil {
+			return nil, err
+		}
+		_, err = s.backend(registry.Secret).Create(s.system(ctx), &secretsv1alpha1.Secret{
+			Metadata: &metav1.ObjectMeta{Project: systemProject, Name: name, Annotations: map[string]string{targetUIDAnnotation: uid}},
+			Spec:     &secretsv1alpha1.SecretSpec{Type: secretsv1alpha1.SecretType_SECRET_TYPE_OPAQUE, Data: map[string][]byte{hangarSSHKeyData: key}},
+		})
+		if connect.CodeOf(err) == connect.CodeAlreadyExists {
+			continue // made meanwhile: read it
+		}
+		if err != nil {
+			return nil, fmt.Errorf("making its ssh key secret %q: %w", name, err)
+		}
+		s.log.Info("made a hangar target's ssh key for its VMs", "target", target, "secret", name)
+		return key, nil
+	}
+	return nil, fmt.Errorf("its ssh key secret %q kept changing", name)
+}
+
+// targetUIDAnnotation is on a Secret tower made for a Target: the uid of
+// that Target, which a later Target of the name is not.
+const targetUIDAnnotation = registry.Domain + "/target-uid"
+
+// deleteHangarSSHKey deletes the ssh key tower made for the Target of uid,
+// as it is read: one made for another Target of the name stays. An empty
+// uid deletes one made for a Target that is gone, whose uid no Target of
+// the name has now.
+func (s *Server) deleteHangarSSHKey(ctx context.Context, target, uid string) error {
+	key := resource.Key{Project: systemProject, Name: hangarSSHKeySecret(target)}
+	for range maxRetries {
+		sec, ok, err := getTyped[*secretsv1alpha1.Secret](ctx, s, registry.Secret, key)
+		if err != nil || !ok {
+			return err
+		}
+		made := sec.GetMetadata().GetAnnotations()[targetUIDAnnotation]
+		if uid != "" && made != uid {
+			return nil
+		}
+		if uid == "" && made != "" {
+			t, ok, err := getTyped[*targetsv1alpha1.Target](ctx, s, registry.Target, resource.Key{Name: target})
+			if err != nil {
+				return err
+			}
+			if ok && t.GetMetadata().GetUid() == made {
+				return nil
+			}
+		}
+		rv := sec.GetMetadata().GetResourceVersion()
+		_, err = s.backend(registry.Secret).Delete(s.system(ctx), key, &rv)
+		switch {
+		case err == nil:
+			s.log.Info("deleted a gone target's ssh key", "target", target, "secret", key.Name)
+			return nil
+		case isNotFound(err):
+			return nil
+		case connect.CodeOf(err) != connect.CodeAborted:
+			return err
+		}
+	}
+	return fmt.Errorf("ssh key secret %q kept changing as it was deleted", key.Name)
 }
 
 // errSecretMissing is a target's secret that is not there, or not as it

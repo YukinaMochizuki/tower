@@ -25,11 +25,11 @@ func (t *Target) newStreams() *streams.Server {
 		Target: t.cfg.Target, Key: t.cfg.TicketKey, Prefix: t.cfg.StreamPrefix, Clock: t.clock, Log: t.log,
 		Changed: t.changed,
 		Dial: func(ctx context.Context, ref provider.Instance, port int32) (net.Conn, error) {
-			p, _, err := t.machineRunning(ctx, ref)
+			p, _, _, err := t.machineRunning(ctx, ref)
 			if err != nil {
 				return nil, err
 			}
-			conn, err := t.api.PortForward(ctx, PluralContainers, p.container, port)
+			conn, err := t.api.PortForward(ctx, p.plural(), p.name, port)
 			if err != nil {
 				return nil, providerError(err)
 			}
@@ -48,7 +48,7 @@ func (t *Target) Ticket(ctx context.Context, in provider.Instance, port int32) (
 	if t.cfg.StreamURL == "" {
 		return provider.Ticket{}, fmt.Errorf("this tower relays no direct streams to target %s: %w", t.cfg.Target, provider.ErrFailed)
 	}
-	if _, _, err := t.machineRunning(ctx, in); err != nil {
+	if _, _, _, err := t.machineRunning(ctx, in); err != nil {
 		return provider.Ticket{}, err
 	}
 	u := strings.TrimSuffix(t.cfg.StreamURL, "/") + "/" + url.PathEscape(in.Project) + "/" + url.PathEscape(in.Name) + "/" + strconv.Itoa(int(port))

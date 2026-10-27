@@ -70,12 +70,16 @@ the tunnel its hostd opens, and to a hangar target through hangar's API
 tower runs each hangar target's provider itself (`internal/provider/
 hangar`, started by the apiserver from the Target and the Secrets it
 names): it makes the target's Instances real in its hangar project, one
-hangar Network per workstream and a Container with a Disk at /workspace
-per container instance, and runs tower-guest in them over hangar's exec,
-as hostd does in its guests. Its mirrors and builds are in a system
-container of the target's own (`internal/system`), and its goldens are
-hangar CustomImages captured from a stopped box's disk. VMs on hangar come
-next.
+hangar Network per workstream, a Container with a Disk at /workspace per
+container instance, and a VirtualMachine booting from a Disk of its own
+per VM instance, made from the hangar catalogue Image its base image maps
+to. Each is named on its network by its Instance's alias. The provider
+runs tower-guest in a container over hangar's exec, and in a VM over its
+own SSH as root (`internal/guest/vmssh`, which hostd's VMs use too)
+through hangar's port forward, pinning the host key a VM first answers
+with (`docs/decisions/traffic.md`). Its mirrors and builds are in a
+system container of the target's own (`internal/system`), and its
+goldens are hangar CustomImages captured from a stopped instance's disk.
 
 ## Data flow
 

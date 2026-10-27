@@ -43,9 +43,9 @@ func environmentHooks(r registry.Resource) (kindHooks, bool) {
 	case registry.Repository.Kind:
 		return kindHooks{owner: ownedByProject, validate: validateRepository}, true
 	case registry.Box.Kind:
-		return kindHooks{owner: ownedByProject, validate: validateBox}, true
+		return kindHooks{owner: ownedByProject, validate: validateBox, serialize: workstreamAliases}, true
 	case registry.Machine.Kind:
-		return kindHooks{owner: ownedByProject, validate: validateMachine}, true
+		return kindHooks{owner: ownedByProject, validate: validateMachine, serialize: workstreamAliases}, true
 	case registry.Golden.Kind:
 		return kindHooks{
 			owner:    ownedByProject,
@@ -244,6 +244,11 @@ func validateBox(ctx context.Context, s *Server, _ authz.Caller, old, obj proto.
 	if len(spec.GetCheckouts()) == 0 && spec.GetImage() == "" && spec.GetImageBuild() == nil {
 		return invalid("a box with no checkout needs spec.image or spec.image_build")
 	}
+	if old == nil {
+		if err := s.refuseAliasInUse(ctx, project, spec.GetWorkstream(), b.GetMetadata().GetName(), "box", b.GetMetadata().GetName()); err != nil {
+			return err
+		}
+	}
 	if spec.GetImage() != "" && spec.GetImageBuild() != nil {
 		return invalid("spec.image and spec.image_build are exclusive")
 	}
@@ -363,6 +368,68 @@ func (s *Server) requireSecretKey(ctx context.Context, project, name, key, at st
 
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// machineAlias is a machine's name on its workstream's network: its
+// blueprint's net_alias, else its own name, as a box's is its name. A
+// machine has an identity of its own: two of one blueprint are two names.
+func machineAlias(m *envv1alpha1.Machine) string {
+	if a := m.GetSpec().GetBlueprint().GetNetAlias(); a != "" {
+		return a
+	}
+	return m.GetMetadata().GetName()
+}
+
+// workstreamAliases keys the creates of a box or machine by its
+// workstream, whose aliases refuseAliasInUse checks against one another.
+func workstreamAliases(obj proto.Message) string {
+	ws := ""
+	switch o := obj.(type) {
+	case *envv1alpha1.Box:
+		ws = o.GetSpec().GetWorkstream()
+	case *envv1alpha1.Machine:
+		ws = o.GetSpec().GetWorkstream()
+	}
+	return "aliases/" + object.Meta(obj).GetProject() + "/" + ws
+}
+
+// refuseAliasInUse refuses a box or machine (kind, name) whose alias on its
+// workstream's network another box or machine of the workstream already
+// answers to, by its name or its alias: one alias is one environment's,
+// on every provider. One being deleted no longer counts.
+func (s *Server) refuseAliasInUse(ctx context.Context, project, workstream, alias, kind, name string) error {
+	boxes, err := listTyped[*envv1alpha1.Box](ctx, s, registry.Box, project)
+	if err != nil {
+		return err
+	}
+	for _, b := range boxes {
+		if b.GetSpec().GetWorkstream() != workstream || b.GetMetadata().GetDeleteTime() != nil || (kind == "box" && b.GetMetadata().GetName() == name) {
+			continue
+		}
+		if b.GetMetadata().GetName() == alias {
+			return failedPrecondition("alias %q is box %s's name in workstream %s; give the %s another name", alias, b.GetMetadata().GetName(), workstream, kind)
+		}
+	}
+	machines, err := listTyped[*envv1alpha1.Machine](ctx, s, registry.Machine, project)
+	if err != nil {
+		return err
+	}
+	for _, m := range machines {
+		if m.GetSpec().GetWorkstream() != workstream || m.GetMetadata().GetDeleteTime() != nil || (kind == "machine" && m.GetMetadata().GetName() == name) {
+			continue
+		}
+		// The alias it has, as its instance was made: a machine made
+		// before machines were named by their own names keeps its
+		// blueprint's.
+		has := m.GetStatus().GetAlias()
+		if has == "" {
+			has = machineAlias(m)
+		}
+		if has == alias {
+			return failedPrecondition("alias %q is machine %s's in workstream %s; give the %s another name", alias, m.GetMetadata().GetName(), workstream, kind)
+		}
+	}
+	return nil
+}
+
 func validateMachine(ctx context.Context, s *Server, _ authz.Caller, old, obj proto.Message) error {
 	m := obj.(*envv1alpha1.Machine)
 	spec, project := m.GetSpec(), m.GetMetadata().GetProject()
@@ -381,6 +448,11 @@ func validateMachine(ctx context.Context, s *Server, _ authz.Caller, old, obj pr
 	if a := bp.GetNetAlias(); a != "" {
 		if err := ValidName(a); err != nil {
 			return invalid("spec.blueprint.net_alias: %v", err)
+		}
+	}
+	if old == nil {
+		if err := s.refuseAliasInUse(ctx, project, spec.GetWorkstream(), machineAlias(m), "machine", m.GetMetadata().GetName()); err != nil {
+			return err
 		}
 	}
 	for _, port := range bp.GetExposePorts() {

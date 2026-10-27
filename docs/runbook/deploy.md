@@ -134,6 +134,10 @@ then the KEK from the vault into `/var/lib/tower/secrets-kek`.
 A hangar target is one project of a hangar endpoint, which tower uses
 with that project's service token (`docs/decisions/layers.md`); tower
 runs its provider itself, and nothing is installed on the hangar host.
+The hangar must be a release with `NetworkInterface.aliases`
+(hangar#220, commit 391a1de, or later): tower names each environment on
+its workstream's network by an alias, which an earlier hangar drops,
+leaving no environment reachable by its name.
 Its boxes run tower-guest, which the apiserver writes into them; its
 mirrors and builds run in a system container of the target's own,
 `tower-sys-*`, made from the release's system image, which joins the
@@ -188,15 +192,51 @@ spec:
     registry_host: registry.example.com:5000  # as hangar pulls
     registry_push_secret: registry-push       # keys "username", "password"
     tailnet_auth_secret: builder-authkey      # key "authkey"
+    base_images:                              # tower's name: hangar's Image
+      ubuntu-24.04: ubuntu-24-04
 ```
 
 `tower get target hangar-main` says whether hangar answers, the project's
 room by its quota, and whether the system container answers and is on
 the tailnet. The project's Plan must allow a network per workstream and
 one more, and the disk of every box plus the system container's 50Gi.
-Every editor stream and followed log holds one of hangar's machine
-calls the whole time: where the Plan has `machine_calls`, set it to
-that many at once and more; a hangar without it has a fixed cap.
+
+**VMs.** A machine's VM boots one of hangar's catalogue Images (hangar's
+`deploy/catalog`), by the name `base_images` maps its blueprint's
+`base_image` to; a base image not in the map, or an Image the hangar does
+not have, fails the VM, saying which. Its root disk is at least the
+Image's size. tower adds nothing to hangar's catalogue: an Image is the
+hangar operator's. A catalogue image has no ansible, so a machine's
+golden builder installs ansible-core first, from the image's own package
+repositories (apt or dnf), which the VM must reach.
+
+tower reaches root in a VM with its own SSH, over hangar's port forward
+to the VM's port 22: hangar's exec into a VM logs in as the image's
+default user, never root, and tower needs no platform SSH CA. The key is
+the target's, `hangar-ssh-<target>` in the reserved project `system` (key
+`SSH_PRIVATE_KEY`), which tower makes when the target has none and
+deletes with the Target; cloud-init gives its public half to root. A
+VM's host key is pinned on its Instance (`status.ssh_host_key`) as the
+VM first answers, and every later connection must present it
+(`docs/decisions/traffic.md`). Deleting the key Secret makes a new key at
+once: VMs made with the old one are then unreachable, and are made again
+by deleting their machines.
+
+**hangar's machine calls.** Each of these holds one of hangar's machine
+calls while it is open: an editor stream or followed log (a port
+forward), an operation in a box (an exec), and each running VM's one SSH
+connection (a port forward, kept open between operations), whatever runs
+in it: its operations are sessions on that connection, up to 60 at once,
+which the VM's sshd is set to take (`MaxSessions 64`, a drop-in tower
+writes through the VM's user_data); one more waits for one to end. Where
+the Plan has `machine_calls`, set it to the most of these open at once,
+and more; a hangar without it has a fixed cap of 64 a tenant.
+
+On hostd, a machine whose blueprint names no `net_alias` is named on its
+workstream's network by the machine's own name, not its blueprint's: what
+reached a machine by its blueprint's name reaches it by the machine's, or
+the blueprint sets `net_alias`. A machine made before keeps the alias it
+has, its blueprint's, which its status says, until it is made again.
 
 ## On each hostd host
 
@@ -322,10 +362,11 @@ tower get target hangar-main -o yaml   # status.remaining, status.last_error
 The Target stays, being deleted, while tower tears down what it made
 there (`docs/decisions/placement.md`): its goldens first, each image or
 snapshot deleted on the target, then, on a hangar target, every object
-labelled `tower/target=<name>` in the hangar project: containers, then
-their disks, networks once nothing is on them, the golden images and the
-registry login, the system container `tower-sys-*`, its 50Gi disk and its
-network included. hangar deletes in its own time. `status.remaining`
+labelled `tower/target=<name>` in the hangar project: containers and
+VMs, then their disks, networks once nothing is on them, the golden
+images and the registry login, the system container `tower-sys-*`, its
+50Gi disk and its network included. The target's ssh key Secret goes
+with the Target. hangar deletes in its own time. `status.remaining`
 lists what is left, and `last_error` what keeps it, such as hangar
 refusing the token: write the credential Secret again and the teardown
 goes on. `status.remaining_known` false says the teardown has not yet
@@ -352,7 +393,7 @@ is left is unknown. On a hangar target, what is left counts against the
 project's quota; list it, and delete it there by hand:
 
 ```sh
-for k in containers disks networks customimages secrets; do
+for k in containers virtualmachines disks networks customimages secrets; do
   hangar get "$k" -p <project> -l tower/target=hangar-main
 done
 ```

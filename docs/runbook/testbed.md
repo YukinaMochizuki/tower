@@ -104,7 +104,14 @@ testbed (`hangar: docs/runbook/testbed.md`), with
   forward ports;
 - a box image in a registry the hangar node pulls from, by digest, with
   `test/testbed/guestbin` in `/usr/local/bin`, as `setup.sh` puts it in
-  the testbed's images, and `busybox`.
+  the testbed's images, and `busybox`;
+- for the VMs, one of hangar's catalogue Images, such as `ubuntu-24-04`
+  (hangar's `deploy/catalog`, applied by the hangar's administrator),
+  given as `TOWER_HANGAR_BASE_IMAGE`, a Plan with room for a few VMs of
+  1 to 2 vCPUs and 1 to 2Gi each, and a hangar that runs VMs (KVM, nested
+  on a testbed VM) and lets them reach the image's package repositories,
+  which a machine's builder installs ansible-core from. Without it the VMs'
+  tests are skipped.
 
 Point the run at it:
 
@@ -114,6 +121,7 @@ TOWER_HANGAR_PROJECT=tower \
 TOWER_HANGAR_TOKEN_FILE=/path/to/token \
 TOWER_HANGAR_IMAGE=registry.example/tower/box@sha256:... \
 TOWER_HANGAR_PULL_SECRET_FILE=/path/to/dockerconfig.json \
+TOWER_HANGAR_BASE_IMAGE=ubuntu-24-04 \
 make e2e-hangar
 ```
 

@@ -67,6 +67,10 @@ message HangarTarget {
   // the tailnet with, once: what it pushes to the registry over. Empty
   // joins it to none.
   string tailnet_auth_secret = 7;
+  // The hangar Image each of tower's base images is, by tower's name, such
+  // as "ubuntu-24.04": "ubuntu-24-04", one of hangar's catalogue. A VM of a
+  // base image not here fails. See docs/runbook/deploy.md.
+  map<string, string> base_images = 8;
 }
 
 // HostdTarget is a host running hostd. The host is whoever holds a

@@ -52,10 +52,21 @@ func newGuestBinary(b []byte) guestBinary {
 type placed struct {
 	ref provider.Instance
 	in  *envv1alpha1.Instance
-	// container is its Container's name; uid its uid, once it was read,
-	// and stopped whether it is asked to be stopped.
-	container, uid string
-	stopped        bool
+	// name is its Container's or VirtualMachine's name, vm whether it is a
+	// VM; uid that object's uid, once it was read, and stopped whether it
+	// is asked to be stopped.
+	name, uid string
+	vm        bool
+	stopped   bool
+}
+
+// plural is the plural of its kind, which hangar's exec and port forward
+// name.
+func (p placed) plural() string {
+	if p.vm {
+		return PluralVirtualMachines
+	}
+	return PluralContainers
 }
 
 // errNotRunning is an instance whose machine does not run.
@@ -75,52 +86,77 @@ func (t *Target) find(ctx context.Context, ref provider.Instance) (placed, error
 	if in.GetSpec().GetTarget() != t.cfg.Target {
 		return placed{}, fmt.Errorf("instance %s/%s is target %q's: %w", ref.Project, ref.Name, in.GetSpec().GetTarget(), provider.ErrNotFound)
 	}
-	if in.GetSpec().GetKind() != envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER {
-		return placed{}, fmt.Errorf("instance %s/%s: a hangar target runs containers only, for now: %w", ref.Project, ref.Name, provider.ErrFailed)
+	p := placed{ref: ref, in: in, name: objectName(in.GetMetadata().GetUid())}
+	switch in.GetSpec().GetKind() {
+	case envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER:
+	case envv1alpha1.InstanceKind_INSTANCE_KIND_VM:
+		p.vm = true
+	default:
+		return placed{}, fmt.Errorf("instance %s/%s: a hangar target runs containers and VMs, not %v: %w", ref.Project, ref.Name, in.GetSpec().GetKind(), provider.ErrFailed)
 	}
-	return placed{ref: ref, in: in, container: objectName(in.GetMetadata().GetUid())}, nil
+	return p, nil
 }
 
-// machineRunning finds an instance whose machine runs, and its Container.
-func (t *Target) machineRunning(ctx context.Context, ref provider.Instance) (placed, *hangarcompute.Container, error) {
+// object reads the instance's Container or VirtualMachine.
+func (t *Target) object(ctx context.Context, p placed) (machineObj, error) {
+	if p.vm {
+		vm, err := t.api.VirtualMachines().Get(ctx, p.name)
+		if err != nil {
+			return machineObj{}, err
+		}
+		return vmObj(vm), nil
+	}
+	ct, err := t.api.Containers().Get(ctx, p.name)
+	if err != nil {
+		return machineObj{}, err
+	}
+	return containerObj(ct), nil
+}
+
+// machineRunning finds an instance whose machine runs, its Container or
+// VirtualMachine, and that machine.
+func (t *Target) machineRunning(ctx context.Context, ref provider.Instance) (placed, machineObj, *hangarcompute.Machine, error) {
 	p, err := t.find(ctx, ref)
 	if err != nil {
-		return p, nil, err
+		return p, machineObj{}, nil, err
 	}
-	ct, err := t.api.Containers().Get(ctx, p.container)
+	obj, err := t.object(ctx, p)
 	if err != nil {
-		return p, nil, fmt.Errorf("instance %s/%s: %w", ref.Project, ref.Name, providerError(err))
+		return p, machineObj{}, nil, fmt.Errorf("instance %s/%s: %w", ref.Project, ref.Name, providerError(err))
 	}
-	m, err := t.api.Machine(ctx, machineOf(p.container))
+	m, err := t.api.Machine(ctx, obj.machine())
 	if err != nil && !errors.Is(err, ErrNotFound) {
-		return p, nil, fmt.Errorf("instance %s/%s: %w", ref.Project, ref.Name, providerError(err))
+		return p, obj, nil, fmt.Errorf("instance %s/%s: %w", ref.Project, ref.Name, providerError(err))
 	}
-	p.uid, p.stopped = ct.GetMetadata().GetUid(), ct.GetSpec().GetRunState() == hangarcompute.ContainerRunState_CONTAINER_RUN_STATE_STOPPED
-	if err != nil || !ownedBy(m, ct) || m.GetStatus().GetPhase() != hangarcompute.MachinePhase_MACHINE_PHASE_RUNNING || p.stopped {
-		return p, nil, fmt.Errorf("instance %s/%s is %w: %w", ref.Project, ref.Name, errNotRunning, provider.ErrFailed)
+	p.uid, p.stopped = obj.uid, obj.stopped
+	if err != nil || !ownedBy(m, obj.uid) || m.GetStatus().GetPhase() != hangarcompute.MachinePhase_MACHINE_PHASE_RUNNING || p.stopped {
+		return p, obj, nil, fmt.Errorf("instance %s/%s is %w: %w", ref.Project, ref.Name, errNotRunning, provider.ErrFailed)
 	}
-	return p, ct, nil
+	return p, obj, m, nil
 }
 
 // running finds an instance whose machine runs, with tower-guest in it.
 func (t *Target) running(ctx context.Context, ref provider.Instance) (placed, guestops.Ops, error) {
-	p, ct, err := t.machineRunning(ctx, ref)
+	p, obj, m, err := t.machineRunning(ctx, ref)
 	if err != nil {
 		return p, guestops.Ops{}, err
 	}
-	o, err := t.ops(ctx, ct)
+	if p.vm {
+		o, err := t.vmOps(ctx, p, m, vmDial{wait: t.cfg.ReadyTimeout})
+		return p, o, err
+	}
+	o, err := t.ops(ctx, obj.name, obj.uid)
 	return p, o, err
 }
 
 // ops are the operations in a running container, through tower-guest,
 // which they write in first if the copy there is not this tower's. One
 // container's first uses wait for one another: one writes it in.
-func (t *Target) ops(ctx context.Context, ct *hangarcompute.Container) (guestops.Ops, error) {
+func (t *Target) ops(ctx context.Context, container, uid string) (guestops.Ops, error) {
 	if len(t.guest.data) == 0 {
 		return guestops.Ops{}, fmt.Errorf("this tower has no tower-guest to run in hangar's machines: %w", provider.ErrFailed)
 	}
-	r := runner{api: t.api, container: ct.GetMetadata().GetName()}
-	uid := ct.GetMetadata().GetUid()
+	r := runner{api: t.api, container: container}
 	if !t.procs.installed(uid, t.guest.hash) {
 		unlock := t.procs.lock(uid)
 		defer unlock()
@@ -141,12 +177,11 @@ var errNoGuest = errors.New("this tower's tower-guest is not in the container ye
 // tower-guest is this tower's already, errNoGuest otherwise: what a
 // reconcile reads, which writes nothing in. No process runs in a container
 // before tower-guest is written in to start it.
-func (t *Target) opsIfInstalled(ctx context.Context, ct *hangarcompute.Container) (guestops.Ops, error) {
+func (t *Target) opsIfInstalled(ctx context.Context, container, uid string) (guestops.Ops, error) {
 	if len(t.guest.data) == 0 {
 		return guestops.Ops{}, errNoGuest
 	}
-	r := runner{api: t.api, container: ct.GetMetadata().GetName()}
-	uid := ct.GetMetadata().GetUid()
+	r := runner{api: t.api, container: container}
 	if !t.procs.installed(uid, t.guest.hash) {
 		have, err := r.guestHash(ctx)
 		if err != nil {
@@ -305,11 +340,11 @@ func (t *Target) Copy(ctx context.Context, from provider.Instance, fromPath stri
 	if network == "" || network != dp.in.GetSpec().GetNetwork() || sp.ref.Project != dp.ref.Project {
 		return fmt.Errorf("instances %s/%s and %s/%s are not on one network: %w", from.Project, from.Name, to.Project, to.Name, provider.ErrFailed)
 	}
-	m, err := t.api.Machine(ctx, machineOf(dp.container))
+	_, obj, m, err := t.machineRunning(ctx, to)
 	if err != nil {
-		return fmt.Errorf("instance %s/%s: %w", to.Project, to.Name, providerError(err))
+		return err
 	}
-	addr := addressOf(m)
+	addr := obj.address(m)
 	if addr == "" {
 		return fmt.Errorf("instance %s/%s has no address yet: %w", to.Project, to.Name, provider.ErrFailed)
 	}

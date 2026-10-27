@@ -6,6 +6,8 @@ package faketest
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"testing"
 
@@ -119,7 +121,7 @@ func (w World) Harness(p provider.Provider) providertest.Harness {
 		},
 		Golden: func(t *testing.T, art provider.Artifact) string {
 			t.Helper()
-			key := client.Key{Project: apiservertest.Project, Name: "golden-" + fmt.Sprint(len(art.Name))}
+			key := client.Key{Project: apiservertest.Project, Name: "golden-" + goldenID(art.Name)}
 			if _, err := w.Env.AsSystem().Apply(t.Context(), registry.Golden, &envv1alpha1.Golden{
 				Metadata: &metav1.ObjectMeta{Project: key.Project, Name: key.Name},
 				Spec: &envv1alpha1.GoldenSpec{Target: Target, InputHash: art.Name,
@@ -137,4 +139,10 @@ func (w World) Harness(p provider.Provider) providertest.Harness {
 		ProcessLimits: w.Fake.SetProcessLimits,
 		Remote:        Remote, Branch: "main", RemoteHead: "c3", RemoteDockerfile: "docker/Dockerfile",
 	}
+}
+
+// goldenID names a golden of an artifact apart from every other's.
+func goldenID(artifact string) string {
+	sum := sha256.Sum256([]byte(artifact))
+	return hex.EncodeToString(sum[:])[:12]
 }

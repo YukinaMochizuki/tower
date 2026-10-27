@@ -10,15 +10,18 @@ import (
 
 	hangarcompute "github.com/YukinaMochizuki/hangar/gen/go/hangar/compute/v1alpha1"
 
+	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/controller"
 	"github.com/YukinaMochizuki/tower/internal/guest"
+	"github.com/YukinaMochizuki/tower/internal/guest/guestops"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 )
 
-// Processes run in a container under tower-guest's supervisor, which keeps
-// each one's log and exit in the container (procRoot) and outlives the
-// exec that started it: hangar ends an exec's own process group as the
-// exec ends, and the supervisor is in a session of its own. Unlike
+// Processes run in a container or VM under tower-guest's supervisor,
+// which keeps each one's log and exit in the machine (procRoot, or
+// vmssh.ProcRoot) and outlives the exec or SSH session that started it:
+// hangar ends an exec's own process group as the exec ends, and the
+// supervisor is in a session of its own. Unlike
 // hostd's, a container's processes are read in it alone, so only while it
 // runs: a stopped one's list is what the provider last listed of it, its
 // running processes then ended, killed (tower-guest reads them as such
@@ -166,24 +169,47 @@ func exitOf(e *guest.ProcessExit) *provider.ProcessExit {
 	return &provider.ProcessExit{Code: e.Code, Signal: provider.Signal(e.Signal)}
 }
 
-// countTimeout bounds counting a container's processes.
+// countTimeout bounds counting a machine's processes.
 const countTimeout = 15 * time.Second
 
-// processesRunning counts a running container's running processes, for
-// its status.
+// processesRunning counts a running machine's running processes, for its
+// status.
 // It runs in a reconcile, so it writes nothing in, and is bounded:
-// nothing a container does holds up its target's other instances.
-func (t *Target) processesRunning(ctx context.Context, ref provider.Instance, ct *hangarcompute.Container) (int32, error) {
+// nothing a machine does holds up its target's other instances. A VM is
+// asked over a connection the provider holds already, never one it makes:
+// connecting waits for the VM's sshd, which a reconcile, holding the
+// target's lock, must not. Without one, or with it not answering within
+// countTimeout, its count is the last known (InstanceStatus's
+// processes_running). One tower never reached (whose host key no Instance
+// pins) runs nothing of tower's yet.
+func (t *Target) processesRunning(ctx context.Context, ref provider.Instance, in *envv1alpha1.Instance, obj machineObj, m *hangarcompute.Machine) (int32, error) {
 	ctx, cancel := context.WithTimeout(ctx, countTimeout)
 	defer cancel()
-	o, err := t.opsIfInstalled(ctx, ct)
-	if errors.Is(err, errNoGuest) {
-		return 0, nil
+	p := placed{ref: ref, in: in, name: obj.name, uid: obj.uid, vm: obj.vm}
+	var o guestops.Ops
+	var err error
+	switch {
+	case !obj.vm:
+		o, err = t.opsIfInstalled(ctx, obj.name, obj.uid)
+	case in.GetStatus().GetSshHostKey() == "":
+		err = errNoGuest
+	default:
+		o, err = t.vmOps(ctx, p, m, vmDial{reconcile: true})
 	}
-	if err != nil {
+	last := in.GetStatus().GetProcessesRunning()
+	switch {
+	case errors.Is(err, errNoGuest):
+		return 0, nil
+	case errors.Is(err, errUnreached):
+		return last, nil
+	case err != nil:
 		return 0, err
 	}
-	list, err := t.listProcesses(ctx, placed{ref: ref, container: ct.GetMetadata().GetName(), uid: ct.GetMetadata().GetUid()}, o)
+	list, err := t.listProcesses(ctx, p, o)
+	if err != nil && obj.vm {
+		// What runs in it is not known now; it was as last reported.
+		return last, err
+	}
 	if err != nil {
 		return 0, err
 	}
