@@ -547,8 +547,12 @@ func (s *Server) convergeWarm(ctx context.Context, p provider.Provider, ref prov
 // their tasks are untagged, and a task that needs a machine's own vars or
 // secrets is tagged configure (workstream: src/machine/drivers/
 // ansible-qemu.ts). A blueprint with a run_as user runs as it, made here
-// first (prepareUser), so every clone of the golden has it.
+// first (prepareUser), so every clone of the golden has it. A base image
+// without ansible is given it first (installAnsible).
 func (s *Server) convergeMachine(ctx context.Context, p provider.Provider, ref provider.Instance, build buildSpec) error {
+	if err := s.mustRun(ctx, p, ref, nil, "/", "sh", "-c", installAnsible); err != nil {
+		return fmt.Errorf("installing ansible-core: %w", err)
+	}
 	if err := p.WriteFile(ctx, ref, "/opt/tower/blueprint.yml", 0o600, 0, strings.NewReader(build.Blueprint)); err != nil {
 		return err
 	}
@@ -565,6 +569,23 @@ func (s *Server) convergeMachine(ctx context.Context, p provider.Provider, ref p
 	return s.mustRun(ctx, p, ref, nil, "/opt/tower", asUser(build.RunAs,
 		"ansible-playbook", "--connection=local", "--inventory=localhost,", "--skip-tags=configure", "--extra-vars=@golden-vars.json", "blueprint.yml")...)
 }
+
+// installAnsible installs ansible-core in a golden's builder where
+// ansible-playbook is not there: hostd's base images carry it
+// (deploy/hostd/base-image.sh), a hangar target's catalogue images do not
+// (docs/runbook/deploy.md). It waits for cloud-init's first boot to end,
+// whose package runs hold the package manager's lock, and for that lock.
+const installAnsible = `command -v ansible-playbook >/dev/null 2>&1 && exit 0
+(cloud-init status --wait >/dev/null 2>&1 || true)
+if command -v apt-get >/dev/null 2>&1; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get -o DPkg::Lock::Timeout=600 update -q && apt-get -o DPkg::Lock::Timeout=600 install -qy --no-install-recommends ansible-core || exit 1
+elif command -v dnf >/dev/null 2>&1; then
+  dnf install -y ansible-core || exit 1
+else
+  echo "no apt-get or dnf to install ansible-core with" >&2; exit 1
+fi
+command -v ansible-playbook >/dev/null`
 
 // mustRun runs a command, a non-zero exit being a failure of the work,
 // which quotes the end of its output; but not of a command given an

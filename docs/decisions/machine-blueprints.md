@@ -35,8 +35,9 @@ hostname the same from its golden to every clone of it.
   A machine or box whose alias another of its workstream already answers
   to is refused as it is made, so an alias names one environment on
   hostd and hangar alike.
-- The base image carries ansible (`deploy/hostd/base-image.sh`), so the
-  golden phase can run at all.
+- A base image carries ansible (`deploy/hostd/base-image.sh`); one that
+  does not, as a hangar target's catalogue images, gets ansible-core in
+  the golden's builder before its golden phase.
 - **A machine is READY when its blueprint's ready check passes**, not when
   its configure phase ends: a service it starts can take minutes more
   (k3s reports its node Ready well after the playbook). The check is

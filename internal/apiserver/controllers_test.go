@@ -110,6 +110,28 @@ func TestBoxesOfTheSameInputsShareAnImage(t *testing.T) {
 	}
 }
 
+// TestAMachinesBuilderGetsAnsibleFirst: a machine's golden builder is given
+// ansible-core where its base image lacks it, as a hangar target's
+// catalogue images do, before its golden phase runs.
+func TestAMachinesBuilderGetsAnsibleFirst(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.mustApply(registry.Machine, machine("k3s"))
+	w.waitMachine("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_READY)
+	install, playbook := -1, -1
+	for i, e := range w.fake.Execs() {
+		if install < 0 && len(e.Command) == 3 && e.Command[0] == "sh" && strings.Contains(e.Command[2], "install -qy --no-install-recommends ansible-core") {
+			install = i
+		}
+		if playbook < 0 && e.Command[0] == "ansible-playbook" {
+			playbook = i
+		}
+	}
+	if install < 0 || playbook < 0 || install > playbook {
+		t.Errorf("the builder installed ansible-core at exec %d and ran the playbook at %d: %v", install, playbook, w.fake.Execs())
+	}
+}
+
 // TestABoxWaitsForAPlacement: a box of a project with no Placement is
 // UNPLACED, and comes up once one is made.
 func TestABoxWaitsForAPlacement(t *testing.T) {
