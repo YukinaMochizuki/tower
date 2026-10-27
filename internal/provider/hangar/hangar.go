@@ -150,6 +150,10 @@ type Target struct {
 	procs   processCache
 	streams *streams.Server
 	sys     systemState
+	// ep is the system container's endpoint (endpoint.go); sgMu keeps its
+	// security group's writes apart.
+	ep   endpointState
+	sgMu sync.Mutex
 	// pullWritten says the pull secret is in hangar, as of this run.
 	pullMu      sync.Mutex
 	pullWritten bool
@@ -184,6 +188,7 @@ func New(cfg Config) *Target {
 		}
 	}
 	t.tearingDown.Store(cfg.Teardown)
+	t.ep.made, t.ep.refused, t.ep.probed = map[string]bool{}, map[string]refusal{}, map[string]refusal{}
 	t.guest = newGuestBinary(cfg.Guest)
 	t.ctrl = t.newController()
 	t.streams = t.newStreams()

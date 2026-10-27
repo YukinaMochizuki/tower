@@ -8,8 +8,9 @@
 //
 //   - shim: one operation, named by a header on its stdin: run a command
 //     (exec), read, write, copy out and copy in files, send a path to
-//     another guest or receive one (transfer.go), start a process under a
-//     supervisor, signal one, list them and read their logs;
+//     another guest or receive one (transfer.go), take a tar from a server
+//     or post one to it (http.go), start a process under a supervisor,
+//     signal one, list them and read their logs;
 //   - init: a container's first process, which reaps orphans and runs the
 //     image's own entrypoint, and outlives it;
 //   - supervise: a process's supervisor, detached from the call that
@@ -105,6 +106,10 @@ type Header struct {
 	Addr  string `json:"addr,omitempty"`
 	Token string `json:"token,omitempty"`
 	To    string `json:"to,omitempty"`
+	// Fetch and Post (http.go): the URL, the probe's URL, and the
+	// credential, as Token.
+	URL   string `json:"url,omitempty"`
+	Probe string `json:"probe,omitempty"`
 }
 
 // The operations.
@@ -120,6 +125,8 @@ const (
 	OpLog     = "log"
 	OpSend    = "send"
 	OpReceive = "receive"
+	OpFetch   = "fetch"
+	OpPost    = "post"
 )
 
 // Exit codes a shim says what went wrong with in every operation but
@@ -132,6 +139,8 @@ const (
 	ExitBadOffset = 201
 	// ExitFailed is any other failure, its message on stderr.
 	ExitFailed = 202
+	// ExitUnreachable is a fetch or post whose probe failed, nothing sent.
+	ExitUnreachable = 203
 	// ExitCannotStart is exec's for a command that cannot start.
 	ExitCannotStart = 127
 )

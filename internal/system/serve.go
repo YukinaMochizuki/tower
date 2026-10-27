@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +37,62 @@ type Config struct {
 	// Tailscale is the tailscale command, talking to the container's
 	// tailscaled.
 	Tailscale []string
+	// Listen is where the server serves boxes, ":7480" when empty;
+	// Control its control socket, DefaultControl when empty.
+	Listen, Control string
+}
+
+func (c Config) control() string {
+	if c.Control == "" {
+		return DefaultControl
+	}
+	return c.Control
+}
+
+// mirrors is the git driver over the container's mirrors.
+func mirrors(ctx context.Context, cfg Config) (*gitmirror.Driver, error) {
+	return gitmirror.New(ctx, gitmirror.Config{Root: filepath.Join(cfg.Root, "mirrors"), ScratchDir: filepath.Join(cfg.Root, "scratch", "git")})
+}
+
+// checkoutFile writes a tar of a clone of a mirror at ref into a scratch
+// file, made whole before it is sent: a checkout that fails says so, not
+// a tar cut short. It returns the commit checked out, and the file, which
+// the caller closes.
+func checkoutFile(ctx context.Context, cfg Config, mirror, ref string) (string, *os.File, error) {
+	g, err := mirrors(ctx, cfg)
+	if err != nil {
+		return "", nil, err
+	}
+	f, err := os.CreateTemp(filepath.Join(cfg.Root, "scratch"), "checkout-")
+	if err != nil {
+		return "", nil, err
+	}
+	_ = os.Remove(f.Name())
+	commit, err := g.Checkout(ctx, mirror, ref, f)
+	if err != nil {
+		_ = f.Close()
+		return "", nil, err
+	}
+	return commit, f, nil
+}
+
+// originFile writes, as checkoutFile does, the tar that brings a
+// checkout's origin/* up to its mirror.
+func originFile(ctx context.Context, cfg Config, mirror string) (*os.File, error) {
+	g, err := mirrors(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.CreateTemp(filepath.Join(cfg.Root, "scratch"), "origin-")
+	if err != nil {
+		return nil, err
+	}
+	_ = os.Remove(f.Name())
+	if err := g.Origin(ctx, mirror, f); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
 }
 
 // Serve runs the one operation its stdin's header names, and returns its
@@ -97,9 +154,7 @@ func builderConfig(cfg Config, h Header) images.Config {
 // serve runs h, and returns its result and, for a checkout, what writes
 // its tar after it.
 func serve(ctx context.Context, cfg Config, h Header, in io.Reader, stderr io.Writer) (Result, func(io.Writer) error, error) {
-	git := func() (*gitmirror.Driver, error) {
-		return gitmirror.New(ctx, gitmirror.Config{Root: filepath.Join(cfg.Root, "mirrors"), ScratchDir: filepath.Join(cfg.Root, "scratch", "git")})
-	}
+	git := func() (*gitmirror.Driver, error) { return mirrors(ctx, cfg) }
 	builder := func() (*images.Driver, error) { return images.New(builderConfig(cfg, h)) }
 	switch h.Op {
 	case OpFetch:
@@ -110,36 +165,14 @@ func serve(ctx context.Context, cfg Config, h Header, in io.Reader, stderr io.Wr
 		head, err := g.Fetch(ctx, driver.FetchSpec{Mirror: h.Mirror, URL: h.URL, Token: h.Env[EnvToken], Branch: h.Branch})
 		return Result{Commit: head}, nil, err
 	case OpCheckout:
-		g, err := git()
+		commit, f, err := checkoutFile(ctx, cfg, h.Mirror, h.Ref)
 		if err != nil {
-			return Result{}, nil, err
-		}
-		// Made whole before the answer: a checkout that fails says so, not a
-		// tar cut short. It is a clone's work tree and .git, which a scratch
-		// file holds meanwhile.
-		f, err := os.CreateTemp(filepath.Join(cfg.Root, "scratch"), "checkout-")
-		if err != nil {
-			return Result{}, nil, err
-		}
-		_ = os.Remove(f.Name())
-		commit, err := g.Checkout(ctx, h.Mirror, h.Ref, f)
-		if err != nil {
-			_ = f.Close()
 			return Result{}, nil, err
 		}
 		return Result{Commit: commit}, sendFile(f), nil
 	case OpOrigin:
-		g, err := git()
+		f, err := originFile(ctx, cfg, h.Mirror)
 		if err != nil {
-			return Result{}, nil, err
-		}
-		f, err := os.CreateTemp(filepath.Join(cfg.Root, "scratch"), "origin-")
-		if err != nil {
-			return Result{}, nil, err
-		}
-		_ = os.Remove(f.Name())
-		if err := g.Origin(ctx, h.Mirror, f); err != nil {
-			_ = f.Close()
 			return Result{}, nil, err
 		}
 		return Result{}, sendFile(f), nil
@@ -207,9 +240,27 @@ func serve(ctx context.Context, cfg Config, h Header, in io.Reader, stderr io.Wr
 			_, _ = fmt.Fprintf(stderr, "buildkitd: %v\n", err)
 		}
 		res.Tailnet = tailnetUp(ctx, cfg)
+		if err := control(ctx, cfg, http.MethodGet, controlStatusPath, nil); err == nil {
+			res.Serving = true
+		} else {
+			_, _ = fmt.Fprintf(stderr, "the server: %v\n", err)
+		}
 		return res, nil, nil
 	case OpTailnetUp:
 		return Result{Tailnet: true}, nil, joinTailnet(ctx, cfg, h)
+	case OpGrant:
+		return Result{}, nil, control(ctx, cfg, http.MethodPost, controlGrantPath, controlGrant{
+			Credential: h.Env[EnvCredential], Op: h.Grant, Mirror: h.Mirror, Ref: h.Ref, URL: h.URL, Branch: h.Branch, Lease: h.Lease,
+			Token: h.Env[EnvToken], Network: h.Network, TTL: h.TTL, Sources: h.Sources,
+		})
+	case OpRevoke:
+		return Result{}, nil, control(ctx, cfg, http.MethodDelete, controlGrantPath, controlGrant{Credential: h.Env[EnvCredential]})
+	case OpSources:
+		srcs := h.Sources
+		if srcs == nil {
+			srcs = []Source{}
+		}
+		return Result{}, nil, control(ctx, cfg, http.MethodPut, controlSourcesPath, srcs)
 	}
 	return Result{}, nil, fmt.Errorf("no operation %q", h.Op)
 }

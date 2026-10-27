@@ -2,12 +2,14 @@ package hangar_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/jonboulle/clockwork"
 
 	hangarcompute "github.com/YukinaMochizuki/hangar/gen/go/hangar/compute/v1alpha1"
@@ -44,6 +46,12 @@ func labelled(t *testing.T, f *fake.Fake, target string) []string {
 	add("customimage", metas(imgs), err)
 	secrets, err := f.Secrets().List(ctx, sel)
 	add("secret", metas(secrets), err)
+	neps, err := f.NetworkEndpoints().List(ctx, sel)
+	add("networkendpoint", metas(neps), err)
+	svcs, err := f.EndpointServices().List(ctx, sel)
+	add("endpointservice", metas(svcs), err)
+	sgs, err := f.SecurityGroups().List(ctx, sel)
+	add("securitygroup", metas(sgs), err)
 	slices.Sort(out)
 	return out
 }
@@ -58,7 +66,8 @@ func metas[T interface{ GetMetadata() *hangarmeta.ObjectMeta }](objs []T) []*han
 
 // outOfOrder says what hangar holds being deleted before what holds it
 // went: a disk a container still mounts, a network a container is still
-// on, a registry login while a container of the target is still there.
+// on, a security group an interface still names, a registry login while
+// a container of the target is still there.
 func outOfOrder(t *testing.T, f *fake.Fake, target string) []string {
 	t.Helper()
 	ctx := t.Context()
@@ -93,6 +102,19 @@ func outOfOrder(t *testing.T, f *fake.Fake, target string) []string {
 			}
 		}
 	}
+	sgs, err := f.SecurityGroups().List(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sg := range sgs {
+		for _, ct := range cts {
+			for _, i := range ct.GetSpec().GetInterfaces() {
+				if sg.GetMetadata().GetDeleteTime() != nil && slices.Contains(i.GetSecurityGroups(), sg.GetMetadata().GetName()) {
+					bad = append(bad, fmt.Sprintf("security group %s deleted while container %s names it", sg.GetMetadata().GetName(), ct.GetMetadata().GetName()))
+				}
+			}
+		}
+	}
 	secrets, err := f.Secrets().List(ctx, hangar.LabelTarget+"="+target)
 	if err != nil {
 		t.Fatal(err)
@@ -108,12 +130,12 @@ func outOfOrder(t *testing.T, f *fake.Fake, target string) []string {
 }
 
 // TestTeardownTakesEverythingOfTheTargetInHangarsOrder: Teardown deletes
-// what the target made in hangar, an instance's container, disk, network
-// and golden image, the system container with its disk and network, and
-// the registry login, each once what holds it has gone, while hangar
-// keeps what is deleted until it lets it go; what another target made on
-// the same project stays. In teardown, its system container is not made
-// again.
+// what the target made in hangar, an instance's container, disk, network,
+// network endpoint and golden image, the system container with its disk,
+// network, endpoint service and security group, and the registry login,
+// each once what holds it has gone, while hangar keeps what is deleted
+// until it lets it go; what another target made on the same project
+// stays. In teardown, its system container is not made again.
 func TestTeardownTakesEverythingOfTheTargetInHangarsOrder(t *testing.T) {
 	w, f := newWorld(t, func(c *hangar.Config) {
 		c.PullSecret = []byte(`{"auths":{"registry.tower.internal":{"auth":"cmVhZDpvbmx5"}}}`)
@@ -159,13 +181,17 @@ func TestTeardownTakesEverythingOfTheTargetInHangarsOrder(t *testing.T) {
 	sys := systemName(f)
 	uid := strings.TrimPrefix(art.Name, "g-")
 	before := labelled(t, f, hangartest.Target)
-	for _, want := range []string{"container/" + sys, "disk/" + sys, "network/" + sys, "container/t-" + uid, "disk/t-" + uid, "customimage/" + art.Name} {
+	for _, want := range []string{"container/" + sys, "disk/" + sys, "network/" + sys, "endpointservice/" + sys, "securitygroup/" + sys,
+		"container/t-" + uid, "disk/t-" + uid, "customimage/" + art.Name} {
 		if !slices.Contains(before, want) {
 			t.Fatalf("before the teardown hangar holds %v, not %s", before, want)
 		}
 	}
 	if !slices.ContainsFunc(before, func(s string) bool { return strings.HasPrefix(s, "secret/tower-pull-") }) {
 		t.Fatalf("before the teardown hangar holds %v, no registry login", before)
+	}
+	if !slices.ContainsFunc(before, func(s string) bool { return strings.HasPrefix(s, "networkendpoint/tower-ep-") }) {
+		t.Fatalf("before the teardown hangar holds %v, no network endpoint", before)
 	}
 
 	// hangar keeps what is deleted until it lets it go, which it does
@@ -183,6 +209,13 @@ func TestTeardownTakesEverythingOfTheTargetInHangarsOrder(t *testing.T) {
 		}
 		if got := labelled(t, f, hangartest.Target); !slices.Equal(left, got) {
 			t.Fatalf("pass %d said %v is left, hangar holds %v", pass, left, got)
+		}
+		// An endpoint holds an address and the project's quota: it goes at
+		// once, not only with its network.
+		if neps, err := f.NetworkEndpoints().List(ctx, hangar.LabelTarget+"="+hangartest.Target); err != nil {
+			t.Fatal(err)
+		} else if pass == 1 && slices.ContainsFunc(neps, func(ne *hangarnetwork.NetworkEndpoint) bool { return ne.GetMetadata().GetDeleteTime() == nil }) {
+			t.Errorf("after the first pass, a network endpoint is not being deleted")
 		}
 		if len(left) == 0 {
 			break
@@ -238,6 +271,12 @@ func (a *lockWatch) Disks() hangar.Kind[*hangarstorage.Disk] {
 func (a *lockWatch) Containers() hangar.Kind[*hangarcompute.Container] {
 	return watched[*hangarcompute.Container]{a.Fake.Containers(), a}
 }
+func (a *lockWatch) EndpointServices() hangar.Kind[*hangarnetwork.EndpointService] {
+	return watched[*hangarnetwork.EndpointService]{a.Fake.EndpointServices(), a}
+}
+func (a *lockWatch) SecurityGroups() hangar.Kind[*hangarnetwork.SecurityGroup] {
+	return watched[*hangarnetwork.SecurityGroup]{a.Fake.SecurityGroups(), a}
+}
 
 type watched[T interface{ GetMetadata() *hangarmeta.ObjectMeta }] struct {
 	hangar.Kind[T]
@@ -262,10 +301,111 @@ func TestTheSystemContainerIsMadeUnderTheTargetsLock(t *testing.T) {
 	// tower-system does not answer in this fake's container: what counts is
 	// what was made.
 	_ = a.target.EnsureSystem(t.Context())
-	if got := labelled(t, f, "t1"); len(got) != 3 {
+	if got := labelled(t, f, "t1"); len(got) != 5 {
 		t.Fatalf("EnsureSystem made %v", got)
 	}
 	if got := a.Unheld(); len(got) > 0 {
 		t.Errorf("made without the target's lock: %v", got)
+	}
+}
+
+// flakyAPI is a hangar whose endpoint services fail to be read, and whose
+// next reads of containers fail, while set, counting the containers
+// applied.
+type flakyAPI struct {
+	*fake.Fake
+	mu        sync.Mutex
+	failSvc   bool
+	failGets  int
+	ctApplies int
+}
+
+func (a *flakyAPI) Containers() hangar.Kind[*hangarcompute.Container] {
+	return flakyContainers{a.Fake.Containers(), a}
+}
+
+func (a *flakyAPI) EndpointServices() hangar.Kind[*hangarnetwork.EndpointService] {
+	return flakyServices{a.Fake.EndpointServices(), a}
+}
+
+type flakyContainers struct {
+	hangar.Kind[*hangarcompute.Container]
+	a *flakyAPI
+}
+
+func (k flakyContainers) Get(ctx context.Context, name string) (*hangarcompute.Container, error) {
+	k.a.mu.Lock()
+	fail := k.a.failGets > 0
+	if fail {
+		k.a.failGets--
+	}
+	k.a.mu.Unlock()
+	if fail {
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("hangar did not answer"))
+	}
+	return k.Kind.Get(ctx, name)
+}
+
+func (k flakyContainers) Apply(ctx context.Context, ct *hangarcompute.Container) (*hangarcompute.Container, error) {
+	k.a.mu.Lock()
+	k.a.ctApplies++
+	k.a.mu.Unlock()
+	return k.Kind.Apply(ctx, ct)
+}
+
+type flakyServices struct {
+	hangar.Kind[*hangarnetwork.EndpointService]
+	a *flakyAPI
+}
+
+func (k flakyServices) Get(ctx context.Context, name string) (*hangarnetwork.EndpointService, error) {
+	k.a.mu.Lock()
+	fail := k.a.failSvc
+	k.a.mu.Unlock()
+	if fail {
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("hangar did not answer"))
+	}
+	return k.Kind.Get(ctx, name)
+}
+
+// TestTheSystemContainersGroupsAreNeverGuessed: when the endpoint service
+// cannot be read, and neither can the system container once, the system
+// container is left as it is, still in its security group, not applied
+// without it, which would restart it.
+func TestTheSystemContainersGroupsAreNeverGuessed(t *testing.T) {
+	f := fake.New(towerGuest, t.TempDir(), clockwork.NewRealClock())
+	f.System = towerSystem
+	t.Cleanup(f.Close)
+	a := &flakyAPI{Fake: f}
+	target := hangar.New(hangar.Config{Target: "t1", API: a, SystemImage: "registry.tower.internal/tower/system@sha256:01"})
+	ctx := t.Context()
+	if err := target.EnsureSystem(ctx); err != nil {
+		t.Fatal(err)
+	}
+	sys := systemName(f)
+	groups := func() []string {
+		ct, err := f.Containers().Get(ctx, sys)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ct.GetSpec().GetInterfaces()[0].GetSecurityGroups()
+	}
+	if got := groups(); !slices.Equal(got, []string{sys}) {
+		t.Fatalf("the system container's groups: %v", got)
+	}
+	a.mu.Lock()
+	a.failSvc, a.failGets, a.ctApplies = true, 1, 0
+	a.mu.Unlock()
+	if err := target.EnsureSystem(ctx); err == nil {
+		t.Error("EnsureSystem answered no error, its container's groups not read")
+	}
+	a.mu.Lock()
+	applies := a.ctApplies
+	a.mu.Unlock()
+	if applies != 0 {
+		t.Errorf("the system container was applied %d times, its groups not read", applies)
+	}
+	if got := groups(); !slices.Equal(got, []string{sys}) {
+		t.Errorf("the system container's groups after: %v", got)
 	}
 }

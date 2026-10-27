@@ -198,6 +198,41 @@ func (o Ops) Send(ctx context.Context, path, addr, token, to string) error {
 	return result("sending "+path, code, msg, err)
 }
 
+// HTTPTransfer is a tar taken from a server or posted to it: URL, which
+// the credential lets the guest's request reach once, after Probe answers.
+type HTTPTransfer struct {
+	URL, Probe, Credential string
+}
+
+// Fetch GETs the transfer's URL and extracts the tar it answers into dir,
+// and Post POSTs a tar of path to it; each returns how the server
+// answered. A probe that fails is guest.ErrUnreachable, the request not
+// made.
+func (o Ops) Fetch(ctx context.Context, x HTTPTransfer, dir string) (guestbin.HTTPAnswer, error) {
+	return o.http(ctx, guestbin.OpFetch, x, dir, "fetching into "+dir)
+}
+
+func (o Ops) Post(ctx context.Context, x HTTPTransfer, path string) (guestbin.HTTPAnswer, error) {
+	return o.http(ctx, guestbin.OpPost, x, path, "posting "+path)
+}
+
+func (o Ops) http(ctx context.Context, op string, x HTTPTransfer, path, what string) (guestbin.HTTPAnswer, error) {
+	var out bytes.Buffer
+	h := guestbin.Header{Op: op, Path: path, URL: x.URL, Probe: x.Probe, Token: x.Credential}
+	code, msg, err := o.call(ctx, h, nil, &out)
+	if code == guestbin.ExitUnreachable && err == nil {
+		return guestbin.HTTPAnswer{}, fmt.Errorf("%s: %s: %w", what, msg, guest.ErrUnreachable)
+	}
+	if err := result(what, code, msg, err); err != nil {
+		return guestbin.HTTPAnswer{}, err
+	}
+	var a guestbin.HTTPAnswer
+	if err := json.Unmarshal(out.Bytes(), &a); err != nil {
+		return guestbin.HTTPAnswer{}, fmt.Errorf("%s: the guest answered %q: %w", what, out.String(), err)
+	}
+	return a, nil
+}
+
 // StartProcess starts a process under a supervisor of its own and returns
 // its id.
 func (o Ops) StartProcess(ctx context.Context, spec guest.ProcessSpec) (string, error) {

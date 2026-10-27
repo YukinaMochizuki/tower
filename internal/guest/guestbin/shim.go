@@ -80,6 +80,10 @@ func shim(stdin io.Reader, stdout, stderr io.Writer) int {
 		return sendOp(h, stderr)
 	case OpReceive:
 		return receiveOp(h, in, stdout, stderr)
+	case OpFetch:
+		return fetchOp(h, in, stdout, stderr)
+	case OpPost:
+		return postOp(h, in, stdout, stderr)
 	}
 	return failed(stderr, ExitFailed, fmt.Errorf("no operation %q", h.Op))
 }

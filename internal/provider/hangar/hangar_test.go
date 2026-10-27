@@ -17,6 +17,7 @@ import (
 	"github.com/jonboulle/clockwork"
 
 	hangarmeta "github.com/YukinaMochizuki/hangar/gen/go/hangar/meta/v1"
+	hangarnetwork "github.com/YukinaMochizuki/hangar/gen/go/hangar/network/v1alpha1"
 	hangarsecrets "github.com/YukinaMochizuki/hangar/gen/go/hangar/secrets/v1alpha1"
 	hangarstorage "github.com/YukinaMochizuki/hangar/gen/go/hangar/storage/v1alpha1"
 	hangartenancy "github.com/YukinaMochizuki/hangar/gen/go/hangar/tenancy/v1alpha1"
@@ -58,8 +59,9 @@ func TestMain(m *testing.M) {
 }
 
 // newWorld is a world over a fake hangar, whose containers have the
-// testbed's programs.
-func newWorld(t *testing.T, configure func(*hangar.Config)) (*hangartest.World, *fake.Fake) {
+// testbed's programs; setup, if given, sets the fake up before the target
+// first asks it anything.
+func newWorld(t *testing.T, configure func(*hangar.Config), setup ...func(*fake.Fake)) (*hangartest.World, *fake.Fake) {
 	t.Helper()
 	guest, err := os.ReadFile(towerGuest)
 	if err != nil {
@@ -72,6 +74,9 @@ func newWorld(t *testing.T, configure func(*hangar.Config)) (*hangartest.World, 
 	f.System = towerSystem
 	f.AddImage("ubuntu-24-04", "3Gi")
 	t.Cleanup(f.Close)
+	for _, fn := range setup {
+		fn(f)
+	}
 	const image = "registry.tower.internal/base@sha256:00"
 	remote, head := gitRemote(t, map[string]string{"go.mod": "module x\n", "docker/Dockerfile": "FROM " + image + "\nCOPY go.mod /go.mod\n"})
 	w := hangartest.New(t, hangartest.Options{
@@ -91,10 +96,62 @@ func newWorld(t *testing.T, configure func(*hangar.Config)) (*hangartest.World, 
 }
 
 // TestConformance holds the provider over a fake hangar to the contract
-// every provider is.
+// every provider is. The mirrors' transfers go over the endpoint, none
+// through tower.
 func TestConformance(t *testing.T) {
 	w, _ := newWorld(t, nil)
 	providertest.Run(t, w.Harness())
+	if m := w.Target.MirrorTransfers(); m.Relayed != 0 || m.RelayedBytes != 0 || m.Direct == 0 {
+		t.Errorf("the mirrors' transfers: %+v, want every one over the endpoint", m)
+	}
+}
+
+// TestConformanceOverTheRelay holds the provider over a hangar without
+// endpoints (hangar#224) to the mirrors' part of the contract: each
+// transfer is relayed through tower, and the target says why.
+func TestConformanceOverTheRelay(t *testing.T) {
+	w, f := newWorld(t, nil, func(f *fake.Fake) { f.WithoutEndpoints() })
+	// Said as soon as the system container is made, before any network.
+	if err := w.Target.Report(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if v := fact(t, w, "mirror transport"); v != "relay: hangar has no EndpointService (hangar#224)" {
+		t.Errorf("the target's mirror transport, before any network: %q", v)
+	}
+	h := w.Harness()
+	for _, name := range providertest.Names() {
+		if name != "MirrorAndCheckout" && name != "PushNeedsItsLease" {
+			h.Skip[name] = "the relay carries the mirrors' transfers alone"
+		}
+	}
+	providertest.Run(t, h)
+	if m := w.Target.MirrorTransfers(); m.Direct != 0 || m.Relayed == 0 || m.RelayedBytes == 0 || !strings.Contains(m.LastRelay, "hangar#224") {
+		t.Errorf("the mirrors' transfers: %+v, want every one relayed, as hangar has no endpoints", m)
+	}
+	if n := len(f.EndpointServiceNames()) + len(f.NetworkEndpointNames()) + len(f.SecurityGroupNames()); n != 0 {
+		t.Errorf("%d endpoint objects made on a hangar without them", n)
+	}
+	if err := w.Target.Report(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if v := fact(t, w, "mirror transport"); v != "relay: hangar has no EndpointService (hangar#224)" {
+		t.Errorf("the target's mirror transport: %q", v)
+	}
+}
+
+// fact is the value of the target's fact of the name, as last reported.
+func fact(t *testing.T, w *hangartest.World, name string) string {
+	t.Helper()
+	o, err := w.Env.AsSystem().Get(t.Context(), registry.Target, client.Key{Name: hangartest.Target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range o.(*targetsv1alpha1.Target).GetStatus().GetFacts() {
+		if f.GetName() == name {
+			return f.GetValue()
+		}
+	}
+	return ""
 }
 
 func container(network string) *envv1alpha1.InstanceSpec {
@@ -150,11 +207,18 @@ func TestWhatAnInstanceIsInHangar(t *testing.T) {
 	testutil.Eventually(t, "the instance's container and disk gone", func() (bool, string) {
 		return !strSet(f.ContainerNames()).has(name) && !strSet(f.DiskNames()).has(name), fmt.Sprint(f.ContainerNames(), f.DiskNames())
 	})
+	neps, err := f.NetworkEndpoints().List(t.Context(), hangar.LabelHangarNetwork+"="+network)
+	if err != nil || len(neps) != 1 || neps[0].GetSpec().GetService() != systemName(f) {
+		t.Fatalf("network %s's endpoints: %v, %v; want one, to the system container", network, neps, err)
+	}
 	if err := w.Target.Sweep(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if n := f.NetworkNames(); strSet(n).has(network) {
 		t.Errorf("network %s outlived every container on it", network)
+	}
+	if n := f.NetworkEndpointNames(); strSet(n).has(neps[0].GetMetadata().GetName()) {
+		t.Errorf("network %s's endpoint outlived it", network)
 	}
 	if !strSet(f.ContainerNames()).has(systemName(f)) {
 		t.Errorf("the sweep took the system container: %v", f.ContainerNames())
@@ -175,12 +239,20 @@ func TestTheSweepTakesWhatNoInstanceAccountsFor(t *testing.T) {
 		if _, err := f.Disks().Apply(ctx, &hangarstorage.Disk{Metadata: &hangarmeta.ObjectMeta{Name: name, Labels: l}, Spec: &hangarstorage.DiskSpec{Size: "1Gi"}}); err != nil {
 			t.Fatal(err)
 		}
+		// A network endpoint whose network is gone.
+		if _, err := f.NetworkEndpoints().Apply(ctx, &hangarnetwork.NetworkEndpoint{Metadata: &hangarmeta.ObjectMeta{Name: "ep-" + name, Labels: l},
+			Spec: &hangarnetwork.NetworkEndpointSpec{Network: "w-gone", Service: systemName(f)}}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := w.Target.Sweep(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if got := strSet(f.DiskNames()); got.has("t-stray") || !got.has("t-theirs") || !got.has("users") {
 		t.Errorf("after the sweep, disks %v", got)
+	}
+	if got := strSet(f.NetworkEndpointNames()); got.has("ep-t-stray") || !got.has("ep-t-theirs") || !got.has("ep-users") {
+		t.Errorf("after the sweep, network endpoints %v", got)
 	}
 }
 

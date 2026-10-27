@@ -80,6 +80,9 @@ type Fake struct {
 	vms        *kind[*hangarcompute.VirtualMachine]
 	secrets    *kind[*hangarsecrets.Secret]
 	images     *kind[*hangarstorage.CustomImage]
+	epsvcs     *kind[*hangarnetwork.EndpointService]
+	neps       *kind[*hangarnetwork.NetworkEndpoint]
+	sgs        *kind[*hangarnetwork.SecurityGroup]
 	machines   map[string]*hangarcompute.Machine
 	// globals are hangar's catalogue (AddImage); vmStates each VM
 	// instance's, by its uid; sshLn every VM's sshd. bootDelay is how long a
@@ -102,6 +105,23 @@ type Fake struct {
 	// built are the images the fake built, by reference, with the user
 	// each runs as.
 	built map[string]string
+	// The endpoints (endpoints.go): whether the fake is a hangar without
+	// them, why they are down, whether they drop what connects, how many
+	// connections they took, the credentials the shims carried, how many
+	// transits are given, each endpoint's listener and each system
+	// container's server, by its uid.
+	noEndpoints   bool
+	endpointsDown string
+	dropEndpoints bool
+	// blackhole holds what connects to an endpoint, answering nothing;
+	// serverDown keeps every system container's server down.
+	blackhole     bool
+	serverDown    bool
+	endpointConns int
+	credentials   []string
+	transits      int
+	proxies       map[string]*endpointProxy
+	servers       map[string]*server
 }
 
 var _ hangar.API = (*Fake)(nil)
@@ -110,7 +130,16 @@ var _ hangar.API = (*Fake)(nil)
 // each in a directory under dir.
 func New(guest, dir string, clock clockwork.Clock) *Fake {
 	f := &Fake{clock: clock, guest: guest, dir: dir, machines: map[string]*hangarcompute.Machine{}, installed: map[string]string{}, vmStates: map[string]*vmState{}}
-	f.networks = &kind[*hangarnetwork.Network]{f: f, what: "network", objs: map[string]*hangarnetwork.Network{}}
+	f.networks = &kind[*hangarnetwork.Network]{f: f, what: "network", objs: map[string]*hangarnetwork.Network{}, keepStatus: true}
+	f.networks.applied = f.networkApplied
+	f.epsvcs = &kind[*hangarnetwork.EndpointService]{f: f, what: "endpoint service", objs: map[string]*hangarnetwork.EndpointService{}, gated: true}
+	f.epsvcs.read = f.serviceRead
+	f.neps = &kind[*hangarnetwork.NetworkEndpoint]{f: f, what: "network endpoint", objs: map[string]*hangarnetwork.NetworkEndpoint{}, gated: true}
+	f.neps.applied = f.endpointApplied
+	f.neps.deleting = f.endpointDeleting
+	f.neps.read = f.endpointRead
+	f.sgs = &kind[*hangarnetwork.SecurityGroup]{f: f, what: "security group", objs: map[string]*hangarnetwork.SecurityGroup{}, gated: true}
+	f.sgs.deleting = f.sgDeleting
 	f.disks = &kind[*hangarstorage.Disk]{f: f, what: "disk", objs: map[string]*hangarstorage.Disk{}}
 	f.containers = &kind[*hangarcompute.Container]{f: f, what: "container", objs: map[string]*hangarcompute.Container{}}
 	f.vms = &kind[*hangarcompute.VirtualMachine]{f: f, what: "virtual machine", objs: map[string]*hangarcompute.VirtualMachine{}}
@@ -138,6 +167,12 @@ func (f *Fake) Close() {
 	for _, vm := range f.vms.objs {
 		f.stopVMLocked(vm)
 	}
+	for uid := range f.servers {
+		f.stopServerLocked(uid)
+	}
+	for _, p := range f.proxies {
+		_ = p.ln.Close()
+	}
 	if f.sshLn != nil {
 		_ = f.sshLn.Close()
 	}
@@ -163,6 +198,9 @@ func (f *Fake) ReleaseDeletes() {
 	f.networks.releaseLocked()
 	f.secrets.releaseLocked()
 	f.images.releaseLocked()
+	f.neps.releaseLocked()
+	f.epsvcs.releaseLocked()
+	f.sgs.releaseLocked()
 }
 
 // Installs is how many times tower-guest was written into a container.
@@ -243,7 +281,7 @@ func (f *Fake) usageLocked() *hangartenancy.Usage {
 		n, _ := strconv.ParseInt(strings.TrimSuffix(d.GetSpec().GetSize(), "Gi"), 10, 64)
 		gi += n
 	}
-	return &hangartenancy.Usage{Machines: f.machinesLocked(), Networks: int32(len(f.networks.objs)), Disk: strconv.FormatInt(gi, 10) + "Gi"}
+	return &hangartenancy.Usage{Machines: f.machinesLocked(), Networks: int32(len(f.networks.objs)), NetworkEndpoints: int32(len(f.neps.objs)), Disk: strconv.FormatInt(gi, 10) + "Gi"}
 }
 
 // Objects are the project's objects of a kind, for tests to look at.
@@ -286,6 +324,13 @@ func (f *Fake) containerApplied(ct *hangarcompute.Container, isNew bool) error {
 	if err := f.aliasesFreeLocked(ct.GetMetadata().GetName(), ct.GetSpec().GetInterfaces()); err != nil {
 		return err
 	}
+	for _, i := range ct.GetSpec().GetInterfaces() {
+		for _, g := range i.GetSecurityGroups() {
+			if sg, ok := f.sgs.objs[g]; !ok || sg.GetSpec().GetNetwork() != i.GetNetwork() {
+				return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("security group %s is not one of network %s", g, i.GetNetwork()))
+			}
+		}
+	}
 	name := "ct-" + ct.GetMetadata().GetName()
 	m, ok := f.machines[name]
 	if !ok {
@@ -323,6 +368,7 @@ func (f *Fake) containerApplied(ct *hangarcompute.Container, isNew bool) error {
 	case !running && m.GetStatus().GetPhase() == hangarcompute.MachinePhase_MACHINE_PHASE_RUNNING:
 		m.Status.Phase, m.Status.BootTime = hangarcompute.MachinePhase_MACHINE_PHASE_STOPPED, nil
 		f.killProcesses(ct.GetMetadata().GetUid())
+		f.stopServerLocked(ct.GetMetadata().GetUid())
 	}
 	return nil
 }
@@ -366,6 +412,7 @@ func (f *Fake) aliasesFreeLocked(self string, ifs []*hangarcompute.NetworkInterf
 // held.
 func (f *Fake) containerDeleting(ct *hangarcompute.Container) error {
 	f.killProcesses(ct.GetMetadata().GetUid())
+	f.stopServerLocked(ct.GetMetadata().GetUid())
 	delete(f.machines, "ct-"+ct.GetMetadata().GetName())
 	delete(f.installed, ct.GetMetadata().GetUid())
 	return os.RemoveAll(f.root(ct.GetMetadata().GetUid()))
@@ -421,6 +468,12 @@ func (f *Fake) networkDeleting(n *hangarnetwork.Network) error {
 			if i.GetNetwork() == n.GetMetadata().GetName() {
 				return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("network %s has VM %s on it", i.GetNetwork(), vm.GetMetadata().GetName()))
 			}
+		}
+	}
+	// Its endpoints are its own, which go with it.
+	for _, ne := range f.neps.objs {
+		if ne.GetSpec().GetNetwork() == n.GetMetadata().GetName() {
+			_ = f.neps.deleteLocked(ne)
 		}
 	}
 	return nil
@@ -537,6 +590,11 @@ func (f *Fake) shim(ctx context.Context, root string, stdin io.Reader, stdout, s
 		}
 		return p
 	}
+	if (h.Op == guestbin.OpFetch || h.Op == guestbin.OpPost) && h.Token != "" {
+		f.mu.Lock()
+		f.credentials = append(f.credentials, h.Token)
+		f.mu.Unlock()
+	}
 	h.Path, h.Root = under(h.Path), under(h.Root)
 	h.Dir = under(h.Dir)
 	if h.Dir == "" {
@@ -617,6 +675,12 @@ type kind[T object] struct {
 	// its error refuses the apply. deleting, if set, may refuse a delete.
 	applied  func(obj T, isNew bool) error
 	deleting func(obj T) error
+	// read, if set, writes an object's status as it is read; gated kinds
+	// are hangar#224's (WithoutEndpoints); keepStatus keeps the status an
+	// object was given across applies.
+	read       func(obj T)
+	gated      bool
+	keepStatus bool
 }
 
 func (k *kind[T]) names() []string {
@@ -636,12 +700,18 @@ func (k *kind[T]) Get(_ context.Context, name string) (T, error) {
 	if k.f.down != nil {
 		return zero, k.f.down
 	}
+	if err := k.f.unimplementedLocked(k.gated); err != nil {
+		return zero, err
+	}
 	if !validName.MatchString(name) {
 		return zero, connectError("invalid_argument", fmt.Sprintf("name: %q must be 1-63 lowercase letters, digits or '-', starting and ending with a letter or digit", name))
 	}
 	o, ok := k.objs[name]
 	if !ok {
 		return zero, fmt.Errorf("%s %s: %w", k.what, name, hangar.ErrNotFound)
+	}
+	if k.read != nil {
+		k.read(o)
 	}
 	return proto.Clone(o).(T), nil
 }
@@ -651,6 +721,9 @@ func (k *kind[T]) List(_ context.Context, selector string) ([]T, error) {
 	defer k.f.mu.Unlock()
 	if k.f.down != nil {
 		return nil, k.f.down
+	}
+	if err := k.f.unimplementedLocked(k.gated); err != nil {
+		return nil, err
 	}
 	want := map[string]string{}
 	for _, term := range strings.Split(selector, ",") {
@@ -667,6 +740,9 @@ func (k *kind[T]) List(_ context.Context, selector string) ([]T, error) {
 			}
 		}
 		if match {
+			if k.read != nil {
+				k.read(o)
+			}
 			out = append(out, proto.Clone(o).(T))
 		}
 	}
@@ -679,6 +755,9 @@ func (k *kind[T]) Apply(_ context.Context, obj T) (T, error) {
 	var zero T
 	if k.f.down != nil {
 		return zero, k.f.down
+	}
+	if err := k.f.unimplementedLocked(k.gated); err != nil {
+		return zero, err
 	}
 	o := proto.Clone(obj).(T)
 	meta := o.GetMetadata()
@@ -695,6 +774,9 @@ func (k *kind[T]) Apply(_ context.Context, obj T) (T, error) {
 	old, had := k.objs[meta.GetName()]
 	if had {
 		meta.Uid, meta.CreateTime, meta.Generation = old.GetMetadata().GetUid(), old.GetMetadata().GetCreateTime(), old.GetMetadata().GetGeneration()+1
+		if k.keepStatus {
+			keepStatus(old, o)
+		}
 	} else {
 		meta.Uid, meta.CreateTime, meta.Generation = k.f.uidLocked(), timestamppb.New(k.f.clock.Now()), 1
 	}
@@ -712,6 +794,9 @@ func (k *kind[T]) Delete(_ context.Context, name string) error {
 	defer k.f.mu.Unlock()
 	if k.f.down != nil {
 		return k.f.down
+	}
+	if err := k.f.unimplementedLocked(k.gated); err != nil {
+		return err
 	}
 	o, ok := k.objs[name]
 	if !ok {
@@ -757,3 +842,11 @@ func connectError(code, msg string) error {
 
 // validName is what hangar takes as an object's name: a DNS label.
 var validName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
+
+// keepStatus copies old's status field into o.
+func keepStatus[T object](old, o T) {
+	fd := old.ProtoReflect().Descriptor().Fields().ByName("status")
+	if fd != nil && old.ProtoReflect().Has(fd) {
+		o.ProtoReflect().Set(fd, old.ProtoReflect().Get(fd))
+	}
+}

@@ -44,15 +44,37 @@ Traffic is split by who needs the bytes, not by size:
   has tokens scoped to one machine and port, short-lived; hangar does not
   take tickets tower signs, which would make it know tower
   (`layers.md`).
-- **A hangar target's checkouts and pushes pass through tower,** a second
-  exception, to point 1. Its mirrors are in its system container, on a
-  network of its own, which hangar keeps apart from every workstream's
-  and routes nothing between (a machine joins at most eight networks), so
-  a checkout's tar, an origin's and a push's `.git` cross from one to the
-  other through tower, read out of one and written into the other
-  (`internal/provider/hangar`). Builds read a mirror where it is. The way
-  out is a service one machine offers other networks of its project,
-  which hangar does not have yet (hangar#219).
+- **A hangar target's checkouts and pushes go between the box and the
+  system container directly, over hangar's endpoint service** (hangar#224,
+  `endpoint-services.md` in hangar). Its mirrors are in its system
+  container, on a network of its own, which hangar keeps apart from every
+  workstream's (a machine joins at most eight networks). The container
+  offers its server's port (`tower-system serve`, `internal/system`) as an
+  EndpointService to the target's networks. Each workstream network has a
+  NetworkEndpoint, and a security group on the container lets each
+  network in by name. The tars are the ones the relay carried, made by the
+  same code. The box's tower-guest takes a checkout's or an origin's tar,
+  or posts a push's `.git`, on a credential tower grants for that one
+  operation:
+  - **The credential.** tower registers it with the server through hangar's
+    exec. It is bound to the operation, the mirror, its ref or branch, the
+    box's network and two minutes, and it reaches the box only in its
+    tower-guest call's header, never its environment, a file or a log.
+  - **The server's checks.** It takes the credential once, and only from
+    the transit address of that network, which tower gives it with the
+    network's tower project. It refuses a mirror not of that project.
+  - **What it never sends.** A push's token stays in the server.
+
+  An operation goes this way when the service is Serving, the network's
+  endpoint Connected, and a probe from the box reaches the server: hangar
+  may report an endpoint Connected that is not (hangar#226). A hangar
+  without the kinds, an endpoint not made (the project's quota) or not
+  Connected, and a failed probe each leave the operation **relayed
+  through tower**, a second exception to point 1: read out of
+  one network and written into the other (`internal/provider/hangar`).
+  The target's facts `mirror transport` and `mirror transfers` say which
+  way they go, and why the last was relayed. Builds read a mirror where it
+  is.
 - **tower reaches root in a hangar target's VM with its own SSH, over
   hangar's port forward to the VM's port 22,** as hostd reaches its VMs
   over their address (`internal/guest/vmssh`). hangar's exec into a VM is

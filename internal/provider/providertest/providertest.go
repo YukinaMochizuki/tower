@@ -57,34 +57,45 @@ type Harness struct {
 	RemoteDockerfile string
 }
 
+// Names are the suite's tests, as Harness.Skip names them.
+func Names() []string {
+	var out []string
+	for _, tt := range suite {
+		out = append(out, tt.name)
+	}
+	return out
+}
+
+// suite is the suite's tests, by name.
+var suite = []struct {
+	name string
+	fn   func(*testing.T, Harness)
+}{
+	{"InstancesRun", testInstancesRun},
+	{"Exec", testExec},
+	{"EnvironmentIsPerCommand", testEnvironmentIsPerCommand},
+	{"Files", testFiles},
+	{"Copy", testCopy},
+	{"WhatIsNotThere", testWhatIsNotThere},
+	{"BuildImage", testBuildImage},
+	{"ResolveImage", testResolveImage},
+	{"ReadAndBuildAMirror", testReadAndBuildAMirror},
+	{"CaptureAndClone", testCaptureAndClone},
+	{"VMs", testVMs},
+	{"VMCaptureAndClone", testVMCaptureAndClone},
+	{"MirrorAndCheckout", testMirrorAndCheckout},
+	{"PushNeedsItsLease", testPushNeedsItsLease},
+	{"Ticket", testTicket},
+	{"ProcessOutput", testProcessOutput},
+	{"ProcessReattach", testProcessReattach},
+	{"ProcessSignalAndList", testProcessSignalAndList},
+	{"ProcessesDieWithTheirInstance", testProcessesDieWithTheirInstance},
+	{"ProcessLimits", testProcessLimits},
+}
+
 // Run runs the suite.
 func Run(t *testing.T, h Harness) {
-	tests := []struct {
-		name string
-		fn   func(*testing.T, Harness)
-	}{
-		{"InstancesRun", testInstancesRun},
-		{"Exec", testExec},
-		{"EnvironmentIsPerCommand", testEnvironmentIsPerCommand},
-		{"Files", testFiles},
-		{"Copy", testCopy},
-		{"WhatIsNotThere", testWhatIsNotThere},
-		{"BuildImage", testBuildImage},
-		{"ResolveImage", testResolveImage},
-		{"ReadAndBuildAMirror", testReadAndBuildAMirror},
-		{"CaptureAndClone", testCaptureAndClone},
-		{"VMs", testVMs},
-		{"VMCaptureAndClone", testVMCaptureAndClone},
-		{"MirrorAndCheckout", testMirrorAndCheckout},
-		{"PushNeedsItsLease", testPushNeedsItsLease},
-		{"Ticket", testTicket},
-		{"ProcessOutput", testProcessOutput},
-		{"ProcessReattach", testProcessReattach},
-		{"ProcessSignalAndList", testProcessSignalAndList},
-		{"ProcessesDieWithTheirInstance", testProcessesDieWithTheirInstance},
-		{"ProcessLimits", testProcessLimits},
-	}
-	for _, tt := range tests {
+	for _, tt := range suite {
 		t.Run(tt.name, func(t *testing.T) {
 			if why, ok := h.Skip[tt.name]; ok {
 				t.Skip(why)
@@ -508,45 +519,54 @@ func testCaptureAndClone(t *testing.T, h Harness) {
 	}
 }
 
+// testMirrorAndCheckout: a mirror is named after the project of the
+// instances that take it, as tower names one ("web/api"): a target may
+// refuse an instance a mirror of another project's.
 func testMirrorAndCheckout(t *testing.T, h Harness) {
 	ctx := t.Context()
-	head, err := h.Provider.Fetch(ctx, provider.FetchRequest{Mirror: "conformance/repo", URL: h.Remote, Branch: h.Branch})
+	in, _ := h.start(t, "checkout", h.container("net-a", "checkout"))
+	mirror := in.Project + "/conformance-repo"
+	head, err := h.Provider.Fetch(ctx, provider.FetchRequest{Mirror: mirror, URL: h.Remote, Branch: h.Branch})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if head == "" || (h.RemoteHead != "" && head != h.RemoteHead) {
 		t.Errorf("fetched to %q, want %q", head, h.RemoteHead)
 	}
-	if n, err := h.Provider.CommitsBehind(ctx, "conformance/repo", head, h.Branch); err != nil || n != 0 {
+	if n, err := h.Provider.CommitsBehind(ctx, mirror, head, h.Branch); err != nil || n != 0 {
 		t.Errorf("the head is %d commits behind its branch, %v", n, err)
 	}
-	in, _ := h.start(t, "checkout", h.container("net-a", "checkout"))
-	commit, err := h.Provider.Checkout(ctx, in, "conformance/repo", "", "/workspace")
+	commit, err := h.Provider.Checkout(ctx, in, mirror, "", "/workspace")
 	if err != nil || commit != head {
 		t.Errorf("checked out %q, %v; want %q", commit, err, head)
 	}
-	if _, err := h.Provider.Checkout(ctx, in, "conformance/never-fetched", "", "/repos/x"); !errors.Is(err, provider.ErrNotFound) {
+	var gitHead bytes.Buffer
+	if err := h.Provider.ReadFile(ctx, in, "/workspace/.git/HEAD", &gitHead); err != nil || gitHead.Len() == 0 {
+		t.Errorf("the checkout's .git/HEAD: %q, %v", gitHead.String(), err)
+	}
+	if _, err := h.Provider.Checkout(ctx, in, in.Project+"/never-fetched", "", "/repos/x"); !errors.Is(err, provider.ErrNotFound) {
 		t.Errorf("checking out a mirror never fetched: %v, want ErrNotFound", err)
 	}
-	if err := h.Provider.UpdateOrigin(ctx, in, "conformance/repo", "/workspace"); err != nil {
+	if err := h.Provider.UpdateOrigin(ctx, in, mirror, "/workspace"); err != nil {
 		t.Errorf("updating the checkout's origin: %v", err)
 	}
-	if err := h.Provider.UpdateOrigin(ctx, in, "conformance/never-fetched", "/workspace"); !errors.Is(err, provider.ErrNotFound) {
+	if err := h.Provider.UpdateOrigin(ctx, in, in.Project+"/never-fetched", "/workspace"); !errors.Is(err, provider.ErrNotFound) {
 		t.Errorf("updating an origin from a mirror never fetched: %v, want ErrNotFound", err)
 	}
 }
 
 func testPushNeedsItsLease(t *testing.T, h Harness) {
 	ctx := t.Context()
-	head, err := h.Provider.Fetch(ctx, provider.FetchRequest{Mirror: "conformance/push", URL: h.Remote, Branch: h.Branch})
+	in, _ := h.start(t, "push", h.container("net-a", "push"))
+	mirror := in.Project + "/conformance-push"
+	head, err := h.Provider.Fetch(ctx, provider.FetchRequest{Mirror: mirror, URL: h.Remote, Branch: h.Branch})
 	if err != nil {
 		t.Fatal(err)
 	}
-	in, _ := h.start(t, "push", h.container("net-a", "push"))
-	if _, err := h.Provider.Checkout(ctx, in, "conformance/push", "", "/workspace"); err != nil {
+	if _, err := h.Provider.Checkout(ctx, in, mirror, "", "/workspace"); err != nil {
 		t.Fatal(err)
 	}
-	req := provider.PushRequest{Instance: in, Dir: "/workspace", Mirror: "conformance/push", URL: h.Remote, Branch: h.Branch, Lease: "0000000"}
+	req := provider.PushRequest{Instance: in, Dir: "/workspace", Mirror: mirror, URL: h.Remote, Branch: h.Branch, Lease: "0000000"}
 	if err := h.Provider.Push(ctx, req); !errors.Is(err, provider.ErrLeaseLost) {
 		t.Errorf("a push on a lease the branch is not at: %v, want ErrLeaseLost", err)
 	}

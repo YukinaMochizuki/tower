@@ -19,6 +19,9 @@ var (
 	ErrBadOffset = errors.New("guest: the chunk does not start where the file ends")
 	// ErrNoProcess means the guest keeps no process of the id.
 	ErrNoProcess = errors.New("guest: no such process")
+	// ErrUnreachable means a transfer's probe failed in the guest: the
+	// server is not reached from it, and nothing was sent.
+	ErrUnreachable = errors.New("guest: the server is not reached from the guest")
 )
 
 // ExecSpec is one command run in a guest.

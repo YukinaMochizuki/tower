@@ -6,7 +6,13 @@
 // header on its stdin, the call's data in frames after it; it is reached
 // by hangar's exec. What a call needs of a secret (a repository's token, a
 // registry login, a tailnet's auth key) is in its header's Env alone, for
-// that call: nothing keeps it.
+// that call: nothing keeps it, but a grant's, which the server keeps until
+// it is used or expires.
+//
+// Beside the calls, the image runs `tower-system serve` (server.go): what a
+// box takes of a mirror, or pushes, goes between the box's tower-guest and
+// it directly, over hangar's EndpointService, on a single-use credential
+// tower grants it through a call (docs/decisions/traffic.md).
 //
 // The mirrors are hostd's git driver's (internal/hostd/driver/gitmirror),
 // in a directory of the container's disk; builds are its image driver's
@@ -46,8 +52,26 @@ type Header struct {
 	Image      string `json:"image,omitempty"`
 	// Hostname is the name the container joins the tailnet as.
 	Hostname string `json:"hostname,omitempty"`
+	// Grant: the operation granted (GrantCheckout, GrantOrigin or
+	// GrantPush), the workstream network the box asking it is on, and how
+	// long the credential holds, in seconds; Sources, with it the network's
+	// own, and alone in a sources call every network's.
+	Grant   string   `json:"grant,omitempty"`
+	Network string   `json:"network,omitempty"`
+	TTL     int      `json:"ttl,omitempty"`
+	Sources []Source `json:"sources,omitempty"`
 	// Env holds the call's secrets, by the names below.
 	Env map[string]string `json:"env,omitempty"`
+}
+
+// Source is a workstream network as the server sees it: what reaches the
+// server through the network's NetworkEndpoint comes from Address, the
+// network's transit address, and the network is the tower project's
+// Project.
+type Source struct {
+	Network string `json:"network"`
+	Project string `json:"project"`
+	Address string `json:"address"`
 }
 
 // The operations.
@@ -62,6 +86,20 @@ const (
 	OpResolve   = "resolve"
 	OpStatus    = "status"
 	OpTailnetUp = "tailnet-up"
+	// OpGrant registers a credential with the server; OpSources gives it
+	// every workstream network's Source, keeping those of the networks a
+	// live grant is for.
+	OpGrant   = "grant"
+	OpSources = "sources"
+	// OpRevoke takes back a credential not presented.
+	OpRevoke = "revoke"
+)
+
+// The operations a grant is for, each the server's path of its own.
+const (
+	GrantCheckout = "checkout"
+	GrantOrigin   = "origin"
+	GrantPush     = "push"
 )
 
 // Names of Header.Env.
@@ -70,6 +108,8 @@ const (
 	EnvRegistryUsername = "REGISTRY_USERNAME"
 	EnvRegistryPassword = "REGISTRY_PASSWORD"
 	EnvTailnetAuthKey   = "TAILNET_AUTH_KEY"
+	// EnvCredential is a grant's credential.
+	EnvCredential = "CREDENTIAL"
 )
 
 // Exit codes of a call that failed, its message on stderr.
@@ -97,6 +137,8 @@ type Result struct {
 	// container is on the tailnet.
 	BuildKit string `json:"buildkit,omitempty"`
 	Tailnet  bool   `json:"tailnet,omitempty"`
+	// Serving says the server answers on its control socket.
+	Serving bool `json:"serving,omitempty"`
 }
 
 // writeHeader writes a call's header frame.

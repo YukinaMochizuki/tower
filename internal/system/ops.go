@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/YukinaMochizuki/tower/internal/guest/guestbin"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
@@ -185,6 +186,44 @@ func (o Ops) Status(ctx context.Context) (Result, error) {
 // JoinTailnet joins the container to the tailnet as hostname, with key.
 func (o Ops) JoinTailnet(ctx context.Context, hostname, key string) error {
 	_, err := o.call(ctx, Header{Op: OpTailnetUp, Hostname: hostname, Env: secret(EnvTailnetAuthKey, key)}, nil, nil)
+	return err
+}
+
+// GrantSpec is what a credential lets one request of a box do: Op on
+// Mirror (at Ref, or for a push to URL's Branch on Lease with Token),
+// from Network's address, for TTL. Sources are given the server with it:
+// Network's own, at least.
+type GrantSpec struct {
+	Credential                                 string
+	Op, Mirror, Ref, URL, Branch, Lease, Token string
+	Network                                    string
+	TTL                                        time.Duration
+	Sources                                    []Source
+}
+
+// Grant registers a credential with the server.
+func (o Ops) Grant(ctx context.Context, g GrantSpec) error {
+	env := map[string]string{EnvCredential: g.Credential}
+	if g.Token != "" {
+		env[EnvToken] = g.Token
+	}
+	_, err := o.call(ctx, Header{
+		Op: OpGrant, Grant: g.Op, Mirror: g.Mirror, Ref: g.Ref, URL: g.URL, Branch: g.Branch, Lease: g.Lease,
+		Network: g.Network, TTL: int(g.TTL / time.Second), Sources: g.Sources, Env: env,
+	}, nil, nil)
+	return err
+}
+
+// Revoke takes back a credential the server holds, as one not to be
+// presented.
+func (o Ops) Revoke(ctx context.Context, credential string) error {
+	_, err := o.call(ctx, Header{Op: OpRevoke, Env: map[string]string{EnvCredential: credential}}, nil, nil)
+	return err
+}
+
+// Sources gives the server every workstream network it serves.
+func (o Ops) Sources(ctx context.Context, srcs []Source) error {
+	_, err := o.call(ctx, Header{Op: OpSources, Sources: srcs}, nil, nil)
 	return err
 }
 

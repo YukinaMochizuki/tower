@@ -25,6 +25,12 @@ type API interface {
 	VirtualMachines() Kind[*hangarcompute.VirtualMachine]
 	Secrets() Kind[*hangarsecrets.Secret]
 	CustomImages() Kind[*hangarstorage.CustomImage]
+	// EndpointServices, NetworkEndpoints and SecurityGroups are a hangar's
+	// with hangar#224; one without answers their calls with Connect's
+	// Unimplemented.
+	EndpointServices() Kind[*hangarnetwork.EndpointService]
+	NetworkEndpoints() Kind[*hangarnetwork.NetworkEndpoint]
+	SecurityGroups() Kind[*hangarnetwork.SecurityGroup]
 	// ProjectName is the project's name, which a Disk names to be made from
 	// one of its CustomImages.
 	ProjectName() string

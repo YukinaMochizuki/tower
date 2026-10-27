@@ -78,8 +78,11 @@ runs tower-guest in a container over hangar's exec, and in a VM over its
 own SSH as root (`internal/guest/vmssh`, which hostd's VMs use too)
 through hangar's port forward, pinning the host key a VM first answers
 with (`docs/decisions/traffic.md`). Its mirrors and builds are in a
-system container of the target's own (`internal/system`), and its
-goldens are hangar CustomImages captured from a stopped instance's disk.
+system container of the target's own (`internal/system`), whose server
+boxes reach over a hangar EndpointService, one NetworkEndpoint per
+workstream network, for their checkouts and pushes, which tower relays
+where hangar cannot carry them; its goldens are hangar CustomImages
+captured from a stopped instance's disk.
 
 ## Data flow
 

@@ -20,6 +20,7 @@ import (
 	hangarnetwork "github.com/YukinaMochizuki/hangar/gen/go/hangar/network/v1alpha1"
 	hangarstorage "github.com/YukinaMochizuki/hangar/gen/go/hangar/storage/v1alpha1"
 
+	"github.com/YukinaMochizuki/tower/internal/guest/guestops"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/system"
@@ -30,9 +31,11 @@ import (
 // its own, with a Disk at SystemRoot, running the system image, which
 // joins the tailnet to push to tower's registry. tower runs tower-system
 // in it, a call at a time, through hangar's exec. What a box takes of a
-// mirror (a checkout, its origin, a push's objects) crosses as a tar,
-// relayed through tower, as the box and the system container are on
-// networks hangar keeps apart (docs/decisions/traffic.md).
+// mirror (a checkout, its origin, a push's objects) crosses as a tar:
+// between the box and the container's server over hangar's endpoint
+// where it can (endpoint.go), else relayed through tower, as the box and
+// the system container are on networks hangar keeps apart
+// (docs/decisions/traffic.md).
 
 // What the system container is made with.
 const (
@@ -69,15 +72,30 @@ type systemState struct {
 	// ready says tower-system answers in it, and why not when it does not.
 	ready bool
 	why   string
-	// buildkit and tailnet are its last status.
+	// buildkit, tailnet and serving are its last status.
 	buildkit string
 	tailnet  bool
+	serving  bool
 }
 
 func (s *systemState) set(ready bool, why string, st system.Result) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.ready, s.why, s.buildkit, s.tailnet = ready, why, st.BuildKit, st.Tailnet
+	s.ready, s.why, s.buildkit, s.tailnet, s.serving = ready, why, st.BuildKit, st.Tailnet, st.Serving
+}
+
+// notServing says why the server in the system container is not to be
+// reached, "" if it answered at the last check.
+func (s *systemState) notServing() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case !s.ready:
+		return "the system container does not answer"
+	case !s.serving:
+		return "tower-system serve does not answer in the system container"
+	}
+	return ""
 }
 
 func (s *systemState) get() (bool, string, string, bool) {
@@ -153,12 +171,16 @@ func (t *Target) makeSystem(ctx context.Context) (*hangarcompute.Container, erro
 	if err != nil {
 		return nil, err
 	}
+	groups, err := t.ensureEndpointService(ctx, name, labels)
+	if err != nil {
+		return nil, fmt.Errorf("the system container's security groups: %w", err)
+	}
 	want := &hangarcompute.ContainerSpec{
 		Image:         t.asPulled(t.cfg.SystemImage),
 		RestartPolicy: hangarcompute.RestartPolicy_RESTART_POLICY_ALWAYS,
 		RunState:      hangarcompute.ContainerRunState_CONTAINER_RUN_STATE_RUNNING,
 		Resources:     &hangarcompute.Resources{Cpu: or(t.cfg.SystemCPU, DefaultSystemCPU), Memory: or(t.cfg.SystemMemory, DefaultSystemMemory)},
-		Interfaces:    []*hangarcompute.NetworkInterface{{Network: name}},
+		Interfaces:    []*hangarcompute.NetworkInterface{{Network: name, SecurityGroups: groups}},
 		Volumes:       []*hangarcompute.ContainerVolume{{Type: "volume", Source: name, Target: SystemRoot}},
 		Env:           []*hangarcompute.EnvVar{{Name: "TOWER_REGISTRY", Value: t.cfg.Registry}},
 	}
@@ -214,6 +236,14 @@ func (t *Target) checkSystem(ctx context.Context, ct *hangarcompute.Container) e
 			t.log.Warn("the system container did not join the tailnet", "error", err)
 		} else {
 			st.Tailnet = true
+		}
+	}
+	if st.Serving {
+		sync, cancel := context.WithTimeout(ctx, systemCheck)
+		err := t.syncSources(sync, o)
+		cancel()
+		if err != nil {
+			t.log.Warn("giving the system container's server the networks", "error", err)
 		}
 	}
 	t.sys.set(true, "", st)
@@ -324,17 +354,27 @@ func (t *Target) CommitsBehind(ctx context.Context, mirror, commit, branch strin
 	return n, driverError(err)
 }
 
-// Checkout relays a clone of the mirror from the system container into
-// the instance at dir.
+// Checkout brings a clone of the mirror from the system container into
+// the instance at dir, over its network's endpoint or relayed.
 func (t *Target) Checkout(ctx context.Context, in provider.Instance, mirror, ref, dir string) (string, error) {
 	o, err := t.sysOps()
 	if err != nil {
 		return "", err
 	}
-	_, box, err := t.running(ctx, in)
+	p, box, err := t.running(ctx, in)
 	if err != nil {
 		return "", err
 	}
+	res, done, why, err := t.overEndpoint(ctx, o, p, box, system.GrantSpec{Op: system.GrantCheckout, Mirror: mirror, Ref: ref}, path.Clean("/"+dir))
+	if done {
+		return res.Commit, driverError(err)
+	}
+	t.relaying(p, system.GrantCheckout, why)
+	return t.relayCheckout(ctx, o, box, mirror, ref, dir)
+}
+
+// relayCheckout relays a clone of the mirror through tower.
+func (t *Target) relayCheckout(ctx context.Context, o system.Ops, box guestops.Ops, mirror, ref, dir string) (string, error) {
 	pr, pw := io.Pipe()
 	type result struct {
 		commit string
@@ -346,7 +386,7 @@ func (t *Target) Checkout(ctx context.Context, in provider.Instance, mirror, ref
 		pw.CloseWithError(err)
 		done <- result{commit, err}
 	}()
-	cerr := box.CopyIn(ctx, path.Clean("/"+dir), pr)
+	cerr := box.CopyIn(ctx, path.Clean("/"+dir), t.counted(pr))
 	_ = pr.CloseWithError(errRelayEnded)
 	res := <-done
 	if res.err != nil && !errors.Is(res.err, errRelayEnded) {
@@ -359,51 +399,68 @@ func (t *Target) Checkout(ctx context.Context, in provider.Instance, mirror, ref
 	return res.commit, driverError(res.err)
 }
 
-// UpdateOrigin relays what brings a checkout's origin/* up to its mirror
-// into the instance's checkout.
+// UpdateOrigin brings what brings a checkout's origin/* up to its mirror
+// into the instance's checkout, over its network's endpoint or relayed.
 func (t *Target) UpdateOrigin(ctx context.Context, in provider.Instance, mirror, dir string) error {
 	o, err := t.sysOps()
 	if err != nil {
 		return err
 	}
-	_, box, err := t.running(ctx, in)
+	p, box, err := t.running(ctx, in)
 	if err != nil {
 		return err
 	}
+	gitDir := path.Join(path.Clean("/"+dir), ".git")
+	_, done, why, err := t.overEndpoint(ctx, o, p, box, system.GrantSpec{Op: system.GrantOrigin, Mirror: mirror}, gitDir)
+	if done {
+		return driverError(err)
+	}
+	t.relaying(p, system.GrantOrigin, why)
 	pr, pw := io.Pipe()
-	done := make(chan error, 1)
+	relayed := make(chan error, 1)
 	go func() {
 		err := o.Origin(ctx, mirror, pw)
 		pw.CloseWithError(err)
-		done <- err
+		relayed <- err
 	}()
-	cerr := box.CopyIn(ctx, path.Join(path.Clean("/"+dir), ".git"), pr)
+	cerr := box.CopyIn(ctx, gitDir, t.counted(pr))
 	_ = pr.CloseWithError(errRelayEnded)
-	if err := <-done; err != nil && !errors.Is(err, errRelayEnded) {
+	if err := <-relayed; err != nil && !errors.Is(err, errRelayEnded) {
 		return driverError(err)
 	}
 	return guestError(cerr)
 }
 
-// Push relays the checkout's .git out of the instance into the system
-// container, which pushes it: the token never enters the instance.
+// Push takes the checkout's .git out of the instance into the system
+// container, over its network's endpoint or relayed, which pushes it: the
+// token never enters the instance.
 func (t *Target) Push(ctx context.Context, req provider.PushRequest) error {
 	o, err := t.sysOps()
 	if err != nil {
 		return err
 	}
-	_, box, err := t.running(ctx, req.Instance)
+	p, box, err := t.running(ctx, req.Instance)
 	if err != nil {
 		return err
 	}
+	gitDir := path.Join(path.Clean("/"+req.Dir), ".git")
+	g := system.GrantSpec{Op: system.GrantPush, Mirror: req.Mirror, URL: req.URL, Token: req.Token, Branch: req.Branch, Lease: req.Lease}
+	_, done, why, err := t.overEndpoint(ctx, o, p, box, g, gitDir)
+	if done {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("%s is no checkout: %w", req.Dir, provider.ErrFailed)
+		}
+		return driverError(err)
+	}
+	t.relaying(p, system.GrantPush, why)
 	pr, pw := io.Pipe()
 	copied := make(chan error, 1)
 	go func() {
-		err := box.CopyOut(ctx, path.Join(path.Clean("/"+req.Dir), ".git"), pw)
+		err := box.CopyOut(ctx, gitDir, pw)
 		pw.CloseWithError(err)
 		copied <- err
 	}()
-	err = o.Push(ctx, driver.PushSpec{Mirror: req.Mirror, URL: req.URL, Token: req.Token, Branch: req.Branch, Lease: req.Lease}, pr)
+	err = o.Push(ctx, driver.PushSpec{Mirror: req.Mirror, URL: req.URL, Token: req.Token, Branch: req.Branch, Lease: req.Lease}, t.counted(pr))
 	_ = pr.CloseWithError(errRelayEnded)
 	// The box's side failing ends the system container's call, whose own
 	// error then says only that it was cut short.
