@@ -23,8 +23,9 @@ const (
 )
 
 // Placement says where a project's environments run. Its name is the
-// project's. It is an administrator's, apart from the Project workstream
-// applies, because the two have different owners. A project with no
+// project's. It is apart from the Project because it outlives it and is
+// set by a person, in workstream or with the CLI; workstream may apply
+// one but not delete one. A project with no
 // Placement materializes nothing: its environments wait as UNPLACED, never
 // on a default target. See docs/decisions/placement.md.
 type Placement struct {

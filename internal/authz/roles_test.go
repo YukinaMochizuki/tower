@@ -43,7 +43,7 @@ func TestTheRoleTable(t *testing.T) {
 		{"workstream", token(iamv1alpha1.Role_ROLE_WORKSTREAM), map[string][]authz.Verb{
 			registry.Project.Kind: writes, registry.Secret.Kind: writes,
 			registry.Repository.Kind: writes, registry.Box.Kind: writes, registry.Machine.Kind: writes,
-			registry.Target.Kind: reads, registry.Placement.Kind: reads,
+			registry.Target.Kind: reads, registry.Placement.Kind: {authz.Get, authz.List, authz.Watch, authz.Apply},
 			registry.Golden.Kind: reads, registry.Instance.Kind: reads,
 		}},
 		// On its own target's objects alone, which the apiserver checks.

@@ -23,7 +23,7 @@ which of them it is, not only that it is on the tailnet.
   | Role | May |
   |---|---|
   | `ROLE_ADMIN` | manage tower: targets, projects, tokens, secrets |
-  | `ROLE_WORKSTREAM` | state intents in every project and drive their environments, including push and commands on a privileged box |
+  | `ROLE_WORKSTREAM` | state intents in every project and drive their environments, including push and commands on a privileged box; pick a project's target (apply, not delete, a Placement) |
   | `ROLE_HOSTD` | read the objects of its one target and report their status |
 
   A token that needs another role is another token.
