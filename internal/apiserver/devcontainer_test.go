@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"maps"
 	"slices"
@@ -18,6 +19,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/devcontainer"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/store"
+	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
 // realResolver is a world whose boxes are made of their repositories'
@@ -262,5 +264,32 @@ func TestABoxOfARepositoryWithoutADevcontainerFallsBack(t *testing.T) {
 	}
 	if got := setup.got(); len(got) != 0 {
 		t.Errorf("a box fallen back set up with %q", got)
+	}
+}
+
+// TestABoxSaysWhyItsImageIsNotResolved: a registry that errors (not one
+// that lacks the image) keeps a box PENDING while its image is resolved
+// again, and its Ready condition says why, so that a caller waiting on it
+// sees the reason; once the registry answers, it comes up.
+func TestABoxSaysWhyItsImageIsNotResolved(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, realResolver())
+	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{".devcontainer.json": `{"image": "ardge/devcontainer-base:26.10.5"}`}, "c1")
+	w.fake.FailResolves(errors.New(`Head "https://ardge/v2/devcontainer-base/manifests/26.10.5": Internal Server Error`))
+	w.mustApply(registry.Repository, repository("api"))
+	w.mustApply(registry.Box, box("dev", "api"))
+	testutil.Eventually(t, "the box saying why it waits", func() (bool, string) {
+		b := w.box("dev")
+		c := condition(b.GetStatus().GetConditions(), apiserver.BoxReady)
+		return b.GetStatus().GetPhase() == envv1alpha1.BoxPhase_BOX_PHASE_PENDING && c.GetReason() == "ImageUnresolved" &&
+			strings.Contains(c.GetMessage(), "Internal Server Error"), b.GetStatus().String()
+	})
+	w.fake.FailResolves(nil)
+	// Its retry is pending, so the controllers never settle: move the clock
+	// past the longest backoff instead.
+	w.clock.Advance(controllerMaxWait)
+	b := w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_READY)
+	if c := condition(b.GetStatus().GetConditions(), apiserver.BoxReady); c.GetStatus() != metav1.ConditionStatus_CONDITION_STATUS_TRUE {
+		t.Errorf("Ready %v once the registry answers", c)
 	}
 }

@@ -165,6 +165,10 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 			return nil
 		}
 		if err != nil {
+			// Retried, and said meanwhile: a registry that errors, or a
+			// target that does not answer, otherwise keeps a box PENDING
+			// with no reason anyone outside tower's log can read.
+			bs.cond(BoxReady, false, "ImageUnresolved", "resolving its image, retried: "+err.Error())
 			return err
 		}
 		if name == "" {

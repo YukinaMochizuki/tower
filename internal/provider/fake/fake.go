@@ -100,6 +100,8 @@ type Fake struct {
 	buildErr     error
 	// mirrorBuildErr fails builds from a mirror's work tree alone.
 	mirrorBuildErr error
+	// resolveErr fails every ResolveImage, as a registry that errors does.
+	resolveErr error
 	// holdBuilds, while set, holds every build until it is closed.
 	holdBuilds   chan struct{}
 	captureErr   error
@@ -472,6 +474,10 @@ func (f *Fake) SetUnavailable(down bool) {
 		}
 	}
 }
+
+// FailResolves makes every ResolveImage fail with err, as a registry that
+// answers with an error does, or succeed again with nil.
+func (f *Fake) FailResolves(err error) { f.mu.Lock(); f.resolveErr = err; f.mu.Unlock() }
 
 // FailBuilds makes every build fail with err, or succeed again with nil.
 func (f *Fake) FailBuilds(err error) { f.mu.Lock(); f.buildErr = err; f.mu.Unlock() }
@@ -1028,6 +1034,9 @@ func (f *Fake) ResolveImage(_ context.Context, ref string) (provider.ImageConfig
 	defer f.mu.Unlock()
 	if err := f.answering(); err != nil {
 		return provider.ImageConfig{}, err
+	}
+	if f.resolveErr != nil {
+		return provider.ImageConfig{}, f.resolveErr
 	}
 	if f.missingImages[ref] {
 		return provider.ImageConfig{}, fmt.Errorf("image %s: %w", ref, provider.ErrNotFound)
