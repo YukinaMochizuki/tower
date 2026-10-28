@@ -158,11 +158,12 @@ type Resolver interface {
 	Warm(ctx context.Context, p provider.Provider, mirror, commit string) (Warm, error)
 }
 
-// Fake resolves from the request alone, as a repository whose
+// Fake resolves images from the request alone, as a repository whose
 // devcontainer never changes would: every commit of one mirror is one
-// image, and a warm checkout depends on its commit. Steps are what a box
-// of a devcontainer runs, and Prebuild, after install-dependencies, what a
-// warm checkout's pre-build does.
+// image, and a warm checkout depends on the mirror's FakeToolchainFile and
+// FakeLockfile at its commit, and on Prebuild. Steps are what a box of a
+// devcontainer runs, and Prebuild, after install-dependencies, what a warm
+// checkout's pre-build does.
 type Fake struct {
 	Steps    []Step
 	Prebuild []Step
@@ -220,14 +221,27 @@ func (f Fake) Setup(_ context.Context, _ provider.Provider, req Request) ([]Step
 	return f.Steps, nil
 }
 
-func (f Fake) Warm(_ context.Context, _ provider.Provider, mirror, commit string) (Warm, error) {
+// The files Fake's warm checkouts depend on.
+const (
+	FakeToolchainFile = "mise.toml"
+	FakeLockfile      = "go.sum"
+)
+
+func (f Fake) Warm(ctx context.Context, p provider.Provider, mirror, commit string) (Warm, error) {
+	read, err := p.ReadMirror(ctx, provider.MirrorReadRequest{
+		MirrorSource: provider.MirrorSource{Mirror: mirror, Ref: commit}, Paths: []string{FakeToolchainFile, FakeLockfile},
+	})
+	if err != nil {
+		return Warm{}, err
+	}
 	parts := []string{"prebuild"}
 	for _, s := range f.Prebuild {
 		parts = append(parts, strings.Join(s.Command, " "))
 	}
 	return Warm{
-		ToolchainHash: hash("toolchain", mirror, commit), LockfilesHash: hash("lockfiles", mirror, commit),
-		PrebuildHash: hash(parts...),
-		Install:      append([]Step{{Name: "install", Command: []string{"install-dependencies"}}}, f.Prebuild...),
+		ToolchainHash: hash("toolchain", mirror, read.Entries[FakeToolchainFile].Object),
+		LockfilesHash: hash("lockfiles", mirror, read.Entries[FakeLockfile].Object),
+		PrebuildHash:  hash(parts...),
+		Install:       append([]Step{{Name: "install", Command: []string{"install-dependencies"}}}, f.Prebuild...),
 	}, nil
 }

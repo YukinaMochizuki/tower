@@ -24,6 +24,7 @@ import (
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apiserver"
 	"github.com/YukinaMochizuki/tower/internal/client"
+	"github.com/YukinaMochizuki/tower/internal/devcontainer"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/provider/fake"
 	"github.com/YukinaMochizuki/tower/internal/store"
@@ -977,6 +978,160 @@ func TestAStaleWarmGoldenIsRebuilt(t *testing.T) {
 		got := w.warmOf()["api"]
 		return len(got) == 1 && got[0] != second, fmt.Sprint(got)
 	})
+}
+
+// setOffPeak gives t1 an off-peak window, in UTC, from from to to after
+// the clock's now, keeping its other settings.
+func (w *world) setOffPeak(from, to time.Duration) {
+	w.t.Helper()
+	o, err := w.get(registry.Target, "", "t1")
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	tg := o.(*targetsv1alpha1.Target)
+	if tg.Spec.Settings == nil {
+		tg.Spec.Settings = &targetsv1alpha1.TargetSettings{}
+	}
+	now := w.clock.Now().UTC()
+	tg.Spec.Settings.WarmOffPeak = &targetsv1alpha1.TimeWindow{Start: now.Add(from).Format("15:04"), End: now.Add(to).Format("15:04")}
+	w.mustApply(registry.Target, tg)
+}
+
+// waitWarm waits for the repository's one ready warm golden to be of
+// commit and no other, and returns its name.
+func (w *world) waitWarm(repo, commit string) string {
+	w.t.Helper()
+	var name string
+	testutil.Eventually(w.t, "a warm golden of "+commit+" alone", func() (bool, string) {
+		got := w.warmOf()[repo]
+		if len(got) != 1 {
+			return false, fmt.Sprint(got)
+		}
+		g, _ := w.golden(got[0])
+		name = got[0]
+		return g.GetSpec().GetBoxWarm().GetCommit() == commit, g.GetSpec().GetBoxWarm().String()
+	})
+	return name
+}
+
+// lockfile is a repository's files with Fake's lockfile at v, which a warm
+// golden's inputs read.
+func lockfile(v string) map[string]string { return map[string]string{devcontainer.FakeLockfile: v} }
+
+// TestAWarmGoldenIsRebuiltOnceItsInputsSettle: a warm golden whose
+// branch head's pre-build inputs differ from its own is rebuilt, outside
+// the off-peak window, once the head has had them for warm_settle; inputs
+// that change again start the settle over, so the burst builds once, and a
+// restart does not.
+func TestAWarmGoldenIsRebuiltOnceItsInputsSettle(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, worldOption{settings: &targetsv1alpha1.TargetSettings{IdleStopAfter: durationpb.New(1000 * time.Hour)}})
+	w.setOffPeak(12*time.Hour, 13*time.Hour) // later than all that follows
+	url := "https://git.example.com/api.git"
+	w.fake.SetRemote(url, "main", lockfile("a"), "c1")
+	w.readyBox("dev")
+	w.advance(5 * time.Minute)
+	w.waitWarm("api", "c1")
+	built := func() []string { return w.goldensEverMadeFor("api") }
+	w.fake.SetRemote(url, "main", lockfile("b"), "c1", "c2")
+	w.advance(10 * time.Minute) // the mirror is fetched again: the inputs differ from here
+	w.advance(10 * time.Minute)
+	if got := built(); len(got) != 1 {
+		t.Fatalf("a warm golden was rebuilt 10 minutes into its inputs' settle: %v", got)
+	}
+	w.fake.SetRemote(url, "main", lockfile("c"), "c1", "c2", "c3")
+	w.advance(10 * time.Minute) // fetched: they changed again
+	w.advance(20 * time.Minute)
+	if got := built(); len(got) != 1 {
+		t.Fatalf("a warm golden was rebuilt 40 minutes after its inputs first changed, 20 after they last did: %v", got)
+	}
+	w.restart()
+	w.advance(15 * time.Minute)
+	w.waitWarm("api", "c3")
+	if got := built(); len(got) != 2 {
+		t.Errorf("warm goldens made %v, want the first and one for c3", got)
+	}
+}
+
+// TestAStaleWarmGoldenIsRebuiltOffPeak: with an off-peak window, a warm
+// golden only behind its branch, or only aged, is rebuilt within it alone;
+// a repository with none gets one at once.
+func TestAStaleWarmGoldenIsRebuiltOffPeak(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, worldOption{settings: &targetsv1alpha1.TargetSettings{
+		WarmMaxCommitsBehind: 1, WarmMaxAge: durationpb.New(30 * time.Hour), IdleStopAfter: durationpb.New(1000 * time.Hour),
+	}})
+	// From 3h to 4h of every day after now, the clock 0h.
+	w.setOffPeak(3*time.Hour, 4*time.Hour)
+	url := "https://git.example.com/api.git"
+	w.fake.SetRemote(url, "main", nil, "c1")
+	w.readyBox("dev")
+	w.advance(5 * time.Minute)
+	first := w.waitWarm("api", "c1")
+	built := func() []string { return w.goldensEverMadeFor("api") }
+	w.fake.SetRemote(url, "main", nil, "c1", "c2", "c3")
+	w.advance(10 * time.Minute) // fetched: two commits behind
+	w.advance(time.Hour)
+	if got := built(); len(got) != 1 {
+		t.Fatalf("a warm golden behind its branch was rebuilt outside the window: %v", got)
+	}
+	w.advance(2 * time.Hour) // 3h15m: in the window
+	second := w.waitWarm("api", "c3")
+	if second == first {
+		t.Fatal("the warm golden behind its branch was not rebuilt in the window")
+	}
+	w.advance(31 * time.Hour) // 34h15m: past its age, out of the window
+	if got := built(); len(got) != 2 {
+		t.Fatalf("an aged warm golden was rebuilt outside the window: %v", got)
+	}
+	w.advance(17 * time.Hour) // 51h15m: in the window
+	testutil.Eventually(t, "a warm golden rebuilt for its age", func() (bool, string) {
+		got := w.warmOf()["api"]
+		return len(got) == 1 && got[0] != second, fmt.Sprint(got)
+	})
+}
+
+// TestAWarmGoldenIsBuiltFromTheBranchAsItIs: a warm golden about to be
+// built is built after a fetch of its mirror, so a commit that landed since
+// the last periodic fetch is the one it is built from.
+func TestAWarmGoldenIsBuiltFromTheBranchAsItIs(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, worldOption{settings: &targetsv1alpha1.TargetSettings{
+		WarmSettle: durationpb.New(25 * time.Minute), IdleStopAfter: durationpb.New(1000 * time.Hour),
+	}})
+	url := "https://git.example.com/api.git"
+	w.fake.SetRemote(url, "main", lockfile("a"), "c1")
+	w.readyBox("dev")
+	w.advance(5 * time.Minute)
+	w.waitWarm("api", "c1")
+	w.fake.SetRemote(url, "main", lockfile("b"), "c1", "c2")
+	w.advance(10 * time.Minute) // fetched: c2, its inputs settling for 25 minutes
+	w.advance(10 * time.Minute)
+	w.advance(10 * time.Minute) // fetched again, c2 still
+	if head := w.mirrorHead("api"); head != "c2" {
+		t.Fatalf("the mirror's head is %q, want c2", head)
+	}
+	// c3 lands, five minutes before the next periodic fetch and as the
+	// inputs settle.
+	w.fake.SetRemote(url, "main", lockfile("b"), "c1", "c2", "c3")
+	w.advance(5 * time.Minute)
+	w.waitWarm("api", "c3")
+	if got := w.goldensEverMadeFor("api"); len(got) != 2 {
+		t.Errorf("warm goldens made %v, want the first and one for c3", got)
+	}
+}
+
+// mirrorHead is the head of the repository's mirror on t1, as its status
+// says.
+func (w *world) mirrorHead(repo string) string {
+	w.t.Helper()
+	r, _ := w.getRepo(repo)
+	for _, m := range r.GetStatus().GetMirrors() {
+		if m.GetTarget() == "t1" {
+			return m.GetHead()
+		}
+	}
+	return ""
 }
 
 // TestANeverUsedRepositoryGetsNoWarmGolden: with room in the budget, a

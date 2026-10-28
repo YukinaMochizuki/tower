@@ -3,6 +3,7 @@ package apiserver_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
@@ -57,6 +58,24 @@ func TestTargetsAreChecked(t *testing.T) {
 		"negative commits behind": func(t *targetsv1alpha1.Target) {
 			t.Spec.Settings = &targetsv1alpha1.TargetSettings{WarmMaxCommitsBehind: -1}
 		},
+		"a negative settle": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{WarmSettle: durationpb.New(-1)}
+		},
+		"an off-peak window that is no time of day": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{WarmOffPeak: &targetsv1alpha1.TimeWindow{Start: "2am", End: "06:00"}}
+		},
+		"an off-peak window past the day": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{WarmOffPeak: &targetsv1alpha1.TimeWindow{Start: "02:00", End: "24:30"}}
+		},
+		"an off-peak window that ends as it starts": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{WarmOffPeak: &targetsv1alpha1.TimeWindow{Start: "02:00", End: "02:00"}}
+		},
+		"an off-peak window in no time zone": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{WarmOffPeak: &targetsv1alpha1.TimeWindow{Start: "02:00", End: "06:00", TimeZone: "Asia/Nowhere"}}
+		},
+		"an off-peak window in the host's time zone": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{WarmOffPeak: &targetsv1alpha1.TimeWindow{Start: "02:00", End: "06:00", TimeZone: "Local"}}
+		},
 		"a box disk that is no quantity": func(t *targetsv1alpha1.Target) {
 			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxRootDiskMax: "big"}
 		},
@@ -97,6 +116,7 @@ func TestTargetsAreChecked(t *testing.T) {
 	set.Spec.Settings = &targetsv1alpha1.TargetSettings{
 		WarmBudget: "200Gi", IdleStopAfter: durationpb.New(3600e9),
 		BoxWorkspaceDisk: "4Gi", BoxWorkspaceDiskMax: "4Gi", BoxRootDisk: "10Gi", BoxRootDiskMax: "50Gi",
+		WarmSettle: durationpb.New(time.Hour), WarmOffPeak: &targetsv1alpha1.TimeWindow{Start: "22:00", End: "06:00", TimeZone: "Asia/Taipei"},
 	}
 	if err := applyAs(t, a, registry.Target, set); err != nil {
 		t.Errorf("settings on a target: %v", err)

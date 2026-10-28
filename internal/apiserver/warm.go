@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -17,6 +18,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/controller"
 	"github.com/YukinaMochizuki/tower/internal/devcontainer"
+	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/store"
 )
 
@@ -108,12 +110,11 @@ func goldenSize(g *envv1alpha1.Golden) uint64 {
 // reconcileWarm keeps the target's warm goldens: the repositories of the
 // projects placed on it, ranked by use, get one from the top down while
 // their sizes fit the target's warm_budget; one that falls out loses its,
-// one never used gets none, and one older than warm_max_age or more than
-// warm_max_commits_behind behind its branch is rebuilt. A repository that
-// holds one keeps its place for WarmMinHold, and after that against a
-// challenger whose score beats its own by less than WarmChallengeMargin. A
-// golden let go while something references it is kept, and counted
-// against the budget, until nothing does.
+// one never used gets none, and one stale is rebuilt (keepWarm). A
+// repository that holds one keeps its place for WarmMinHold, and after
+// that against a challenger whose score beats its own by less than
+// WarmChallengeMargin. A golden let go while something references it is
+// kept, and counted against the budget, until nothing does.
 func (s *Server) reconcileWarm(ctx context.Context, key controller.Key) error {
 	t, live, err := s.liveTarget(ctx, key.Name)
 	if err != nil || !live {
@@ -341,8 +342,72 @@ func (s *Server) annotateGolden(ctx context.Context, g *envv1alpha1.Golden, k, v
 	return err
 }
 
+// warmInputsCache holds, per mirror, the pre-build inputs of the last
+// commit read: keepWarm reads its head's on every reconcile.
+type warmInputsCache struct {
+	mu sync.Mutex
+	by map[string]warmInputsAt
+}
+
+type warmInputsAt struct {
+	commit string
+	warm   devcontainer.Warm
+}
+
+// warmAt is what a warm checkout of the mirror at commit depends on.
+func (s *Server) warmAt(ctx context.Context, p provider.Provider, mirror, commit string) (devcontainer.Warm, error) {
+	c := &s.warmInputs
+	c.mu.Lock()
+	if at, ok := c.by[mirror]; ok && at.commit == commit {
+		c.mu.Unlock()
+		return at.warm, nil
+	}
+	c.mu.Unlock()
+	w, err := s.cfg.Resolver.Warm(ctx, p, mirror, commit)
+	if err != nil {
+		return devcontainer.Warm{}, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.by == nil {
+		c.by = map[string]warmInputsAt{}
+	}
+	c.by[mirror] = warmInputsAt{commit: commit, warm: w}
+	return w, nil
+}
+
+// inputsSettled says whether the head's pre-build inputs, w, differ from
+// the ready golden's, and if so whether the head has had them for the
+// settle period. Since when is recorded, so every reconcile, and one
+// after a restart, reads the same; inputs that change again start it over.
+func (s *Server) inputsSettled(ctx context.Context, c warmCandidate, ready *envv1alpha1.Golden, w devcontainer.Warm, settle time.Duration) (differ, settled bool, err error) {
+	key := store.Key{Kind: warmInputsKind, Project: c.project, Name: c.name()}
+	r := ready.GetSpec().GetBoxWarm()
+	if r.GetToolchainHash() == w.ToolchainHash && r.GetLockfilesHash() == w.LockfilesHash && r.GetPrebuildHash() == w.PrebuildHash {
+		return false, false, s.deleteRecord(ctx, key)
+	}
+	inputs := w.ToolchainHash + "/" + w.LockfilesHash + "/" + w.PrebuildHash
+	var rec warmInputsRecord
+	found, err := s.getRecord(ctx, key, &rec)
+	if err != nil {
+		return true, false, err
+	}
+	if !found || rec.Inputs != inputs {
+		rec = warmInputsRecord{Inputs: inputs, Since: s.clock.Now().UTC()}
+		if err := s.putRecord(ctx, key, rec); err != nil {
+			return true, false, err
+		}
+		s.log.Info("a warm golden's pre-build inputs changed; settling before it is rebuilt",
+			"project", c.project, "repository", c.name(), "until", rec.Since.Add(settle))
+	}
+	return true, !s.clock.Now().Before(rec.Since.Add(settle)), nil
+}
+
 // keepWarm gives the repository a warm golden of its branch's head, unless
-// a fresh one is ready, and drops the older ones once it is.
+// a fresh one is ready, and drops the older ones once it is. One whose
+// pre-build inputs differ from the head's is rebuilt once they settle; one
+// only aged or behind is rebuilt within the off-peak window; one that has
+// none is built at once. Each is built after a fetch of the mirror.
 func (s *Server) keepWarm(ctx context.Context, t *targetsv1alpha1.Target, set settings, c warmCandidate) error {
 	target := t.GetMetadata().GetName()
 	key := controller.Key{Project: c.project, Name: c.name()}
@@ -350,6 +415,13 @@ func (s *Server) keepWarm(ctx context.Context, t *targetsv1alpha1.Target, set se
 	if head == "" {
 		s.fetchNow(key)
 		return nil
+	}
+	waiting := func(err error) error {
+		return fmt.Errorf("warm goldens of %s: %w: %w", target, controller.ErrWaiting, err)
+	}
+	p, err := s.providerFor(target)
+	if err != nil {
+		return waiting(err)
 	}
 	mirror := mirrorName(c.project, c.name())
 	ready := c.newestReady()
@@ -359,35 +431,35 @@ func (s *Server) keepWarm(ctx context.Context, t *targetsv1alpha1.Target, set se
 	// reconcile reads the same.
 	epoch := ""
 	if ready != nil {
-		expired := ready.GetMetadata().GetCreateTime().AsTime().Add(set.warmMaxAge)
-		if s.clock.Now().After(expired) {
-			stale, epoch = true, expired.UTC().Format(time.RFC3339)
-		}
-	}
-	if ready != nil && !stale && ready.GetSpec().GetBoxWarm().GetCommit() != head {
-		p, err := s.providerFor(target)
+		w, err := s.warmAt(ctx, p, mirror, head)
 		if err != nil {
-			return fmt.Errorf("warm goldens of %s: %w: %w", target, controller.ErrWaiting, err)
+			return waiting(err)
 		}
-		// Counted between the golden's commit and the head this reconcile
-		// builds, not the mirror's own head, which a fetch may have moved
-		// past the repository's status.
-		branch := c.repo.GetSpec().GetDefaultBranch()
-		fromReady, err := p.CommitsBehind(ctx, mirror, ready.GetSpec().GetBoxWarm().GetCommit(), branch)
-		if err != nil {
-			return fmt.Errorf("warm goldens of %s: %w: %w", target, controller.ErrWaiting, err)
+		differ, settled, err := s.inputsSettled(ctx, c, ready, w, set.warmSettle)
+		switch {
+		case err != nil:
+			return err
+		case differ:
+			// While they settle, nothing else rebuilds it either: a burst of
+			// merges builds once.
+			stale = settled
+		case set.warmOffPeak.contains(s.clock.Now()):
+			if stale, epoch, err = s.behindOrAged(ctx, p, set, c, ready, head); err != nil {
+				return waiting(err)
+			}
 		}
-		fromHead, err := p.CommitsBehind(ctx, mirror, head, branch)
-		if err != nil {
-			return fmt.Errorf("warm goldens of %s: %w: %w", target, controller.ErrWaiting, err)
-		}
-		stale = fromReady-fromHead > set.warmMaxCommitsBehind
 	}
 	want := ready
 	if stale {
-		p, err := s.providerFor(target)
-		if err != nil {
-			return fmt.Errorf("warm goldens of %s: %w: %w", target, controller.ErrWaiting, err)
+		if !s.fetchedToBuild(key) {
+			return nil // the fetch's end reconciles again, of the head it found
+		}
+		// c was listed before the check, perhaps before the fetch wrote its
+		// head: what was decided of an older one waits for the reconcile the
+		// fetch's end queued.
+		repo, ok, err := getTyped[*envv1alpha1.Repository](ctx, s, registry.Repository, resource.Key{Project: c.project, Name: c.name()})
+		if err != nil || !ok || mirrorHead(repo, target) != head {
+			return err
 		}
 		parent, _, _, err := s.boxImageGolden(ctx, p, c.project, target, &envv1alpha1.BoxSpec{Checkouts: []*envv1alpha1.Checkout{{Repository: c.name()}}}, false)
 		if errors.Is(err, devcontainer.ErrUnresolvable) {
@@ -397,7 +469,7 @@ func (s *Server) keepWarm(ctx context.Context, t *targetsv1alpha1.Target, set se
 		if err != nil || parent == "" {
 			return err
 		}
-		w, err := s.cfg.Resolver.Warm(ctx, p, mirror, head)
+		w, err := s.warmAt(ctx, p, mirror, head)
 		if err != nil {
 			return err
 		}
@@ -413,6 +485,7 @@ func (s *Server) keepWarm(ctx context.Context, t *targetsv1alpha1.Target, set se
 			return nil // the older one serves until it is
 		}
 	}
+	s.builtFromFetch(key)
 	var older []*envv1alpha1.Golden
 	for _, g := range c.goldens {
 		if g.GetMetadata().GetName() != want.GetMetadata().GetName() {
@@ -420,4 +493,30 @@ func (s *Server) keepWarm(ctx context.Context, t *targetsv1alpha1.Target, set se
 		}
 	}
 	return s.dropWarm(ctx, older)
+}
+
+// behindOrAged says whether the ready golden is older than warm_max_age,
+// with the epoch that names its rebuild, or more than
+// warm_max_commits_behind behind head.
+func (s *Server) behindOrAged(ctx context.Context, p provider.Provider, set settings, c warmCandidate, ready *envv1alpha1.Golden, head string) (bool, string, error) {
+	expired := ready.GetMetadata().GetCreateTime().AsTime().Add(set.warmMaxAge)
+	if s.clock.Now().After(expired) {
+		return true, expired.UTC().Format(time.RFC3339), nil
+	}
+	if ready.GetSpec().GetBoxWarm().GetCommit() == head {
+		return false, "", nil
+	}
+	// Counted between the golden's commit and the head this reconcile
+	// builds, not the mirror's own head, which a fetch may have moved past
+	// the repository's status.
+	mirror, branch := mirrorName(c.project, c.name()), c.repo.GetSpec().GetDefaultBranch()
+	fromReady, err := p.CommitsBehind(ctx, mirror, ready.GetSpec().GetBoxWarm().GetCommit(), branch)
+	if err != nil {
+		return false, "", err
+	}
+	fromHead, err := p.CommitsBehind(ctx, mirror, head, branch)
+	if err != nil {
+		return false, "", err
+	}
+	return fromReady-fromHead > set.warmMaxCommitsBehind, "", nil
 }

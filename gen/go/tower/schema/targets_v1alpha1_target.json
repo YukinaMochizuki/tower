@@ -275,7 +275,7 @@
           "type": "string"
         },
         "warmMaxAge": {
-          "description": "A warm golden whose checkout is older than this, or more commits behind its branch than warm_max_commits_behind, is rebuilt.",
+          "description": "A warm golden whose checkout is older than this, or more commits behind its branch than warm_max_commits_behind, is rebuilt, within warm_off_peak; unset, 7 days and 20 commits.",
           "examples": [
             "30s",
             "1.5s"
@@ -286,6 +286,19 @@
         "warmMaxCommitsBehind": {
           "format": "int32",
           "type": "integer"
+        },
+        "warmOffPeak": {
+          "$ref": "#/$defs/tower.targets.v1alpha1.TimeWindow",
+          "description": "When a warm golden is rebuilt for warm_max_age or warm_max_commits_behind alone; unset, at any time. A repository with no warm golden gets one at any time."
+        },
+        "warmSettle": {
+          "description": "A warm golden whose pre-build inputs (BoxWarmInputs' toolchain, lockfiles and pre-build hashes) differ from its branch head's is rebuilt, at any time, once the head has had its inputs for this long, so a burst of merges builds once; unset, 30 minutes.",
+          "examples": [
+            "30s",
+            "1.5s"
+          ],
+          "pattern": "^-?[0-9]+(\\.[0-9]{1,9})?s$",
+          "type": "string"
         },
         "warmWindow": {
           "description": "How far back a repository's use counts toward its rank.",
@@ -370,6 +383,24 @@
         },
         "usage": {
           "$ref": "#/$defs/tower.targets.v1alpha1.Usage"
+        }
+      },
+      "type": "object"
+    },
+    "tower.targets.v1alpha1.TimeWindow": {
+      "additionalProperties": false,
+      "description": "TimeWindow is a daily window of wall-clock time.",
+      "properties": {
+        "end": {
+          "type": "string"
+        },
+        "start": {
+          "description": "Its start and end, \"HH:MM\" in time_zone, end excluded, not equal; an end before the start spans midnight.",
+          "type": "string"
+        },
+        "timeZone": {
+          "description": "An IANA time zone, such as Asia/Taipei; empty is UTC.",
+          "type": "string"
         }
       },
       "type": "object"

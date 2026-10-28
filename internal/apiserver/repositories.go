@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -100,6 +101,13 @@ func (s *Server) fetchMirror(ctx context.Context, key controller.Key, repo *envv
 	}
 	s.fetchDone(key)
 	s.startJob(target, job, s.repositoryCtrl, key, func(ctx context.Context) error {
+		n := s.fetches.started(key)
+		defer func() {
+			s.fetches.finished(key, n)
+			if s.warmCtrl != nil {
+				s.warmCtrl.Enqueue(controller.Key{Name: target})
+			}
+		}()
 		token := ""
 		if c := repo.GetSpec().GetCredentialSecret(); c != "" {
 			data, err := s.OpenSecret(s.system(ctx), resource.Key{Project: key.Project, Name: c})
@@ -182,6 +190,68 @@ func (s *Server) fetchDone(key controller.Key) {
 	s.uses.mu.Lock()
 	defer s.uses.mu.Unlock()
 	delete(s.uses.fetch, key)
+}
+
+// fetchSeq numbers each repository's fetches as they start, so a fetch
+// started after some moment is told apart from one already under way
+// then, under a clock that need not move.
+type fetchSeq struct {
+	mu sync.Mutex
+	// last is the number of the last fetch started, done of the last one
+	// finished, however it ended.
+	last, done map[controller.Key]int
+	// asked is, per repository whose warm golden waits on a fetch to be
+	// built, last when it asked.
+	asked map[controller.Key]int
+}
+
+func (f *fetchSeq) init() {
+	if f.last == nil {
+		f.last, f.done, f.asked = map[controller.Key]int{}, map[controller.Key]int{}, map[controller.Key]int{}
+	}
+}
+
+func (f *fetchSeq) started(key controller.Key) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.init()
+	f.last[key]++
+	return f.last[key]
+}
+
+func (f *fetchSeq) finished(key controller.Key, n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.done[key] = max(f.done[key], n)
+}
+
+// fetchedToBuild reports whether the repository's mirror was fetched since
+// a warm golden of it was first wanted, asking for a fetch the first time,
+// so the golden is built from the branch as it is, not as the last
+// periodic fetch saw it. A fetch that failed counts: the golden is built
+// from what the mirror has.
+func (s *Server) fetchedToBuild(key controller.Key) bool {
+	f := &s.fetches
+	f.mu.Lock()
+	f.init()
+	at, asked := f.asked[key]
+	if !asked {
+		f.asked[key] = f.last[key]
+	}
+	fetched := asked && f.done[key] > at
+	f.mu.Unlock()
+	if !asked {
+		s.fetchNow(key)
+	}
+	return fetched
+}
+
+// builtFromFetch forgets fetchedToBuild's ask once no warm golden of the
+// repository waits to be built.
+func (s *Server) builtFromFetch(key controller.Key) {
+	s.fetches.mu.Lock()
+	defer s.fetches.mu.Unlock()
+	delete(s.fetches.asked, key)
 }
 
 // holdsWarm reports whether the repository holds a ready warm golden.

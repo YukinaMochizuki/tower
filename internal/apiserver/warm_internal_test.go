@@ -9,7 +9,58 @@ import (
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
+	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 )
+
+// TestWarmStalenessDefaults: unset, a warm golden is rebuilt 20 commits
+// behind, 30 minutes after its inputs change, at any time of day.
+func TestWarmStalenessDefaults(t *testing.T) {
+	t.Parallel()
+	set := settingsOf(&targetsv1alpha1.Target{})
+	if set.warmMaxCommitsBehind != 20 || set.warmSettle != 30*time.Minute || set.warmOffPeak != nil {
+		t.Errorf("defaults: %d commits behind, settle %v, off-peak %v; want 20, 30m, none", set.warmMaxCommitsBehind, set.warmSettle, set.warmOffPeak)
+	}
+}
+
+// TestAnOffPeakWindowIsWallClockTime: a window is read in its time zone,
+// its end excluded, and one ending before it starts spans midnight.
+func TestAnOffPeakWindowIsWallClockTime(t *testing.T) {
+	t.Parallel()
+	at := func(hhmm string) time.Time {
+		d, err := time.Parse("15:04", hhmm)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return time.Date(2026, 10, 29, d.Hour(), d.Minute(), 0, 0, time.UTC)
+	}
+	for _, tt := range []struct {
+		window *targetsv1alpha1.TimeWindow
+		utc    string
+		in     bool
+	}{
+		{&targetsv1alpha1.TimeWindow{Start: "02:00", End: "06:00"}, "01:59", false},
+		{&targetsv1alpha1.TimeWindow{Start: "02:00", End: "06:00"}, "02:00", true},
+		{&targetsv1alpha1.TimeWindow{Start: "02:00", End: "06:00"}, "06:00", false},
+		// Asia/Taipei is UTC+8: 02:00-06:00 there is 18:00-22:00 UTC.
+		{&targetsv1alpha1.TimeWindow{Start: "02:00", End: "06:00", TimeZone: "Asia/Taipei"}, "03:00", false},
+		{&targetsv1alpha1.TimeWindow{Start: "02:00", End: "06:00", TimeZone: "Asia/Taipei"}, "19:30", true},
+		{&targetsv1alpha1.TimeWindow{Start: "22:00", End: "03:00"}, "23:00", true},
+		{&targetsv1alpha1.TimeWindow{Start: "22:00", End: "03:00"}, "01:00", true},
+		{&targetsv1alpha1.TimeWindow{Start: "22:00", End: "03:00"}, "12:00", false},
+	} {
+		w, err := parseDailyWindow(tt.window)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := w.contains(at(tt.utc)); got != tt.in {
+			t.Errorf("%v at %s UTC: in %v, want %v", tt.window, tt.utc, got, tt.in)
+		}
+	}
+	var none *dailyWindow
+	if !none.contains(at("12:00")) {
+		t.Error("no window does not hold all day")
+	}
+}
 
 // TestWarmRankingHasHysteresis: a holder keeps its rank for its minimum
 // hold whatever its score; after it, a challenger takes a place only with

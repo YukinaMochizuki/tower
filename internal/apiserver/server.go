@@ -162,6 +162,11 @@ type Server struct {
 	// uses are boxes' uses through Touch, not yet written to them, and the
 	// calls into them under way.
 	uses lastUses
+	// fetches number the repositories' mirror fetches.
+	fetches fetchSeq
+	// warmInputs are the pre-build inputs of each mirror's last head read,
+	// which its commit alone decides.
+	warmInputs warmInputsCache
 	// beforeIdleStop, if set, runs between a box's idle stop being decided
 	// and its being written, for tests.
 	beforeIdleStop atomic.Pointer[func(controller.Key)]

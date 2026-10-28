@@ -23,6 +23,10 @@ const (
 	// warmSizeKind holds, per repository, the size of the last warm
 	// golden tower saw of it (warmSizeRecord).
 	warmSizeKind = "WarmSize"
+	// warmInputsKind holds, per repository whose branch head's pre-build
+	// inputs differ from its warm golden's, since when the head has had them
+	// (warmInputsRecord).
+	warmInputsKind = "WarmInputs"
 	// stepBackoffKind holds, per box or machine and instance step, how the
 	// step failed and when it runs again (stepBackoff).
 	stepBackoffKind = "StepBackoff"
@@ -107,4 +111,11 @@ func (b goldenBackoff) message() string {
 // warmSizeRecord is a repository's last warm golden's size.
 type warmSizeRecord struct {
 	Bytes uint64 `json:"bytes"`
+}
+
+// warmInputsRecord is since when a repository's branch head has had the
+// pre-build inputs Inputs names.
+type warmInputsRecord struct {
+	Inputs string    `json:"inputs"`
+	Since  time.Time `json:"since"`
 }
