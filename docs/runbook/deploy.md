@@ -203,7 +203,8 @@ spec:
 `tower get target hangar-main` says whether hangar answers, the project's
 room by its quota, and whether the system container answers and is on
 the tailnet. The project's Plan must allow a network per workstream and
-one more, and the disk of every box plus the system container's 50Gi.
+one more, and the disk of every box plus the system container's 20Gi
+(and its 10Gi root disk, hangar's default).
 
 **Checkouts and pushes over hangar's endpoint service.** On a hangar with
 EndpointService and NetworkEndpoint (hangar#224, or later), a box takes
@@ -440,7 +441,7 @@ snapshot deleted on the target, then, on a hangar target, every object
 labelled `tower/target=<name>` in the hangar project: containers and
 VMs, then their disks, networks once nothing is on them, the golden
 images and the registry login, the system container `tower-sys-*`, its
-50Gi disk and its network included, and the network endpoints, the
+disk and its network included, and the network endpoints, the
 endpoint service and, once the system container is gone, its security
 group. The target's ssh key Secret goes
 with the Target. hangar deletes in its own time. `status.remaining`

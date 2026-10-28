@@ -45,7 +45,7 @@ const (
 	SystemNetworkCIDR = "10.89.0.0/24"
 	// DefaultSystemDisk, DefaultSystemCPU and DefaultSystemMemory size it
 	// unless the config says otherwise.
-	DefaultSystemDisk   = "50Gi"
+	DefaultSystemDisk   = "20Gi"
 	DefaultSystemCPU    = "2"
 	DefaultSystemMemory = "4Gi"
 	// LabelRole is "system" on the system container's objects, which the
