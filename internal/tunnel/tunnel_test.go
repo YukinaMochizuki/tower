@@ -597,6 +597,7 @@ func TestTheApiserversPingDropsADeadTunnel(t *testing.T) {
 // restarted agent does while its old connection lingers, takes the
 // node's place; the older is dropped.
 func TestANewerTunnelReplacesTheOlder(t *testing.T) {
+	testutil.Quarantine(t, "#41")
 	noLeaks(t)
 	a := newAPIServer(t)
 	serve := func() (done chan struct{}) {

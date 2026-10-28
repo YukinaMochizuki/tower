@@ -174,7 +174,7 @@ func TestEveryRolesVerbs(t *testing.T) {
 		{"workstream", e.as(workstream), map[string][]authz.Verb{
 			registry.Project.Kind: writes, registry.Secret.Kind: writes,
 			registry.Repository.Kind: writes, registry.Box.Kind: writes, registry.Machine.Kind: writes,
-			registry.Target.Kind: reads, registry.Placement.Kind: reads,
+			registry.Target.Kind: reads, registry.Placement.Kind: {authz.Get, authz.List, authz.Watch, authz.Apply},
 			registry.Golden.Kind: reads, registry.Instance.Kind: reads,
 		}},
 		{"a token that is not there", e.as("nobody"), nil},

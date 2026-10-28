@@ -54,8 +54,9 @@ A `ServiceToken` is a client's credential with one role
 credentials, write-only and sealed at rest (`docs/decisions/secrets.md`).
 
 A `Target` is a place environments run, a hangar project or a hostd host,
-and reports that place's state; a `Placement`, an administrator's, says which
-Target a project's environments run on (`docs/decisions/placement.md`). A
+and reports that place's state; a `Placement`, set by a person in workstream
+or by an administrator, says which Target a project's environments run on
+(`docs/decisions/placement.md`). A
 `Repository` is a project's git repository, mirrored on its target. A `Box`
 is a working copy and a `Machine` a converged VM: what workstream asks for.
 tower's controllers make them out of `Golden`s, shared images and disks per

@@ -61,9 +61,12 @@ var grants = map[iamv1alpha1.Role]map[string][]Verb{
 		registry.Repository.Kind: userVerbs,
 		registry.Box.Kind:        userVerbs,
 		registry.Machine.Kind:    userVerbs,
-		// workstream shows where a project runs and what it is made of.
+		// workstream shows where a project runs and what it is made of,
+		// and a person there picks a project's target: it applies the
+		// Placement, but never deletes one, which would leave the
+		// project's environments UNPLACED (docs/decisions/placement.md).
 		registry.Target.Kind:    readVerbs,
-		registry.Placement.Kind: readVerbs,
+		registry.Placement.Kind: {Get, List, Watch, Apply},
 		registry.Golden.Kind:    readVerbs,
 		registry.Instance.Kind:  readVerbs,
 	},

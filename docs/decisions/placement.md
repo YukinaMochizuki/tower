@@ -1,6 +1,7 @@
 # One target per project
 
-Status: accepted, 2026-10.
+Status: accepted, 2026-10. Revised 2026-10-28: a person in workstream
+picks a project's target.
 
 ## Context
 
@@ -16,16 +17,22 @@ target, so environments spread over targets share none of them.
   is one target per workstream; one per project (one workstream product) is
   chosen so a product's goldens and caches are shared by all its
   workstreams.
-- **tower holds the targets, their credentials and which project runs where,**
-  set by an administrator with tower's CLI. workstream's intents name only
-  the project; workstream never learns target names. It shows the location
-  tower reports.
-- **Placement is a fact an administrator sets, not a choice tower makes at
+- **tower holds the targets, their credentials and which project runs where.**
+  An administrator registers targets with tower's CLI. Which target a
+  project runs on is picked by a person: in workstream's product settings,
+  which lists the Targets and applies the Placement named by the project,
+  or by an administrator with the CLI. workstream's environment intents
+  still name only the project. `ROLE_WORKSTREAM` may apply a Placement but
+  not delete one, which would leave the project's environments UNPLACED;
+  that stays an administrator's.
+- **Placement is a fact a person sets, not a choice tower makes at
   runtime.** tower never spills a project onto another target because the
   first is full.
 - Moving a project to another target affects only environments made after
   the move; existing ones stay where they are until they are reclaimed or
-  deleted.
+  deleted. workstream does not leave them there: it moves a project only
+  once none of its boxes and machines is left, deleting them when the
+  person asks it to, so a workstream's environments never span targets.
 - **A target is deleted only once nothing tower made on it is left.** A
   Target can be deleted once no Placement or Instance names it. Its
   finalizer, `tower.hangarlab.cloud/teardown`, holds it, being deleted,
