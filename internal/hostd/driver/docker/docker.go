@@ -15,6 +15,7 @@ package docker
 import (
 	"archive/tar"
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -56,6 +57,7 @@ const (
 // Paths in a container.
 const (
 	Workspace    = "/workspace"
+	ReposDir     = "/repos"
 	GuestBinary  = "/.tower/tower-guest"
 	ProcessesDir = "/.tower/processes"
 )
@@ -382,7 +384,9 @@ func (d *Driver) Start(ctx context.Context, name string) error {
 // giveUser gives the user the image runs as its processes' directory and
 // an empty workspace, both root's as hostd made them, so a container that
 // is not root's (a devcontainer's remoteUser, say) can run processes and
-// write its own /workspace. A user named, not
+// write its own /workspace; and /repos, made in the container as root if
+// missing and given while empty, where a box's later checkouts go, made by
+// tower-guest as that user. A user named, not
 // numbered, is looked up in the container's own /etc/passwd and
 // /etc/group, which the host's do not speak for.
 func (d *Driver) giveUser(ctx context.Context, c container.InspectResponse, s spec, procs string) error {
@@ -409,10 +413,53 @@ func (d *Driver) giveUser(ctx context.Context, c container.InspectResponse, s sp
 		return err
 	}
 	entries, err := os.ReadDir(s.Disk)
-	if err != nil || len(entries) > 0 {
+	if err != nil {
 		return err
 	}
-	return chownRoots(s.Disk, uid, gid)
+	if len(entries) == 0 {
+		if err := chownRoots(s.Disk, uid, gid); err != nil {
+			return err
+		}
+	}
+	return d.giveRepos(ctx, c.ID, uid, gid)
+}
+
+// giveRepos makes ReposDir in the container as root, on its own root file
+// system, and gives it to uid:gid while it is empty. An image with no
+// shell is left as it is: nothing in it could use the directory but
+// tower-guest, whose checkout then says why it cannot make it.
+func (d *Driver) giveRepos(ctx context.Context, id string, uid, gid int) error {
+	line := fmt.Sprintf("mkdir -p %[1]s && if [ -z \"$(ls -A %[1]s)\" ]; then chown %[2]d:%[3]d %[1]s; fi", ReposDir, uid, gid)
+	ex, err := d.cli.ExecCreate(ctx, id, client.ExecCreateOptions{User: "0", Cmd: []string{"/bin/sh", "-c", line}, AttachStdout: true, AttachStderr: true})
+	if err != nil {
+		return fmt.Errorf("giving %s to the container's user: %w", ReposDir, err)
+	}
+	att, err := d.cli.ExecAttach(ctx, ex.ID, client.ExecAttachOptions{})
+	if err != nil {
+		return fmt.Errorf("giving %s to the container's user: %w", ReposDir, err)
+	}
+	var out bytes.Buffer
+	_, err = stdcopy.StdCopy(&out, &out, bufio.NewReader(att.Reader))
+	att.Close()
+	if err != nil {
+		return fmt.Errorf("giving %s to the container's user: %w", ReposDir, err)
+	}
+	for range 100 {
+		in, err := d.cli.ExecInspect(ctx, ex.ID, client.ExecInspectOptions{})
+		if err != nil {
+			return err
+		}
+		if in.Running {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		switch in.ExitCode {
+		case 0, 126, 127: // done, or no shell to run it
+			return nil
+		}
+		return fmt.Errorf("giving %s to the container's user: exit %d: %s", ReposDir, in.ExitCode, strings.TrimSpace(out.String()))
+	}
+	return fmt.Errorf("giving %s to the container's user: it did not end", ReposDir)
 }
 
 // chownRoots gives dir to uid:gid if root owns it, as hostd made it.
