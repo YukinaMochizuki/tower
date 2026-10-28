@@ -36,6 +36,10 @@ type Harness struct {
 	// Remote is a repository the git driver may fetch and push to, on
 	// Branch; RemoteHead, if set, is the commit Branch is at.
 	Remote, Branch, RemoteHead string
+	// OtherBranch, if set, is another branch of Remote, at OtherHead: the
+	// mirror holds it too, as a clone's origin would. The case needing it
+	// is skipped without.
+	OtherBranch, OtherHead string
 	// Reopen, if set, opens the drivers again over the same host, as a
 	// restarted hostd does; HostFiles is a directory where the host keeps
 	// what its drivers write (hostd's state directory), searched for what

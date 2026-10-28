@@ -25,7 +25,12 @@ versions at a given ref.
   tailnet, to tower's identity alone; to tower they are one more git source.
 - **A box's `origin/*` comes from tower's mirror,** and refreshing it is
   tower's operation. workstream keeps its own clone cache for its own reading;
-  the two may briefly disagree.
+  the two may briefly disagree. The mirror holds every branch of the
+  repository, as a clone's origin does (not its tags), and follows its
+  default branch, which warm goldens and devcontainer reads take: so a box
+  can take up any branch, and a push's lease, the branch's tip on the
+  forge, is a commit the mirror has. A branch the repository drops goes
+  at the next fetch.
 - **tower pushes branches.** A push follows the commits, which now live on the
   target. tower fetches them from the box into its mirror and pushes from
   there; a token never enters a work box. A human's approval stays in

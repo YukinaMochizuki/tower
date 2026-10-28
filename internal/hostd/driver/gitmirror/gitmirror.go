@@ -250,19 +250,23 @@ func (d *Driver) Fetch(ctx context.Context, spec driver.FetchSpec) (string, erro
 			return "", fmt.Errorf("%s names no default branch", spec.URL)
 		}
 	}
-	if _, err := git(ctx, r, env, "fetch", "--quiet", "--no-tags", "--prune", "--", spec.URL, "+refs/heads/"+branch+":refs/heads/"+branch); err != nil {
-		if strings.Contains(err.Error(), "couldn't find remote ref") {
-			return "", fmt.Errorf("branch %s of %s: %w", branch, spec.URL, driver.ErrNotFound)
-		}
+	// Every branch, as a clone's origin has them, so a checkout's origin/*
+	// does (Origin) and a push's lease, the branch's tip on the forge, is a
+	// commit the mirror has (Push); one the repository dropped goes. Not
+	// tags. A branch the mirror follows is one of them; it must be there.
+	if _, err := git(ctx, r, env, "fetch", "--quiet", "--no-tags", "--prune", "--", spec.URL, "+refs/heads/*:refs/heads/*"); err != nil {
 		return "", redact(err, spec.Token)
+	}
+	head, err := git(ctx, r, nil, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	if err != nil {
+		return "", fmt.Errorf("branch %s of %s: %w", branch, spec.URL, driver.ErrNotFound)
 	}
 	// The branch the mirror follows: its HEAD, what a checkout of no ref
 	// takes.
 	if _, err := git(ctx, r, nil, "symbolic-ref", "HEAD", "refs/heads/"+branch); err != nil {
 		return "", err
 	}
-	head, err := git(ctx, r, nil, "rev-parse", "--verify", "refs/heads/"+branch)
-	return strings.TrimSpace(head), err
+	return strings.TrimSpace(head), nil
 }
 
 // makeMirror makes a mirror's dataset, or its directory under Root, and
