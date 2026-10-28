@@ -45,6 +45,8 @@ type worldOption struct {
 	settings *targetsv1alpha1.TargetSettings
 	unplaced bool
 	config   envOption
+	// hangar makes t1 a hangar target, the fake its provider all the same.
+	hangar bool
 }
 
 func newWorld(t *testing.T, opts ...worldOption) *world {
@@ -56,6 +58,7 @@ func newWorld(t *testing.T, opts ...worldOption) *world {
 			o.settings = opt.settings
 		}
 		o.unplaced = o.unplaced || opt.unplaced
+		o.hangar = o.hangar || opt.hangar
 		if opt.config != nil {
 			o.config = opt.config
 		}
@@ -79,6 +82,9 @@ func newWorld(t *testing.T, opts ...worldOption) *world {
 	w.env = newEnv(t, cfg...)
 	w.setup()
 	tg := hostdTarget("t1")
+	if o.hangar {
+		tg = hangarTarget("t1")
+	}
 	tg.Spec.Settings = o.settings
 	w.mustApply(registry.Target, tg)
 	if !o.unplaced {

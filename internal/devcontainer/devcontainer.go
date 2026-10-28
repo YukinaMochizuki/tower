@@ -138,11 +138,11 @@ type Step struct {
 
 // Warm is what a warm checkout of a repository at a commit depends on.
 type Warm struct {
-	// ToolchainHash and LockfilesHash are BoxWarmInputs'.
-	ToolchainHash, LockfilesHash string
-	// Install, if any, installs the toolchain and the dependencies in the
-	// checkout.
-	Install []string
+	// ToolchainHash, LockfilesHash and PrebuildHash are BoxWarmInputs'.
+	ToolchainHash, LockfilesHash, PrebuildHash string
+	// Install is its pre-build, run in order in the checkout: the toolchain
+	// and the dependencies, then what builds it.
+	Install []Step
 }
 
 // Resolver resolves images and warm checkouts, reading and building
@@ -161,9 +161,11 @@ type Resolver interface {
 // Fake resolves from the request alone, as a repository whose
 // devcontainer never changes would: every commit of one mirror is one
 // image, and a warm checkout depends on its commit. Steps are what a box
-// of a devcontainer runs.
+// of a devcontainer runs, and Prebuild, after install-dependencies, what a
+// warm checkout's pre-build does.
 type Fake struct {
-	Steps []Step
+	Steps    []Step
+	Prebuild []Step
 }
 
 func hash(parts ...string) string {
@@ -218,9 +220,14 @@ func (f Fake) Setup(_ context.Context, _ provider.Provider, req Request) ([]Step
 	return f.Steps, nil
 }
 
-func (Fake) Warm(_ context.Context, _ provider.Provider, mirror, commit string) (Warm, error) {
+func (f Fake) Warm(_ context.Context, _ provider.Provider, mirror, commit string) (Warm, error) {
+	parts := []string{"prebuild"}
+	for _, s := range f.Prebuild {
+		parts = append(parts, strings.Join(s.Command, " "))
+	}
 	return Warm{
 		ToolchainHash: hash("toolchain", mirror, commit), LockfilesHash: hash("lockfiles", mirror, commit),
-		Install: []string{"install-dependencies"},
+		PrebuildHash: hash(parts...),
+		Install:      append([]Step{{Name: "install", Command: []string{"install-dependencies"}}}, f.Prebuild...),
 	}, nil
 }

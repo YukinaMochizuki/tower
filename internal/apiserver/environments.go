@@ -122,6 +122,34 @@ func validateTarget(_ context.Context, _ *Server, _ authz.Caller, _, obj proto.M
 	if set.GetWarmMaxCommitsBehind() < 0 {
 		return invalid("spec.settings.warm_max_commits_behind must be zero or more")
 	}
+	for name, q := range map[string]string{
+		"box_workspace_disk": set.GetBoxWorkspaceDisk(), "box_workspace_disk_max": set.GetBoxWorkspaceDiskMax(),
+		"box_root_disk": set.GetBoxRootDisk(), "box_root_disk_max": set.GetBoxRootDiskMax(),
+	} {
+		if q == "" {
+			continue
+		}
+		// hangar's least: a Disk's 1Gi, a container's root disk's 2Gi.
+		least := uint64(1 << 30)
+		if strings.HasPrefix(name, "box_root_disk") {
+			least = 2 << 30
+		}
+		if b, err := quantity.Bytes(q); err != nil {
+			return invalid("spec.settings.%s: %v", name, err)
+		} else if b < least {
+			return invalid("spec.settings.%s must be at least %s", name, quantity.FormatDisk(least))
+		}
+	}
+	// Each start against its max, with tower's default for the one unset.
+	eff := settingsOf(t)
+	for _, d := range []struct{ name, start, max string }{
+		{"box_workspace_disk", eff.workspaceDisk, eff.workspaceDiskMax},
+		{"box_root_disk", eff.rootDisk, eff.rootDiskMax},
+	} {
+		if mustBytes(d.start) > mustBytes(d.max) {
+			return invalid("spec.settings.%s (%s) is more than %s_max (%s)", d.name, d.start, d.name, d.max)
+		}
+	}
 	return nil
 }
 
@@ -517,6 +545,16 @@ func validateInstance(_ context.Context, _ *Server, _ authz.Caller, _, obj proto
 	for k, v := range spec.GetEnv() {
 		if !envName.MatchString(k) || strings.ContainsRune(v, 0) {
 			return invalid("spec.env: %q is no variable's name, or its value holds a NUL", k)
+		}
+	}
+	if g := spec.GetDiskGrowth(); g != nil {
+		if spec.GetKind() != envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER {
+			return invalid("spec.disk_growth is a container's")
+		}
+		for field, q := range map[string]string{"workspace_max": g.GetWorkspaceMax(), "root": g.GetRoot(), "root_max": g.GetRootMax()} {
+			if _, err := quantity.Bytes(q); err != nil {
+				return invalid("spec.disk_growth.%s: %v", field, err)
+			}
 		}
 	}
 	return validResources("spec.resources", spec.GetResources())

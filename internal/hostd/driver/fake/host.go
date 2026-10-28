@@ -83,7 +83,9 @@ type state struct {
 	Guests   map[string]*guest
 	Registry map[string]bool
 	// Users are the users images of the registry run as, "" for root.
-	Users  map[string]string `json:",omitempty"`
+	Users map[string]string `json:",omitempty"`
+	// Envs are the environments of the images built on the host.
+	Envs   map[string][]string `json:",omitempty"`
 	Pulled map[string]bool
 	// Unpushed are the images built on the host and not pushed yet,
 	// oldest first.

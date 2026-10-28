@@ -79,7 +79,9 @@ type Fake struct {
 	// contexts are the images' build contexts.
 	contexts map[string][]byte
 	// users are the users built images run as; builds, every build.
-	users  map[string]string
+	users map[string]string
+	// envs are the environments of the images built, by reference.
+	envs   map[string][]string
 	builds []Build
 	// imageConfigs and missingImages answer ResolveImage for images the
 	// test named.
@@ -105,6 +107,8 @@ type Fake struct {
 	// holdBuilds, while set, holds every build until it is closed.
 	holdBuilds   chan struct{}
 	captureErr   error
+	checkoutErr  error
+	checkouts    map[provider.Instance]int
 	failCommands []string
 	diskTotal    uint64
 	diskFree     *uint64
@@ -206,7 +210,7 @@ func New(target string, clock clockwork.Clock) *Fake {
 	return &Fake{
 		Target: target, clock: clock, log: slog.New(slog.DiscardHandler),
 		instances: map[provider.Instance]*instance{}, artifacts: map[string]*artifact{}, images: map[string]bool{}, contexts: map[string][]byte{},
-		users: map[string]string{}, imageConfigs: map[string]provider.ImageConfig{}, missingImages: map[string]bool{},
+		users: map[string]string{}, envs: map[string][]string{}, imageConfigs: map[string]provider.ImageConfig{}, missingImages: map[string]bool{},
 		mirrors: map[string]*repo{}, remotes: map[string]*repo{}, seen: map[provider.Instance]bool{},
 		bootFailures: map[string]string{}, vanished: map[string]bool{}, diskTotal: DefaultDiskTotal,
 		processLogCap: provider.DefaultProcessLogCap, finishedProcesses: provider.DefaultFinishedProcesses,
@@ -508,6 +512,18 @@ func (f *Fake) HoldBuilds() (release func()) {
 // FailCaptures makes every capture fail with err, or succeed again with
 // nil.
 func (f *Fake) FailCaptures(err error) { f.mu.Lock(); f.captureErr = err; f.mu.Unlock() }
+
+// FailCheckouts makes every checkout fail with err, or succeed again with
+// nil.
+func (f *Fake) FailCheckouts(err error) { f.mu.Lock(); f.checkoutErr = err; f.mu.Unlock() }
+
+// Checkouts is how many checkouts were asked of the instance, failed ones
+// too.
+func (f *Fake) Checkouts(in provider.Instance) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.checkouts[in]
+}
 
 // FailCommands makes every command whose program is one of names exit 1.
 func (f *Fake) FailCommands(names ...string) { f.mu.Lock(); f.failCommands = names; f.mu.Unlock() }
@@ -991,7 +1007,8 @@ func (f *Fake) BuildImage(ctx context.Context, req provider.BuildRequest) (strin
 	}
 	sum := sha256.Sum256(append(slices.Clone(b), []byte("\x00"+dir+"\x00"+name)...))
 	image := "registry.tower.internal/" + req.Repository + "@sha256:" + hex.EncodeToString(sum[:])
-	user := f.resolveLocked(strings.TrimSpace(from)).User
+	base := f.resolveLocked(strings.TrimSpace(from))
+	user := base.User
 	for _, l := range lines {
 		if u, ok := strings.CutPrefix(strings.TrimSpace(l), "USER "); ok {
 			user = strings.TrimSpace(u)
@@ -1000,8 +1017,36 @@ func (f *Fake) BuildImage(ctx context.Context, req provider.BuildRequest) (strin
 	f.images[image] = true
 	f.contexts[image] = b
 	f.users[image] = user
+	f.envs[image] = dockerfileEnv(base.Env, lines)
 	f.builds = append(f.builds, Build{Repository: req.Repository, Mirror: req.Mirror, Dir: req.Dir, Dockerfile: req.Dockerfile, Image: image})
 	return image, nil
+}
+
+// dockerfileEnv is the environment of an image built from a Dockerfile of
+// lines, FROM an image of env: each ENV, as NAME=value or NAME value, over
+// it.
+func dockerfileEnv(env []string, lines []string) []string {
+	out := slices.Clone(env)
+	set := func(name, value string) {
+		out = slices.DeleteFunc(out, func(kv string) bool { return strings.HasPrefix(kv, name+"=") })
+		out = append(out, name+"="+value)
+	}
+	for _, l := range lines {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(l), "ENV ")
+		if !ok {
+			continue
+		}
+		if name, value, ok := strings.Cut(strings.TrimSpace(rest), " "); ok && !strings.Contains(name, "=") {
+			set(name, strings.TrimSpace(value))
+			continue
+		}
+		for _, kv := range strings.Fields(rest) {
+			if name, value, ok := strings.Cut(kv, "="); ok {
+				set(name, value)
+			}
+		}
+	}
+	return out
 }
 
 // resolveLocked is what an image is: as the test set it, as built, or a
@@ -1020,7 +1065,7 @@ func (f *Fake) resolveLocked(ref string) provider.ImageConfig {
 	}
 	if f.images[ref] {
 		_, digest, _ := strings.Cut(ref, "@")
-		return provider.ImageConfig{Digest: digest, User: f.users[ref]}
+		return provider.ImageConfig{Digest: digest, User: f.users[ref], Env: f.envs[ref]}
 	}
 	if _, digest, ok := strings.Cut(ref, "@"); ok {
 		return provider.ImageConfig{Digest: digest}
@@ -1162,6 +1207,13 @@ func (f *Fake) Checkout(_ context.Context, in provider.Instance, mirror, ref, di
 	local, err := f.running(in)
 	if err != nil {
 		return "", err
+	}
+	if f.checkouts == nil {
+		f.checkouts = map[provider.Instance]int{}
+	}
+	f.checkouts[in]++
+	if f.checkoutErr != nil {
+		return "", f.checkoutErr
 	}
 	m := f.mirrors[mirror]
 	if m == nil {

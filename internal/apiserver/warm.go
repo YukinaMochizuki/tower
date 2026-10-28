@@ -401,8 +401,8 @@ func (s *Server) keepWarm(ctx context.Context, t *targetsv1alpha1.Target, set se
 		if err != nil {
 			return err
 		}
-		inputs := &envv1alpha1.BoxWarmInputs{Repository: c.name(), Commit: head, ToolchainHash: w.ToolchainHash, LockfilesHash: w.LockfilesHash}
-		hash := inputHash("box-warm", target, parent, c.name(), head, w.ToolchainHash, w.LockfilesHash, epoch)
+		inputs := &envv1alpha1.BoxWarmInputs{Repository: c.name(), Commit: head, ToolchainHash: w.ToolchainHash, LockfilesHash: w.LockfilesHash, PrebuildHash: w.PrebuildHash}
+		hash := inputHash("box-warm", target, parent, c.name(), head, w.ToolchainHash, w.LockfilesHash, w.PrebuildHash, epoch)
 		want, err = s.ensureGolden(ctx, c.project, goldenName("warm", hash), &envv1alpha1.GoldenSpec{
 			Target: target, InputHash: hash, Parent: parent, Inputs: &envv1alpha1.GoldenSpec_BoxWarm{BoxWarm: inputs},
 		}, buildSpec{Mirror: mirror, Branch: c.repo.GetSpec().GetDefaultBranch()}, map[string]string{warmLabel: c.name()})

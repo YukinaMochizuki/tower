@@ -55,8 +55,8 @@ message BoxImageInputs {
 }
 
 // BoxWarmInputs make a warm golden: a checkout of a repository's default
-// branch with its toolchain and dependencies installed, on the target's
-// disk. Only the most used repositories get one.
+// branch with its toolchain and dependencies installed and pre-built, on
+// the target's disk. Only the most used repositories get one.
 message BoxWarmInputs {
   string repository = 1;
   // The commit checked out.
@@ -66,6 +66,9 @@ message BoxWarmInputs {
   // A hash of the lockfiles (go.sum, pnpm-lock.yaml, package-lock.json,
   // uv.lock, Cargo.lock, ...).
   string lockfiles_hash = 4;
+  // A hash of its pre-build: the commands run in it and the repository's
+  // root Makefile (docs/decisions/devcontainers.md).
+  string prebuild_hash = 5;
 }
 
 // MachineInputs make a converged machine.

@@ -359,8 +359,8 @@ func (x *BoxImageInputs) GetBuildHash() string {
 }
 
 // BoxWarmInputs make a warm golden: a checkout of a repository's default
-// branch with its toolchain and dependencies installed, on the target's
-// disk. Only the most used repositories get one.
+// branch with its toolchain and dependencies installed and pre-built, on
+// the target's disk. Only the most used repositories get one.
 type BoxWarmInputs struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	Repository string                 `protobuf:"bytes,1,opt,name=repository,proto3" json:"repository,omitempty"`
@@ -371,6 +371,9 @@ type BoxWarmInputs struct {
 	// A hash of the lockfiles (go.sum, pnpm-lock.yaml, package-lock.json,
 	// uv.lock, Cargo.lock, ...).
 	LockfilesHash string `protobuf:"bytes,4,opt,name=lockfiles_hash,json=lockfilesHash,proto3" json:"lockfiles_hash,omitempty"`
+	// A hash of its pre-build: the commands run in it and the repository's
+	// root Makefile (docs/decisions/devcontainers.md).
+	PrebuildHash  string `protobuf:"bytes,5,opt,name=prebuild_hash,json=prebuildHash,proto3" json:"prebuild_hash,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -429,6 +432,13 @@ func (x *BoxWarmInputs) GetToolchainHash() string {
 func (x *BoxWarmInputs) GetLockfilesHash() string {
 	if x != nil {
 		return x.LockfilesHash
+	}
+	return ""
+}
+
+func (x *BoxWarmInputs) GetPrebuildHash() string {
+	if x != nil {
+		return x.PrebuildHash
 	}
 	return ""
 }
@@ -1288,14 +1298,15 @@ const file_tower_environments_v1alpha1_golden_proto_rawDesc = "" +
 	"\x11devcontainer_hash\x18\x02 \x01(\tR\x10devcontainerHash\x12\x16\n" +
 	"\x06addons\x18\x03 \x03(\tR\x06addons\x12\x1d\n" +
 	"\n" +
-	"build_hash\x18\x04 \x01(\tR\tbuildHash\"\x95\x01\n" +
+	"build_hash\x18\x04 \x01(\tR\tbuildHash\"\xba\x01\n" +
 	"\rBoxWarmInputs\x12\x1e\n" +
 	"\n" +
 	"repository\x18\x01 \x01(\tR\n" +
 	"repository\x12\x16\n" +
 	"\x06commit\x18\x02 \x01(\tR\x06commit\x12%\n" +
 	"\x0etoolchain_hash\x18\x03 \x01(\tR\rtoolchainHash\x12%\n" +
-	"\x0elockfiles_hash\x18\x04 \x01(\tR\rlockfilesHash\"l\n" +
+	"\x0elockfiles_hash\x18\x04 \x01(\tR\rlockfilesHash\x12#\n" +
+	"\rprebuild_hash\x18\x05 \x01(\tR\fprebuildHash\"l\n" +
 	"\rMachineInputs\x12%\n" +
 	"\x0eblueprint_hash\x18\x01 \x01(\tR\rblueprintHash\x12\x1d\n" +
 	"\n" +

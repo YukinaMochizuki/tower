@@ -8,8 +8,8 @@ github.com/Microsoft/hcsshim v0.15.0-rc.4 h1:aZFX4LH0S20Lgjq0wG61StIClj7im4yzrxI
 github.com/Microsoft/hcsshim v0.15.0-rc.4/go.mod h1:BA9CBztgu4h/6Jsvo1O1M4qjWw09PoYpaEYgexPE578=
 github.com/ProtonMail/go-crypto v1.4.1 h1:9RfcZHqEQUvP8RzecWEUafnZVtEvrBVL9BiF67IQOfM=
 github.com/ProtonMail/go-crypto v1.4.1/go.mod h1:e1OaTyu5SYVrO9gKOEhTc+5UcXtTUa+P3uLudwcgPqo=
-github.com/YukinaMochizuki/hangar v0.2.0-rc.12.0.20261026153110-2c787ade931f h1:7T5jCjhGuDwwA6F++ZHRO7wMoiBY4cSreRCOt0RsPvM=
-github.com/YukinaMochizuki/hangar v0.2.0-rc.12.0.20261026153110-2c787ade931f/go.mod h1:F8oBPi37riIccDeuNSXa+GG/C90xe1byVOD8a+kbAYw=
+github.com/YukinaMochizuki/hangar v0.2.0-rc.15 h1:89AUb4B2WY8jvMmgspPexnueR9kziBlpt1TscNNizhU=
+github.com/YukinaMochizuki/hangar v0.2.0-rc.15/go.mod h1:F8oBPi37riIccDeuNSXa+GG/C90xe1byVOD8a+kbAYw=
 github.com/anchore/go-struct-converter v0.1.0 h1:2rDRssAl6mgKBSLNiVCMADgZRhoqtw9dedlWa0OhD30=
 github.com/anchore/go-struct-converter v0.1.0/go.mod h1:rYqSE9HbjzpHTI74vwPvae4ZVYZd1lue2ta6xHPdblA=
 github.com/aws/aws-sdk-go-v2 v1.47.0 h1:0jsHallhJCeaU0Ko48c/3FK1ctOQ7NpzggxriJOQ8MQ=

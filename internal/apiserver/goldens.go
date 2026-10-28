@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,7 +47,19 @@ const (
 	warmDroppedAnnotation = registry.Domain + "/warm-dropped"
 	// GoldenReady says a golden can be made from, or why not.
 	GoldenReady = "Ready"
+	// GoldenPreBuilt says whether a warm golden's pre-build steps all
+	// passed; one that failed is captured all the same, and says which.
+	GoldenPreBuilt = "PreBuilt"
 )
+
+// DefaultPrebuildStepTimeout is how long one of a warm golden's pre-build
+// steps may run.
+const DefaultPrebuildStepTimeout = 30 * time.Minute
+
+// NoSpaceRetryAfter is how long a pre-build step that ran out of disk
+// waits before it runs again: three of hangar's 15s looks at a disk that
+// grows by itself.
+const NoSpaceRetryAfter = 45 * time.Second
 
 // GoldenRetryFirst and GoldenRetryMax bound how long tower waits before it
 // builds a failed golden again: the first wait, doubled after each failure
@@ -440,10 +453,28 @@ func (s *Server) convergeGolden(ctx context.Context, p provider.Provider, g *env
 				return nil // the parent's change queues it
 			}
 			spec.Kind, spec.Image = envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, parent.GetStatus().GetArtifact()
+			// As a box of the image is made: its disks, and its environment,
+			// with the caches the pre-build fills in /workspace.
+			t, _, err := s.liveTarget(ctx, g.GetSpec().GetTarget())
+			if err != nil {
+				return err
+			}
+			last, err := s.lastWarmSize(ctx, g)
+			if err != nil {
+				return err
+			}
+			spec.Resources, spec.DiskGrowth = builderDisks(t, last)
+			var image buildSpec
+			if _, err := s.getRecord(ctx, goldenBuildKey(project, parent.GetMetadata().GetName()), &image); err != nil {
+				return err
+			}
+			if spec.Env, err = imageBoxEnv(ctx, p, spec.Image, image.Env); err != nil {
+				return err
+			}
 		} else {
 			spec.Kind, spec.Image = envv1alpha1.InstanceKind_INSTANCE_KIND_VM, g.GetSpec().GetMachine().GetBaseImage()
+			spec.Resources = withDefaults(spec.Kind, nil)
 		}
-		spec.Resources = withDefaults(spec.Kind, nil)
 		_, err := s.backend(registry.Instance).Create(s.system(ctx), &envv1alpha1.Instance{
 			Metadata: &metav1.ObjectMeta{Project: project, Name: name, OwnerReferences: []*metav1.OwnerReference{ownedBy(registry.Golden, g)}},
 			Spec:     spec,
@@ -497,6 +528,9 @@ func (s *Server) convergeGolden(ctx context.Context, p provider.Provider, g *env
 			if err := s.retryStatus(ctx, g, func(g *envv1alpha1.Golden) error {
 				return s.setGolden(ctx, g, envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY, "Captured", "", func(st *envv1alpha1.GoldenStatus) {
 					st.Artifact, st.Size = art.Name, quantity.FormatDisk(art.Size)
+					if warm != nil {
+						st.Conditions = conditions.Set(slices.Clone(st.GetConditions()), prebuiltCondition(in, st.ObservedGeneration), s.clock.Now())
+					}
 				})
 			}); err != nil {
 				return err
@@ -508,6 +542,27 @@ func (s *Server) convergeGolden(ctx context.Context, p provider.Provider, g *env
 		})
 	}
 	return nil
+}
+
+// lastWarmSize is what the newest ready warm golden of g's repository on
+// g's target holds, in bytes, 0 for none.
+func (s *Server) lastWarmSize(ctx context.Context, g *envv1alpha1.Golden) (uint64, error) {
+	goldens, err := listTyped[*envv1alpha1.Golden](ctx, s, registry.Golden, g.GetMetadata().GetProject())
+	if err != nil {
+		return 0, err
+	}
+	var last *envv1alpha1.Golden
+	for _, o := range goldens {
+		if o.GetMetadata().GetLabels()[warmLabel] != g.GetMetadata().GetLabels()[warmLabel] || o.GetSpec().GetTarget() != g.GetSpec().GetTarget() ||
+			o.GetMetadata().GetName() == g.GetMetadata().GetName() || goldenPhase(o) != envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY {
+			continue
+		}
+		if last == nil || o.GetMetadata().GetCreateTime().AsTime().After(last.GetMetadata().GetCreateTime().AsTime()) {
+			last = o
+		}
+	}
+	size, _ := quantity.Bytes(last.GetStatus().GetSize())
+	return size, nil
 }
 
 // deleteBuilder deletes a failed golden's builder instance, which would
@@ -527,17 +582,147 @@ func (s *Server) deleteBuilder(ctx context.Context, g *envv1alpha1.Golden) error
 	return nil
 }
 
-// convergeWarm checks the repository out in the builder and installs its
-// toolchain and dependencies.
+// convergeWarm checks the repository out in the builder and pre-builds it
+// (docs/decisions/devcontainers.md). A step that fails does not fail the
+// golden: it is recorded on the builder (setupAnnotation), which the
+// golden's PreBuilt condition says.
 func (s *Server) convergeWarm(ctx context.Context, p provider.Provider, ref provider.Instance, build buildSpec, warm *envv1alpha1.BoxWarmInputs) error {
 	if _, err := p.Checkout(ctx, ref, build.Mirror, warm.GetCommit(), "/workspace"); err != nil {
 		return err
 	}
+	for _, c := range [][]string{excludeCaches, adoptToolDirs} {
+		if err := s.mustRun(ctx, p, ref, nil, "/workspace", c...); err != nil {
+			return err
+		}
+	}
 	w, err := s.cfg.Resolver.Warm(ctx, p, build.Mirror, warm.GetCommit())
-	if err != nil || len(w.Install) == 0 {
+	if err != nil {
 		return err
 	}
-	return s.mustRun(ctx, p, ref, nil, "/workspace", w.Install...)
+	retries, err := s.noSpaceRetries(ctx, ref)
+	if err != nil {
+		return err
+	}
+	var warnings []string
+	for _, step := range w.Install {
+		warning, err := s.prebuildStep(ctx, p, ref, step)
+		// Run again while the disk grows under it, as far as it can grow.
+		for n := 0; err == nil && warning == errNoSpaceLeft; n++ {
+			if n == retries {
+				warning = step.Name + ": " + errNoSpaceLeft
+				if n > 0 {
+					warning += fmt.Sprintf(", %d times as its disk grew", n+1)
+				}
+				break
+			}
+			before := workspaceSize(ctx, p, ref)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-s.clock.After(NoSpaceRetryAfter):
+			}
+			if workspaceSize(ctx, p, ref) <= before {
+				warning = fmt.Sprintf("%s: %s, and its disk did not grow in %s", step.Name, errNoSpaceLeft, NoSpaceRetryAfter)
+				break
+			}
+			warning, err = s.prebuildStep(ctx, p, ref, step)
+		}
+		if err != nil {
+			return err
+		}
+		if warning != "" {
+			warnings = append(warnings, warning)
+		}
+	}
+	if len(warnings) == 0 {
+		return nil
+	}
+	s.log.Warn("a warm golden's pre-build failed in part", "project", ref.Project, "builder", ref.Name, "warnings", strings.Join(warnings, "; "))
+	return s.annotateInstance(ctx, ref.Project, ref.Name, setupAnnotation, strings.Join(warnings, "; "))
+}
+
+// noSpaceRetries is how many times a builder's pre-build step that ran out
+// of disk may run again: one more than the steps its /workspace takes,
+// doubling, from its start to its max; none for a disk that does not grow.
+func (s *Server) noSpaceRetries(ctx context.Context, ref provider.Instance) (int, error) {
+	in, ok, err := getTyped[*envv1alpha1.Instance](ctx, s, registry.Instance, resource.Key{Project: ref.Project, Name: ref.Name})
+	if err != nil || !ok || in.GetSpec().GetDiskGrowth() == nil {
+		return 0, err
+	}
+	// Both are quantities, which an instance is checked for when made.
+	start, _ := quantity.Bytes(in.GetSpec().GetResources().GetDisk())
+	maxSize, _ := quantity.Bytes(in.GetSpec().GetDiskGrowth().GetWorkspaceMax())
+	if start == 0 {
+		return 1, nil
+	}
+	n := 1
+	for size := start; size < maxSize; size *= 2 {
+		n++
+	}
+	return n, nil
+}
+
+// workspaceSize is the size of the instance's /workspace filesystem in
+// KiB, as df reads it there; 0 when it cannot be read.
+func workspaceSize(ctx context.Context, p provider.Provider, ref provider.Instance) uint64 {
+	var out bytes.Buffer
+	code, err := p.Exec(ctx, provider.ExecRequest{Instance: ref, Command: []string{"df", "-Pk", "/workspace"}, Stdout: &out})
+	if err != nil || code != 0 {
+		return 0
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if fields := strings.Fields(lines[len(lines)-1]); len(fields) > 1 {
+		if kib, err := strconv.ParseUint(fields[1], 10, 64); err == nil {
+			return kib
+		}
+	}
+	return 0
+}
+
+// errNoSpaceLeft is the warning of a step whose output says its disk was
+// full, which a disk that grows may not be a moment later.
+const errNoSpaceLeft = "no space left on device"
+
+// prebuildStep runs one pre-build step in the builder: a warning if it
+// failed or ran out of time, errNoSpaceLeft alone if it ran out of disk;
+// an error only for what fails the job.
+func (s *Server) prebuildStep(ctx context.Context, p provider.Provider, ref provider.Instance, step devcontainer.Step) (string, error) {
+	var out bytes.Buffer
+	stepCtx, cancel := context.WithTimeout(ctx, s.cfg.PrebuildStepTimeout)
+	defer cancel()
+	code, err := p.Exec(stepCtx, provider.ExecRequest{Instance: ref, Command: step.Command, Dir: "/workspace", Stdout: &out, Stderr: &out})
+	switch {
+	case stepCtx.Err() != nil && ctx.Err() == nil:
+		return fmt.Sprintf("%s: did not end in %s", step.Name, s.cfg.PrebuildStepTimeout), nil
+	case transient(err) || ctx.Err() != nil:
+		return "", err
+	case err != nil:
+		return fmt.Sprintf("%s: %v", step.Name, err), nil
+	case code == 0:
+		return "", nil
+	}
+	tail := strings.TrimSpace(out.String())
+	if strings.Contains(strings.ToLower(tail), errNoSpaceLeft) {
+		return errNoSpaceLeft, nil
+	}
+	msg := fmt.Sprintf("%s: exit %d", step.Name, code)
+	if len(tail) > 300 {
+		tail = tail[len(tail)-300:]
+	}
+	if tail != "" {
+		msg += ": " + tail
+	}
+	return msg, nil
+}
+
+// prebuiltCondition is a warm golden's PreBuilt condition, from what its
+// builder recorded of its pre-build.
+func prebuiltCondition(builder *envv1alpha1.Instance, generation int64) *metav1.Condition {
+	c := &metav1.Condition{Type: GoldenPreBuilt, Status: metav1.ConditionStatus_CONDITION_STATUS_TRUE, Reason: "PreBuilt", ObservedGeneration: generation}
+	if w := builder.GetMetadata().GetAnnotations()[setupAnnotation]; w != "" {
+		c.Status, c.Reason, c.Message = metav1.ConditionStatus_CONDITION_STATUS_FALSE, "PreBuildFailed", w
+	}
+	return c
 }
 
 // convergeMachine runs a blueprint's golden phase in the builder, with its

@@ -28,7 +28,7 @@
     },
     "tower.environments.v1alpha1.BoxWarmInputs": {
       "additionalProperties": false,
-      "description": "BoxWarmInputs make a warm golden: a checkout of a repository's default branch with its toolchain and dependencies installed, on the target's disk. Only the most used repositories get one.",
+      "description": "BoxWarmInputs make a warm golden: a checkout of a repository's default branch with its toolchain and dependencies installed and pre-built, on the target's disk. Only the most used repositories get one.",
       "properties": {
         "commit": {
           "description": "The commit checked out.",
@@ -36,6 +36,10 @@
         },
         "lockfilesHash": {
           "description": "A hash of the lockfiles (go.sum, pnpm-lock.yaml, package-lock.json, uv.lock, Cargo.lock, ...).",
+          "type": "string"
+        },
+        "prebuildHash": {
+          "description": "A hash of its pre-build: the commands run in it and the repository's root Makefile (docs/decisions/devcontainers.md).",
           "type": "string"
         },
         "repository": {

@@ -351,14 +351,17 @@ func (re Real) Setup(ctx context.Context, p provider.Provider, req Request) ([]S
 	return steps, nil
 }
 
-// Warm is what a warm checkout at commit depends on: the repository's mise
-// files and its lockfiles, by their git objects. It installs nothing: what
-// workstream installs in a box, mise's toolchain and the devcontainer's
-// commands, reaches outside the checkout (mise's tools live in the
-// user's home), which a warm golden, a disk of /workspace, does not hold;
-// every box runs them itself (Setup).
+// Warm is what a warm checkout at commit depends on, and its pre-build:
+// the installs its files call for, then updateContentCommand, else make
+// build (docs/decisions/devcontainers.md).
 func (Real) Warm(ctx context.Context, p provider.Provider, mirror, commit string) (Warm, error) {
-	read, err := p.ReadMirror(ctx, provider.MirrorReadRequest{MirrorSource: provider.MirrorSource{Mirror: mirror, Ref: commit}, Paths: append(slices.Clone(miseFiles), lockfiles...)})
+	src := provider.MirrorSource{Mirror: mirror, Ref: commit}
+	read, err := p.ReadMirror(ctx, provider.MirrorReadRequest{MirrorSource: src, Paths: append(append(slices.Clone(miseFiles), lockfiles...), "go.mod")})
+	if err != nil {
+		return Warm{}, err
+	}
+	// What the pre-build's last step is read from, by content.
+	cmds, err := p.ReadMirror(ctx, provider.MirrorReadRequest{MirrorSource: src, Paths: append(slices.Clone(configCandidates), makefiles...), Content: true})
 	if err != nil {
 		return Warm{}, err
 	}
@@ -371,7 +374,105 @@ func (Real) Warm(ctx context.Context, p provider.Provider, mirror, commit string
 		}
 		return hex.EncodeToString(h.Sum(nil))
 	}
-	return Warm{ToolchainHash: hashOf(miseFiles), LockfilesHash: hashOf(lockfiles)}, nil
+	has := func(n string) bool { e, ok := read.Entries[n]; return ok && !e.Dir }
+	var cfg *config
+	for _, c := range configCandidates {
+		if e, ok := cmds.Entries[c]; ok && !e.Dir && e.Content != nil {
+			// One that does not parse makes no image either: its boxes fail,
+			// saying why, and its pre-build is what a repository without one
+			// has.
+			if c, err := parseConfig(c, e.Content); err == nil {
+				cfg = &c
+			}
+			break
+		}
+	}
+	mise := slices.ContainsFunc(miseFiles, has) || cfg != nil && cfg.Env["MISE_CONFIG_FILE"] != ""
+	var steps []Step
+	if mise {
+		steps = append(steps, Step{Name: "mise install", Command: prebuildStep("mise", false, "mise trust && mise install")})
+	}
+	for _, i := range installs {
+		if has(i.file) {
+			steps = append(steps, Step{Name: i.name, Command: prebuildStep(i.tool, mise, i.command)})
+		}
+	}
+	h := sha256.New()
+	_, _ = fmt.Fprintf(h, "%s\n", prebuildVersion)
+	for _, m := range makefiles {
+		if e, ok := cmds.Entries[m]; ok {
+			_, _ = fmt.Fprintf(h, "%s=%s\n", m, e.Object)
+		}
+	}
+	switch {
+	case cfg != nil && cfg.UpdateContent != "":
+		steps = append(steps, Step{Name: "updateContent", Command: prebuildStep("", mise, cfg.UpdateContent)})
+	case hasBuildTarget(cmds.Entries):
+		steps = append(steps, Step{Name: "make build", Command: prebuildStep("make", mise, "make build")})
+	}
+	for _, s := range steps {
+		_, _ = fmt.Fprintf(h, "%d:%s\n", len(s.Command[len(s.Command)-1]), s.Command[len(s.Command)-1])
+	}
+	return Warm{
+		ToolchainHash: hashOf(miseFiles), LockfilesHash: hashOf(lockfiles),
+		PrebuildHash: hex.EncodeToString(h.Sum(nil)), Install: steps,
+	}, nil
+}
+
+// prebuildVersion is part of every pre-build's hash, so a change to what
+// tower runs builds every warm golden again at its next rebuild.
+const prebuildVersion = "tower-prebuild-1"
+
+// installs are the dependency installs of a warm checkout, in order: each
+// runs when the repository holds its file.
+var installs = []struct{ file, name, tool, command string }{
+	{"go.mod", "go mod download", "go", "go mod download"},
+	{"package-lock.json", "npm ci", "npm", "npm ci"},
+	{"pnpm-lock.yaml", "pnpm install", "pnpm", "pnpm install --frozen-lockfile"},
+	{"yarn.lock", "yarn install", "yarn", "yarn install --frozen-lockfile"},
+	{"uv.lock", "uv sync", "uv", "uv sync"},
+}
+
+// makefiles are the names make reads a repository's root Makefile by.
+var makefiles = []string{"GNUmakefile", "makefile", "Makefile"}
+
+// prebuildStep is script through bash -lc, skipped without tool ("" for
+// none), with mise's tools on its PATH when mise is set.
+func prebuildStep(tool string, mise bool, script string) []string {
+	var pre string
+	if mise {
+		pre = `if command -v mise >/dev/null 2>&1; then eval "$(mise env -s bash)"; fi` + "\n"
+	}
+	if tool != "" {
+		pre += fmt.Sprintf("command -v %s >/dev/null 2>&1 || { echo '%s is not installed: skipped'; exit 0; }\n", tool, tool)
+	}
+	return []string{"bash", "-lc", pre + script}
+}
+
+// hasBuildTarget reports whether the root Makefile make reads declares a
+// build target; one too large to read has none.
+func hasBuildTarget(entries map[string]provider.MirrorEntry) bool {
+	for _, m := range makefiles {
+		e, ok := entries[m]
+		if !ok || e.Dir {
+			continue
+		}
+		for _, line := range strings.Split(string(e.Content), "\n") {
+			if line == "" || line[0] == '\t' || line[0] == '#' {
+				continue
+			}
+			targets, rest, ok := strings.Cut(line, ":")
+			// A variable's assignment, not a rule.
+			if !ok || strings.HasPrefix(rest, "=") || strings.ContainsAny(targets, "=$") {
+				continue
+			}
+			if slices.Contains(strings.Fields(targets), "build") {
+				return true
+			}
+		}
+		return false
+	}
+	return false
 }
 
 func bytesReader(b []byte) *bytes.Reader { return bytes.NewReader(b) }

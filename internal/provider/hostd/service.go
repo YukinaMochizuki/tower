@@ -241,7 +241,7 @@ func (s service) ResolveImage(ctx context.Context, req *connect.Request[hostdv1.
 	if err != nil {
 		return nil, toConnect(err)
 	}
-	return connect.NewResponse(&hostdv1.ResolveImageResponse{Digest: cfg.Digest, User: cfg.User}), nil
+	return connect.NewResponse(&hostdv1.ResolveImageResponse{Digest: cfg.Digest, User: cfg.User, Env: cfg.Env}), nil
 }
 
 func (s service) ReadMirror(ctx context.Context, req *connect.Request[hostdv1.ReadMirrorRequest]) (*connect.Response[hostdv1.ReadMirrorResponse], error) {

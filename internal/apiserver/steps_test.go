@@ -28,6 +28,14 @@ func (w *world) runsIn(instance, name string) int {
 	return n
 }
 
+// errBrokenCheckout fails a box's checkout step.
+var errBrokenCheckout = fmt.Errorf("the checkout broke: %w", provider.ErrFailed)
+
+// checkoutsIn counts the checkouts asked of the instance.
+func (w *world) checkoutsIn(instance string) int {
+	return w.fake.Checkouts(provider.Instance{Project: "web", Name: instance})
+}
+
 // waitFailedSaying waits for the box to be FAILED with a Ready message
 // holding each of want.
 func (w *world) waitFailedSaying(name string, want ...string) *envv1alpha1.Box {
@@ -54,11 +62,11 @@ func (w *world) waitFailedSaying(name string, want ...string) *envv1alpha1.Box {
 func TestAFailedCheckoutIsTriedAgainAfterABackoff(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	w.fake.FailCommands("install-dependencies")
+	w.fake.FailCheckouts(errBrokenCheckout)
 	w.mustApply(registry.Repository, repository("api"))
 	w.mustApply(registry.Box, box("dev", "api"))
 	at := func(d time.Duration) string { return w.clock.Now().Add(d).UTC().Format(time.RFC3339) }
-	b := w.waitFailedSaying("dev", "install-dependencies exited 1", "tried again at "+at(apiserver.StepRetryFirst))
+	b := w.waitFailedSaying("dev", "the checkout broke", "tried again at "+at(apiserver.StepRetryFirst))
 	if c := condition(b.GetStatus().GetConditions(), apiserver.BoxReady); c.GetReason() != "CheckoutFailed" {
 		t.Errorf("Ready %v", c)
 	}
@@ -67,24 +75,24 @@ func TestAFailedCheckoutIsTriedAgainAfterABackoff(t *testing.T) {
 	// Used meanwhile: refused at once, with the reason.
 	_, err := exec(t.Context(), w.as(workstream).envs, &envv1alpha1.ExecRequest{Environment: boxEnv("dev"), Command: argv("true")})
 	wantCode(t, err, connect.CodeFailedPrecondition, "a command in a box whose checkout failed")
-	if msg := messageOfErr(err); !strings.Contains(msg, "CheckoutFailed") || !strings.Contains(msg, "install-dependencies exited 1") {
+	if msg := messageOfErr(err); !strings.Contains(msg, "CheckoutFailed") || !strings.Contains(msg, "the checkout broke") {
 		t.Errorf("the refusal says %q", msg)
 	}
 
 	w.advance(apiserver.StepRetryFirst - time.Minute)
-	if n := w.runsIn(instance, "install-dependencies"); n != 1 {
+	if n := w.checkoutsIn(instance); n != 1 {
 		t.Fatalf("the step ran %d times before its backoff passed", n)
 	}
 	// The backoff outlives a restart.
 	w.restart()
 	w.advance(2 * time.Minute)
-	w.waitFailedSaying("dev", "install-dependencies exited 1", "tried again at "+at(2*apiserver.StepRetryFirst))
-	if n := w.runsIn(instance, "install-dependencies"); n != 2 {
+	w.waitFailedSaying("dev", "the checkout broke", "tried again at "+at(2*apiserver.StepRetryFirst))
+	if n := w.checkoutsIn(instance); n != 2 {
 		t.Fatalf("the step ran %d times once its backoff passed", n)
 	}
-	w.fake.FailCommands()
+	w.fake.FailCheckouts(nil)
 	w.advance(2*apiserver.StepRetryFirst - 2*time.Minute)
-	if n := w.runsIn(instance, "install-dependencies"); n != 2 {
+	if n := w.checkoutsIn(instance); n != 2 {
 		t.Fatalf("the second backoff did not double: the step ran %d times", n)
 	}
 	w.advance(2 * time.Minute)
@@ -100,18 +108,18 @@ func TestAFailedCheckoutIsTriedAgainAfterABackoff(t *testing.T) {
 func TestAChangedSpecTriesAFailedStepAgain(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	w.fake.FailCommands("install-dependencies")
+	w.fake.FailCheckouts(errBrokenCheckout)
 	w.mustApply(registry.Repository, repository("api"))
 	w.mustApply(registry.Box, box("dev", "api"))
-	b := w.waitFailedSaying("dev", "install-dependencies exited 1")
+	b := w.waitFailedSaying("dev", "the checkout broke")
 	instance := b.GetStatus().GetInstance()
-	w.fake.FailCommands()
+	w.fake.FailCheckouts(nil)
 	b = w.box("dev")
 	b.Spec.Keep = true
 	b.Status = nil
 	w.mustApply(registry.Box, b)
 	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_READY)
-	if n := w.runsIn(instance, "install-dependencies"); n != 2 {
+	if n := w.checkoutsIn(instance); n != 2 {
 		t.Errorf("the step ran %d times", n)
 	}
 }
@@ -121,10 +129,10 @@ func TestAChangedSpecTriesAFailedStepAgain(t *testing.T) {
 func TestAStepsFailuresGoWithItsBox(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	w.fake.FailCommands("install-dependencies")
+	w.fake.FailCheckouts(errBrokenCheckout)
 	w.mustApply(registry.Repository, repository("api"))
 	w.mustApply(registry.Box, box("dev", "api"))
-	w.waitFailedSaying("dev", "install-dependencies exited 1")
+	w.waitFailedSaying("dev", "the checkout broke")
 	if n := w.records("StepBackoff"); n != 1 {
 		t.Fatalf("%d step backoffs kept for a failed step", n)
 	}

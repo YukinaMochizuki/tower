@@ -72,7 +72,9 @@ tower runs each hangar target's provider itself (`internal/provider/
 hangar`, started by the apiserver from the Target and the Secrets it
 names): it makes the target's Instances real in its hangar project, one
 hangar Network per workstream, a Container with a Disk at /workspace per
-container instance, and a VirtualMachine booting from a Disk of its own
+container instance, both disks of a box growing as they fill up to the
+Target's settings (`docs/runbook/hangar-operations.md`, "Sizing a Plan"),
+and a VirtualMachine booting from a Disk of its own
 per VM instance, made from the hangar catalogue Image its base image maps
 to. Each is named on its network by its Instance's alias. The provider
 runs tower-guest in a container over hangar's exec, and in a VM over its

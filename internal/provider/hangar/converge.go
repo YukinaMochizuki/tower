@@ -176,9 +176,15 @@ func (t *Target) converge(ctx context.Context, in *envv1alpha1.Instance) (observ
 				return *wait, nil
 			}
 		}
+		ds := &hangarstorage.DiskSpec{Size: size, Source: source}
+		if g := spec.GetDiskGrowth(); g != nil {
+			// One cloned from a golden starts at least at its size, which hangar
+			// refuses a max under.
+			ds.Grow = &hangarstorage.DiskGrow{Max: atLeast(g.GetWorkspaceMax(), size), Threshold: g.GetThreshold(), Step: g.GetStep()}
+		}
 		_, err := t.api.Disks().Apply(ctx, &hangarstorage.Disk{
 			Metadata: &hangarmeta.ObjectMeta{Name: name, Labels: labels},
-			Spec:     &hangarstorage.DiskSpec{Size: size, Source: source},
+			Spec:     ds,
 		})
 		if err != nil {
 			return t.applyFailed(err)
@@ -243,6 +249,13 @@ func (t *Target) containerSpec(in *envv1alpha1.Instance, name, network, pull str
 	}
 	if r := spec.GetResources(); r.GetCpu() != "" || r.GetMemory() != "" {
 		s.Resources = &hangarcompute.Resources{Cpu: r.GetCpu(), Memory: r.GetMemory()}
+	}
+	if g := spec.GetDiskGrowth(); g != nil && g.GetRoot() != "" {
+		if s.Resources == nil {
+			s.Resources = &hangarcompute.Resources{}
+		}
+		s.Resources.Disk = g.GetRoot()
+		s.Resources.DiskGrow = &hangarcompute.DiskGrow{Max: atLeast(g.GetRootMax(), g.GetRoot()), Threshold: g.GetThreshold(), Step: g.GetStep()}
 	}
 	for _, k := range slices.Sorted(maps.Keys(spec.GetEnv())) {
 		s.Env = append(s.Env, &hangarcompute.EnvVar{Name: k, Value: spec.GetEnv()[k]})

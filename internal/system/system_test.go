@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -166,5 +167,29 @@ func TestTheStatusAnswersWithoutDocker(t *testing.T) {
 	}
 	if st.BuildKit != "" {
 		t.Errorf("buildkitd said to answer as %q, with none there", st.BuildKit)
+	}
+}
+
+// answering is a tower-system that answers every call with one line.
+type answering string
+
+func (a answering) RunSystem(_ context.Context, _ io.Reader, stdout, _ io.Writer) (int, error) {
+	_, err := io.WriteString(stdout, string(a)+"\n")
+	return 0, err
+}
+
+// TestAResolveCarriesTheImagesEnvironment: what a resolve answers of an
+// image reaches its caller whole, its environment with its digest and
+// user.
+func TestAResolveCarriesTheImagesEnvironment(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	o := system.Ops{R: answering(`{"digest":"sha256:01","user":"1000","env":["PATH=/bin","GOCACHE=/cache/go"]}`)}
+	cfg, err := o.Resolve(ctx, "registry.example/app:1", system.Login{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Digest != "sha256:01" || cfg.User != "1000" || !slices.Equal(cfg.Env, []string{"PATH=/bin", "GOCACHE=/cache/go"}) {
+		t.Errorf("resolved %+v", cfg)
 	}
 }

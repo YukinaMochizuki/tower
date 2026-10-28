@@ -89,6 +89,9 @@ type Config struct {
 	// GoldenPruneAfter is how long a golden nothing was made from, and
 	// nothing references, is kept; zero is DefaultGoldenPruneAfter.
 	GoldenPruneAfter time.Duration
+	// PrebuildStepTimeout is how long one of a warm golden's pre-build
+	// steps may run; zero is DefaultPrebuildStepTimeout.
+	PrebuildStepTimeout time.Duration
 	// DisableControllers leaves the policy controllers out, as tests of the
 	// generic machinery do.
 	DisableControllers bool
@@ -201,6 +204,9 @@ func New(cfg Config) *Server {
 	}
 	if cfg.Resolver == nil {
 		cfg.Resolver = devcontainer.Real{}
+	}
+	if cfg.PrebuildStepTimeout == 0 {
+		cfg.PrebuildStepTimeout = DefaultPrebuildStepTimeout
 	}
 	if cfg.GoldenPruneAfter == 0 {
 		cfg.GoldenPruneAfter = DefaultGoldenPruneAfter

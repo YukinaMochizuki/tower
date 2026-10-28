@@ -15,7 +15,9 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/jonboulle/clockwork"
+	"google.golang.org/protobuf/proto"
 
+	hangarcompute "github.com/YukinaMochizuki/hangar/gen/go/hangar/compute/v1alpha1"
 	hangarmeta "github.com/YukinaMochizuki/hangar/gen/go/hangar/meta/v1"
 	hangarnetwork "github.com/YukinaMochizuki/hangar/gen/go/hangar/network/v1alpha1"
 	hangarsecrets "github.com/YukinaMochizuki/hangar/gen/go/hangar/secrets/v1alpha1"
@@ -222,6 +224,47 @@ func TestWhatAnInstanceIsInHangar(t *testing.T) {
 	}
 	if !strSet(f.ContainerNames()).has(systemName(f)) {
 		t.Errorf("the sweep took the system container: %v", f.ContainerNames())
+	}
+}
+
+// TestAContainersDisksGrowAsItsInstanceSays: an instance with disk_growth
+// is a Disk that grows from resources.disk, and a Container whose root
+// disk grows from its start, each max at least its start; one without has
+// disks that do not grow, the root disk hangar's default.
+func TestAContainersDisksGrowAsItsInstanceSays(t *testing.T) {
+	w, f := newWorld(t, nil)
+	h := w.Harness()
+	grows := container("ws1")
+	grows.Resources = &envv1alpha1.Resources{Cpu: "2", Memory: "4Gi", Disk: "40Gi"}
+	grows.DiskGrowth = &envv1alpha1.DiskGrowth{WorkspaceMax: "30Gi", Root: "5Gi", RootMax: "30Gi", Threshold: "80%", Step: "2x"}
+	h.Start(t, "grows", grows)
+	h.Start(t, "fixed", container("ws2"))
+	for name, want := range map[string]struct {
+		disk      string
+		grow      *hangarstorage.DiskGrow
+		resources *hangarcompute.Resources
+	}{
+		"grows": {
+			disk: "40Gi", grow: &hangarstorage.DiskGrow{Max: "40Gi", Threshold: "80%", Step: "2x"},
+			resources: &hangarcompute.Resources{Cpu: "2", Memory: "4Gi", Disk: "5Gi", DiskGrow: &hangarcompute.DiskGrow{Max: "30Gi", Threshold: "80%", Step: "2x"}},
+		},
+		"fixed": {disk: hangar.DefaultDisk},
+	} {
+		obj := "t-" + w.Instance(t, name).GetMetadata().GetUid()
+		d, err := f.Disks().Get(t.Context(), obj)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.GetSpec().GetSize() != want.disk || !proto.Equal(d.GetSpec().GetGrow(), want.grow) {
+			t.Errorf("%s: its disk %v, want %s growing as %v", name, d.GetSpec(), want.disk, want.grow)
+		}
+		ct, err := f.Containers().Get(t.Context(), obj)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !proto.Equal(ct.GetSpec().GetResources(), want.resources) {
+			t.Errorf("%s: its container's resources %v, want %v", name, ct.GetSpec().GetResources(), want.resources)
+		}
 	}
 }
 

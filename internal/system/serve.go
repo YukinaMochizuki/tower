@@ -233,7 +233,7 @@ func serve(ctx context.Context, cfg Config, h Header, in io.Reader, stderr io.Wr
 			return Result{}, nil, err
 		}
 		c, err := b.Resolve(ctx, h.Image)
-		return Result{Digest: c.Digest, User: c.User}, nil, err
+		return Result{Digest: c.Digest, User: c.User, Env: c.Env}, nil, err
 	case OpStatus:
 		var res Result
 		b, err := builder()

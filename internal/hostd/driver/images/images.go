@@ -566,12 +566,15 @@ func (d *Driver) resolveInRegistry(ctx context.Context, ref string) (driver.Imag
 			return nil, err
 		}
 		var img struct {
-			Config struct{ User string }
+			Config struct {
+				User string
+				Env  []string
+			}
 		}
 		if err := json.Unmarshal(config, &img); err != nil {
 			return nil, fmt.Errorf("the config of %s: %w", ref, err)
 		}
-		out = driver.ImageConfig{Digest: dgst.String(), User: img.Config.User}
+		out = driver.ImageConfig{Digest: dgst.String(), User: img.Config.User, Env: img.Config.Env}
 		return gateway.NewResult(), nil
 	}, nil)
 	if err != nil {

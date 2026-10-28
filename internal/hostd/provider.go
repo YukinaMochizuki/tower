@@ -164,7 +164,7 @@ func (h *Host) BuildImage(ctx context.Context, req provider.BuildRequest) (strin
 
 func (h *Host) ResolveImage(ctx context.Context, ref string) (provider.ImageConfig, error) {
 	cfg, err := h.d.Images.Resolve(ctx, ref)
-	return provider.ImageConfig{Digest: cfg.Digest, User: cfg.User}, providerError(err)
+	return provider.ImageConfig{Digest: cfg.Digest, User: cfg.User, Env: cfg.Env}, providerError(err)
 }
 
 func (h *Host) ReadMirror(ctx context.Context, req provider.MirrorReadRequest) (provider.MirrorRead, error) {

@@ -1107,7 +1107,9 @@ type ResolveImageResponse struct {
 	// The manifest's digest, such as "sha256:...".
 	Digest string `protobuf:"bytes,1,opt,name=digest,proto3" json:"digest,omitempty"`
 	// The user it runs as, empty for root.
-	User          string `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"`
+	User string `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"`
+	// Its config's environment, each "NAME=value".
+	Env           []string `protobuf:"bytes,3,rep,name=env,proto3" json:"env,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1154,6 +1156,13 @@ func (x *ResolveImageResponse) GetUser() string {
 		return x.User
 	}
 	return ""
+}
+
+func (x *ResolveImageResponse) GetEnv() []string {
+	if x != nil {
+		return x.Env
+	}
+	return nil
 }
 
 type BuildImageResponse struct {
@@ -3019,10 +3028,11 @@ const file_tower_hostd_v1_host_proto_rawDesc = "" +
 	"\x06mirror\x18\x01 \x01(\tR\x06mirror\x12\x10\n" +
 	"\x03ref\x18\x02 \x01(\tR\x03ref\"'\n" +
 	"\x13ResolveImageRequest\x12\x10\n" +
-	"\x03ref\x18\x01 \x01(\tR\x03ref\"B\n" +
+	"\x03ref\x18\x01 \x01(\tR\x03ref\"T\n" +
 	"\x14ResolveImageResponse\x12\x16\n" +
 	"\x06digest\x18\x01 \x01(\tR\x06digest\x12\x12\n" +
-	"\x04user\x18\x02 \x01(\tR\x04user\"*\n" +
+	"\x04user\x18\x02 \x01(\tR\x04user\x12\x10\n" +
+	"\x03env\x18\x03 \x03(\tR\x03env\"*\n" +
 	"\x12BuildImageResponse\x12\x14\n" +
 	"\x05image\x18\x01 \x01(\tR\x05image\"F\n" +
 	"\x0eCaptureRequest\x124\n" +

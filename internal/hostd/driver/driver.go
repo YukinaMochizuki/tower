@@ -392,6 +392,8 @@ type ImageConfig struct {
 	Digest string
 	// User is the user it runs as, "" for root.
 	User string
+	// Env is its config's environment, each "NAME=value".
+	Env []string
 }
 
 // FetchSpec brings a branch of a repository into a mirror.

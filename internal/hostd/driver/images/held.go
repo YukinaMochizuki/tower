@@ -176,12 +176,15 @@ func configOf(h held) (driver.ImageConfig, error) {
 		return driver.ImageConfig{}, fmt.Errorf("the config of %s: %w", h.ref, err)
 	}
 	var img struct {
-		Config struct{ User string }
+		Config struct {
+			User string
+			Env  []string
+		}
 	}
 	if err := json.Unmarshal(b, &img); err != nil {
 		return driver.ImageConfig{}, fmt.Errorf("the config of %s: %w", h.ref, err)
 	}
-	return driver.ImageConfig{Digest: h.digest().String(), User: img.Config.User}, nil
+	return driver.ImageConfig{Digest: h.digest().String(), User: img.Config.User, Env: img.Config.Env}, nil
 }
 
 // localName is the name Docker knows an image built here by: its
