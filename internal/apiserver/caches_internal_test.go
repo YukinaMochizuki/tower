@@ -132,7 +132,7 @@ func TestAWarmBuildersWorkspaceStartsAtTheLastGoldensSize(t *testing.T) {
 	hangar := &targetsv1alpha1.Target{Spec: &targetsv1alpha1.TargetSpec{Provider: &targetsv1alpha1.TargetSpec_Hangar{Hangar: &targetsv1alpha1.HangarTarget{}}}}
 	for last, want := range map[uint64]string{0: "2Gi", 1 << 30: "2Gi", 7 << 30: "9Gi", 8 << 30: "10Gi", 100 << 30: "30Gi"} {
 		r, g := builderDisks(hangar, last)
-		if r.GetDisk() != want || g.GetWorkspaceMax() != "30Gi" || g.GetRoot() != "10Gi" {
+		if r.GetDisk() != want || g.GetWorkspaceMax() != "30Gi" || g.GetRoot() != "2Gi" {
 			t.Errorf("after a golden of %d bytes: %v, %v; want /workspace at %s", last, r, g, want)
 		}
 	}
@@ -168,7 +168,7 @@ func TestABoxsDisksGrowOnAHangarTarget(t *testing.T) {
 		},
 		"hangar, tower's defaults": {
 			target: hangar(nil), resources: &envv1alpha1.Resources{Cpu: "2", Memory: "4Gi", Disk: "2Gi"},
-			growth: &envv1alpha1.DiskGrowth{WorkspaceMax: "30Gi", Root: "10Gi", RootMax: "30Gi", Threshold: "80%", Step: "2x"},
+			growth: &envv1alpha1.DiskGrowth{WorkspaceMax: "30Gi", Root: "2Gi", RootMax: "30Gi", Threshold: "80%", Step: "2x"},
 		},
 		"hangar, the target's settings": {
 			target:    hangar(&targetsv1alpha1.TargetSettings{BoxWorkspaceDisk: "3Gi", BoxWorkspaceDiskMax: "60Gi", BoxRootDisk: "8Gi", BoxRootDiskMax: "16Gi"}),
@@ -178,7 +178,7 @@ func TestABoxsDisksGrowOnAHangarTarget(t *testing.T) {
 		},
 		"hangar, the box's own disk": {
 			target: hangar(nil), box: &envv1alpha1.Resources{Disk: "50Gi"}, resources: &envv1alpha1.Resources{Cpu: "2", Memory: "4Gi", Disk: "50Gi"},
-			growth: &envv1alpha1.DiskGrowth{WorkspaceMax: "30Gi", Root: "10Gi", RootMax: "30Gi", Threshold: "80%", Step: "2x"},
+			growth: &envv1alpha1.DiskGrowth{WorkspaceMax: "30Gi", Root: "2Gi", RootMax: "30Gi", Threshold: "80%", Step: "2x"},
 		},
 	} {
 		r, g := boxDisks(tc.target, tc.box)

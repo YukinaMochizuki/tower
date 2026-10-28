@@ -54,10 +54,12 @@ const (
 	LastUseFlushEvery = time.Minute
 	// DefaultBoxWorkspaceDisk and DefaultBoxRootDisk are what a box's
 	// /workspace and root disks start at on a target that grows them, and
-	// the Max ones the most they grow to.
+	// the Max ones the most they grow to. hangar starts a root disk at
+	// its image's base when that is larger (hangar#234), so the root's
+	// start can sit below any image's size.
 	DefaultBoxWorkspaceDisk    = "2Gi"
 	DefaultBoxWorkspaceDiskMax = "30Gi"
-	DefaultBoxRootDisk         = "10Gi"
+	DefaultBoxRootDisk         = "2Gi"
 	DefaultBoxRootDiskMax      = "30Gi"
 	// DiskGrowThreshold is how full a disk is when it grows, and
 	// DiskGrowStep how much it grows by.

@@ -103,8 +103,9 @@ message TargetSettings {
   // these do not apply.
   string box_workspace_disk = 6;
   string box_workspace_disk_max = 7;
-  // The same for a box's container root disk, at least 2Gi; unset, 10Gi
-  // and 30Gi.
+  // The same for a box's container root disk, at least 2Gi; unset, 2Gi
+  // and 30Gi. hangar starts a root disk at its image's base when that is
+  // larger.
   string box_root_disk = 8;
   string box_root_disk_max = 9;
   // A warm golden whose pre-build inputs (BoxWarmInputs' toolchain,

@@ -389,8 +389,9 @@ type TargetSettings struct {
 	// these do not apply.
 	BoxWorkspaceDisk    string `protobuf:"bytes,6,opt,name=box_workspace_disk,json=boxWorkspaceDisk,proto3" json:"box_workspace_disk,omitempty"`
 	BoxWorkspaceDiskMax string `protobuf:"bytes,7,opt,name=box_workspace_disk_max,json=boxWorkspaceDiskMax,proto3" json:"box_workspace_disk_max,omitempty"`
-	// The same for a box's container root disk, at least 2Gi; unset, 10Gi
-	// and 30Gi.
+	// The same for a box's container root disk, at least 2Gi; unset, 2Gi
+	// and 30Gi. hangar starts a root disk at its image's base when that is
+	// larger.
 	BoxRootDisk    string `protobuf:"bytes,8,opt,name=box_root_disk,json=boxRootDisk,proto3" json:"box_root_disk,omitempty"`
 	BoxRootDiskMax string `protobuf:"bytes,9,opt,name=box_root_disk_max,json=boxRootDiskMax,proto3" json:"box_root_disk_max,omitempty"`
 	// A warm golden whose pre-build inputs (BoxWarmInputs' toolchain,
