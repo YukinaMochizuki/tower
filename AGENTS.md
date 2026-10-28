@@ -82,6 +82,7 @@ Every other tool is pinned in the repo (`go.mod`, `tools/tools.mod`, or
 | `docs/runbook/testbed.md` | You run or change the real-host tests, or make a testbed |
 | `docs/runbook/deploy.md` | You install tower, its registry or hostd on a host |
 | `docs/runbook/release.md` | You cut a release, or fetch one onto a host |
+| `docs/runbook/hangar-operations.md` | You run hangar targets: the registry's public side, a product's target, rotating credentials, sizing a Plan, remaking a system container |
 | `docs/conventions/comments.md` | You write or review a code comment |
 | hangar's `docs/conventions/testing.md` | You write or change a test: its tools and examples hold here (`docs/decisions/testing-strategy.md`) |
 | `docs/conventions/testing.md` | You run tests: how they run in parallel, and how to run one while iterating |

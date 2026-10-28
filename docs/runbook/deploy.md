@@ -176,7 +176,9 @@ open to the hangar host's address alone, with a login of its own
 tailnet alone, with the tailnet name's certificate; these steps do not
 make the public side. Before a hangar target is made, the registry must
 answer at the target's `registry_host` with a certificate for that name,
-and serve nothing but pulls there.
+and serve nothing but pulls there. `docs/runbook/hangar-operations.md`
+builds it, and goes on from here: the hangar tenant, a target per
+product, rotating credentials and sizing a Plan.
 
 **The target**: its project's service token, a read-only registry login
 for hangar's pulls, a writing one for its builds, and a tailnet auth key
@@ -313,6 +315,53 @@ workstream's network by the machine's own name, not its blueprint's: what
 reached a machine by its blueprint's name reaches it by the machine's, or
 the blueprint sets `net_alias`. A machine made before keeps the alias it
 has, its blueprint's, which its status says, until it is made again.
+
+### 6. Upgrading tower's machine
+
+From a release unpacked in a directory of its own
+(`docs/runbook/release.md`), its `SHA256SUMS` checked against the digest
+in the release notes. Environments on every target run on while the
+apiserver is down; workstream's calls fail until it is back.
+
+```sh
+TAG=<new tag>
+dir=/usr/local/lib/tower/releases/$TAG
+bak=/var/lib/tower-backup/pre-$TAG
+install -d -m 0700 "$bak"
+systemctl stop tower-apiserver
+cp -a /usr/local/bin/tower-apiserver /usr/local/bin/tower /usr/local/lib/tower/tower-guest \
+  /etc/systemd/system/tower-apiserver.service /etc/tower/apiserver.env "$bak"/
+sqlite3 /var/lib/tower/tower.db ".backup '$bak/tower.db'"
+install -m 0755 "$dir"/bin/tower-apiserver "$dir"/bin/tower /usr/local/bin/
+install -m 0755 "$dir"/bin/tower-guest /usr/local/lib/tower/tower-guest
+install -m 0644 "$dir"/deploy/tower/tower-apiserver.service /etc/systemd/system/
+```
+
+If the release's system image changed (its notes say so, or its
+`tower-system_TAG_linux_amd64.tar`'s digest differs from the one
+`TOWER_SYSTEM_IMAGE` names), push it as "5. A hangar target" says, as
+`tower-builder`, and set `TOWER_SYSTEM_IMAGE` in `/etc/tower/apiserver.env`
+to the new digest. Each hangar target then makes its system container
+again on the new image; its disk, and so its mirrors and tailnet state,
+stay. Then:
+
+```sh
+systemctl daemon-reload && systemctl start tower-apiserver
+journalctl -u tower-apiserver -n 50 --no-pager
+TOWER_SERVER=unix:///run/tower/admin.sock tower get targets
+```
+
+Every target should be Reachable and Reporting again within a few
+minutes, and a hangar target's facts show its system container Ready.
+The key-encryption key and the ticket key are untouched by an upgrade;
+the KEK's copy in the vault is still the one that restores a backup.
+
+**Rolling back** is the same in reverse: stop the apiserver, put the
+binaries, unit and env back from `$bak`, and start it. Put the database
+back from `$bak/tower.db` only if the new release changed it in a way the
+old one cannot read (its notes say so); otherwise keep the current one,
+which holds everything done since. litestream ("4. Backing up the store")
+goes on replicating whichever is in place.
 
 ## On each hostd host
 
