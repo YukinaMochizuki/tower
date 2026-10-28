@@ -429,14 +429,15 @@ func testResolveImage(t *testing.T, h Harness) {
 	if _, digest, ok := strings.Cut(h.Image, "@"); ok && cfg.Digest != digest {
 		t.Errorf("%s resolved to digest %q", h.Image, cfg.Digest)
 	}
-	// What tower builds, it resolves, with the user it runs as.
-	image, err := h.Provider.BuildImage(ctx, provider.BuildRequest{Context: buildContext(t, "FROM "+h.Image+"\nUSER 4242\n"), Repository: "conformance/images"})
+	// What tower builds, it resolves, with the user it runs as and its
+	// environment.
+	image, err := h.Provider.BuildImage(ctx, provider.BuildRequest{Context: buildContext(t, "FROM "+h.Image+"\nUSER 4242\nENV CONFORMANCE_CACHE=/cache\n"), Repository: "conformance/images"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg, err = h.Provider.ResolveImage(ctx, image)
-	if _, digest, _ := strings.Cut(image, "@"); err != nil || cfg.Digest != digest || cfg.User != "4242" {
-		t.Errorf("%s resolved to %+v, %v; want its digest and user 4242", image, cfg, err)
+	if _, digest, _ := strings.Cut(image, "@"); err != nil || cfg.Digest != digest || cfg.User != "4242" || !slices.Contains(cfg.Env, "CONFORMANCE_CACHE=/cache") {
+		t.Errorf("%s resolved to %+v, %v; want its digest, user 4242 and CONFORMANCE_CACHE=/cache in its environment", image, cfg, err)
 	}
 }
 

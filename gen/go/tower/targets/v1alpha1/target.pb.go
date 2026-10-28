@@ -379,8 +379,21 @@ type TargetSettings struct {
 	// behind its branch than warm_max_commits_behind, is rebuilt.
 	WarmMaxAge           *durationpb.Duration `protobuf:"bytes,4,opt,name=warm_max_age,json=warmMaxAge,proto3" json:"warm_max_age,omitempty"`
 	WarmMaxCommitsBehind int32                `protobuf:"varint,5,opt,name=warm_max_commits_behind,json=warmMaxCommitsBehind,proto3" json:"warm_max_commits_behind,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// On a target whose provider grows disks by themselves (hangar's), the
+	// size a box's /workspace disk starts at and the most it grows to, at
+	// least 1Gi; unset, 2Gi and 30Gi. A box's own resources.disk is its
+	// start instead, and a box cloned from a golden starts at least at the
+	// golden's size. A warm golden's builder starts at what the last one
+	// held, else as a box. On a hostd target /workspace is a dataset, and
+	// these do not apply.
+	BoxWorkspaceDisk    string `protobuf:"bytes,6,opt,name=box_workspace_disk,json=boxWorkspaceDisk,proto3" json:"box_workspace_disk,omitempty"`
+	BoxWorkspaceDiskMax string `protobuf:"bytes,7,opt,name=box_workspace_disk_max,json=boxWorkspaceDiskMax,proto3" json:"box_workspace_disk_max,omitempty"`
+	// The same for a box's container root disk, at least 2Gi; unset, 10Gi
+	// and 30Gi.
+	BoxRootDisk    string `protobuf:"bytes,8,opt,name=box_root_disk,json=boxRootDisk,proto3" json:"box_root_disk,omitempty"`
+	BoxRootDiskMax string `protobuf:"bytes,9,opt,name=box_root_disk_max,json=boxRootDiskMax,proto3" json:"box_root_disk_max,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *TargetSettings) Reset() {
@@ -446,6 +459,34 @@ func (x *TargetSettings) GetWarmMaxCommitsBehind() int32 {
 		return x.WarmMaxCommitsBehind
 	}
 	return 0
+}
+
+func (x *TargetSettings) GetBoxWorkspaceDisk() string {
+	if x != nil {
+		return x.BoxWorkspaceDisk
+	}
+	return ""
+}
+
+func (x *TargetSettings) GetBoxWorkspaceDiskMax() string {
+	if x != nil {
+		return x.BoxWorkspaceDiskMax
+	}
+	return ""
+}
+
+func (x *TargetSettings) GetBoxRootDisk() string {
+	if x != nil {
+		return x.BoxRootDisk
+	}
+	return ""
+}
+
+func (x *TargetSettings) GetBoxRootDiskMax() string {
+	if x != nil {
+		return x.BoxRootDiskMax
+	}
+	return ""
 }
 
 // TargetStatus is the target's state as its provider last reported it and
@@ -1521,7 +1562,7 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\x0fBaseImagesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\r\n" +
-	"\vHostdTarget\"\xa4\x02\n" +
+	"\vHostdTarget\"\xd6\x03\n" +
 	"\x0eTargetSettings\x12A\n" +
 	"\x0fidle_stop_after\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\ridleStopAfter\x12\x1f\n" +
 	"\vwarm_budget\x18\x02 \x01(\tR\n" +
@@ -1530,7 +1571,11 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"warmWindow\x12;\n" +
 	"\fwarm_max_age\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\n" +
 	"warmMaxAge\x125\n" +
-	"\x17warm_max_commits_behind\x18\x05 \x01(\x05R\x14warmMaxCommitsBehind\"\x84\x04\n" +
+	"\x17warm_max_commits_behind\x18\x05 \x01(\x05R\x14warmMaxCommitsBehind\x12,\n" +
+	"\x12box_workspace_disk\x18\x06 \x01(\tR\x10boxWorkspaceDisk\x123\n" +
+	"\x16box_workspace_disk_max\x18\a \x01(\tR\x13boxWorkspaceDiskMax\x12\"\n" +
+	"\rbox_root_disk\x18\b \x01(\tR\vboxRootDisk\x12)\n" +
+	"\x11box_root_disk_max\x18\t \x01(\tR\x0eboxRootDiskMax\"\x84\x04\n" +
 	"\fTargetStatus\x12/\n" +
 	"\x13observed_generation\x18\x01 \x01(\x03R\x12observedGeneration\x128\n" +
 	"\n" +

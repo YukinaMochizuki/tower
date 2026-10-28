@@ -352,7 +352,7 @@ func (c *Client) ResolveImage(ctx context.Context, ref string) (provider.ImageCo
 	if err != nil {
 		return provider.ImageConfig{}, k.failed(ctx, err)
 	}
-	return provider.ImageConfig{Digest: res.Msg.GetDigest(), User: res.Msg.GetUser()}, nil
+	return provider.ImageConfig{Digest: res.Msg.GetDigest(), User: res.Msg.GetUser(), Env: res.Msg.GetEnv()}, nil
 }
 
 func (c *Client) Push(ctx context.Context, req provider.PushRequest) error {

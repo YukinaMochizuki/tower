@@ -57,6 +57,21 @@ func TestTargetsAreChecked(t *testing.T) {
 		"negative commits behind": func(t *targetsv1alpha1.Target) {
 			t.Spec.Settings = &targetsv1alpha1.TargetSettings{WarmMaxCommitsBehind: -1}
 		},
+		"a box disk that is no quantity": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxRootDiskMax: "big"}
+		},
+		"a box disk under 1Gi": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxWorkspaceDisk: "512Mi"}
+		},
+		"a box root disk under hangar's least, 2Gi": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxRootDisk: "1Gi"}
+		},
+		"a box disk starting over its max": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxWorkspaceDisk: "10Gi", BoxWorkspaceDiskMax: "5Gi"}
+		},
+		"a box disk max under tower's start": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxRootDiskMax: "2Gi"}
+		},
 	}
 	for what, mutate := range bad {
 		tg := hangarTarget("new")
@@ -79,7 +94,10 @@ func TestTargetsAreChecked(t *testing.T) {
 		t.Errorf("a hangar target moved to another endpoint: %v, want invalid", err)
 	}
 	set := hostdTarget("d")
-	set.Spec.Settings = &targetsv1alpha1.TargetSettings{WarmBudget: "200Gi", IdleStopAfter: durationpb.New(3600e9)}
+	set.Spec.Settings = &targetsv1alpha1.TargetSettings{
+		WarmBudget: "200Gi", IdleStopAfter: durationpb.New(3600e9),
+		BoxWorkspaceDisk: "4Gi", BoxWorkspaceDiskMax: "4Gi", BoxRootDisk: "10Gi", BoxRootDiskMax: "50Gi",
+	}
 	if err := applyAs(t, a, registry.Target, set); err != nil {
 		t.Errorf("settings on a target: %v", err)
 	}

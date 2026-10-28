@@ -32,8 +32,10 @@ import (
 
 // TestABoxComesUp: a box goes PENDING, BUILDING, STARTING, READY: its
 // repository mirrored, its image built, its instance made on its target
-// and, with no warm golden, its repository checked out from the mirror and
-// its dependencies installed.
+// and, with no warm golden, its repository checked out from the mirror,
+// with no pre-build, which is a warm golden's alone. Its caches are in
+// /workspace, which git does not see; on a hostd target its disk does not
+// grow.
 func TestABoxComesUp(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -66,15 +68,24 @@ func TestABoxComesUp(t *testing.T) {
 	img, _ := w.golden(st.GetImageGolden())
 	if s := in.GetSpec(); s.GetTarget() != "t1" || s.GetKind() != envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER ||
 		s.GetImage() != img.GetStatus().GetArtifact() || s.GetDiskGolden() != "" || s.GetNetwork() != "ws1" || s.GetAlias() != "dev" ||
-		s.GetResources().GetMemory() != "4Gi" {
+		s.GetResources().GetMemory() != "4Gi" || s.GetResources().GetDisk() != "40Gi" || s.GetDiskGrowth() != nil {
 		t.Errorf("instance spec %v", s)
+	}
+	if e := in.GetSpec().GetEnv(); e["GOCACHE"] != apiserver.CacheDir+"/go-build" || e["MISE_DATA_DIR"] != apiserver.CacheDir+"/mise" {
+		t.Errorf("the box's environment %v, want its caches in %s", e, apiserver.CacheDir)
 	}
 	files := w.fake.Files(provider.Instance{Project: "web", Name: st.GetInstance()})
 	if files["/workspace/go.mod"] != "module api\n" || files["/workspace/.git/HEAD"] != "c2" {
 		t.Errorf("the checkout in the box: %v", files)
 	}
-	if !slices.ContainsFunc(w.fake.Execs(), func(e fake.Exec) bool { return e.Command[0] == "install-dependencies" }) {
-		t.Errorf("the slow path installed no dependencies: %v", w.fake.Execs())
+	if n := w.runsIn(st.GetInstance(), "install-dependencies"); n != 0 {
+		t.Errorf("a box with no warm golden pre-built itself %d times: %v", n, w.fake.Execs())
+	}
+	if !excludedCaches(w.fake.Execs(), st.GetInstance()) {
+		t.Errorf("the box's checkout does not exclude the caches from git: %v", w.fake.Execs())
+	}
+	if !adoptedToolDirs(w.fake.Execs(), st.GetInstance()) {
+		t.Errorf("the box did not keep the image's tool directories: %v", w.fake.Execs())
 	}
 	// A settled box stays quiet.
 	w.waitSettled()

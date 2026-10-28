@@ -174,7 +174,7 @@ func (o Ops) Build(ctx context.Context, spec driver.BuildSpec, mirror, ref strin
 // Resolve reads what an image reference names from its registry.
 func (o Ops) Resolve(ctx context.Context, ref string, login Login) (driver.ImageConfig, error) {
 	res, err := o.call(ctx, Header{Op: OpResolve, Image: ref, Env: login.env()}, nil, nil)
-	return driver.ImageConfig{Digest: res.Digest, User: res.User}, err
+	return driver.ImageConfig{Digest: res.Digest, User: res.User, Env: res.Env}, err
 }
 
 // Status says whether the container's buildkitd answers, and whether it is

@@ -135,6 +135,8 @@ type ImageConfig struct {
 	Digest string
 	// User is the user it runs as, "" for root.
 	User string
+	// Env is its config's environment, each "NAME=value".
+	Env []string
 }
 
 // Artifact is a golden as the target holds it: an image by digest, a

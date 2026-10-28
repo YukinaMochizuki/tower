@@ -343,7 +343,11 @@ If the release's system image changed (its notes say so, or its
 `tower-builder`, and set `TOWER_SYSTEM_IMAGE` in `/etc/tower/apiserver.env`
 to the new digest. Each hangar target then makes its system container
 again on the new image; its disk, and so its mirrors and tailnet state,
-stay. Then:
+stay. A box reads its image's ENV through its target, to leave the caches
+an image places where they are (`docs/decisions/devcontainers.md`): a
+system container or a hostd from before that returns none, so upgrade the
+system image here, then each hostd host ("Upgrading" below), before
+relying on it. Then:
 
 ```sh
 systemctl daemon-reload && systemctl start tower-apiserver

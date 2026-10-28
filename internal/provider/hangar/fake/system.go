@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	hangarcompute "github.com/YukinaMochizuki/hangar/gen/go/hangar/compute/v1alpha1"
@@ -174,12 +175,13 @@ func (f *Fake) system(ctx context.Context, name, uid string, stdin io.Reader, st
 	case system.OpResolve:
 		f.mu.Lock()
 		user, built := f.built[h.Image]
+		env := f.builtEnv[h.Image]
 		f.mu.Unlock()
 		_, digest, ok := strings.Cut(h.Image, "@")
 		if !ok && !built {
 			return fail(system.ExitNotFound, h.Image+" is not in the registry")
 		}
-		return answer(system.Result{Digest: digest, User: user})
+		return answer(system.Result{Digest: digest, User: user, Env: env})
 	case system.OpBuild:
 		dockerfile := h.Dockerfile
 		if dockerfile == "" {
@@ -237,6 +239,12 @@ func (f *Fake) system(ctx context.Context, name, uid string, stdin io.Reader, st
 			f.built = map[string]string{}
 		}
 		f.built[image] = user
+		if f.builtEnv == nil {
+			f.builtEnv = map[string][]string{}
+		}
+		lines := strings.Split(string(content), "\n")
+		from, _ := strings.CutPrefix(strings.TrimSpace(lines[0]), "FROM ")
+		f.builtEnv[image] = dockerfileEnv(f.builtEnv[strings.TrimSpace(from)], lines)
 		f.mu.Unlock()
 		return answer(system.Result{Image: image})
 	}
@@ -289,4 +297,31 @@ func (f *Fake) runSystem(ctx context.Context, uid, registry string, h system.Hea
 		return ee.ExitCode(), nil
 	}
 	return 0, err
+}
+
+// dockerfileEnv is the environment of an image built from a Dockerfile of
+// lines, FROM an image of env: each ENV, as NAME=value or NAME value, over
+// it.
+func dockerfileEnv(env []string, lines []string) []string {
+	out := slices.Clone(env)
+	set := func(name, value string) {
+		out = slices.DeleteFunc(out, func(kv string) bool { return strings.HasPrefix(kv, name+"=") })
+		out = append(out, name+"="+value)
+	}
+	for _, l := range lines {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(l), "ENV ")
+		if !ok {
+			continue
+		}
+		if name, value, ok := strings.Cut(strings.TrimSpace(rest), " "); ok && !strings.Contains(name, "=") {
+			set(name, strings.TrimSpace(value))
+			continue
+		}
+		for _, kv := range strings.Fields(rest) {
+			if name, value, ok := strings.Cut(kv, "="); ok {
+				set(name, value)
+			}
+		}
+	}
+	return out
 }

@@ -17,7 +17,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tower/environments/v1alpha1/instance.proto.
  */
 export const file_tower_environments_v1alpha1_instance: GenFile = /*@__PURE__*/
-  fileDesc("Cip0b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTEvaW5zdGFuY2UucHJvdG8SG3Rvd2VyLmVudmlyb25tZW50cy52MWFscGhhMSLzAQoISW5zdGFuY2USEwoLYXBpX3ZlcnNpb24YASABKAkSDAoEa2luZBgCIAEoCRIrCghtZXRhZGF0YRgDIAEoCzIZLnRvd2VyLm1ldGEudjEuT2JqZWN0TWV0YRI3CgRzcGVjGAQgASgLMikudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkluc3RhbmNlU3BlYxI7CgZzdGF0dXMYBSABKAsyKy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSW5zdGFuY2VTdGF0dXM6IcrzGB0KCEluc3RhbmNlEglpbnN0YW5jZXMaBGluc3QgASLLAwoMSW5zdGFuY2VTcGVjEhYKBnRhcmdldBgBIAEoCUIGyvMYAggBEj8KBGtpbmQYAiABKA4yKS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSW5zdGFuY2VLaW5kQgbK8xgCCAESFQoFaW1hZ2UYAyABKAlCBsrzGAIIARIbCgtkaXNrX2dvbGRlbhgEIAEoCUIGyvMYAggBEhcKB25ldHdvcmsYBSABKAlCBsrzGAIIARIVCgVhbGlhcxgGIAEoCUIGyvMYAggBEjkKCXJlc291cmNlcxgHIAEoCzImLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5SZXNvdXJjZXMSOAoJcnVuX3N0YXRlGAggASgOMiUudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJ1blN0YXRlEhQKDGV4cG9zZV9wb3J0cxgJIAMoBRJHCgNlbnYYCiADKAsyMi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSW5zdGFuY2VTcGVjLkVudkVudHJ5QgbK8xgCCAEaKgoIRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASKxAgoOSW5zdGFuY2VTdGF0dXMSGwoTb2JzZXJ2ZWRfZ2VuZXJhdGlvbhgBIAEoAxIsCgpjb25kaXRpb25zGAIgAygLMhgudG93ZXIubWV0YS52MS5Db25kaXRpb24SOQoFcGhhc2UYAyABKA4yKi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSW5zdGFuY2VQaGFzZRIPCgdhZGRyZXNzGAQgASgJEhEKCXVzZWRfZGlzaxgFIAEoCRIuCgpzdGFydF90aW1lGAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIZChFwcm9jZXNzZXNfcnVubmluZxgHIAEoBRIUCgxzdHJlYW1zX29wZW4YCCABKAUSFAoMc3NoX2hvc3Rfa2V5GAkgASgJIjMKEkdldEluc3RhbmNlUmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEgwKBG5hbWUYAiABKAkiTgoTR2V0SW5zdGFuY2VSZXNwb25zZRI3CghpbnN0YW5jZRgBIAEoCzIlLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5JbnN0YW5jZSJmChRMaXN0SW5zdGFuY2VzUmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEhYKDmxhYmVsX3NlbGVjdG9yGAIgASgJEhEKCXBhZ2Vfc2l6ZRgDIAEoBRISCgpwYWdlX3Rva2VuGAQgASgJIngKFUxpc3RJbnN0YW5jZXNSZXNwb25zZRI0CgVpdGVtcxgBIAMoCzIlLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5JbnN0YW5jZRIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkSEAoIcmV2aXNpb24YAyABKAMiWAoVV2F0Y2hJbnN0YW5jZXNSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkSFgoObGFiZWxfc2VsZWN0b3IYAiABKAkSFgoOc2luY2VfcmV2aXNpb24YAyABKAMiiwEKFldhdGNoSW5zdGFuY2VzUmVzcG9uc2USJgoEdHlwZRgBIAEoDjIYLnRvd2VyLm1ldGEudjEuRXZlbnRUeXBlEjcKCGluc3RhbmNlGAIgASgLMiUudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkluc3RhbmNlEhAKCHJldmlzaW9uGAMgASgDImQKFEFwcGx5SW5zdGFuY2VSZXF1ZXN0EjcKCGluc3RhbmNlGAEgASgLMiUudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkluc3RhbmNlEhMKC2NyZWF0ZV9vbmx5GAIgASgIInMKFUFwcGx5SW5zdGFuY2VSZXNwb25zZRI3CghpbnN0YW5jZRgBIAEoCzIlLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5JbnN0YW5jZRIQCgh3YXJuaW5ncxgCIAMoCRIPCgdjcmVhdGVkGAMgASgIInwKFURlbGV0ZUluc3RhbmNlUmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEgwKBG5hbWUYAiABKAkSJgoZZXhwZWN0ZWRfcmVzb3VyY2VfdmVyc2lvbhgDIAEoA0gAiAEBQhwKGl9leHBlY3RlZF9yZXNvdXJjZV92ZXJzaW9uIlEKFkRlbGV0ZUluc3RhbmNlUmVzcG9uc2USNwoIaW5zdGFuY2UYASABKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSW5zdGFuY2UivwEKG1VwZGF0ZUluc3RhbmNlU3RhdHVzUmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEgwKBG5hbWUYAiABKAkSOwoGc3RhdHVzGAMgASgLMisudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkluc3RhbmNlU3RhdHVzEiYKGWV4cGVjdGVkX3Jlc291cmNlX3ZlcnNpb24YBCABKANIAIgBAUIcChpfZXhwZWN0ZWRfcmVzb3VyY2VfdmVyc2lvbiJXChxVcGRhdGVJbnN0YW5jZVN0YXR1c1Jlc3BvbnNlEjcKCGluc3RhbmNlGAEgASgLMiUudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkluc3RhbmNlKmAKDEluc3RhbmNlS2luZBIdChlJTlNUQU5DRV9LSU5EX1VOU1BFQ0lGSUVEEAASGwoXSU5TVEFOQ0VfS0lORF9DT05UQUlORVIQARIUChBJTlNUQU5DRV9LSU5EX1ZNEAIqtwEKDUluc3RhbmNlUGhhc2USHgoaSU5TVEFOQ0VfUEhBU0VfVU5TUEVDSUZJRUQQABIaChZJTlNUQU5DRV9QSEFTRV9QRU5ESU5HEAESGgoWSU5TVEFOQ0VfUEhBU0VfUlVOTklORxACEhoKFklOU1RBTkNFX1BIQVNFX1NUT1BQRUQQAxIZChVJTlNUQU5DRV9QSEFTRV9GQUlMRUQQBBIXChNJTlNUQU5DRV9QSEFTRV9HT05FEAUy+QUKD0luc3RhbmNlU2VydmljZRJwCgtHZXRJbnN0YW5jZRIvLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5HZXRJbnN0YW5jZVJlcXVlc3QaMC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuR2V0SW5zdGFuY2VSZXNwb25zZRJ2Cg1MaXN0SW5zdGFuY2VzEjEudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkxpc3RJbnN0YW5jZXNSZXF1ZXN0GjIudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkxpc3RJbnN0YW5jZXNSZXNwb25zZRJ7Cg5XYXRjaEluc3RhbmNlcxIyLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5XYXRjaEluc3RhbmNlc1JlcXVlc3QaMy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuV2F0Y2hJbnN0YW5jZXNSZXNwb25zZTABEnYKDUFwcGx5SW5zdGFuY2USMS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXBwbHlJbnN0YW5jZVJlcXVlc3QaMi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXBwbHlJbnN0YW5jZVJlc3BvbnNlEnkKDkRlbGV0ZUluc3RhbmNlEjIudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkRlbGV0ZUluc3RhbmNlUmVxdWVzdBozLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5EZWxldGVJbnN0YW5jZVJlc3BvbnNlEosBChRVcGRhdGVJbnN0YW5jZVN0YXR1cxI4LnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5VcGRhdGVJbnN0YW5jZVN0YXR1c1JlcXVlc3QaOS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuVXBkYXRlSW5zdGFuY2VTdGF0dXNSZXNwb25zZUKYAgofY29tLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMUINSW5zdGFuY2VQcm90b1ABWlhnaXRodWIuY29tL1l1a2luYU1vY2hpenVraS90b3dlci9nZW4vZ28vdG93ZXIvZW52aXJvbm1lbnRzL3YxYWxwaGExO2Vudmlyb25tZW50c3YxYWxwaGExogIDVEVYqgIbVG93ZXIuRW52aXJvbm1lbnRzLlYxYWxwaGExygIbVG93ZXJcRW52aXJvbm1lbnRzXFYxYWxwaGEx4gInVG93ZXJcRW52aXJvbm1lbnRzXFYxYWxwaGExXEdQQk1ldGFkYXRh6gIdVG93ZXI6OkVudmlyb25tZW50czo6VjFhbHBoYTFiBnByb3RvMw", [file_google_protobuf_timestamp, file_tower_environments_v1alpha1_common, file_tower_meta_v1_meta, file_tower_meta_v1_options]);
+  fileDesc("Cip0b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTEvaW5zdGFuY2UucHJvdG8SG3Rvd2VyLmVudmlyb25tZW50cy52MWFscGhhMSLzAQoISW5zdGFuY2USEwoLYXBpX3ZlcnNpb24YASABKAkSDAoEa2luZBgCIAEoCRIrCghtZXRhZGF0YRgDIAEoCzIZLnRvd2VyLm1ldGEudjEuT2JqZWN0TWV0YRI3CgRzcGVjGAQgASgLMikudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkluc3RhbmNlU3BlYxI7CgZzdGF0dXMYBSABKAsyKy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSW5zdGFuY2VTdGF0dXM6IcrzGB0KCEluc3RhbmNlEglpbnN0YW5jZXMaBGluc3QgASKRBAoMSW5zdGFuY2VTcGVjEhYKBnRhcmdldBgBIAEoCUIGyvMYAggBEj8KBGtpbmQYAiABKA4yKS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSW5zdGFuY2VLaW5kQgbK8xgCCAESFQoFaW1hZ2UYAyABKAlCBsrzGAIIARIbCgtkaXNrX2dvbGRlbhgEIAEoCUIGyvMYAggBEhcKB25ldHdvcmsYBSABKAlCBsrzGAIIARIVCgVhbGlhcxgGIAEoCUIGyvMYAggBEjkKCXJlc291cmNlcxgHIAEoCzImLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5SZXNvdXJjZXMSOAoJcnVuX3N0YXRlGAggASgOMiUudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJ1blN0YXRlEhQKDGV4cG9zZV9wb3J0cxgJIAMoBRJHCgNlbnYYCiADKAsyMi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSW5zdGFuY2VTcGVjLkVudkVudHJ5QgbK8xgCCAESRAoLZGlza19ncm93dGgYCyABKAsyJy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRGlza0dyb3d0aEIGyvMYAggBGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiZAoKRGlza0dyb3d0aBIVCg13b3Jrc3BhY2VfbWF4GAEgASgJEgwKBHJvb3QYAiABKAkSEAoIcm9vdF9tYXgYAyABKAkSEQoJdGhyZXNob2xkGAQgASgJEgwKBHN0ZXAYBSABKAkisQIKDkluc3RhbmNlU3RhdHVzEhsKE29ic2VydmVkX2dlbmVyYXRpb24YASABKAMSLAoKY29uZGl0aW9ucxgCIAMoCzIYLnRvd2VyLm1ldGEudjEuQ29uZGl0aW9uEjkKBXBoYXNlGAMgASgOMioudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkluc3RhbmNlUGhhc2USDwoHYWRkcmVzcxgEIAEoCRIRCgl1c2VkX2Rpc2sYBSABKAkSLgoKc3RhcnRfdGltZRgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGQoRcHJvY2Vzc2VzX3J1bm5pbmcYByABKAUSFAoMc3RyZWFtc19vcGVuGAggASgFEhQKDHNzaF9ob3N0X2tleRgJIAEoCSIzChJHZXRJbnN0YW5jZVJlcXVlc3QSDwoHcHJvamVjdBgBIAEoCRIMCgRuYW1lGAIgASgJIk4KE0dldEluc3RhbmNlUmVzcG9uc2USNwoIaW5zdGFuY2UYASABKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSW5zdGFuY2UiZgoUTGlzdEluc3RhbmNlc1JlcXVlc3QSDwoHcHJvamVjdBgBIAEoCRIWCg5sYWJlbF9zZWxlY3RvchgCIAEoCRIRCglwYWdlX3NpemUYAyABKAUSEgoKcGFnZV90b2tlbhgEIAEoCSJ4ChVMaXN0SW5zdGFuY2VzUmVzcG9uc2USNAoFaXRlbXMYASADKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSW5zdGFuY2USFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJEhAKCHJldmlzaW9uGAMgASgDIlgKFVdhdGNoSW5zdGFuY2VzUmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEhYKDmxhYmVsX3NlbGVjdG9yGAIgASgJEhYKDnNpbmNlX3JldmlzaW9uGAMgASgDIosBChZXYXRjaEluc3RhbmNlc1Jlc3BvbnNlEiYKBHR5cGUYASABKA4yGC50b3dlci5tZXRhLnYxLkV2ZW50VHlwZRI3CghpbnN0YW5jZRgCIAEoCzIlLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5JbnN0YW5jZRIQCghyZXZpc2lvbhgDIAEoAyJkChRBcHBseUluc3RhbmNlUmVxdWVzdBI3CghpbnN0YW5jZRgBIAEoCzIlLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5JbnN0YW5jZRITCgtjcmVhdGVfb25seRgCIAEoCCJzChVBcHBseUluc3RhbmNlUmVzcG9uc2USNwoIaW5zdGFuY2UYASABKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSW5zdGFuY2USEAoId2FybmluZ3MYAiADKAkSDwoHY3JlYXRlZBgDIAEoCCJ8ChVEZWxldGVJbnN0YW5jZVJlcXVlc3QSDwoHcHJvamVjdBgBIAEoCRIMCgRuYW1lGAIgASgJEiYKGWV4cGVjdGVkX3Jlc291cmNlX3ZlcnNpb24YAyABKANIAIgBAUIcChpfZXhwZWN0ZWRfcmVzb3VyY2VfdmVyc2lvbiJRChZEZWxldGVJbnN0YW5jZVJlc3BvbnNlEjcKCGluc3RhbmNlGAEgASgLMiUudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkluc3RhbmNlIr8BChtVcGRhdGVJbnN0YW5jZVN0YXR1c1JlcXVlc3QSDwoHcHJvamVjdBgBIAEoCRIMCgRuYW1lGAIgASgJEjsKBnN0YXR1cxgDIAEoCzIrLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5JbnN0YW5jZVN0YXR1cxImChlleHBlY3RlZF9yZXNvdXJjZV92ZXJzaW9uGAQgASgDSACIAQFCHAoaX2V4cGVjdGVkX3Jlc291cmNlX3ZlcnNpb24iVwocVXBkYXRlSW5zdGFuY2VTdGF0dXNSZXNwb25zZRI3CghpbnN0YW5jZRgBIAEoCzIlLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5JbnN0YW5jZSpgCgxJbnN0YW5jZUtpbmQSHQoZSU5TVEFOQ0VfS0lORF9VTlNQRUNJRklFRBAAEhsKF0lOU1RBTkNFX0tJTkRfQ09OVEFJTkVSEAESFAoQSU5TVEFOQ0VfS0lORF9WTRACKrcBCg1JbnN0YW5jZVBoYXNlEh4KGklOU1RBTkNFX1BIQVNFX1VOU1BFQ0lGSUVEEAASGgoWSU5TVEFOQ0VfUEhBU0VfUEVORElORxABEhoKFklOU1RBTkNFX1BIQVNFX1JVTk5JTkcQAhIaChZJTlNUQU5DRV9QSEFTRV9TVE9QUEVEEAMSGQoVSU5TVEFOQ0VfUEhBU0VfRkFJTEVEEAQSFwoTSU5TVEFOQ0VfUEhBU0VfR09ORRAFMvkFCg9JbnN0YW5jZVNlcnZpY2UScAoLR2V0SW5zdGFuY2USLy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuR2V0SW5zdGFuY2VSZXF1ZXN0GjAudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkdldEluc3RhbmNlUmVzcG9uc2USdgoNTGlzdEluc3RhbmNlcxIxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5MaXN0SW5zdGFuY2VzUmVxdWVzdBoyLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5MaXN0SW5zdGFuY2VzUmVzcG9uc2USewoOV2F0Y2hJbnN0YW5jZXMSMi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuV2F0Y2hJbnN0YW5jZXNSZXF1ZXN0GjMudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLldhdGNoSW5zdGFuY2VzUmVzcG9uc2UwARJ2Cg1BcHBseUluc3RhbmNlEjEudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkFwcGx5SW5zdGFuY2VSZXF1ZXN0GjIudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkFwcGx5SW5zdGFuY2VSZXNwb25zZRJ5Cg5EZWxldGVJbnN0YW5jZRIyLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5EZWxldGVJbnN0YW5jZVJlcXVlc3QaMy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRGVsZXRlSW5zdGFuY2VSZXNwb25zZRKLAQoUVXBkYXRlSW5zdGFuY2VTdGF0dXMSOC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuVXBkYXRlSW5zdGFuY2VTdGF0dXNSZXF1ZXN0GjkudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlVwZGF0ZUluc3RhbmNlU3RhdHVzUmVzcG9uc2VCmAIKH2NvbS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTFCDUluc3RhbmNlUHJvdG9QAVpYZ2l0aHViLmNvbS9ZdWtpbmFNb2NoaXp1a2kvdG93ZXIvZ2VuL2dvL3Rvd2VyL2Vudmlyb25tZW50cy92MWFscGhhMTtlbnZpcm9ubWVudHN2MWFscGhhMaICA1RFWKoCG1Rvd2VyLkVudmlyb25tZW50cy5WMWFscGhhMcoCG1Rvd2VyXEVudmlyb25tZW50c1xWMWFscGhhMeICJ1Rvd2VyXEVudmlyb25tZW50c1xWMWFscGhhMVxHUEJNZXRhZGF0YeoCHVRvd2VyOjpFbnZpcm9ubWVudHM6OlYxYWxwaGExYgZwcm90bzM", [file_google_protobuf_timestamp, file_tower_environments_v1alpha1_common, file_tower_meta_v1_meta, file_tower_meta_v1_options]);
 
 /**
  * Instance is a container or a VM on one target: what a provider makes
@@ -132,6 +132,16 @@ export type InstanceSpec = Message<"tower.environments.v1alpha1.InstanceSpec"> &
    * @generated from field: map<string, string> env = 10;
    */
   env: { [key: string]: string };
+
+  /**
+   * How a container's disks grow by themselves as they fill, on a target
+   * whose provider grows them (hangar's); unset, its disks keep the size
+   * they are made with. tower sets it from the target's settings
+   * (TargetSettings).
+   *
+   * @generated from field: tower.environments.v1alpha1.DiskGrowth disk_growth = 11;
+   */
+  diskGrowth?: DiskGrowth | undefined;
 };
 
 /**
@@ -140,6 +150,51 @@ export type InstanceSpec = Message<"tower.environments.v1alpha1.InstanceSpec"> &
  */
 export const InstanceSpecSchema: GenMessage<InstanceSpec> = /*@__PURE__*/
   messageDesc(file_tower_environments_v1alpha1_instance, 1);
+
+/**
+ * DiskGrowth is how a container's two disks grow: its /workspace disk from
+ * resources.disk up to workspace_max, its root disk from root up to
+ * root_max. Each is a quantity such as "30Gi"; a max under its start is
+ * the start.
+ *
+ * @generated from message tower.environments.v1alpha1.DiskGrowth
+ */
+export type DiskGrowth = Message<"tower.environments.v1alpha1.DiskGrowth"> & {
+  /**
+   * @generated from field: string workspace_max = 1;
+   */
+  workspaceMax: string;
+
+  /**
+   * @generated from field: string root = 2;
+   */
+  root: string;
+
+  /**
+   * @generated from field: string root_max = 3;
+   */
+  rootMax: string;
+
+  /**
+   * How full a disk is when it grows, a percentage such as "80%", and how
+   * much it grows by, a factor such as "2x" or a quantity such as "3Gi".
+   *
+   * @generated from field: string threshold = 4;
+   */
+  threshold: string;
+
+  /**
+   * @generated from field: string step = 5;
+   */
+  step: string;
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.DiskGrowth.
+ * Use `create(DiskGrowthSchema)` to create a new message.
+ */
+export const DiskGrowthSchema: GenMessage<DiskGrowth> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_instance, 2);
 
 /**
  * InstanceStatus is what the provider reports.
@@ -218,7 +273,7 @@ export type InstanceStatus = Message<"tower.environments.v1alpha1.InstanceStatus
  * Use `create(InstanceStatusSchema)` to create a new message.
  */
 export const InstanceStatusSchema: GenMessage<InstanceStatus> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_instance, 2);
+  messageDesc(file_tower_environments_v1alpha1_instance, 3);
 
 /**
  * @generated from message tower.environments.v1alpha1.GetInstanceRequest
@@ -240,7 +295,7 @@ export type GetInstanceRequest = Message<"tower.environments.v1alpha1.GetInstanc
  * Use `create(GetInstanceRequestSchema)` to create a new message.
  */
 export const GetInstanceRequestSchema: GenMessage<GetInstanceRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_instance, 3);
+  messageDesc(file_tower_environments_v1alpha1_instance, 4);
 
 /**
  * @generated from message tower.environments.v1alpha1.GetInstanceResponse
@@ -257,7 +312,7 @@ export type GetInstanceResponse = Message<"tower.environments.v1alpha1.GetInstan
  * Use `create(GetInstanceResponseSchema)` to create a new message.
  */
 export const GetInstanceResponseSchema: GenMessage<GetInstanceResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_instance, 4);
+  messageDesc(file_tower_environments_v1alpha1_instance, 5);
 
 /**
  * @generated from message tower.environments.v1alpha1.ListInstancesRequest
@@ -291,7 +346,7 @@ export type ListInstancesRequest = Message<"tower.environments.v1alpha1.ListInst
  * Use `create(ListInstancesRequestSchema)` to create a new message.
  */
 export const ListInstancesRequestSchema: GenMessage<ListInstancesRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_instance, 5);
+  messageDesc(file_tower_environments_v1alpha1_instance, 6);
 
 /**
  * @generated from message tower.environments.v1alpha1.ListInstancesResponse
@@ -318,7 +373,7 @@ export type ListInstancesResponse = Message<"tower.environments.v1alpha1.ListIns
  * Use `create(ListInstancesResponseSchema)` to create a new message.
  */
 export const ListInstancesResponseSchema: GenMessage<ListInstancesResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_instance, 6);
+  messageDesc(file_tower_environments_v1alpha1_instance, 7);
 
 /**
  * @generated from message tower.environments.v1alpha1.WatchInstancesRequest
@@ -347,7 +402,7 @@ export type WatchInstancesRequest = Message<"tower.environments.v1alpha1.WatchIn
  * Use `create(WatchInstancesRequestSchema)` to create a new message.
  */
 export const WatchInstancesRequestSchema: GenMessage<WatchInstancesRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_instance, 7);
+  messageDesc(file_tower_environments_v1alpha1_instance, 8);
 
 /**
  * @generated from message tower.environments.v1alpha1.WatchInstancesResponse
@@ -374,7 +429,7 @@ export type WatchInstancesResponse = Message<"tower.environments.v1alpha1.WatchI
  * Use `create(WatchInstancesResponseSchema)` to create a new message.
  */
 export const WatchInstancesResponseSchema: GenMessage<WatchInstancesResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_instance, 8);
+  messageDesc(file_tower_environments_v1alpha1_instance, 9);
 
 /**
  * @generated from message tower.environments.v1alpha1.ApplyInstanceRequest
@@ -398,7 +453,7 @@ export type ApplyInstanceRequest = Message<"tower.environments.v1alpha1.ApplyIns
  * Use `create(ApplyInstanceRequestSchema)` to create a new message.
  */
 export const ApplyInstanceRequestSchema: GenMessage<ApplyInstanceRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_instance, 9);
+  messageDesc(file_tower_environments_v1alpha1_instance, 10);
 
 /**
  * @generated from message tower.environments.v1alpha1.ApplyInstanceResponse
@@ -425,7 +480,7 @@ export type ApplyInstanceResponse = Message<"tower.environments.v1alpha1.ApplyIn
  * Use `create(ApplyInstanceResponseSchema)` to create a new message.
  */
 export const ApplyInstanceResponseSchema: GenMessage<ApplyInstanceResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_instance, 10);
+  messageDesc(file_tower_environments_v1alpha1_instance, 11);
 
 /**
  * @generated from message tower.environments.v1alpha1.DeleteInstanceRequest
@@ -452,7 +507,7 @@ export type DeleteInstanceRequest = Message<"tower.environments.v1alpha1.DeleteI
  * Use `create(DeleteInstanceRequestSchema)` to create a new message.
  */
 export const DeleteInstanceRequestSchema: GenMessage<DeleteInstanceRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_instance, 11);
+  messageDesc(file_tower_environments_v1alpha1_instance, 12);
 
 /**
  * @generated from message tower.environments.v1alpha1.DeleteInstanceResponse
@@ -469,7 +524,7 @@ export type DeleteInstanceResponse = Message<"tower.environments.v1alpha1.Delete
  * Use `create(DeleteInstanceResponseSchema)` to create a new message.
  */
 export const DeleteInstanceResponseSchema: GenMessage<DeleteInstanceResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_instance, 12);
+  messageDesc(file_tower_environments_v1alpha1_instance, 13);
 
 /**
  * @generated from message tower.environments.v1alpha1.UpdateInstanceStatusRequest
@@ -501,7 +556,7 @@ export type UpdateInstanceStatusRequest = Message<"tower.environments.v1alpha1.U
  * Use `create(UpdateInstanceStatusRequestSchema)` to create a new message.
  */
 export const UpdateInstanceStatusRequestSchema: GenMessage<UpdateInstanceStatusRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_instance, 13);
+  messageDesc(file_tower_environments_v1alpha1_instance, 14);
 
 /**
  * @generated from message tower.environments.v1alpha1.UpdateInstanceStatusResponse
@@ -518,7 +573,7 @@ export type UpdateInstanceStatusResponse = Message<"tower.environments.v1alpha1.
  * Use `create(UpdateInstanceStatusResponseSchema)` to create a new message.
  */
 export const UpdateInstanceStatusResponseSchema: GenMessage<UpdateInstanceStatusResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_instance, 14);
+  messageDesc(file_tower_environments_v1alpha1_instance, 15);
 
 /**
  * InstanceKind is what an instance runs as.

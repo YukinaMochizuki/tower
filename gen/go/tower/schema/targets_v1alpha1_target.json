@@ -247,6 +247,20 @@
       "additionalProperties": false,
       "description": "TargetSettings are the knobs of tower's policy on this target. Each unset one takes tower's default.",
       "properties": {
+        "boxRootDisk": {
+          "description": "The same for a box's container root disk, at least 2Gi; unset, 10Gi and 30Gi.",
+          "type": "string"
+        },
+        "boxRootDiskMax": {
+          "type": "string"
+        },
+        "boxWorkspaceDisk": {
+          "description": "On a target whose provider grows disks by themselves (hangar's), the size a box's /workspace disk starts at and the most it grows to, at least 1Gi; unset, 2Gi and 30Gi. A box's own resources.disk is its start instead, and a box cloned from a golden starts at least at the golden's size. A warm golden's builder starts at what the last one held, else as a box. On a hostd target /workspace is a dataset, and these do not apply.",
+          "type": "string"
+        },
+        "boxWorkspaceDiskMax": {
+          "type": "string"
+        },
         "idleStopAfter": {
           "description": "A box unused for this long is stopped (its disk kept) until it is used again. Zero is tower's default; a box workstream keeps, or that runs background work, is never stopped for idleness.",
           "examples": [

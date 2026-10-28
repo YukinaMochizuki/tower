@@ -129,10 +129,11 @@ type Result struct {
 	Behind int `json:"behind,omitempty"`
 	// A read's entries, by path.
 	Entries map[string]driver.MirrorEntry `json:"entries,omitempty"`
-	// A build's image, a resolve's digest and user.
-	Image  string `json:"image,omitempty"`
-	Digest string `json:"digest,omitempty"`
-	User   string `json:"user,omitempty"`
+	// A build's image, a resolve's digest, user and environment.
+	Image  string   `json:"image,omitempty"`
+	Digest string   `json:"digest,omitempty"`
+	User   string   `json:"user,omitempty"`
+	Env    []string `json:"env,omitempty"`
 	// Status: whether buildkitd answers, with its version, and whether the
 	// container is on the tailnet.
 	BuildKit string `json:"buildkit,omitempty"`

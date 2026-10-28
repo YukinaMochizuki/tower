@@ -105,6 +105,8 @@ type Fake struct {
 	// built are the images the fake built, by reference, with the user
 	// each runs as.
 	built map[string]string
+	// builtEnv are the environments of the images it built.
+	builtEnv map[string][]string
 	// The endpoints (endpoints.go): whether the fake is a hangar without
 	// them, why they are down, whether they drop what connects, how many
 	// connections they took, the credentials the shims carried, how many

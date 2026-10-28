@@ -93,6 +93,19 @@ message TargetSettings {
   // behind its branch than warm_max_commits_behind, is rebuilt.
   google.protobuf.Duration warm_max_age = 4;
   int32 warm_max_commits_behind = 5;
+  // On a target whose provider grows disks by themselves (hangar's), the
+  // size a box's /workspace disk starts at and the most it grows to, at
+  // least 1Gi; unset, 2Gi and 30Gi. A box's own resources.disk is its
+  // start instead, and a box cloned from a golden starts at least at the
+  // golden's size. A warm golden's builder starts at what the last one
+  // held, else as a box. On a hostd target /workspace is a dataset, and
+  // these do not apply.
+  string box_workspace_disk = 6;
+  string box_workspace_disk_max = 7;
+  // The same for a box's container root disk, at least 2Gi; unset, 10Gi
+  // and 30Gi.
+  string box_root_disk = 8;
+  string box_root_disk_max = 9;
 }
 
 // TargetStatus is the target's state as its provider last reported it and

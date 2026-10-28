@@ -199,6 +199,8 @@ message ResolveImageResponse {
   string digest = 1;
   // The user it runs as, empty for root.
   string user = 2;
+  // Its config's environment, each "NAME=value".
+  repeated string env = 3;
 }
 
 message BuildImageResponse {

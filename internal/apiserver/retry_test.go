@@ -165,24 +165,24 @@ func TestARetryOfAFallenBackBoxBuildsItsDevcontainerImage(t *testing.T) {
 func TestARetryRunsAFailedStepAtOnce(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
-	w.fake.FailCommands("install-dependencies")
+	w.fake.FailCheckouts(errBrokenCheckout)
 	w.mustApply(registry.Repository, repository("api"))
 	w.mustApply(registry.Box, box("dev", "api"))
 	at := func(d time.Duration) string { return w.clock.Now().Add(d).UTC().Format(time.RFC3339) }
-	b := w.waitFailedSaying("dev", "install-dependencies exited 1", "failed at "+at(0), "tried again at "+at(apiserver.StepRetryFirst))
+	b := w.waitFailedSaying("dev", "the checkout broke", "failed at "+at(0), "tried again at "+at(apiserver.StepRetryFirst))
 	instance := b.GetStatus().GetInstance()
 	w.advance(time.Minute)
-	if n := w.runsIn(instance, "install-dependencies"); n != 1 {
+	if n := w.checkoutsIn(instance); n != 1 {
 		t.Fatalf("the step ran %d times before its backoff passed", n)
 	}
 
-	w.fake.FailCommands()
+	w.fake.FailCheckouts(nil)
 	res := must[envv1alpha1.RetryBoxResponse](t)(w.as(workstream).retry.RetryBox(t.Context(), connect.NewRequest(&envv1alpha1.RetryBoxRequest{Project: "web", Name: "dev"})))
 	if !res.GetRetried() {
 		t.Errorf("RetryBox answered %v", res)
 	}
 	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_READY)
-	if n := w.runsIn(instance, "install-dependencies"); n != 2 {
+	if n := w.checkoutsIn(instance); n != 2 {
 		t.Errorf("the step ran %d times", n)
 	}
 	w.waitSettled()

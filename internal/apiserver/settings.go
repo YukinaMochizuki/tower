@@ -1,6 +1,7 @@
 package apiserver
 
 import (
+	"fmt"
 	"time"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
@@ -47,6 +48,17 @@ const (
 	MirrorFetchEvery = 10 * time.Minute
 	// LastUseFlushEvery is how often Touch's uses are written to the boxes.
 	LastUseFlushEvery = time.Minute
+	// DefaultBoxWorkspaceDisk and DefaultBoxRootDisk are what a box's
+	// /workspace and root disks start at on a target that grows them, and
+	// the Max ones the most they grow to.
+	DefaultBoxWorkspaceDisk    = "2Gi"
+	DefaultBoxWorkspaceDiskMax = "30Gi"
+	DefaultBoxRootDisk         = "10Gi"
+	DefaultBoxRootDiskMax      = "30Gi"
+	// DiskGrowThreshold is how full a disk is when it grows, and
+	// DiskGrowStep how much it grows by.
+	DiskGrowThreshold = "80%"
+	DiskGrowStep      = "2x"
 )
 
 // defaultResources are an environment's, by kind, for each field left
@@ -81,6 +93,9 @@ type settings struct {
 	warmMaxAge           time.Duration
 	warmMaxCommitsBehind int
 	warmMinHold          time.Duration
+	// The start and max of a box's /workspace and root disks, as
+	// quantities.
+	workspaceDisk, workspaceDiskMax, rootDisk, rootDiskMax string
 }
 
 func settingsOf(t *targetsv1alpha1.Target) settings {
@@ -88,6 +103,19 @@ func settingsOf(t *targetsv1alpha1.Target) settings {
 	s := settings{
 		idleStopAfter: DefaultIdleStopAfter, warmBudget: mustBytes(DefaultWarmBudget), warmWindow: DefaultWarmWindow,
 		warmMaxAge: DefaultWarmMaxAge, warmMaxCommitsBehind: DefaultWarmMaxCommitsBehind, warmMinHold: DefaultWarmMinHold,
+		workspaceDisk: DefaultBoxWorkspaceDisk, workspaceDiskMax: DefaultBoxWorkspaceDiskMax,
+		rootDisk: DefaultBoxRootDisk, rootDiskMax: DefaultBoxRootDiskMax,
+	}
+	for _, q := range []struct {
+		to  *string
+		set string
+	}{
+		{&s.workspaceDisk, set.GetBoxWorkspaceDisk()}, {&s.workspaceDiskMax, set.GetBoxWorkspaceDiskMax()},
+		{&s.rootDisk, set.GetBoxRootDisk()}, {&s.rootDiskMax, set.GetBoxRootDiskMax()},
+	} {
+		if _, err := quantity.Bytes(q.set); err == nil && q.set != "" {
+			*q.to = q.set
+		}
 	}
 	if d := set.GetIdleStopAfter(); d != nil && d.AsDuration() > 0 {
 		s.idleStopAfter = d.AsDuration()
@@ -105,6 +133,43 @@ func settingsOf(t *targetsv1alpha1.Target) settings {
 		s.warmMaxCommitsBehind = int(n)
 	}
 	return s
+}
+
+// boxDisks are the resources and disk growth of a box's container, or a
+// warm golden's builder, on target t, from r, the box's own: on a target
+// that grows disks, /workspace starts at r's disk, else at the setting,
+// and both disks grow as the settings say; on any other, they are r with
+// tower's defaults, and do not grow.
+func boxDisks(t *targetsv1alpha1.Target, r *envv1alpha1.Resources) (*envv1alpha1.Resources, *envv1alpha1.DiskGrowth) {
+	kind := envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER
+	if t.GetSpec().GetHangar() == nil {
+		return withDefaults(kind, r), nil
+	}
+	set := settingsOf(t)
+	if r.GetDisk() == "" {
+		r = &envv1alpha1.Resources{Cpu: r.GetCpu(), Memory: r.GetMemory(), Disk: set.workspaceDisk}
+	}
+	return withDefaults(kind, r), &envv1alpha1.DiskGrowth{
+		WorkspaceMax: set.workspaceDiskMax, Root: set.rootDisk, RootMax: set.rootDiskMax,
+		Threshold: DiskGrowThreshold, Step: DiskGrowStep,
+	}
+}
+
+// builderDisks are boxDisks for a warm golden's builder on target t:
+// /workspace starts a quarter over last, what the repository's last warm
+// golden there held, to sit under the grow threshold; with none, as a
+// box's, so the golden is as large as its build needed.
+func builderDisks(t *targetsv1alpha1.Target, last uint64) (*envv1alpha1.Resources, *envv1alpha1.DiskGrowth) {
+	if t.GetSpec().GetHangar() == nil {
+		return boxDisks(t, nil)
+	}
+	set := settingsOf(t)
+	start := set.workspaceDisk
+	if last > 0 {
+		gi := (last + last/4 + 1<<30 - 1) >> 30
+		start = fmt.Sprintf("%dGi", min(max(gi, mustBytes(set.workspaceDisk)>>30), mustBytes(set.workspaceDiskMax)>>30))
+	}
+	return boxDisks(t, &envv1alpha1.Resources{Disk: start})
 }
 
 // mustBytes reads a quantity written in this file.

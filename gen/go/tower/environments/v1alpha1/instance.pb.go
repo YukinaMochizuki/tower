@@ -236,7 +236,12 @@ type InstanceSpec struct {
 	// process run in it, its values exactly as written: a devcontainer's
 	// containerEnv, as workstream gives it with docker run -e. Never a
 	// secret's value (docs/decisions/secrets.md).
-	Env           map[string]string `protobuf:"bytes,10,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Env map[string]string `protobuf:"bytes,10,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// How a container's disks grow by themselves as they fill, on a target
+	// whose provider grows them (hangar's); unset, its disks keep the size
+	// they are made with. tower sets it from the target's settings
+	// (TargetSettings).
+	DiskGrowth    *DiskGrowth `protobuf:"bytes,11,opt,name=disk_growth,json=diskGrowth,proto3" json:"disk_growth,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -341,6 +346,95 @@ func (x *InstanceSpec) GetEnv() map[string]string {
 	return nil
 }
 
+func (x *InstanceSpec) GetDiskGrowth() *DiskGrowth {
+	if x != nil {
+		return x.DiskGrowth
+	}
+	return nil
+}
+
+// DiskGrowth is how a container's two disks grow: its /workspace disk from
+// resources.disk up to workspace_max, its root disk from root up to
+// root_max. Each is a quantity such as "30Gi"; a max under its start is
+// the start.
+type DiskGrowth struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	WorkspaceMax string                 `protobuf:"bytes,1,opt,name=workspace_max,json=workspaceMax,proto3" json:"workspace_max,omitempty"`
+	Root         string                 `protobuf:"bytes,2,opt,name=root,proto3" json:"root,omitempty"`
+	RootMax      string                 `protobuf:"bytes,3,opt,name=root_max,json=rootMax,proto3" json:"root_max,omitempty"`
+	// How full a disk is when it grows, a percentage such as "80%", and how
+	// much it grows by, a factor such as "2x" or a quantity such as "3Gi".
+	Threshold     string `protobuf:"bytes,4,opt,name=threshold,proto3" json:"threshold,omitempty"`
+	Step          string `protobuf:"bytes,5,opt,name=step,proto3" json:"step,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DiskGrowth) Reset() {
+	*x = DiskGrowth{}
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiskGrowth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiskGrowth) ProtoMessage() {}
+
+func (x *DiskGrowth) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiskGrowth.ProtoReflect.Descriptor instead.
+func (*DiskGrowth) Descriptor() ([]byte, []int) {
+	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *DiskGrowth) GetWorkspaceMax() string {
+	if x != nil {
+		return x.WorkspaceMax
+	}
+	return ""
+}
+
+func (x *DiskGrowth) GetRoot() string {
+	if x != nil {
+		return x.Root
+	}
+	return ""
+}
+
+func (x *DiskGrowth) GetRootMax() string {
+	if x != nil {
+		return x.RootMax
+	}
+	return ""
+}
+
+func (x *DiskGrowth) GetThreshold() string {
+	if x != nil {
+		return x.Threshold
+	}
+	return ""
+}
+
+func (x *DiskGrowth) GetStep() string {
+	if x != nil {
+		return x.Step
+	}
+	return ""
+}
+
 // InstanceStatus is what the provider reports.
 type InstanceStatus struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
@@ -374,7 +468,7 @@ type InstanceStatus struct {
 
 func (x *InstanceStatus) Reset() {
 	*x = InstanceStatus{}
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[2]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -386,7 +480,7 @@ func (x *InstanceStatus) String() string {
 func (*InstanceStatus) ProtoMessage() {}
 
 func (x *InstanceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[2]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -399,7 +493,7 @@ func (x *InstanceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstanceStatus.ProtoReflect.Descriptor instead.
 func (*InstanceStatus) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{2}
+	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *InstanceStatus) GetObservedGeneration() int64 {
@@ -475,7 +569,7 @@ type GetInstanceRequest struct {
 
 func (x *GetInstanceRequest) Reset() {
 	*x = GetInstanceRequest{}
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[3]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -487,7 +581,7 @@ func (x *GetInstanceRequest) String() string {
 func (*GetInstanceRequest) ProtoMessage() {}
 
 func (x *GetInstanceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[3]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -500,7 +594,7 @@ func (x *GetInstanceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetInstanceRequest.ProtoReflect.Descriptor instead.
 func (*GetInstanceRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{3}
+	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetInstanceRequest) GetProject() string {
@@ -526,7 +620,7 @@ type GetInstanceResponse struct {
 
 func (x *GetInstanceResponse) Reset() {
 	*x = GetInstanceResponse{}
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[4]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -538,7 +632,7 @@ func (x *GetInstanceResponse) String() string {
 func (*GetInstanceResponse) ProtoMessage() {}
 
 func (x *GetInstanceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[4]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -551,7 +645,7 @@ func (x *GetInstanceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetInstanceResponse.ProtoReflect.Descriptor instead.
 func (*GetInstanceResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{4}
+	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetInstanceResponse) GetInstance() *Instance {
@@ -574,7 +668,7 @@ type ListInstancesRequest struct {
 
 func (x *ListInstancesRequest) Reset() {
 	*x = ListInstancesRequest{}
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[5]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -586,7 +680,7 @@ func (x *ListInstancesRequest) String() string {
 func (*ListInstancesRequest) ProtoMessage() {}
 
 func (x *ListInstancesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[5]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -599,7 +693,7 @@ func (x *ListInstancesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListInstancesRequest.ProtoReflect.Descriptor instead.
 func (*ListInstancesRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{5}
+	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListInstancesRequest) GetProject() string {
@@ -641,7 +735,7 @@ type ListInstancesResponse struct {
 
 func (x *ListInstancesResponse) Reset() {
 	*x = ListInstancesResponse{}
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[6]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -653,7 +747,7 @@ func (x *ListInstancesResponse) String() string {
 func (*ListInstancesResponse) ProtoMessage() {}
 
 func (x *ListInstancesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[6]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -666,7 +760,7 @@ func (x *ListInstancesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListInstancesResponse.ProtoReflect.Descriptor instead.
 func (*ListInstancesResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{6}
+	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ListInstancesResponse) GetItems() []*Instance {
@@ -702,7 +796,7 @@ type WatchInstancesRequest struct {
 
 func (x *WatchInstancesRequest) Reset() {
 	*x = WatchInstancesRequest{}
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[7]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -714,7 +808,7 @@ func (x *WatchInstancesRequest) String() string {
 func (*WatchInstancesRequest) ProtoMessage() {}
 
 func (x *WatchInstancesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[7]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -727,7 +821,7 @@ func (x *WatchInstancesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchInstancesRequest.ProtoReflect.Descriptor instead.
 func (*WatchInstancesRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{7}
+	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *WatchInstancesRequest) GetProject() string {
@@ -762,7 +856,7 @@ type WatchInstancesResponse struct {
 
 func (x *WatchInstancesResponse) Reset() {
 	*x = WatchInstancesResponse{}
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[8]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -774,7 +868,7 @@ func (x *WatchInstancesResponse) String() string {
 func (*WatchInstancesResponse) ProtoMessage() {}
 
 func (x *WatchInstancesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[8]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -787,7 +881,7 @@ func (x *WatchInstancesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchInstancesResponse.ProtoReflect.Descriptor instead.
 func (*WatchInstancesResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{8}
+	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *WatchInstancesResponse) GetType() v1.EventType {
@@ -822,7 +916,7 @@ type ApplyInstanceRequest struct {
 
 func (x *ApplyInstanceRequest) Reset() {
 	*x = ApplyInstanceRequest{}
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[9]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -834,7 +928,7 @@ func (x *ApplyInstanceRequest) String() string {
 func (*ApplyInstanceRequest) ProtoMessage() {}
 
 func (x *ApplyInstanceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[9]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -847,7 +941,7 @@ func (x *ApplyInstanceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyInstanceRequest.ProtoReflect.Descriptor instead.
 func (*ApplyInstanceRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{9}
+	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ApplyInstanceRequest) GetInstance() *Instance {
@@ -875,7 +969,7 @@ type ApplyInstanceResponse struct {
 
 func (x *ApplyInstanceResponse) Reset() {
 	*x = ApplyInstanceResponse{}
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[10]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -887,7 +981,7 @@ func (x *ApplyInstanceResponse) String() string {
 func (*ApplyInstanceResponse) ProtoMessage() {}
 
 func (x *ApplyInstanceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[10]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -900,7 +994,7 @@ func (x *ApplyInstanceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyInstanceResponse.ProtoReflect.Descriptor instead.
 func (*ApplyInstanceResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{10}
+	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ApplyInstanceResponse) GetInstance() *Instance {
@@ -935,7 +1029,7 @@ type DeleteInstanceRequest struct {
 
 func (x *DeleteInstanceRequest) Reset() {
 	*x = DeleteInstanceRequest{}
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[11]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -947,7 +1041,7 @@ func (x *DeleteInstanceRequest) String() string {
 func (*DeleteInstanceRequest) ProtoMessage() {}
 
 func (x *DeleteInstanceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[11]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -960,7 +1054,7 @@ func (x *DeleteInstanceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteInstanceRequest.ProtoReflect.Descriptor instead.
 func (*DeleteInstanceRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{11}
+	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DeleteInstanceRequest) GetProject() string {
@@ -993,7 +1087,7 @@ type DeleteInstanceResponse struct {
 
 func (x *DeleteInstanceResponse) Reset() {
 	*x = DeleteInstanceResponse{}
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[12]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1005,7 +1099,7 @@ func (x *DeleteInstanceResponse) String() string {
 func (*DeleteInstanceResponse) ProtoMessage() {}
 
 func (x *DeleteInstanceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[12]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1018,7 +1112,7 @@ func (x *DeleteInstanceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteInstanceResponse.ProtoReflect.Descriptor instead.
 func (*DeleteInstanceResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{12}
+	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DeleteInstanceResponse) GetInstance() *Instance {
@@ -1040,7 +1134,7 @@ type UpdateInstanceStatusRequest struct {
 
 func (x *UpdateInstanceStatusRequest) Reset() {
 	*x = UpdateInstanceStatusRequest{}
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[13]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1052,7 +1146,7 @@ func (x *UpdateInstanceStatusRequest) String() string {
 func (*UpdateInstanceStatusRequest) ProtoMessage() {}
 
 func (x *UpdateInstanceStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[13]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1065,7 +1159,7 @@ func (x *UpdateInstanceStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateInstanceStatusRequest.ProtoReflect.Descriptor instead.
 func (*UpdateInstanceStatusRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{13}
+	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *UpdateInstanceStatusRequest) GetProject() string {
@@ -1105,7 +1199,7 @@ type UpdateInstanceStatusResponse struct {
 
 func (x *UpdateInstanceStatusResponse) Reset() {
 	*x = UpdateInstanceStatusResponse{}
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[14]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1117,7 +1211,7 @@ func (x *UpdateInstanceStatusResponse) String() string {
 func (*UpdateInstanceStatusResponse) ProtoMessage() {}
 
 func (x *UpdateInstanceStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[14]
+	mi := &file_tower_environments_v1alpha1_instance_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1130,7 +1224,7 @@ func (x *UpdateInstanceStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateInstanceStatusResponse.ProtoReflect.Descriptor instead.
 func (*UpdateInstanceStatusResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{14}
+	return file_tower_environments_v1alpha1_instance_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *UpdateInstanceStatusResponse) GetInstance() *Instance {
@@ -1152,7 +1246,7 @@ const file_tower_environments_v1alpha1_instance_proto_rawDesc = "" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x12=\n" +
 	"\x04spec\x18\x04 \x01(\v2).tower.environments.v1alpha1.InstanceSpecR\x04spec\x12C\n" +
 	"\x06status\x18\x05 \x01(\v2+.tower.environments.v1alpha1.InstanceStatusR\x06status:!\xca\xf3\x18\x1d\n" +
-	"\bInstance\x12\tinstances\x1a\x04inst \x01\"\xaf\x04\n" +
+	"\bInstance\x12\tinstances\x1a\x04inst \x01\"\x81\x05\n" +
 	"\fInstanceSpec\x12\x1e\n" +
 	"\x06target\x18\x01 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\x06target\x12E\n" +
 	"\x04kind\x18\x02 \x01(\x0e2).tower.environments.v1alpha1.InstanceKindB\x06\xca\xf3\x18\x02\b\x01R\x04kind\x12\x1c\n" +
@@ -1165,10 +1259,19 @@ const file_tower_environments_v1alpha1_instance_proto_rawDesc = "" +
 	"\trun_state\x18\b \x01(\x0e2%.tower.environments.v1alpha1.RunStateR\brunState\x12!\n" +
 	"\fexpose_ports\x18\t \x03(\x05R\vexposePorts\x12L\n" +
 	"\x03env\x18\n" +
-	" \x03(\v22.tower.environments.v1alpha1.InstanceSpec.EnvEntryB\x06\xca\xf3\x18\x02\b\x01R\x03env\x1a6\n" +
+	" \x03(\v22.tower.environments.v1alpha1.InstanceSpec.EnvEntryB\x06\xca\xf3\x18\x02\b\x01R\x03env\x12P\n" +
+	"\vdisk_growth\x18\v \x01(\v2'.tower.environments.v1alpha1.DiskGrowthB\x06\xca\xf3\x18\x02\b\x01R\n" +
+	"diskGrowth\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa1\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x92\x01\n" +
+	"\n" +
+	"DiskGrowth\x12#\n" +
+	"\rworkspace_max\x18\x01 \x01(\tR\fworkspaceMax\x12\x12\n" +
+	"\x04root\x18\x02 \x01(\tR\x04root\x12\x19\n" +
+	"\broot_max\x18\x03 \x01(\tR\arootMax\x12\x1c\n" +
+	"\tthreshold\x18\x04 \x01(\tR\tthreshold\x12\x12\n" +
+	"\x04step\x18\x05 \x01(\tR\x04step\"\xa1\x03\n" +
 	"\x0eInstanceStatus\x12/\n" +
 	"\x13observed_generation\x18\x01 \x01(\x03R\x12observedGeneration\x128\n" +
 	"\n" +
@@ -1262,70 +1365,72 @@ func file_tower_environments_v1alpha1_instance_proto_rawDescGZIP() []byte {
 }
 
 var file_tower_environments_v1alpha1_instance_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_tower_environments_v1alpha1_instance_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_tower_environments_v1alpha1_instance_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_tower_environments_v1alpha1_instance_proto_goTypes = []any{
 	(InstanceKind)(0),                    // 0: tower.environments.v1alpha1.InstanceKind
 	(InstancePhase)(0),                   // 1: tower.environments.v1alpha1.InstancePhase
 	(*Instance)(nil),                     // 2: tower.environments.v1alpha1.Instance
 	(*InstanceSpec)(nil),                 // 3: tower.environments.v1alpha1.InstanceSpec
-	(*InstanceStatus)(nil),               // 4: tower.environments.v1alpha1.InstanceStatus
-	(*GetInstanceRequest)(nil),           // 5: tower.environments.v1alpha1.GetInstanceRequest
-	(*GetInstanceResponse)(nil),          // 6: tower.environments.v1alpha1.GetInstanceResponse
-	(*ListInstancesRequest)(nil),         // 7: tower.environments.v1alpha1.ListInstancesRequest
-	(*ListInstancesResponse)(nil),        // 8: tower.environments.v1alpha1.ListInstancesResponse
-	(*WatchInstancesRequest)(nil),        // 9: tower.environments.v1alpha1.WatchInstancesRequest
-	(*WatchInstancesResponse)(nil),       // 10: tower.environments.v1alpha1.WatchInstancesResponse
-	(*ApplyInstanceRequest)(nil),         // 11: tower.environments.v1alpha1.ApplyInstanceRequest
-	(*ApplyInstanceResponse)(nil),        // 12: tower.environments.v1alpha1.ApplyInstanceResponse
-	(*DeleteInstanceRequest)(nil),        // 13: tower.environments.v1alpha1.DeleteInstanceRequest
-	(*DeleteInstanceResponse)(nil),       // 14: tower.environments.v1alpha1.DeleteInstanceResponse
-	(*UpdateInstanceStatusRequest)(nil),  // 15: tower.environments.v1alpha1.UpdateInstanceStatusRequest
-	(*UpdateInstanceStatusResponse)(nil), // 16: tower.environments.v1alpha1.UpdateInstanceStatusResponse
-	nil,                                  // 17: tower.environments.v1alpha1.InstanceSpec.EnvEntry
-	(*v1.ObjectMeta)(nil),                // 18: tower.meta.v1.ObjectMeta
-	(*Resources)(nil),                    // 19: tower.environments.v1alpha1.Resources
-	(RunState)(0),                        // 20: tower.environments.v1alpha1.RunState
-	(*v1.Condition)(nil),                 // 21: tower.meta.v1.Condition
-	(*timestamppb.Timestamp)(nil),        // 22: google.protobuf.Timestamp
-	(v1.EventType)(0),                    // 23: tower.meta.v1.EventType
+	(*DiskGrowth)(nil),                   // 4: tower.environments.v1alpha1.DiskGrowth
+	(*InstanceStatus)(nil),               // 5: tower.environments.v1alpha1.InstanceStatus
+	(*GetInstanceRequest)(nil),           // 6: tower.environments.v1alpha1.GetInstanceRequest
+	(*GetInstanceResponse)(nil),          // 7: tower.environments.v1alpha1.GetInstanceResponse
+	(*ListInstancesRequest)(nil),         // 8: tower.environments.v1alpha1.ListInstancesRequest
+	(*ListInstancesResponse)(nil),        // 9: tower.environments.v1alpha1.ListInstancesResponse
+	(*WatchInstancesRequest)(nil),        // 10: tower.environments.v1alpha1.WatchInstancesRequest
+	(*WatchInstancesResponse)(nil),       // 11: tower.environments.v1alpha1.WatchInstancesResponse
+	(*ApplyInstanceRequest)(nil),         // 12: tower.environments.v1alpha1.ApplyInstanceRequest
+	(*ApplyInstanceResponse)(nil),        // 13: tower.environments.v1alpha1.ApplyInstanceResponse
+	(*DeleteInstanceRequest)(nil),        // 14: tower.environments.v1alpha1.DeleteInstanceRequest
+	(*DeleteInstanceResponse)(nil),       // 15: tower.environments.v1alpha1.DeleteInstanceResponse
+	(*UpdateInstanceStatusRequest)(nil),  // 16: tower.environments.v1alpha1.UpdateInstanceStatusRequest
+	(*UpdateInstanceStatusResponse)(nil), // 17: tower.environments.v1alpha1.UpdateInstanceStatusResponse
+	nil,                                  // 18: tower.environments.v1alpha1.InstanceSpec.EnvEntry
+	(*v1.ObjectMeta)(nil),                // 19: tower.meta.v1.ObjectMeta
+	(*Resources)(nil),                    // 20: tower.environments.v1alpha1.Resources
+	(RunState)(0),                        // 21: tower.environments.v1alpha1.RunState
+	(*v1.Condition)(nil),                 // 22: tower.meta.v1.Condition
+	(*timestamppb.Timestamp)(nil),        // 23: google.protobuf.Timestamp
+	(v1.EventType)(0),                    // 24: tower.meta.v1.EventType
 }
 var file_tower_environments_v1alpha1_instance_proto_depIdxs = []int32{
-	18, // 0: tower.environments.v1alpha1.Instance.metadata:type_name -> tower.meta.v1.ObjectMeta
+	19, // 0: tower.environments.v1alpha1.Instance.metadata:type_name -> tower.meta.v1.ObjectMeta
 	3,  // 1: tower.environments.v1alpha1.Instance.spec:type_name -> tower.environments.v1alpha1.InstanceSpec
-	4,  // 2: tower.environments.v1alpha1.Instance.status:type_name -> tower.environments.v1alpha1.InstanceStatus
+	5,  // 2: tower.environments.v1alpha1.Instance.status:type_name -> tower.environments.v1alpha1.InstanceStatus
 	0,  // 3: tower.environments.v1alpha1.InstanceSpec.kind:type_name -> tower.environments.v1alpha1.InstanceKind
-	19, // 4: tower.environments.v1alpha1.InstanceSpec.resources:type_name -> tower.environments.v1alpha1.Resources
-	20, // 5: tower.environments.v1alpha1.InstanceSpec.run_state:type_name -> tower.environments.v1alpha1.RunState
-	17, // 6: tower.environments.v1alpha1.InstanceSpec.env:type_name -> tower.environments.v1alpha1.InstanceSpec.EnvEntry
-	21, // 7: tower.environments.v1alpha1.InstanceStatus.conditions:type_name -> tower.meta.v1.Condition
-	1,  // 8: tower.environments.v1alpha1.InstanceStatus.phase:type_name -> tower.environments.v1alpha1.InstancePhase
-	22, // 9: tower.environments.v1alpha1.InstanceStatus.start_time:type_name -> google.protobuf.Timestamp
-	2,  // 10: tower.environments.v1alpha1.GetInstanceResponse.instance:type_name -> tower.environments.v1alpha1.Instance
-	2,  // 11: tower.environments.v1alpha1.ListInstancesResponse.items:type_name -> tower.environments.v1alpha1.Instance
-	23, // 12: tower.environments.v1alpha1.WatchInstancesResponse.type:type_name -> tower.meta.v1.EventType
-	2,  // 13: tower.environments.v1alpha1.WatchInstancesResponse.instance:type_name -> tower.environments.v1alpha1.Instance
-	2,  // 14: tower.environments.v1alpha1.ApplyInstanceRequest.instance:type_name -> tower.environments.v1alpha1.Instance
-	2,  // 15: tower.environments.v1alpha1.ApplyInstanceResponse.instance:type_name -> tower.environments.v1alpha1.Instance
-	2,  // 16: tower.environments.v1alpha1.DeleteInstanceResponse.instance:type_name -> tower.environments.v1alpha1.Instance
-	4,  // 17: tower.environments.v1alpha1.UpdateInstanceStatusRequest.status:type_name -> tower.environments.v1alpha1.InstanceStatus
-	2,  // 18: tower.environments.v1alpha1.UpdateInstanceStatusResponse.instance:type_name -> tower.environments.v1alpha1.Instance
-	5,  // 19: tower.environments.v1alpha1.InstanceService.GetInstance:input_type -> tower.environments.v1alpha1.GetInstanceRequest
-	7,  // 20: tower.environments.v1alpha1.InstanceService.ListInstances:input_type -> tower.environments.v1alpha1.ListInstancesRequest
-	9,  // 21: tower.environments.v1alpha1.InstanceService.WatchInstances:input_type -> tower.environments.v1alpha1.WatchInstancesRequest
-	11, // 22: tower.environments.v1alpha1.InstanceService.ApplyInstance:input_type -> tower.environments.v1alpha1.ApplyInstanceRequest
-	13, // 23: tower.environments.v1alpha1.InstanceService.DeleteInstance:input_type -> tower.environments.v1alpha1.DeleteInstanceRequest
-	15, // 24: tower.environments.v1alpha1.InstanceService.UpdateInstanceStatus:input_type -> tower.environments.v1alpha1.UpdateInstanceStatusRequest
-	6,  // 25: tower.environments.v1alpha1.InstanceService.GetInstance:output_type -> tower.environments.v1alpha1.GetInstanceResponse
-	8,  // 26: tower.environments.v1alpha1.InstanceService.ListInstances:output_type -> tower.environments.v1alpha1.ListInstancesResponse
-	10, // 27: tower.environments.v1alpha1.InstanceService.WatchInstances:output_type -> tower.environments.v1alpha1.WatchInstancesResponse
-	12, // 28: tower.environments.v1alpha1.InstanceService.ApplyInstance:output_type -> tower.environments.v1alpha1.ApplyInstanceResponse
-	14, // 29: tower.environments.v1alpha1.InstanceService.DeleteInstance:output_type -> tower.environments.v1alpha1.DeleteInstanceResponse
-	16, // 30: tower.environments.v1alpha1.InstanceService.UpdateInstanceStatus:output_type -> tower.environments.v1alpha1.UpdateInstanceStatusResponse
-	25, // [25:31] is the sub-list for method output_type
-	19, // [19:25] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	20, // 4: tower.environments.v1alpha1.InstanceSpec.resources:type_name -> tower.environments.v1alpha1.Resources
+	21, // 5: tower.environments.v1alpha1.InstanceSpec.run_state:type_name -> tower.environments.v1alpha1.RunState
+	18, // 6: tower.environments.v1alpha1.InstanceSpec.env:type_name -> tower.environments.v1alpha1.InstanceSpec.EnvEntry
+	4,  // 7: tower.environments.v1alpha1.InstanceSpec.disk_growth:type_name -> tower.environments.v1alpha1.DiskGrowth
+	22, // 8: tower.environments.v1alpha1.InstanceStatus.conditions:type_name -> tower.meta.v1.Condition
+	1,  // 9: tower.environments.v1alpha1.InstanceStatus.phase:type_name -> tower.environments.v1alpha1.InstancePhase
+	23, // 10: tower.environments.v1alpha1.InstanceStatus.start_time:type_name -> google.protobuf.Timestamp
+	2,  // 11: tower.environments.v1alpha1.GetInstanceResponse.instance:type_name -> tower.environments.v1alpha1.Instance
+	2,  // 12: tower.environments.v1alpha1.ListInstancesResponse.items:type_name -> tower.environments.v1alpha1.Instance
+	24, // 13: tower.environments.v1alpha1.WatchInstancesResponse.type:type_name -> tower.meta.v1.EventType
+	2,  // 14: tower.environments.v1alpha1.WatchInstancesResponse.instance:type_name -> tower.environments.v1alpha1.Instance
+	2,  // 15: tower.environments.v1alpha1.ApplyInstanceRequest.instance:type_name -> tower.environments.v1alpha1.Instance
+	2,  // 16: tower.environments.v1alpha1.ApplyInstanceResponse.instance:type_name -> tower.environments.v1alpha1.Instance
+	2,  // 17: tower.environments.v1alpha1.DeleteInstanceResponse.instance:type_name -> tower.environments.v1alpha1.Instance
+	5,  // 18: tower.environments.v1alpha1.UpdateInstanceStatusRequest.status:type_name -> tower.environments.v1alpha1.InstanceStatus
+	2,  // 19: tower.environments.v1alpha1.UpdateInstanceStatusResponse.instance:type_name -> tower.environments.v1alpha1.Instance
+	6,  // 20: tower.environments.v1alpha1.InstanceService.GetInstance:input_type -> tower.environments.v1alpha1.GetInstanceRequest
+	8,  // 21: tower.environments.v1alpha1.InstanceService.ListInstances:input_type -> tower.environments.v1alpha1.ListInstancesRequest
+	10, // 22: tower.environments.v1alpha1.InstanceService.WatchInstances:input_type -> tower.environments.v1alpha1.WatchInstancesRequest
+	12, // 23: tower.environments.v1alpha1.InstanceService.ApplyInstance:input_type -> tower.environments.v1alpha1.ApplyInstanceRequest
+	14, // 24: tower.environments.v1alpha1.InstanceService.DeleteInstance:input_type -> tower.environments.v1alpha1.DeleteInstanceRequest
+	16, // 25: tower.environments.v1alpha1.InstanceService.UpdateInstanceStatus:input_type -> tower.environments.v1alpha1.UpdateInstanceStatusRequest
+	7,  // 26: tower.environments.v1alpha1.InstanceService.GetInstance:output_type -> tower.environments.v1alpha1.GetInstanceResponse
+	9,  // 27: tower.environments.v1alpha1.InstanceService.ListInstances:output_type -> tower.environments.v1alpha1.ListInstancesResponse
+	11, // 28: tower.environments.v1alpha1.InstanceService.WatchInstances:output_type -> tower.environments.v1alpha1.WatchInstancesResponse
+	13, // 29: tower.environments.v1alpha1.InstanceService.ApplyInstance:output_type -> tower.environments.v1alpha1.ApplyInstanceResponse
+	15, // 30: tower.environments.v1alpha1.InstanceService.DeleteInstance:output_type -> tower.environments.v1alpha1.DeleteInstanceResponse
+	17, // 31: tower.environments.v1alpha1.InstanceService.UpdateInstanceStatus:output_type -> tower.environments.v1alpha1.UpdateInstanceStatusResponse
+	26, // [26:32] is the sub-list for method output_type
+	20, // [20:26] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_tower_environments_v1alpha1_instance_proto_init() }
@@ -1334,15 +1439,15 @@ func file_tower_environments_v1alpha1_instance_proto_init() {
 		return
 	}
 	file_tower_environments_v1alpha1_common_proto_init()
-	file_tower_environments_v1alpha1_instance_proto_msgTypes[11].OneofWrappers = []any{}
-	file_tower_environments_v1alpha1_instance_proto_msgTypes[13].OneofWrappers = []any{}
+	file_tower_environments_v1alpha1_instance_proto_msgTypes[12].OneofWrappers = []any{}
+	file_tower_environments_v1alpha1_instance_proto_msgTypes[14].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tower_environments_v1alpha1_instance_proto_rawDesc), len(file_tower_environments_v1alpha1_instance_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   16,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -174,12 +174,12 @@ func RunImages(t *testing.T, h Harness) {
 		}
 		_, err = im.Resolve(ctx, h.MissingImage)
 		is(t, "resolving what the registry lacks", err, driver.ErrNotFound)
-		ref, err := build(t, driver.BuildSpec{}, map[string]string{"Dockerfile": "FROM " + h.Image + "\nUSER 4242\n"})
+		ref, err := build(t, driver.BuildSpec{}, map[string]string{"Dockerfile": "FROM " + h.Image + "\nUSER 4242\nENV DRIVERTEST_CACHE=/cache\n"})
 		mustNot(t, "building an image of another user", err)
 		cfg, err = im.Resolve(ctx, ref)
 		mustNot(t, "resolving what was built", err)
-		if _, digest, _ := strings.Cut(ref, "@"); cfg.Digest != digest || cfg.User != "4242" {
-			t.Errorf("%s resolved to %+v, want its digest and user 4242", ref, cfg)
+		if _, digest, _ := strings.Cut(ref, "@"); cfg.Digest != digest || cfg.User != "4242" || !slices.Contains(cfg.Env, "DRIVERTEST_CACHE=/cache") {
+			t.Errorf("%s resolved to %+v, want its digest, user 4242 and DRIVERTEST_CACHE=/cache in its environment", ref, cfg)
 		}
 	})
 }

@@ -394,10 +394,7 @@ func TestAWarmCheckoutDependsOnItsToolchainAndLockfiles(t *testing.T) {
 		return w
 	}
 	base := warm(map[string]string{"go.sum": "a", "mise.toml": "x", "main.go": "1"})
-	if len(base.Install) != 0 {
-		t.Errorf("a warm checkout installs %v; every box sets itself up", base.Install)
-	}
-	if w := warm(map[string]string{"go.sum": "a", "mise.toml": "x", "main.go": "2"}); w.ToolchainHash != base.ToolchainHash || w.LockfilesHash != base.LockfilesHash {
+	if w := warm(map[string]string{"go.sum": "a", "mise.toml": "x", "main.go": "2"}); w.ToolchainHash != base.ToolchainHash || w.LockfilesHash != base.LockfilesHash || w.PrebuildHash != base.PrebuildHash {
 		t.Error("a change to neither the toolchain nor a lockfile changed what a warm checkout depends on")
 	}
 	if w := warm(map[string]string{"go.sum": "b", "mise.toml": "x"}); w.LockfilesHash == base.LockfilesHash || w.ToolchainHash != base.ToolchainHash {
@@ -405,5 +402,125 @@ func TestAWarmCheckoutDependsOnItsToolchainAndLockfiles(t *testing.T) {
 	}
 	if w := warm(map[string]string{"go.sum": "a", "mise.toml": "y"}); w.ToolchainHash == base.ToolchainHash || w.LockfilesHash != base.LockfilesHash {
 		t.Error("the toolchain's change is not told from a lockfile's")
+	}
+}
+
+// names are the names of a pre-build's steps, in order.
+func names(steps []devcontainer.Step) []string {
+	var out []string
+	for _, s := range steps {
+		out = append(out, s.Name)
+	}
+	return out
+}
+
+// TestAWarmCheckoutInstallsWhatItsFilesCallFor: a warm checkout's
+// pre-build installs by the files at its commit, each through bash -lc and
+// skipped where the image lacks its tool; mise's first, its tools then on
+// every later step's PATH.
+func TestAWarmCheckoutInstallsWhatItsFilesCallFor(t *testing.T) {
+	r, ctx := devcontainer.Real{}, t.Context()
+	for what, tc := range map[string]struct {
+		files map[string]string
+		want  []string
+	}{
+		"nothing to install": {files: map[string]string{"README": "a"}},
+		"go":                 {files: map[string]string{"go.mod": "module a\n", "go.sum": "x"}, want: []string{"go mod download"}},
+		"npm":                {files: map[string]string{"package-lock.json": "{}"}, want: []string{"npm ci"}},
+		"pnpm":               {files: map[string]string{"pnpm-lock.yaml": "x"}, want: []string{"pnpm install"}},
+		"yarn":               {files: map[string]string{"yarn.lock": "x"}, want: []string{"yarn install"}},
+		"uv":                 {files: map[string]string{"uv.lock": "x"}, want: []string{"uv sync"}},
+		"mise and the rest": {
+			files: map[string]string{".tool-versions": "go 1.26", "go.mod": "module a\n", "package-lock.json": "{}", "uv.lock": "x"},
+			want:  []string{"mise install", "go mod download", "npm ci", "uv sync"},
+		},
+		"a lockfile with no install of its own": {files: map[string]string{"Cargo.lock": "x"}},
+	} {
+		f, req := repo(t, tc.files)
+		w, err := r.Warm(ctx, f, req.Mirror, req.Commit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := names(w.Install); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: the pre-build %q, want %q", what, got, tc.want)
+		}
+		for _, s := range w.Install {
+			if len(s.Command) != 3 || s.Command[0] != "bash" || s.Command[1] != "-lc" {
+				t.Errorf("%s: %s runs %q, not through bash -lc", what, s.Name, s.Command)
+				continue
+			}
+			script := s.Command[2]
+			if tool, _, _ := strings.Cut(s.Name, " "); !strings.Contains(script, "command -v "+tool+" >/dev/null 2>&1 || {") {
+				t.Errorf("%s: %s is not skipped without %s:\n%s", what, s.Name, tool, script)
+			}
+			if mise := strings.Contains(script, "mise env"); mise != (tc.files[".tool-versions"] != "" && s.Name != "mise install") {
+				t.Errorf("%s: %s has mise's tools on its PATH: %t:\n%s", what, s.Name, mise, script)
+			}
+		}
+	}
+}
+
+// TestAWarmCheckoutsBuildIsItsUpdateContentCommandElseMakeBuild: after its
+// installs, a warm checkout runs its devcontainer's updateContentCommand,
+// written any way a devcontainer command is; else make build, if the root
+// Makefile make reads has a build target; else nothing. A change to either
+// changes what the warm checkout depends on.
+func TestAWarmCheckoutsBuildIsItsUpdateContentCommandElseMakeBuild(t *testing.T) {
+	r, ctx := devcontainer.Real{}, t.Context()
+	const makefile = "GO ?= go\nbuild: gen\n\t$(GO) build ./...\n"
+	warm := func(files map[string]string) devcontainer.Warm {
+		t.Helper()
+		f, req := repo(t, files)
+		w, err := r.Warm(ctx, f, req.Mirror, req.Commit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return w
+	}
+	last := func(w devcontainer.Warm) string {
+		if len(w.Install) == 0 {
+			return ""
+		}
+		s := w.Install[len(w.Install)-1]
+		lines := strings.Split(s.Command[len(s.Command)-1], "\n")
+		return s.Name + ": " + lines[len(lines)-1]
+	}
+	for what, tc := range map[string]struct {
+		files map[string]string
+		want  string
+	}{
+		"updateContentCommand over make build": {files: map[string]string{
+			".devcontainer/devcontainer.json": `{"image": "x", "updateContentCommand": "npm run prepare"}`, "Makefile": makefile,
+		}, want: "updateContent: npm run prepare"},
+		"an array": {files: map[string]string{
+			".devcontainer.json": `{"image": "x", "updateContentCommand": ["make", "gen"]}`,
+		}, want: "updateContent: make gen"},
+		"named commands": {files: map[string]string{
+			".devcontainer.json": `{"image": "x", "updateContentCommand": {"deps": "go mod download", "gen": "go generate ./..."}}`,
+		}, want: "updateContent: go mod download && go generate ./..."},
+		"make build":                        {files: map[string]string{".devcontainer.json": `{"image": "x"}`, "Makefile": makefile}, want: "make build: make build"},
+		"make build among other targets":    {files: map[string]string{"Makefile": "all test build: x\n"}, want: "make build: make build"},
+		"GNUmakefile, read before Makefile": {files: map[string]string{"GNUmakefile": "build:\n", "Makefile": "test:\n"}, want: "make build: make build"},
+		"makefile without build":            {files: map[string]string{"Makefile": "BUILD := build: x\ntest:\n\tgo test ./...\n# build:\n"}},
+		"a build that is a variable":        {files: map[string]string{"Makefile": "build:=x\n"}},
+		"neither":                           {files: map[string]string{"go.mod": "module a\n"}, want: "go mod download: go mod download"},
+	} {
+		if got := last(warm(tc.files)); got != tc.want {
+			t.Errorf("%s: the pre-build ends with %q, want %q", what, got, tc.want)
+		}
+	}
+
+	base := warm(map[string]string{"Makefile": makefile, "main.go": "1"})
+	if w := warm(map[string]string{"Makefile": makefile + "\ntest:\n", "main.go": "1"}); w.PrebuildHash == base.PrebuildHash {
+		t.Error("a change to the Makefile did not change the pre-build's hash")
+	}
+	dc := func(cmd string) map[string]string {
+		return map[string]string{".devcontainer.json": `{"image": "x", "updateContentCommand": "` + cmd + `"}`}
+	}
+	if a, b := warm(dc("make a")), warm(dc("make b")); a.PrebuildHash == b.PrebuildHash {
+		t.Error("a change to updateContentCommand did not change the pre-build's hash")
+	}
+	if a, b := warm(dc("make a")), warm(map[string]string{".devcontainer.json": `{"image": "y", "updateContentCommand": "make a"}`}); a.PrebuildHash != b.PrebuildHash {
+		t.Error("a change to the devcontainer that is not its pre-build changed the pre-build's hash")
 	}
 }

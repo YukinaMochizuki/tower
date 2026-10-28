@@ -39,8 +39,7 @@ const (
 	BoxReady                = "Ready"
 	stoppedIdle             = "Idle"
 	stoppedRequested        = "Requested"
-	// materializedAnnotation marks an instance whose checkouts are made
-	// (and, on the slow path, its dependencies installed).
+	// materializedAnnotation marks an instance whose checkouts are made.
 	materializedAnnotation = registry.Domain + "/materialized"
 	// secretFilesAnnotation is the start of an instance's run its box's
 	// secret files were written in (runOf).
@@ -248,7 +247,7 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		return nil
 	}
 	if !ok {
-		return s.makeBoxInstance(ctx, key, box, img, name, bs)
+		return s.makeBoxInstance(ctx, key, box, p, target, img, name, bs)
 	}
 	st.Instance, st.Alias = name, key.Name
 
@@ -462,8 +461,10 @@ func fellBack(st *envv1alpha1.BoxStatus) bool {
 }
 
 // makeBoxInstance makes the box's instance from its image, with its disk
-// cloned from its first repository's warm golden when one is ready.
-func (s *Server) makeBoxInstance(ctx context.Context, key controller.Key, box *envv1alpha1.Box, img *envv1alpha1.Golden, name string, bs *boxState) error {
+// cloned from its first repository's warm golden when one is ready, its
+// disks as its target grows them (boxDisks) and its caches in /workspace
+// (boxEnv).
+func (s *Server) makeBoxInstance(ctx context.Context, key controller.Key, box *envv1alpha1.Box, p provider.Provider, target *targetsv1alpha1.Target, img *envv1alpha1.Golden, name string, bs *boxState) error {
 	st, spec := bs.st, box.GetSpec()
 	warm := ""
 	if cs := spec.GetCheckouts(); len(cs) > 0 {
@@ -491,13 +492,19 @@ func (s *Server) makeBoxInstance(ctx context.Context, key controller.Key, box *e
 	if _, err := s.getRecord(ctx, goldenBuildKey(key.Project, img.GetMetadata().GetName()), &build); err != nil {
 		return err
 	}
-	_, err := s.backend(registry.Instance).Create(s.system(ctx), &envv1alpha1.Instance{
+	env, err := imageBoxEnv(ctx, p, img.GetStatus().GetArtifact(), build.Env)
+	if err != nil {
+		bs.cond(BoxReady, false, "ImageUnresolved", "reading its image's environment, retried: "+err.Error())
+		return err
+	}
+	resources, growth := boxDisks(target, spec.GetResources())
+	_, err = s.backend(registry.Instance).Create(s.system(ctx), &envv1alpha1.Instance{
 		Metadata: &metav1.ObjectMeta{Project: key.Project, Name: name, OwnerReferences: []*metav1.OwnerReference{ownedBy(registry.Box, box)}},
 		Spec: &envv1alpha1.InstanceSpec{
 			Target: st.Target, Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, Image: img.GetStatus().GetArtifact(),
 			DiskGolden: warm, Network: spec.GetWorkstream(), Alias: key.Name,
-			Resources: withDefaults(envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, spec.GetResources()), RunState: runState,
-			Env: build.Env,
+			Resources: resources, DiskGrowth: growth, RunState: runState,
+			Env: env,
 		},
 	})
 	if err != nil && connect.CodeOf(err) != connect.CodeAlreadyExists {
@@ -535,8 +542,9 @@ func (s *Server) readyWarm(ctx context.Context, project, repo, target, parent st
 }
 
 // materializeBox checks the box's repositories out in its running
-// instance, and on the slow path, a blank disk, installs the first one's
-// dependencies.
+// instance. A box not cloned from a warm golden runs no pre-build: it
+// starts without one, and a build that fails never fails it
+// (docs/decisions/devcontainers.md).
 func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *envv1alpha1.Box, in *envv1alpha1.Instance, p provider.Provider, bs *boxState) error {
 	job := "materialize/" + key.String()
 	step := boxStep(key, box, in, "materialize")
@@ -558,7 +566,7 @@ func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *en
 	if g.Running {
 		return nil
 	}
-	target, warm := bs.st.GetTarget(), in.GetSpec().GetDiskGolden()
+	target := bs.st.GetTarget()
 	ref := provider.Instance{Project: key.Project, Name: in.GetMetadata().GetName()}
 	checkouts := box.GetSpec().GetCheckouts()
 	s.startJob(target, job, s.boxCtrl, key, func(ctx context.Context) error {
@@ -588,18 +596,13 @@ func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *en
 			}
 			if i == 0 {
 				first = commit
-			}
-		}
-		if warm == "" && len(checkouts) > 0 {
-			w, err := s.cfg.Resolver.Warm(ctx, p, mirrorName(key.Project, checkouts[0].GetRepository()), first)
-			if err != nil {
-				return err
-			}
-			if len(w.Install) > 0 {
-				if err := s.mustRun(ctx, p, ref, nil, "/workspace", w.Install...); err != nil {
+				if err := s.mustRun(ctx, p, ref, nil, dir, excludeCaches...); err != nil {
 					return err
 				}
 			}
+		}
+		if err := s.mustRun(ctx, p, ref, nil, "/", adoptToolDirs...); err != nil {
+			return err
 		}
 		if len(checkouts) > 0 {
 			if err := s.setUpBox(ctx, p, key, box, ref, mirrorName(key.Project, checkouts[0].GetRepository()), first); err != nil {

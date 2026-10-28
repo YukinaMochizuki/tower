@@ -1,5 +1,28 @@
 {
   "$defs": {
+    "tower.environments.v1alpha1.DiskGrowth": {
+      "additionalProperties": false,
+      "description": "DiskGrowth is how a container's two disks grow: its /workspace disk from resources.disk up to workspace_max, its root disk from root up to root_max. Each is a quantity such as \"30Gi\"; a max under its start is the start.",
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "rootMax": {
+          "type": "string"
+        },
+        "step": {
+          "type": "string"
+        },
+        "threshold": {
+          "description": "How full a disk is when it grows, a percentage such as \"80%\", and how much it grows by, a factor such as \"2x\" or a quantity such as \"3Gi\".",
+          "type": "string"
+        },
+        "workspaceMax": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "tower.environments.v1alpha1.InstanceSpec": {
       "additionalProperties": false,
       "description": "InstanceSpec is the instance tower wants on its target.",
@@ -10,6 +33,10 @@
         "diskGolden": {
           "description": "The Golden its disk is cloned from; empty is a blank disk.",
           "type": "string"
+        },
+        "diskGrowth": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.DiskGrowth",
+          "description": "How a container's disks grow by themselves as they fill, on a target whose provider grows them (hangar's); unset, its disks keep the size they are made with. tower sets it from the target's settings (TargetSettings)."
         },
         "env": {
           "additionalProperties": {

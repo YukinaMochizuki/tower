@@ -41,8 +41,9 @@ type config struct {
 	Dockerfile, Context string
 	// Env is containerEnv, its variables resolved.
 	Env map[string]string
-	// OnCreate and PostCreate are its commands, as one shell line each.
-	OnCreate, PostCreate string
+	// OnCreate, UpdateContent and PostCreate are its commands, as one shell
+	// line each.
+	OnCreate, UpdateContent, PostCreate string
 	// User is remoteUser, else containerUser; "" runs as the image does.
 	User string
 	// Features are the features it names, which tower installs none of,
@@ -269,6 +270,7 @@ func parseConfig(configPath string, raw []byte) (config, error) {
 		Features      map[string]json.RawMessage `json:"features"`
 		ContainerEnv  map[string]json.RawMessage `json:"containerEnv"`
 		OnCreate      json.RawMessage            `json:"onCreateCommand"`
+		UpdateContent json.RawMessage            `json:"updateContentCommand"`
 		PostCreate    json.RawMessage            `json:"postCreateCommand"`
 		RemoteUser    json.RawMessage            `json:"remoteUser"`
 		ContainerUser json.RawMessage            `json:"containerUser"`
@@ -301,6 +303,9 @@ func parseConfig(configPath string, raw []byte) (config, error) {
 	var err error
 	if c.OnCreate, err = command(j.OnCreate); err != nil {
 		return config{}, fmt.Errorf("%s: onCreateCommand: %w", configPath, err)
+	}
+	if c.UpdateContent, err = command(j.UpdateContent); err != nil {
+		return config{}, fmt.Errorf("%s: updateContentCommand: %w", configPath, err)
 	}
 	if c.PostCreate, err = command(j.PostCreate); err != nil {
 		return config{}, fmt.Errorf("%s: postCreateCommand: %w", configPath, err)

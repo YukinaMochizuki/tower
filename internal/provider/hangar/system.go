@@ -566,7 +566,7 @@ func (t *Target) ResolveImage(ctx context.Context, ref string) (provider.ImageCo
 		return provider.ImageConfig{}, err
 	}
 	c, err := o.Resolve(ctx, t.asPushed(ref), t.cfg.PushLogin)
-	return provider.ImageConfig{Digest: c.Digest, User: c.User}, driverError(err)
+	return provider.ImageConfig{Digest: c.Digest, User: c.User, Env: c.Env}, driverError(err)
 }
 
 // asPulled is a reference to tower's registry by the name hangar pulls it

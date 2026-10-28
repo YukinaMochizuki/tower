@@ -124,6 +124,10 @@ func (i images) Build(_ context.Context, spec driver.BuildSpec) (string, error) 
 			i.h.st.Users = map[string]string{}
 		}
 		i.h.st.Users[ref] = user
+		if i.h.st.Envs == nil {
+			i.h.st.Envs = map[string][]string{}
+		}
+		i.h.st.Envs[ref] = dockerfileEnv(i.h.st.Envs[strings.TrimSpace(from)], lines)
 		return nil
 	})
 	return ref, err
@@ -211,7 +215,7 @@ func (i images) Resolve(_ context.Context, ref string) (driver.ImageConfig, erro
 		if !i.h.st.Registry[ref] && !slices.Contains(i.h.st.Unpushed, ref) && strings.HasPrefix(ref, Registry+"/") {
 			return fmt.Errorf("image %s: %w", ref, driver.ErrNotFound)
 		}
-		cfg.User = i.h.st.Users[ref]
+		cfg.User, cfg.Env = i.h.st.Users[ref], i.h.st.Envs[ref]
 		if _, digest, ok := strings.Cut(ref, "@"); ok {
 			cfg.Digest = digest
 			return nil
@@ -258,4 +262,31 @@ func writeTar(w io.Writer, files map[string][]byte) error {
 		}
 	}
 	return tw.Close()
+}
+
+// dockerfileEnv is the environment of an image built from a Dockerfile of
+// lines, FROM an image of env: each ENV, as NAME=value or NAME value, over
+// it.
+func dockerfileEnv(env []string, lines []string) []string {
+	out := slices.Clone(env)
+	set := func(name, value string) {
+		out = slices.DeleteFunc(out, func(kv string) bool { return strings.HasPrefix(kv, name+"=") })
+		out = append(out, name+"="+value)
+	}
+	for _, l := range lines {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(l), "ENV ")
+		if !ok {
+			continue
+		}
+		if name, value, ok := strings.Cut(strings.TrimSpace(rest), " "); ok && !strings.Contains(name, "=") {
+			set(name, strings.TrimSpace(value))
+			continue
+		}
+		for _, kv := range strings.Fields(rest) {
+			if name, value, ok := strings.Cut(kv, "="); ok {
+				set(name, value)
+			}
+		}
+	}
+	return out
 }

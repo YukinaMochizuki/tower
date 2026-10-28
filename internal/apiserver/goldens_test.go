@@ -3,8 +3,10 @@ package apiserver_test
 import (
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,7 +21,9 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/apiserver"
 	"github.com/YukinaMochizuki/tower/internal/client"
+	"github.com/YukinaMochizuki/tower/internal/devcontainer"
 	"github.com/YukinaMochizuki/tower/internal/provider"
+	"github.com/YukinaMochizuki/tower/internal/provider/fake"
 	"github.com/YukinaMochizuki/tower/internal/store"
 	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
@@ -386,4 +390,249 @@ func TestABuildTheTargetDidNotAnswerIsTriedAgain(t *testing.T) {
 	w.fake.SetUnavailable(false)
 	w.advance(controllerMaxWait)
 	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_READY)
+}
+
+// builderSpec is the spec of the builder of the warm golden of repo that
+// the store's history holds last, gone or not.
+func (w *world) builderSpec(repo string) *envv1alpha1.InstanceSpec {
+	w.t.Helper()
+	made := w.goldensEverMadeFor(repo)
+	if len(made) == 0 {
+		w.t.Fatalf("no warm golden of %s was made", repo)
+	}
+	rev, err := w.store.Revision(w.t.Context())
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	var spec *envv1alpha1.InstanceSpec
+	err = w.store.Watch(w.t.Context(), store.WatchOptions{SinceRevision: 0}, func(ev store.Event) error {
+		var in envv1alpha1.Instance
+		if ev.Object.Kind == registry.Instance.Kind && ev.Object.Name == "build-"+made[len(made)-1] && proto.Unmarshal(ev.Object.Data, &in) == nil {
+			spec = in.GetSpec()
+		}
+		if ev.Revision >= rev {
+			return errDone
+		}
+		return nil
+	})
+	if !errors.Is(err, errDone) {
+		w.t.Fatal(err)
+	}
+	if spec == nil {
+		w.t.Fatalf("no builder of %v in the history", made)
+	}
+	return spec
+}
+
+// excludedCaches reports whether the caches were excluded from git in the
+// instance's checkout.
+func excludedCaches(execs []fake.Exec, instance string) bool {
+	return slices.ContainsFunc(execs, func(e fake.Exec) bool {
+		return e.Instance.Name == instance && len(e.Command) == 3 && e.Command[0] == "sh" && strings.Contains(e.Command[2], "/.ws-cache/") && strings.Contains(e.Command[2], ".git/info/exclude")
+	})
+}
+
+// adoptedToolDirs reports whether the instance kept the tool directories
+// its image filled (apiserver's adoptToolDirs).
+func adoptedToolDirs(execs []fake.Exec, instance string) bool {
+	return slices.ContainsFunc(execs, func(e fake.Exec) bool {
+		return e.Instance.Name == instance && len(e.Command) == 3 && e.Command[0] == "sh" && strings.Contains(e.Command[2], "MISE_DATA_DIR") && strings.Contains(e.Command[2], "'"+apiserver.CacheDir+"'")
+	})
+}
+
+// warmGolden opens three boxes of repo a, and returns the warm golden it
+// then gets.
+func (w *world) warmGolden() *envv1alpha1.Golden {
+	w.t.Helper()
+	w.mustApply(registry.Repository, repository("a"))
+	w.openBoxes("a", 3)
+	w.advance(5 * time.Minute)
+	var warm string
+	testutil.Eventually(w.t, "a warm golden for a", func() (bool, string) {
+		got := w.warmOf()
+		if len(got["a"]) == 1 {
+			warm = got["a"][0]
+		}
+		return warm != "", fmt.Sprint(got)
+	})
+	g, _ := w.golden(warm)
+	return g
+}
+
+// prebuilding is a world whose warm goldens' pre-build ends with steps.
+func prebuilding(steps ...devcontainer.Step) worldOption {
+	return worldOption{config: func(c *apiserver.Config) {
+		c.Resolver = devcontainer.Fake{Prebuild: steps}
+		c.PrebuildStepTimeout = 200 * time.Millisecond
+	}}
+}
+
+// TestAPreBuildStepThatRunsTooLongIsLeft: a pre-build step that runs past
+// its time is ended, and the golden is captured, saying so.
+func TestAPreBuildStepThatRunsTooLongIsLeft(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, prebuilding(devcontainer.Step{Name: "slow", Command: []string{"sleep"}}))
+	g := w.warmGolden()
+	if c := condition(g.GetStatus().GetConditions(), apiserver.GoldenPreBuilt); c.GetStatus() != metav1.ConditionStatus_CONDITION_STATUS_FALSE || c.GetMessage() != "slow: did not end in 200ms" {
+		t.Errorf("a golden whose pre-build step ran too long: PreBuilt %v", c)
+	}
+}
+
+// TestAPreBuildStepOutOfDiskIsTriedAgain: on a hangar target, a pre-build
+// step that fails for a full disk runs again, after the disk has had time
+// to grow, for as long as it grows; once it no longer does, the golden is
+// captured saying so.
+func TestAPreBuildStepOutOfDiskIsTriedAgain(t *testing.T) {
+	t.Parallel()
+	for what, tc := range map[string]struct {
+		fails int
+		grows bool
+		runs  int
+		says  string
+	}{
+		"grows until it passes": {fails: 3, grows: true, runs: 4},
+		"stops growing":         {fails: 100, grows: false, runs: 1, says: "make build: no space left on device, and its disk did not grow in 45s"},
+		// From 2Gi to 30Gi by 2x is four steps: five runs after the first.
+		"grows, never enough": {fails: 100, grows: true, runs: 6, says: "make build: no space left on device, 6 times as its disk grew"},
+	} {
+		t.Run(what, func(t *testing.T) {
+			t.Parallel()
+			w := newWorld(t, worldOption{hangar: true}, prebuilding(devcontainer.Step{Name: "make build", Command: []string{"make", "build"}}))
+			var mu sync.Mutex
+			runs, size := 0, uint64(2<<20)
+			w.fake.OnExec(func(req provider.ExecRequest) (int, bool) {
+				mu.Lock()
+				defer mu.Unlock()
+				switch req.Command[0] {
+				case "df":
+					_, _ = fmt.Fprintf(req.Stdout, "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vdb %d %d 0 100%% /workspace\n", size, size)
+					if tc.grows {
+						size *= 2
+					}
+					return 0, true
+				case "make":
+					if runs++; runs <= tc.fails {
+						_, _ = io.WriteString(req.Stdout, "write /workspace/.ws-cache/go-build/01: No space left on device\n")
+						return 2, true
+					}
+					return 0, true
+				}
+				return 0, false
+			})
+			ran := func() int { mu.Lock(); defer mu.Unlock(); return runs }
+			w.mustApply(registry.Repository, repository("a"))
+			w.openBoxes("a", 3)
+			// Not advance, which waits for the controllers to settle: the
+			// builder's job waits on the clock.
+			w.waitSettled()
+			w.clock.Advance(5 * time.Minute)
+			testutil.Eventually(t, "the warm golden captured", func() (bool, string) {
+				if len(w.warmOf()["a"]) == 1 {
+					return true, ""
+				}
+				w.clock.Advance(apiserver.NoSpaceRetryAfter / 3)
+				return false, fmt.Sprint(ran(), w.warmOf())
+			})
+			g, _ := w.golden(w.warmOf()["a"][0])
+			c := condition(g.GetStatus().GetConditions(), apiserver.GoldenPreBuilt)
+			switch {
+			case tc.says == "" && c.GetStatus() != metav1.ConditionStatus_CONDITION_STATUS_TRUE:
+				t.Errorf("a step that passed once its disk grew: PreBuilt %v", c)
+			case tc.says != "" && (c.GetStatus() != metav1.ConditionStatus_CONDITION_STATUS_FALSE || c.GetMessage() != tc.says):
+				t.Errorf("PreBuilt %v, want it to say %q", c, tc.says)
+			}
+			if n := ran(); n != tc.runs {
+				t.Errorf("the step ran %d times, want %d", n, tc.runs)
+			}
+		})
+	}
+}
+
+// TestABoxAndItsWarmBuilderGrowOnAHangarTarget: on a hangar target a box's
+// disks grow from the target's starts, and a warm golden's builder's
+// /workspace starts as a box's, then at what the last golden held.
+func TestABoxAndItsWarmBuilderGrowOnAHangarTarget(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, worldOption{hangar: true, settings: &targetsv1alpha1.TargetSettings{WarmMaxAge: durationpb.New(time.Hour), BoxRootDiskMax: "40Gi"}})
+	w.fake.CaptureSize(func(provider.Instance) uint64 { return 4 << 30 })
+	first := w.warmGolden()
+	growth := &envv1alpha1.DiskGrowth{WorkspaceMax: "30Gi", Root: "10Gi", RootMax: "40Gi", Threshold: "80%", Step: "2x"}
+	b := w.box("a-0")
+	in, _ := w.instance(b.GetStatus().GetInstance())
+	if s := in.GetSpec(); s.GetResources().GetDisk() != "2Gi" || !proto.Equal(s.GetDiskGrowth(), growth) {
+		t.Errorf("a box on a hangar target: disk %q, growth %v; want 2Gi, %v", s.GetResources().GetDisk(), s.GetDiskGrowth(), growth)
+	}
+	if s := w.builderSpec("a"); s.GetResources().GetDisk() != "2Gi" || !proto.Equal(s.GetDiskGrowth(), growth) {
+		t.Errorf("the first warm builder: disk %q, growth %v; want 2Gi, %v", s.GetResources().GetDisk(), s.GetDiskGrowth(), growth)
+	}
+	// Stale, it is built again, from what the first held (4Gi).
+	w.advance(time.Hour + time.Minute)
+	testutil.Eventually(t, "a second warm golden", func() (bool, string) {
+		got := w.warmOf()["a"]
+		return len(got) == 1 && got[0] != first.GetMetadata().GetName(), fmt.Sprint(got)
+	})
+	if s := w.builderSpec("a"); s.GetResources().GetDisk() != "5Gi" || !proto.Equal(s.GetDiskGrowth(), growth) {
+		t.Errorf("the second warm builder: disk %q, growth %v; want 5Gi, %v", s.GetResources().GetDisk(), s.GetDiskGrowth(), growth)
+	}
+}
+
+// TestAWarmGoldenIsPreBuilt: a warm golden's builder is made as a box of
+// its image is, its caches in /workspace and out of git's sight, and runs
+// the pre-build. A step that fails does not fail the golden: it is
+// captured, READY, and its PreBuilt condition says which step and why.
+func TestAWarmGoldenIsPreBuilt(t *testing.T) {
+	t.Parallel()
+	for what, fails := range map[string]bool{"passes": false, "fails": true} {
+		t.Run(what, func(t *testing.T) {
+			t.Parallel()
+			w := newWorld(t, worldOption{config: func(c *apiserver.Config) {
+				c.Resolver = devcontainer.Fake{Prebuild: []devcontainer.Step{{Name: "make build", Command: []string{"make", "build"}}}}
+			}})
+			if fails {
+				w.fake.FailCommands("make")
+			}
+			w.mustApply(registry.Repository, repository("a"))
+			w.openBoxes("a", 3)
+			w.advance(5 * time.Minute)
+			var warm string
+			testutil.Eventually(t, "a warm golden for a", func() (bool, string) {
+				got := w.warmOf()
+				if len(got["a"]) == 1 {
+					warm = got["a"][0]
+				}
+				return warm != "", fmt.Sprint(got)
+			})
+			g, _ := w.golden(warm)
+			if g.GetSpec().GetBoxWarm().GetPrebuildHash() == "" {
+				t.Errorf("the warm golden's inputs %v carry no pre-build hash", g.GetSpec().GetBoxWarm())
+			}
+			c := condition(g.GetStatus().GetConditions(), apiserver.GoldenPreBuilt)
+			switch {
+			case !fails && (c.GetStatus() != metav1.ConditionStatus_CONDITION_STATUS_TRUE || c.GetReason() != "PreBuilt"):
+				t.Errorf("a warm golden whose pre-build passed: PreBuilt %v", c)
+			case fails && (c.GetStatus() != metav1.ConditionStatus_CONDITION_STATUS_FALSE || c.GetReason() != "PreBuildFailed" || c.GetMessage() != "make build: exit 1"):
+				t.Errorf("a warm golden whose pre-build failed: PreBuilt %v", c)
+			}
+			builder := "build-" + warm
+			var ran []string
+			for _, e := range w.fake.Execs() {
+				if e.Instance.Name == builder {
+					ran = append(ran, e.Command[0])
+				}
+			}
+			if want := []string{"sh", "sh", "install-dependencies", "make"}; !slices.Equal(ran, want) {
+				t.Errorf("the builder ran %q, want %q", ran, want)
+			}
+			if !excludedCaches(w.fake.Execs(), builder) {
+				t.Errorf("the builder's checkout does not exclude the caches from git: %v", w.fake.Execs())
+			}
+			if !adoptedToolDirs(w.fake.Execs(), builder) {
+				t.Errorf("the builder did not keep the image's tool directories: %v", w.fake.Execs())
+			}
+			spec := w.builderSpec("a")
+			if spec.GetEnv()["GOCACHE"] != apiserver.CacheDir+"/go-build" || spec.GetResources().GetDisk() != "40Gi" || spec.GetDiskGrowth() != nil {
+				t.Errorf("the builder on a hostd target: %v", spec)
+			}
+		})
+	}
 }

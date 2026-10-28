@@ -85,7 +85,7 @@ func TestABoxIsMadeOfItsRepositorysDevcontainer(t *testing.T) {
 	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{
 		".devcontainer/devcontainer.json": `{
 			"image": "mcr.microsoft.com/devcontainers/go:1",
-			"containerEnv": {"GOFLAGS": "-mod=mod", "MULTI": "one\ntwo", "CTRL": "a\u0001b"},
+			"containerEnv": {"GOFLAGS": "-mod=mod", "MULTI": "one\ntwo", "CTRL": "a\u0001b", "GOMODCACHE": "/go/pkg/mod"},
 			"remoteUser": "vscode",
 			"onCreateCommand": "make tools",
 			"postCreateCommand": "make deps",
@@ -107,10 +107,16 @@ func TestABoxIsMadeOfItsRepositorysDevcontainer(t *testing.T) {
 		!strings.HasSuffix(df, "USER 1000\nUSER vscode\n") {
 		t.Errorf("the box's image was built with\n%s", df)
 	}
-	// Its containerEnv is its instance's environment, each value as written.
+	// Its containerEnv is its instance's environment, each value as written,
+	// with the caches it does not place in /workspace.
 	inst, _ := w.instance(b.GetStatus().GetInstance())
-	if want := map[string]string{"GOFLAGS": "-mod=mod", "MULTI": "one\ntwo", "CTRL": "a\x01b"}; !maps.Equal(inst.GetSpec().GetEnv(), want) {
-		t.Errorf("the box's environment %q, want %q", inst.GetSpec().GetEnv(), want)
+	env := maps.Clone(inst.GetSpec().GetEnv())
+	if env["GOCACHE"] != apiserver.CacheDir+"/go-build" {
+		t.Errorf("the box's GOCACHE is %q, want it in %s", env["GOCACHE"], apiserver.CacheDir)
+	}
+	maps.DeleteFunc(env, func(_, v string) bool { return strings.HasPrefix(v, apiserver.CacheDir+"/") })
+	if want := map[string]string{"GOFLAGS": "-mod=mod", "MULTI": "one\ntwo", "CTRL": "a\x01b", "GOMODCACHE": "/go/pkg/mod"}; !maps.Equal(env, want) {
+		t.Errorf("the box's environment but its caches %q, want %q", env, want)
 	}
 	want := []string{
 		"/workspace: command -v mise >/dev/null 2>&1 && mise trust && mise install || true",
@@ -291,5 +297,29 @@ func TestABoxSaysWhyItsImageIsNotResolved(t *testing.T) {
 	b := w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_READY)
 	if c := condition(b.GetStatus().GetConditions(), apiserver.BoxReady); c.GetStatus() != metav1.ConditionStatus_CONDITION_STATUS_TRUE {
 		t.Errorf("Ready %v once the registry answers", c)
+	}
+}
+
+// TestACacheTheImagePlacesIsLeftAlone: a variable the image built from
+// the devcontainer's Dockerfile sets is not redirected into the box's
+// caches, nor mise's tools where its XDG_DATA_HOME places them.
+func TestACacheTheImagePlacesIsLeftAlone(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, realResolver())
+	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{
+		".devcontainer/devcontainer.json": `{"build": {"dockerfile": "Dockerfile"}}`,
+		".devcontainer/Dockerfile":        "FROM ubuntu:24.04\nENV GOCACHE=/x\nENV XDG_DATA_HOME=/d\n",
+	}, "c1")
+	b := w.readyBox("dev")
+	in, _ := w.instance(b.GetStatus().GetInstance())
+	env := in.GetSpec().GetEnv()
+	if _, ok := env["GOCACHE"]; ok {
+		t.Errorf("GOCACHE, which the image sets, is %q in the box's environment", env["GOCACHE"])
+	}
+	if _, ok := env["MISE_DATA_DIR"]; ok {
+		t.Errorf("MISE_DATA_DIR is %q, though the image's XDG_DATA_HOME places mise's tools", env["MISE_DATA_DIR"])
+	}
+	if env["GOMODCACHE"] != apiserver.CacheDir+"/go-mod" {
+		t.Errorf("the box's environment %v, want GOMODCACHE in its caches", env)
 	}
 }
