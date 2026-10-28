@@ -119,13 +119,38 @@ target (`repositories.md`), and builds on the target (`images.md`).
   which step failed and how. Its inputs (`BoxWarmInputs`) are the
   repository's mise files and lockfiles by their git objects and a hash of
   the pre-build, the commands it runs and the root Makefile, so a change
-  to either makes another golden at the next rebuild, whose cadence is the
-  target's `warm_max_age` and `warm_max_commits_behind`. The pre-build is
+  to either makes another golden, as the next item says. The pre-build is
   what a warm golden adds: a box cloned from one starts with it, and a box
   without one, on a blank disk, starts without it and runs none of it, so
   a build that fails never fails a box and opening a box never waits for a
   build. Either sets itself up as below. Repositories duplicate what they
   install, bounded by the warm budget.
+- **A warm golden is rebuilt for what a box would redo, not for every
+  commit** (decided with the human, 2026-10-29). A box cloned from a golden
+  only commits behind costs a fetch and incremental builds; one whose
+  pre-build inputs changed (hangar#235's `updateContentCommand`) spent 90
+  seconds a box until its golden was rebuilt by hand. And a replaced
+  golden's data stays held while a box cloned from it lives, so each extra
+  generation shares less between boxes. So:
+  - A golden whose `BoxWarmInputs` hashes differ from its branch head's, as
+    `Resolver.Warm` reads them there, is rebuilt at any time, once the head
+    has had those inputs for the target's `warm_settle` (default 30
+    minutes). Inputs that change again start it over, so a burst of merges
+    builds once; while they settle, nothing else rebuilds it. Since when is
+    an internal record (`WarmInputs`), the time tower first saw the head's
+    inputs, so every reconcile and one after a restart read the same.
+  - A golden only more than `warm_max_commits_behind` (default 20; we
+    squash-merge, so 200 was weeks of PRs) behind, or older than
+    `warm_max_age` (default 7 days), is rebuilt within the target's
+    `warm_off_peak`, a daily window in an IANA time zone, such as
+    02:00-06:00 Asia/Taipei; unset, at any time. A repository with no
+    golden gets one at once.
+  - Before a golden is built, its mirror is fetched, and the golden is
+    built from the head that fetch finds, not from the last periodic
+    fetch's (`MirrorFetchEvery`), which may predate the merge that made it
+    stale. A fetch that fails builds from what the mirror has.
+  - A change of the image golden under it is not a trigger: it rebuilds a
+    warm golden at its next rebuild.
 - **A repository without a devcontainer falls back, as workstream's setup
   "auto" does:** to the box's `fallback_image`, which workstream sets to
   the repository's `boxImage` or its own default, else to tower-apiserver's

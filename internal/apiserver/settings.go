@@ -3,6 +3,7 @@ package apiserver
 import (
 	"fmt"
 	"time"
+	_ "time/tzdata" // warm_off_peak's time zone, which the host need not have
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
@@ -23,7 +24,10 @@ const (
 	// DefaultWarmMaxAge and DefaultWarmMaxCommitsBehind are how stale a
 	// warm golden may get before it is rebuilt.
 	DefaultWarmMaxAge           = 7 * 24 * time.Hour
-	DefaultWarmMaxCommitsBehind = 200
+	DefaultWarmMaxCommitsBehind = 20
+	// DefaultWarmSettle is how long a branch head's pre-build inputs must
+	// hold before its warm golden is rebuilt for them.
+	DefaultWarmSettle = 30 * time.Minute
 	// DefaultWarmEstimate is what a warm golden not built yet is taken to
 	// hold, until its first one says.
 	DefaultWarmEstimate = "5Gi"
@@ -93,6 +97,10 @@ type settings struct {
 	warmMaxAge           time.Duration
 	warmMaxCommitsBehind int
 	warmMinHold          time.Duration
+	warmSettle           time.Duration
+	// warmOffPeak is when a warm golden is rebuilt for staleness alone,
+	// nil at any time.
+	warmOffPeak *dailyWindow
 	// The start and max of a box's /workspace and root disks, as
 	// quantities.
 	workspaceDisk, workspaceDiskMax, rootDisk, rootDiskMax string
@@ -103,7 +111,7 @@ func settingsOf(t *targetsv1alpha1.Target) settings {
 	s := settings{
 		idleStopAfter: DefaultIdleStopAfter, warmBudget: mustBytes(DefaultWarmBudget), warmWindow: DefaultWarmWindow,
 		warmMaxAge: DefaultWarmMaxAge, warmMaxCommitsBehind: DefaultWarmMaxCommitsBehind, warmMinHold: DefaultWarmMinHold,
-		workspaceDisk: DefaultBoxWorkspaceDisk, workspaceDiskMax: DefaultBoxWorkspaceDiskMax,
+		warmSettle: DefaultWarmSettle, workspaceDisk: DefaultBoxWorkspaceDisk, workspaceDiskMax: DefaultBoxWorkspaceDiskMax,
 		rootDisk: DefaultBoxRootDisk, rootDiskMax: DefaultBoxRootDiskMax,
 	}
 	for _, q := range []struct {
@@ -132,7 +140,60 @@ func settingsOf(t *targetsv1alpha1.Target) settings {
 	if n := set.GetWarmMaxCommitsBehind(); n > 0 {
 		s.warmMaxCommitsBehind = int(n)
 	}
+	if d := set.GetWarmSettle(); d != nil && d.AsDuration() > 0 {
+		s.warmSettle = d.AsDuration()
+	}
+	if w := set.GetWarmOffPeak(); w != nil {
+		if dw, err := parseDailyWindow(w); err == nil {
+			s.warmOffPeak = &dw
+		}
+	}
 	return s
+}
+
+// dailyWindow is a TimeWindow read: minutes into the day in loc.
+type dailyWindow struct {
+	start, end int
+	loc        *time.Location
+}
+
+func parseDailyWindow(w *targetsv1alpha1.TimeWindow) (dailyWindow, error) {
+	minutes := func(field, v string) (int, error) {
+		t, err := time.Parse("15:04", v)
+		if err != nil {
+			return 0, fmt.Errorf("%s %q is no time of day HH:MM", field, v)
+		}
+		return t.Hour()*60 + t.Minute(), nil
+	}
+	start, err := minutes("start", w.GetStart())
+	if err != nil {
+		return dailyWindow{}, err
+	}
+	end, err := minutes("end", w.GetEnd())
+	if err != nil {
+		return dailyWindow{}, err
+	}
+	if start == end {
+		return dailyWindow{}, fmt.Errorf("start and end are both %s", w.GetStart())
+	}
+	loc, err := time.LoadLocation(w.GetTimeZone())
+	if err != nil || w.GetTimeZone() == "Local" {
+		return dailyWindow{}, fmt.Errorf("time_zone %q is no IANA time zone", w.GetTimeZone())
+	}
+	return dailyWindow{start: start, end: end, loc: loc}, nil
+}
+
+// contains reports whether t falls in the window; a nil window is always.
+func (w *dailyWindow) contains(t time.Time) bool {
+	if w == nil {
+		return true
+	}
+	t = t.In(w.loc)
+	m := t.Hour()*60 + t.Minute()
+	if w.start < w.end {
+		return w.start <= m && m < w.end
+	}
+	return m >= w.start || m < w.end
 }
 
 // boxDisks are the resources and disk growth of a box's container, or a

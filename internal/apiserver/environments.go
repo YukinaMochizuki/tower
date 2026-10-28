@@ -109,6 +109,7 @@ func validateTarget(_ context.Context, _ *Server, _ authz.Caller, _, obj proto.M
 	set := t.GetSpec().GetSettings()
 	for name, d := range map[string]*durationpb.Duration{
 		"idle_stop_after": set.GetIdleStopAfter(), "warm_window": set.GetWarmWindow(), "warm_max_age": set.GetWarmMaxAge(),
+		"warm_settle": set.GetWarmSettle(),
 	} {
 		if d != nil && (!d.IsValid() || d.AsDuration() < 0) {
 			return invalid("spec.settings.%s must be a duration of zero or more", name)
@@ -121,6 +122,11 @@ func validateTarget(_ context.Context, _ *Server, _ authz.Caller, _, obj proto.M
 	}
 	if set.GetWarmMaxCommitsBehind() < 0 {
 		return invalid("spec.settings.warm_max_commits_behind must be zero or more")
+	}
+	if w := set.GetWarmOffPeak(); w != nil {
+		if _, err := parseDailyWindow(w); err != nil {
+			return invalid("spec.settings.warm_off_peak: %v", err)
+		}
 	}
 	for name, q := range map[string]string{
 		"box_workspace_disk": set.GetBoxWorkspaceDisk(), "box_workspace_disk_max": set.GetBoxWorkspaceDiskMax(),
