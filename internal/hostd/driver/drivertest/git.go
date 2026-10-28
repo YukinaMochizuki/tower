@@ -75,6 +75,34 @@ func RunGit(t *testing.T, h Harness) {
 		}
 		is(t, "the origin of a mirror never fetched", g.Origin(ctx, "drivertest/never-fetched", io.Discard), driver.ErrNotFound)
 	})
+	t.Run("EveryBranch", func(t *testing.T) {
+		if h.OtherBranch == "" {
+			t.Skip("the harness names no other branch of its remote")
+		}
+		// A checkout's origin has every branch of the repository, not only
+		// the one the mirror follows.
+		var origin bytes.Buffer
+		mustNot(t, "reading the origin", g.Origin(ctx, mirror, &origin))
+		if got := strings.TrimSpace(files(t, origin.Bytes())["refs/remotes/origin/"+h.OtherBranch]); got != h.OtherHead {
+			t.Errorf("origin/%s is at %q, want %q", h.OtherBranch, got, h.OtherHead)
+		}
+		var other bytes.Buffer
+		commit, err := g.Checkout(ctx, mirror, h.OtherBranch, &other)
+		mustNot(t, "checking out the other branch", err)
+		if commit != h.OtherHead {
+			t.Errorf("checked out %s at %q, want %q", h.OtherBranch, commit, h.OtherHead)
+		}
+		// A push to it on its tip on the forge, which is the lease workstream
+		// gives, goes: the mirror has that commit.
+		keep := map[string]string{}
+		for name, content := range files(t, other.Bytes()) {
+			if strings.HasPrefix(name, ".git/") {
+				keep[name] = content
+			}
+		}
+		spec := driver.PushSpec{Mirror: mirror, URL: h.Remote, Token: token, Branch: h.OtherBranch, Lease: h.OtherHead}
+		mustNot(t, "a push to the other branch on its tip", g.Push(ctx, spec, tarOf(t, keep)))
+	})
 	t.Run("ArchiveAndRead", func(t *testing.T) {
 		var archive bytes.Buffer
 		commit, err := g.Archive(ctx, mirror, "", &archive)
