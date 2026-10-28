@@ -30,6 +30,7 @@ import (
 
 	"github.com/containerd/containerd/v2/core/content"
 	contentlocal "github.com/containerd/containerd/v2/plugins/content/local"
+	"github.com/distribution/reference"
 	"github.com/docker/cli/cli/config/types"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb/sourceresolver"
@@ -530,8 +531,25 @@ func (d *Driver) Resolve(ctx context.Context, ref string) (driver.ImageConfig, e
 	return d.resolveInRegistry(ctx, ref)
 }
 
+// normalizedRef is ref as a registry names it: `golang:bookworm` is
+// docker.io/library/golang:bookworm, `ardge/base:1` docker.io/ardge/base:1.
+// BuildKit's gateway resolves the string it is given, so a short name's
+// first part would be taken for a registry host; its Dockerfile frontend
+// normalizes before it resolves, and this does the same.
+func normalizedRef(ref string) (string, error) {
+	named, err := reference.ParseNormalizedNamed(ref)
+	if err != nil {
+		return "", fmt.Errorf("image %q: %w", ref, err)
+	}
+	return reference.TagNameOnly(named).String(), nil
+}
+
 // resolveInRegistry has BuildKit resolve ref in its registry.
 func (d *Driver) resolveInRegistry(ctx context.Context, ref string) (driver.ImageConfig, error) {
+	full, err := normalizedRef(ref)
+	if err != nil {
+		return driver.ImageConfig{}, err
+	}
 	c, err := client.New(ctx, d.cfg.BuildKit)
 	if err != nil {
 		return driver.ImageConfig{}, err
@@ -541,7 +559,7 @@ func (d *Driver) resolveInRegistry(ctx context.Context, ref string) (driver.Imag
 	_, err = c.Build(ctx, client.SolveOpt{
 		Session: []session.Attachable{authprovider.NewDockerAuthProvider(authprovider.DockerAuthProviderConfig{AuthConfigProvider: d.auth})},
 	}, "tower-hostd", func(ctx context.Context, gw gateway.Client) (*gateway.Result, error) {
-		_, dgst, config, err := gw.ResolveImageConfig(ctx, ref, sourceresolver.Opt{
+		_, dgst, config, err := gw.ResolveImageConfig(ctx, full, sourceresolver.Opt{
 			ImageOpt: &sourceresolver.ResolveImageOpt{ResolveMode: "pull"},
 		})
 		if err != nil {
