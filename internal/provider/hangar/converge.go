@@ -41,6 +41,9 @@ const (
 	DefaultDisk = "10Gi"
 	// WorkspaceDir is where a container's Disk is mounted.
 	WorkspaceDir = "/workspace"
+	// ReposDir is where a box's checkouts after its first go, one
+	// directory each (the apiserver's box controller).
+	ReposDir = "/repos"
 )
 
 // keepAliveCommand is a container's process: it waits, and ends on

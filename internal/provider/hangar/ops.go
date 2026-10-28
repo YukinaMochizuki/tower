@@ -211,10 +211,12 @@ func (r runner) guestHash(ctx context.Context) (string, error) {
 
 // installGuest writes tower-guest into the container, as root, unless the
 // copy there is this tower's, and gives the user the container runs as
-// the processes' directory, and /workspace while it is empty, as hostd
-// does: so a process of a user that is not root (a devcontainer's
-// remoteUser, say) is kept, and writes its workspace. It is written to a
-// file of its own and renamed into place, then read back.
+// the processes' directory, /workspace while it is empty, and /repos (made
+// if missing) while it is empty, as hostd does: so a process of a user
+// that is not root (a devcontainer's remoteUser, say) is kept, writes its
+// workspace, and has a box's later checkouts made under /repos, which
+// tower-guest makes as that user. It is written to a file of its own and
+// renamed into place, then read back.
 func (t *Target) installGuest(ctx context.Context, r runner) error {
 	have, err := r.guestHash(ctx)
 	if err != nil {
@@ -233,8 +235,7 @@ func (t *Target) installGuest(ctx context.Context, r runner) error {
 		return fmt.Errorf("reading the user the container runs as: exit %d, %q", code, owner)
 	}
 	script := "set -e; mkdir -p " + procRoot + "; tmp=" + guestPath + ".new.$$; cat > \"$tmp\"; chmod 0755 \"$tmp\"; mv -f \"$tmp\" " + guestPath +
-		"; chown " + owner + " " + procRoot + "; echo " + t.guest.hash + " > " + guestVersion +
-		"; if [ -d " + WorkspaceDir + " ] && [ -z \"$(ls -A " + WorkspaceDir + ")\" ]; then chown " + owner + " " + WorkspaceDir + "; fi"
+		"; chown " + owner + " " + procRoot + "; echo " + t.guest.hash + " > " + guestVersion + "; " + giveDirsLine(owner, WorkspaceDir, ReposDir)
 	var errOut bytes.Buffer
 	code, err = r.sh(ctx, "0", script, bytes.NewReader(t.guest.data), &errOut)
 	if err != nil {
@@ -279,6 +280,16 @@ func (r runner) sh(ctx context.Context, user, line string, stdin io.Reader, out 
 		Stdin: stdin, Stdout: out, Stderr: out,
 	})
 	return exit.Code, err
+}
+
+// giveDirsLine is the shell, run as root, that gives owner the workspace
+// while it is empty, and the repos directory, made if missing, while it is
+// empty: a directory that holds something is someone's already, and left
+// as it is.
+func giveDirsLine(owner, workspace, repos string) string {
+	empty := func(d string) string { return "[ -d " + d + " ] && [ -z \"$(ls -A " + d + ")\" ]" }
+	return "if " + empty(workspace) + "; then chown " + owner + " " + workspace + "; fi" +
+		"; mkdir -p " + repos + "; if " + empty(repos) + "; then chown " + owner + " " + repos + "; fi"
 }
 
 // guestError is what an error of the guest's operations is to tower: the

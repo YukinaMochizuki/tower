@@ -121,6 +121,9 @@ func testProcOtherUser(t *testing.T, h Harness, k GuestKind) {
 	if list, err := c.ListProcesses(t.Context(), g); err != nil || len(list) != 1 {
 		t.Errorf("listed %+v, %v", list, err)
 	}
+	// A box's later checkouts go under /repos, which tower-guest makes as
+	// the container's user: the driver gave it to that user.
+	mustNot(t, "a checkout under /repos as visitor", k.Driver.CopyIn(t.Context(), g, "/repos/second", tarOf(t, map[string]string{"README": "x"})))
 }
 
 func testProcOutput(t *testing.T, h Harness, k GuestKind) {
