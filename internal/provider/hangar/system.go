@@ -44,10 +44,19 @@ const (
 	// SystemNetworkCIDR is its network's range.
 	SystemNetworkCIDR = "10.89.0.0/24"
 	// DefaultSystemDisk, DefaultSystemCPU and DefaultSystemMemory size it
-	// unless the config says otherwise.
-	DefaultSystemDisk   = "20Gi"
+	// unless the config says otherwise. Its Disk (mirrors, BuildKit's
+	// cache, tailscaled's state) starts at DefaultSystemDisk and grows as it
+	// fills up to systemDiskMax, its root, which holds little but the image,
+	// from systemRoot up to systemRootMax, as a box's do: hangar starts the
+	// root at its image's size when that is larger.
+	DefaultSystemDisk   = "4Gi"
 	DefaultSystemCPU    = "2"
 	DefaultSystemMemory = "4Gi"
+	systemDiskMax       = "50Gi"
+	systemRoot          = "2Gi"
+	systemRootMax       = "10Gi"
+	systemGrowThreshold = "80%"
+	systemGrowStep      = "2x"
 	// LabelRole is "system" on the system container's objects, which the
 	// sweep leaves alone.
 	LabelRole = "tower/role"
@@ -158,9 +167,12 @@ func (t *Target) makeSystem(ctx context.Context) (*hangarcompute.Container, erro
 		return nil, err
 	}
 	if _, err := t.api.Disks().Get(ctx, name); errors.Is(err, ErrNotFound) {
+		size := or(t.cfg.SystemDisk, DefaultSystemDisk)
 		if _, err := t.api.Disks().Apply(ctx, &hangarstorage.Disk{
 			Metadata: &hangarmeta.ObjectMeta{Name: name, Labels: labels},
-			Spec:     &hangarstorage.DiskSpec{Size: or(t.cfg.SystemDisk, DefaultSystemDisk)},
+			Spec: &hangarstorage.DiskSpec{Size: size, Grow: &hangarstorage.DiskGrow{
+				Max: atLeast(systemDiskMax, size), Threshold: systemGrowThreshold, Step: systemGrowStep,
+			}},
 		}); err != nil {
 			return nil, fmt.Errorf("the system disk: %w", err)
 		}
@@ -179,10 +191,13 @@ func (t *Target) makeSystem(ctx context.Context) (*hangarcompute.Container, erro
 		Image:         t.asPulled(t.cfg.SystemImage),
 		RestartPolicy: hangarcompute.RestartPolicy_RESTART_POLICY_ALWAYS,
 		RunState:      hangarcompute.ContainerRunState_CONTAINER_RUN_STATE_RUNNING,
-		Resources:     &hangarcompute.Resources{Cpu: or(t.cfg.SystemCPU, DefaultSystemCPU), Memory: or(t.cfg.SystemMemory, DefaultSystemMemory)},
-		Interfaces:    []*hangarcompute.NetworkInterface{{Network: name, SecurityGroups: groups}},
-		Volumes:       []*hangarcompute.ContainerVolume{{Type: "volume", Source: name, Target: SystemRoot}},
-		Env:           []*hangarcompute.EnvVar{{Name: "TOWER_REGISTRY", Value: t.cfg.Registry}},
+		Resources: &hangarcompute.Resources{
+			Cpu: or(t.cfg.SystemCPU, DefaultSystemCPU), Memory: or(t.cfg.SystemMemory, DefaultSystemMemory),
+			Disk: systemRoot, DiskGrow: &hangarcompute.DiskGrow{Max: systemRootMax, Threshold: systemGrowThreshold, Step: systemGrowStep},
+		},
+		Interfaces: []*hangarcompute.NetworkInterface{{Network: name, SecurityGroups: groups}},
+		Volumes:    []*hangarcompute.ContainerVolume{{Type: "volume", Source: name, Target: SystemRoot}},
+		Env:        []*hangarcompute.EnvVar{{Name: "TOWER_REGISTRY", Value: t.cfg.Registry}},
 	}
 	if pull != "" {
 		want.ImagePullSecrets = []string{pull}
