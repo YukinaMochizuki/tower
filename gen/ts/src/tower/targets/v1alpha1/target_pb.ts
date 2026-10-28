@@ -265,8 +265,9 @@ export type TargetSettings = Message<"tower.targets.v1alpha1.TargetSettings"> & 
   boxWorkspaceDiskMax: string;
 
   /**
-   * The same for a box's container root disk, at least 2Gi; unset, 10Gi
-   * and 30Gi.
+   * The same for a box's container root disk, at least 2Gi; unset, 2Gi
+   * and 30Gi. hangar starts a root disk at its image's base when that is
+   * larger.
    *
    * @generated from field: string box_root_disk = 8;
    */

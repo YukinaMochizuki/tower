@@ -212,7 +212,11 @@ are workstream's cases.
 - A box on a target that grows disks (hangar's) starts small and grows as
   it fills, its `/workspace` disk and its container's root disk each up
   to a max, as the target's settings say (`TargetSettings`
-  `box_workspace_disk`, `box_root_disk` and their `_max`). A warm golden's
+  `box_workspace_disk`, `box_root_disk` and their `_max`). The root starts
+  at 2Gi by default: hangar starts a growing root disk at its image's base
+  when that is larger (hangar#234), so the default need not fit the
+  largest image, and a hangar from before that refuses it with
+  `DiskTooSmall`. A warm golden's
   builder's first `/workspace` starts as a box's (decided with the human,
   2026-10-28), so the golden, and every box cloned from it, is as large as
   the build needed; a pre-build that outruns the disk's growth is run

@@ -89,7 +89,7 @@ func TestTargetsAreChecked(t *testing.T) {
 			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxWorkspaceDisk: "10Gi", BoxWorkspaceDiskMax: "5Gi"}
 		},
 		"a box disk max under tower's start": func(t *targetsv1alpha1.Target) {
-			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxRootDiskMax: "2Gi"}
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxWorkspaceDiskMax: "1Gi"}
 		},
 	}
 	for what, mutate := range bad {

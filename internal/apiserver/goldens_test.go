@@ -556,7 +556,7 @@ func TestABoxAndItsWarmBuilderGrowOnAHangarTarget(t *testing.T) {
 	w := newWorld(t, worldOption{hangar: true, settings: &targetsv1alpha1.TargetSettings{WarmMaxAge: durationpb.New(time.Hour), BoxRootDiskMax: "40Gi"}})
 	w.fake.CaptureSize(func(provider.Instance) uint64 { return 4 << 30 })
 	first := w.warmGolden()
-	growth := &envv1alpha1.DiskGrowth{WorkspaceMax: "30Gi", Root: "10Gi", RootMax: "40Gi", Threshold: "80%", Step: "2x"}
+	growth := &envv1alpha1.DiskGrowth{WorkspaceMax: "30Gi", Root: "2Gi", RootMax: "40Gi", Threshold: "80%", Step: "2x"}
 	b := w.box("a-0")
 	in, _ := w.instance(b.GetStatus().GetInstance())
 	if s := in.GetSpec(); s.GetResources().GetDisk() != "2Gi" || !proto.Equal(s.GetDiskGrowth(), growth) {

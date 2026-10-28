@@ -235,7 +235,7 @@ but the quota is not). So the Plan is sized from what tower declares:
 
 | What | Disk declared |
 |---|---|
-| a box | 2Gi for `/workspace` and 10Gi for its container root at first, each growing as it fills up to 30Gi; or as the Target's settings say |
+| a box | 2Gi for `/workspace` and 2Gi for its container root at first (the root at its image's size when that is larger), each growing as it fills up to 30Gi; or as the Target's settings say |
 | a warm golden's builder | as a box, but `/workspace` starts a quarter over what the repository's last warm golden held, or as a box's (2Gi) for the first |
 | a VM | 20Gi, or its Image's size if larger |
 | a target's system container | 20Gi, plus a 10Gi root |
@@ -244,7 +244,8 @@ but the quota is not). So the Plan is sized from what tower declares:
 A box's disks grow by themselves (hangar's disk auto-grow): the
 `/workspace` disk from `box_workspace_disk` (or the box's own
 `resources.disk`, or its warm golden's size, if larger) up to
-`box_workspace_disk_max`, the container root from `box_root_disk` up to
+`box_workspace_disk_max`, the container root from `box_root_disk` (or
+its image's size, if larger: hangar starts it there) up to
 `box_root_disk_max`, in the Target's `spec.settings`; once it reaches 80%
 full, a disk doubles. hangar counts a grown disk at its grown size, so
 size the Plan for boxes at their max. A box made before this tower
