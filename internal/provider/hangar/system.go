@@ -48,15 +48,19 @@ const (
 	// cache, tailscaled's state) starts at DefaultSystemDisk and grows as it
 	// fills up to systemDiskMax, its root, which holds little but the image,
 	// from systemRoot up to systemRootMax, as a box's do: hangar starts the
-	// root at its image's size when that is larger.
-	DefaultSystemDisk   = "4Gi"
-	DefaultSystemCPU    = "2"
-	DefaultSystemMemory = "4Gi"
-	systemDiskMax       = "50Gi"
-	systemRoot          = "2Gi"
-	systemRootMax       = "10Gi"
-	systemGrowThreshold = "80%"
-	systemGrowStep      = "2x"
+	// root at its image's size when that is larger. The Disk grows by
+	// systemDiskGrowStep once systemDiskGrowThreshold full, the root, mostly
+	// image, later and by less, as a box's do by default.
+	DefaultSystemDisk       = "4Gi"
+	DefaultSystemCPU        = "2"
+	DefaultSystemMemory     = "4Gi"
+	systemDiskMax           = "50Gi"
+	systemRoot              = "2Gi"
+	systemRootMax           = "10Gi"
+	systemDiskGrowThreshold = "80%"
+	systemDiskGrowStep      = "4Gi"
+	systemRootGrowThreshold = "90%"
+	systemRootGrowStep      = "2Gi"
 	// LabelRole is "system" on the system container's objects, which the
 	// sweep leaves alone.
 	LabelRole = "tower/role"
@@ -171,7 +175,7 @@ func (t *Target) makeSystem(ctx context.Context) (*hangarcompute.Container, erro
 		if _, err := t.api.Disks().Apply(ctx, &hangarstorage.Disk{
 			Metadata: &hangarmeta.ObjectMeta{Name: name, Labels: labels},
 			Spec: &hangarstorage.DiskSpec{Size: size, Grow: &hangarstorage.DiskGrow{
-				Max: atLeast(systemDiskMax, size), Threshold: systemGrowThreshold, Step: systemGrowStep,
+				Max: atLeast(systemDiskMax, size), Threshold: systemDiskGrowThreshold, Step: systemDiskGrowStep,
 			}},
 		}); err != nil {
 			return nil, fmt.Errorf("the system disk: %w", err)
@@ -193,7 +197,7 @@ func (t *Target) makeSystem(ctx context.Context) (*hangarcompute.Container, erro
 		RunState:      hangarcompute.ContainerRunState_CONTAINER_RUN_STATE_RUNNING,
 		Resources: &hangarcompute.Resources{
 			Cpu: or(t.cfg.SystemCPU, DefaultSystemCPU), Memory: or(t.cfg.SystemMemory, DefaultSystemMemory),
-			Disk: systemRoot, DiskGrow: &hangarcompute.DiskGrow{Max: systemRootMax, Threshold: systemGrowThreshold, Step: systemGrowStep},
+			Disk: systemRoot, DiskGrow: &hangarcompute.DiskGrow{Max: systemRootMax, Threshold: systemRootGrowThreshold, Step: systemRootGrowStep},
 		},
 		Interfaces: []*hangarcompute.NetworkInterface{{Network: name, SecurityGroups: groups}},
 		Volumes:    []*hangarcompute.ContainerVolume{{Type: "volume", Source: name, Target: SystemRoot}},

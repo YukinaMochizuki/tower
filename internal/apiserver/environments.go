@@ -146,6 +146,22 @@ func validateTarget(_ context.Context, _ *Server, _ authz.Caller, _, obj proto.M
 			return invalid("spec.settings.%s must be at least %s", name, quantity.FormatDisk(least))
 		}
 	}
+	for _, g := range []struct {
+		name, v string
+		valid   func(string) error
+	}{
+		{"box_workspace_disk_grow_threshold", set.GetBoxWorkspaceDiskGrowThreshold(), validGrowThreshold},
+		{"box_workspace_disk_grow_step", set.GetBoxWorkspaceDiskGrowStep(), validGrowStep},
+		{"box_root_disk_grow_threshold", set.GetBoxRootDiskGrowThreshold(), validGrowThreshold},
+		{"box_root_disk_grow_step", set.GetBoxRootDiskGrowStep(), validGrowStep},
+	} {
+		if g.v == "" {
+			continue
+		}
+		if err := g.valid(g.v); err != nil {
+			return invalid("spec.settings.%s: %v", g.name, err)
+		}
+	}
 	// Each start against its max, with tower's default for the one unset.
 	eff := settingsOf(t)
 	for _, d := range []struct{ name, start, max string }{

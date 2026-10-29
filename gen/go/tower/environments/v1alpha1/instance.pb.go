@@ -362,10 +362,15 @@ type DiskGrowth struct {
 	WorkspaceMax string                 `protobuf:"bytes,1,opt,name=workspace_max,json=workspaceMax,proto3" json:"workspace_max,omitempty"`
 	Root         string                 `protobuf:"bytes,2,opt,name=root,proto3" json:"root,omitempty"`
 	RootMax      string                 `protobuf:"bytes,3,opt,name=root_max,json=rootMax,proto3" json:"root_max,omitempty"`
-	// How full a disk is when it grows, a percentage such as "80%", and how
-	// much it grows by, a factor such as "2x" or a quantity such as "3Gi".
-	Threshold     string `protobuf:"bytes,4,opt,name=threshold,proto3" json:"threshold,omitempty"`
-	Step          string `protobuf:"bytes,5,opt,name=step,proto3" json:"step,omitempty"`
+	// How full the /workspace disk is when it grows, a percentage such as
+	// "80%", and how much it grows by, a factor such as "2x" or a quantity
+	// such as "4Gi", by hangar's rules for a DiskGrow.
+	Threshold string `protobuf:"bytes,4,opt,name=threshold,proto3" json:"threshold,omitempty"`
+	Step      string `protobuf:"bytes,5,opt,name=step,proto3" json:"step,omitempty"`
+	// The same for the root disk; empty, threshold and step, as an instance
+	// written before these were has.
+	RootThreshold string `protobuf:"bytes,6,opt,name=root_threshold,json=rootThreshold,proto3" json:"root_threshold,omitempty"`
+	RootStep      string `protobuf:"bytes,7,opt,name=root_step,json=rootStep,proto3" json:"root_step,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -431,6 +436,20 @@ func (x *DiskGrowth) GetThreshold() string {
 func (x *DiskGrowth) GetStep() string {
 	if x != nil {
 		return x.Step
+	}
+	return ""
+}
+
+func (x *DiskGrowth) GetRootThreshold() string {
+	if x != nil {
+		return x.RootThreshold
+	}
+	return ""
+}
+
+func (x *DiskGrowth) GetRootStep() string {
+	if x != nil {
+		return x.RootStep
 	}
 	return ""
 }
@@ -1264,14 +1283,16 @@ const file_tower_environments_v1alpha1_instance_proto_rawDesc = "" +
 	"diskGrowth\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x92\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd6\x01\n" +
 	"\n" +
 	"DiskGrowth\x12#\n" +
 	"\rworkspace_max\x18\x01 \x01(\tR\fworkspaceMax\x12\x12\n" +
 	"\x04root\x18\x02 \x01(\tR\x04root\x12\x19\n" +
 	"\broot_max\x18\x03 \x01(\tR\arootMax\x12\x1c\n" +
 	"\tthreshold\x18\x04 \x01(\tR\tthreshold\x12\x12\n" +
-	"\x04step\x18\x05 \x01(\tR\x04step\"\xa1\x03\n" +
+	"\x04step\x18\x05 \x01(\tR\x04step\x12%\n" +
+	"\x0eroot_threshold\x18\x06 \x01(\tR\rrootThreshold\x12\x1b\n" +
+	"\troot_step\x18\a \x01(\tR\brootStep\"\xa1\x03\n" +
 	"\x0eInstanceStatus\x12/\n" +
 	"\x13observed_generation\x18\x01 \x01(\x03R\x12observedGeneration\x128\n" +
 	"\n" +

@@ -117,6 +117,16 @@ message TargetSettings {
   // warm_max_commits_behind alone; unset, at any time. A repository with
   // no warm golden gets one at any time.
   TimeWindow warm_off_peak = 11;
+  // How full a box's /workspace disk is when it grows, a whole percentage
+  // from 50% to 95%, and how much it grows by, a factor over 1x and at
+  // most 16x such as "2x", or a quantity of at least 1Gi such as "4Gi";
+  // unset, 80% and 4Gi. A warm golden's builder grows the same way.
+  string box_workspace_disk_grow_threshold = 12;
+  string box_workspace_disk_grow_step = 13;
+  // The same for a box's container root disk; unset, 90% and 2Gi. The
+  // root holds mostly the image, so it grows later and by less.
+  string box_root_disk_grow_threshold = 14;
+  string box_root_disk_grow_step = 15;
 }
 
 // TimeWindow is a daily window of wall-clock time.

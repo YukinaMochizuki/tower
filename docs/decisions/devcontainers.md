@@ -113,8 +113,8 @@ target (`repositories.md`), and builds on the target (`images.md`).
   target setting). One whose output says `no space left on device` runs
   again after 45 seconds, three of hangar's looks at a disk that grows by
   itself, as long as `/workspace` grew in the meantime (`df` in the
-  builder), and at most as many times as the disk takes to double from
-  its start to its max, plus one. A step that fails does not fail the golden,
+  builder), and at most as many times as the disk takes to grow, by its
+  step, from its start to its max, plus one. A step that fails does not fail the golden,
   which is captured with what did install: its `PreBuilt` condition says
   which step failed and how. Its inputs (`BoxWarmInputs`) are the
   repository's mise files and lockfiles by their git objects and a hash of
@@ -212,7 +212,14 @@ are workstream's cases.
 - A box on a target that grows disks (hangar's) starts small and grows as
   it fills, its `/workspace` disk and its container's root disk each up
   to a max, as the target's settings say (`TargetSettings`
-  `box_workspace_disk`, `box_root_disk` and their `_max`). The root starts
+  `box_workspace_disk`, `box_root_disk` and their `_max`). Each grows by
+  a fixed step, not a factor (decided with the human, 2026-10-29):
+  `/workspace` by 4Gi once 80% full, the root by 2Gi once 90% full, as
+  `box_workspace_disk_grow_threshold` / `_step` and
+  `box_root_disk_grow_threshold` / `_step` may say otherwise. The root
+  holds mostly the image from the start, so doubling it at 80% doubled
+  each box's root in the quota after a few writes; and `/workspace`
+  doubling 2, 4, 8Gi left boxes using 3.6 to 5.6G of 8Gi. The root starts
   at 2Gi by default: hangar starts a growing root disk at its image's base
   when that is larger (hangar#234), so the default need not fit the
   largest image, and a hangar from before that refuses it with

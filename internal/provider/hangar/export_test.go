@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/guest/guestbin"
 	"github.com/YukinaMochizuki/tower/internal/guest/guestops"
 	"github.com/YukinaMochizuki/tower/internal/provider"
@@ -37,6 +38,14 @@ func (f *Front) SetDial(dial func(ctx context.Context, network, addr string) (ne
 
 // ProviderError is what an error of hangar's is to tower.
 func ProviderError(err error) error { return providerError(err) }
+
+// Converge converges in once, as a reconcile of it does.
+func (t *Target) Converge(ctx context.Context, in *envv1alpha1.Instance) error {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	_, err := t.converge(ctx, in)
+	return err
+}
 
 // VMConnections is how many live connections the provider holds to its
 // VMs.

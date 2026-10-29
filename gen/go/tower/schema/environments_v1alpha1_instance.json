@@ -10,11 +10,18 @@
         "rootMax": {
           "type": "string"
         },
+        "rootStep": {
+          "type": "string"
+        },
+        "rootThreshold": {
+          "description": "The same for the root disk; empty, threshold and step, as an instance written before these were has.",
+          "type": "string"
+        },
         "step": {
           "type": "string"
         },
         "threshold": {
-          "description": "How full a disk is when it grows, a percentage such as \"80%\", and how much it grows by, a factor such as \"2x\" or a quantity such as \"3Gi\".",
+          "description": "How full the /workspace disk is when it grows, a percentage such as \"80%\", and how much it grows by, a factor such as \"2x\" or a quantity such as \"4Gi\", by hangar's rules for a DiskGrow.",
           "type": "string"
         },
         "workspaceMax": {

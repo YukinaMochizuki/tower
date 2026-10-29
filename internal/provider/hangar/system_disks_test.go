@@ -31,7 +31,7 @@ func TestTheSystemContainersDisksStartSmallAndGrow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantDisk := &hangarstorage.DiskSpec{Size: hangar.DefaultSystemDisk, Grow: &hangarstorage.DiskGrow{Max: "50Gi", Threshold: "80%", Step: "2x"}}
+	wantDisk := &hangarstorage.DiskSpec{Size: hangar.DefaultSystemDisk, Grow: &hangarstorage.DiskGrow{Max: "50Gi", Threshold: "80%", Step: "4Gi"}}
 	if !proto.Equal(d.GetSpec(), wantDisk) {
 		t.Errorf("the system disk: %v, want %v", d.GetSpec(), wantDisk)
 	}
@@ -40,7 +40,7 @@ func TestTheSystemContainersDisksStartSmallAndGrow(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := ct.GetSpec().GetResources()
-	wantGrow := &hangarcompute.DiskGrow{Max: "10Gi", Threshold: "80%", Step: "2x"}
+	wantGrow := &hangarcompute.DiskGrow{Max: "10Gi", Threshold: "90%", Step: "2Gi"}
 	if r.GetDisk() != "2Gi" || !proto.Equal(r.GetDiskGrow(), wantGrow) {
 		t.Errorf("the system container's root: disk %q, grow %v; want 2Gi, %v", r.GetDisk(), r.GetDiskGrow(), wantGrow)
 	}
@@ -69,7 +69,7 @@ func TestASystemContainerMadeBeforeKeepsItsRoot(t *testing.T) {
 		wantGrow *hangarcompute.DiskGrow
 	}{
 		"no root size":  {had: &hangarcompute.Resources{Cpu: "2", Memory: "4Gi"}},
-		"a larger root": {had: &hangarcompute.Resources{Cpu: "2", Memory: "4Gi", Disk: "16Gi", DiskGrow: &hangarcompute.DiskGrow{Max: "10Gi", Threshold: "80%", Step: "2x"}}, wantDisk: "16Gi", wantGrow: &hangarcompute.DiskGrow{Max: "16Gi", Threshold: "80%", Step: "2x"}},
+		"a larger root": {had: &hangarcompute.Resources{Cpu: "2", Memory: "4Gi", Disk: "16Gi", DiskGrow: &hangarcompute.DiskGrow{Max: "10Gi", Threshold: "80%", Step: "2x"}}, wantDisk: "16Gi", wantGrow: &hangarcompute.DiskGrow{Max: "16Gi", Threshold: "90%", Step: "2Gi"}},
 	} {
 		t.Run(what, func(t *testing.T) {
 			f := fake.New(towerGuest, t.TempDir(), clockwork.NewRealClock())
