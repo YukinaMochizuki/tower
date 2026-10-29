@@ -53,12 +53,43 @@ func TestNormalizeCommand(t *testing.T) {
 		{"grep alone stays", "grep -r foo .", "grep -r foo ."},
 		{"tailing is no tail", "make all | tailing", "make all | tailing"},
 		{"empty", "  ", ""},
+		// A filter is stripped only where it ends a line that is one
+		// pipeline: a list, a background job, a substitution or a
+		// subshell anywhere keeps the line as it is.
+		{"&& after a tail", "go test ./... | tail -5 && make lint", "go test ./... | tail -5 && make lint"},
+		{"; after a grep", "make e2e 2>&1 | grep FAIL; make deploy", "make e2e 2>&1 | grep FAIL; make deploy"},
+		{"|| after a head", "a | head -1 || exit 1", "a | head -1 || exit 1"},
+		{"a tail in the background", "a | tail -5 &", "a | tail -5 &"},
+		{"a background job before", "server & go test ./... | tail -5", "server & go test ./... | tail -5"},
+		{"a filter in a substitution", "echo $(go test ./... | tail -1)", "echo $(go test ./... | tail -1)"},
+		{"a substitution in double quotes", `echo "$(go test ./... | tail -1)"`, `echo "$(go test ./... | tail -1)"`},
+		{"a backtick", "echo `go test ./... | tail -1`", "echo `go test ./... | tail -1`"},
+		{"a subshell", "(cd sub && go test ./...) | tail -5", "(cd sub && go test ./...) | tail -5"},
+		{"a group", "{ make a; make b; } 2>&1 | tail", "{ make a; make b; } 2>&1 | tail"},
+		{"a list after cd /workspace", "cd /workspace && make a && make b | tail", "make a && make b | tail"},
+		{"cd elsewhere is a list", "cd sub && go test ./... | tail", "cd sub && go test ./... | tail"},
+		{"&> is a redirection", "make e2e &> out.log | tail", "make e2e &> out.log"},
+		{">&2 is a redirection", "echo x >&2 | tail", "echo x >&2"},
+		{"; in single quotes", "go test -run 'A;B' ./... | tail", "go test -run 'A;B' ./..."},
+		{"$( in single quotes", "echo '$(x)' | tail", "echo '$(x)'"},
+		{"&& in double quotes", `echo "a && b" | tail`, `echo "a && b"`},
+		{"an escaped ;", `echo a\; | tail`, `echo a\;`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := normalizeCommand(tc.in); got != tc.want {
 				t.Errorf("normalizeCommand(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestExactKey(t *testing.T) {
+	a, b := exactKey("cd /workspace && go test ./... 2>&1 | tail -5"), exactKey("go  test ./...")
+	if a != b || len(a) != 64 {
+		t.Errorf("exactKey = %q and %q, want one sha256", a, b)
+	}
+	if exactKey("go test ./... | tail -5 && make lint") == b {
+		t.Error("a compound line has the key of its first command")
 	}
 }
 
@@ -77,9 +108,21 @@ func TestCoarseCommand(t *testing.T) {
 		{"pytest tests/test_x.py", "pytest"},
 		{"./scripts/test.sh all", "./scripts/test.sh all"},
 		{"CGO_ENABLED=0 GOOS=linux go build ./cmd/x", "go build"},
+		{"cd /workspace && go test ./... 2>&1 | tail", "go test"},
 		{"cd sub && make e2e", "make e2e"},
 		{"go test ./... | grep FAIL | wc -l", "go test"},
 		{"cargo nextest:run", "cargo nextest:run"},
+		{"env FOO=1 go test ./...", "go test"},
+		{"env -u HOME -i PATH=/bin make check", "make check"},
+		{"time go test ./...", "go test"},
+		{"time -p make e2e", "make e2e"},
+		{"timeout 10m go test ./...", "go test"},
+		{"timeout -s KILL -k 5s 600 make e2e", "make e2e"},
+		{"sudo -u dev make install", "make install"},
+		{"sudo -- make install", "make install"},
+		{"nice -n 10 make -j8", "make"},
+		{"GOFLAGS=-count=1 timeout 1h nice go test ./...", "go test"},
+		{"time", ""},
 		{"FOO=1", ""},
 		{"", ""},
 	} {

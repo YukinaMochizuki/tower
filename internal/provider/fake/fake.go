@@ -204,8 +204,10 @@ type Exec struct {
 	Env      map[string]string
 	ExitCode int
 	// Process says it was started as a process (StartProcess), whose
-	// exit ListProcesses tells.
-	Process bool
+	// exit ListProcesses tells, and MemoryMax what it was asked to be held
+	// to.
+	Process   bool
+	MemoryMax int64
 }
 
 // New returns a fake provider of target, on clock.

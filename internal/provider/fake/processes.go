@@ -118,7 +118,7 @@ func (f *Fake) StartProcess(_ context.Context, req provider.ProcessRequest) (str
 	}
 	local.processes = append(local.processes, p)
 	f.pruneProcesses(local)
-	f.execs = append(f.execs, Exec{Instance: req.Instance, Command: slices.Clone(req.Command), Env: maps.Clone(req.Env), ExitCode: -1, Process: true})
+	f.execs = append(f.execs, Exec{Instance: req.Instance, Command: slices.Clone(req.Command), Env: maps.Clone(req.Env), ExitCode: -1, Process: true, MemoryMax: req.MemoryMax})
 	cmd := command{files: maps.Clone(local.files), failing: slices.Clone(f.failCommands), onExec: f.onExec}
 	f.mu.Unlock()
 	f.enqueue(req.Instance)

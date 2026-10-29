@@ -742,7 +742,12 @@ export const ProcessEndSchema: GenMessage<ProcessEnd> = /*@__PURE__*/
   messageDesc(file_tower_environments_v1alpha1_environment_service, 23);
 
 /**
- * ProcessExit is how a process ended.
+ * ProcessExit is how a process ended, and what it used, its children
+ * included. The usage fields are set for a process of a box on a hangar
+ * target, where each process runs in a cgroup of its own; they are unset
+ * in a machine, on a hostd target, for a process whose box could make no
+ * cgroup, and for one whose box stopped under it. Each is also unset
+ * where the box's kernel does not offer it.
  *
  * @generated from message tower.environments.v1alpha1.ProcessExit
  */
@@ -762,12 +767,6 @@ export type ProcessExit = Message<"tower.environments.v1alpha1.ProcessExit"> & {
   signal: Signal;
 
   /**
-   * What it used, its children included, from a cgroup of its own. Set for
-   * a process of a box on a hangar target; unset elsewhere (a machine, a
-   * hostd target), for a process whose box could make no cgroup, and for
-   * one whose guest stopped under it. Each is also unset where the box's
-   * kernel does not offer it.
-   *
    * Its peak memory, in bytes (memory.peak).
    *
    * @generated from field: optional int64 memory_peak_bytes = 3;
@@ -775,9 +774,10 @@ export type ProcessExit = Message<"tower.environments.v1alpha1.ProcessExit"> & {
   memoryPeakBytes?: bigint | undefined;
 
   /**
-   * Whether it ran out of memory and was killed for it, its children with
-   * it, while the box's other processes ran on. It is held to the box's
-   * memory less a reserve tower keeps for the rest of the box.
+   * Whether an OOM killed it, its children with it. A box's measured
+   * processes together are held to the box's memory less a reserve tower
+   * keeps; past it, one of them is killed whole, while the box's own
+   * processes run on.
    *
    * @generated from field: optional bool oom_killed = 4;
    */

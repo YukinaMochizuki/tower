@@ -3,6 +3,7 @@ package apiserver
 import (
 	"context"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -12,6 +13,9 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
+	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 )
 
@@ -27,6 +31,38 @@ var (
 		provider.Stdout: envv1alpha1.OutputStream_OUTPUT_STREAM_STDOUT, provider.Stderr: envv1alpha1.OutputStream_OUTPUT_STREAM_STDERR,
 	}
 )
+
+// processMemoryReserve is the memory of a box its measured processes
+// leave to the rest of it, all together. Idle boxes measured 230-660M on
+// hangar in 2026-10, services included; this is above that.
+const processMemoryReserve = 768 << 20
+
+// processMemoryMax is the memory a box of memory bytes holds its measured
+// processes to, all together: all but processMemoryReserve, and at least
+// half, so a small box's processes are not starved by the reserve.
+func processMemoryMax(memory int64) int64 {
+	return max(memory-processMemoryReserve, memory/2)
+}
+
+// instanceResources is the size of e's instance as its spec has it, or,
+// if it cannot be read, as its box asks.
+func (s *Server) instanceResources(ctx context.Context, e *environment) *envv1alpha1.Resources {
+	in, ok, err := getTyped[*envv1alpha1.Instance](ctx, s, registry.Instance, resource.Key{Project: e.ref.Project, Name: e.ref.Name})
+	if err != nil || !ok {
+		return e.box.GetSpec().GetResources()
+	}
+	return in.GetSpec().GetResources()
+}
+
+// processMemoryMaxOf is the memory e's measured processes are held to; 0,
+// no bound, when its instance's memory is not known.
+func (s *Server) processMemoryMaxOf(ctx context.Context, e *environment) int64 {
+	memory, err := quantity.Bytes(s.instanceResources(ctx, e).GetMemory())
+	if err != nil || memory == 0 || memory > math.MaxInt64 {
+		return 0
+	}
+	return processMemoryMax(int64(memory))
+}
 
 func processExit(e *provider.ProcessExit) *envv1alpha1.ProcessExit {
 	if e == nil {
@@ -69,6 +105,7 @@ func (h environmentService) StartProcess(ctx context.Context, req *connect.Reque
 	defer e.release()
 	id, err := e.p.StartProcess(ctx, provider.ProcessRequest{
 		Instance: e.ref, Command: e.asRunAs(command, m.GetDir()), Env: e.commandEnv(m.GetEnv()), Dir: m.GetDir(), Name: m.GetName(),
+		MemoryMax: h.s.processMemoryMaxOf(ctx, e),
 	})
 	// Never the command's arguments or its environment's values: either may
 	// hold a secret.

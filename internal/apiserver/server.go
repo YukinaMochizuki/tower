@@ -162,6 +162,9 @@ type Server struct {
 	// uses are boxes' uses through Touch, not yet written to them, and the
 	// calls into them under way.
 	uses lastUses
+	// commandUsesPruned is when command uses were last pruned, in Unix
+	// nanoseconds on s.clock.
+	commandUsesPruned atomic.Int64
 	// fetches number the repositories' mirror fetches.
 	fetches fetchSeq
 	// warmInputs are the pre-build inputs of each mirror's last head read,

@@ -1711,24 +1711,24 @@ func (x *ProcessEnd) GetExit() *ProcessExit {
 	return nil
 }
 
-// ProcessExit is how a process ended.
+// ProcessExit is how a process ended, and what it used, its children
+// included. The usage fields are set for a process of a box on a hangar
+// target, where each process runs in a cgroup of its own; they are unset
+// in a machine, on a hostd target, for a process whose box could make no
+// cgroup, and for one whose box stopped under it. Each is also unset
+// where the box's kernel does not offer it.
 type ProcessExit struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Its exit code; 128 plus the signal's number when a signal ended it.
 	Code int32 `protobuf:"varint,1,opt,name=code,proto3" json:"code,omitempty"`
 	// The signal that ended it, unset if it exited.
 	Signal Signal `protobuf:"varint,2,opt,name=signal,proto3,enum=tower.environments.v1alpha1.Signal" json:"signal,omitempty"`
-	// What it used, its children included, from a cgroup of its own. Set for
-	// a process of a box on a hangar target; unset elsewhere (a machine, a
-	// hostd target), for a process whose box could make no cgroup, and for
-	// one whose guest stopped under it. Each is also unset where the box's
-	// kernel does not offer it.
-	//
 	// Its peak memory, in bytes (memory.peak).
 	MemoryPeakBytes *int64 `protobuf:"varint,3,opt,name=memory_peak_bytes,json=memoryPeakBytes,proto3,oneof" json:"memory_peak_bytes,omitempty"`
-	// Whether it ran out of memory and was killed for it, its children with
-	// it, while the box's other processes ran on. It is held to the box's
-	// memory less a reserve tower keeps for the rest of the box.
+	// Whether an OOM killed it, its children with it. A box's measured
+	// processes together are held to the box's memory less a reserve tower
+	// keeps; past it, one of them is killed whole, while the box's own
+	// processes run on.
 	OomKilled *bool `protobuf:"varint,4,opt,name=oom_killed,json=oomKilled,proto3,oneof" json:"oom_killed,omitempty"`
 	// The CPU time it used (cpu.stat's usage_usec).
 	CpuUsage *durationpb.Duration `protobuf:"bytes,5,opt,name=cpu_usage,json=cpuUsage,proto3" json:"cpu_usage,omitempty"`

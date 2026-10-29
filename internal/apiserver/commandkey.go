@@ -1,6 +1,8 @@
 package apiserver
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
 	"slices"
 	"strings"
@@ -27,15 +29,16 @@ const workspacePrefix = "cd /workspace && "
 // be stripped: they shorten what a command prints, never what it does.
 var outputFilters = []string{"tail", "head", "grep"}
 
-// normalizeCommand is the exact key of a command's usage records: its text
-// with whitespace collapsed, a leading "cd /workspace &&" and trailing
-// output filters ("2>&1", "| tail ...", "| head ...", "| grep ...")
-// stripped, so a run of `go test ./... 2>&1 | tail -50` counts as one of
-// `go test ./...`. Anything else, quoting included, stays as it is.
+// normalizeCommand is a command as its exact key hashes it: whitespace
+// collapsed, a leading "cd /workspace &&" and, on a line of one pipeline,
+// trailing output filters stripped (docs/decisions/process-usage.md).
 func normalizeCommand(text string) string {
 	s := strings.Join(strings.Fields(text), " ")
 	if rest, ok := strings.CutPrefix(s, workspacePrefix); ok && rest != "" {
 		s = rest
+	}
+	if compound(s) {
+		return s
 	}
 	for {
 		before := s
@@ -53,6 +56,53 @@ func normalizeCommand(text string) string {
 			return s
 		}
 	}
+}
+
+// exactKey is the exact key of a command's usage records: the sha256 of
+// it normalized, so no record holds its text.
+func exactKey(text string) string {
+	sum := sha256.Sum256([]byte(normalizeCommand(text)))
+	return hex.EncodeToString(sum[:])
+}
+
+// compound reports whether s holds a list (";", "&&", "||"), a background
+// "&", a substitution ("$(", a backtick) or a parenthesis outside single
+// quotes: more than one pipeline, whose filters may matter.
+func compound(s string) bool {
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote == '\'':
+			if c == '\'' {
+				quote = 0
+			}
+		case c == '\\':
+			i++
+		case c == '`' || (c == '$' && i+1 < len(s) && s[i+1] == '('):
+			return true
+		case quote == '"':
+			if c == '"' {
+				quote = 0
+			}
+		case c == '\'' || c == '"':
+			quote = c
+		case c == ';' || c == '(' || c == ')':
+			return true
+		case c == '|' && i+1 < len(s) && s[i+1] == '|':
+			return true
+		case c == '&':
+			// A redirection's ("2>&1", ">&2", "&>f") or "|&" is no list.
+			prev := byte(0)
+			if i > 0 {
+				prev = s[i-1]
+			}
+			if prev != '>' && prev != '<' && prev != '|' && (i+1 >= len(s) || s[i+1] != '>') {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // lastPipe is the index of s's last pipe ("|", or the "|" of "|&") outside
@@ -94,22 +144,48 @@ var (
 	subcommand = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.:-]*$`)
 )
 
-// coarseCommand is the coarse key of a normalized command: its program and
-// first subcommand, such as "go test", "make e2e" or "bun test", or the
-// program alone when the next word is no subcommand ("python3 -c ..." is
-// "python3"). Variables set before the program, and a leading
-// "cd DIR &&", are skipped. Empty for a command of none of that.
-//
-// It is advisory: what it groups shares a program, not a cost ("go test
-// ./x" and "go test ./..." are one key), so it may hint at a run's size,
-// never decide where a run goes. docs/decisions/process-usage.md.
-func coarseCommand(normalized string) string {
-	words := strings.Fields(normalized)
+// wrappers are the programs that run the command after them, skipped to
+// find the program, each with its options that take an argument.
+var wrappers = map[string][]string{
+	"env":     {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"},
+	"time":    {"-f", "--format", "-o", "--output"},
+	"timeout": {"-s", "--signal", "-k", "--kill-after"},
+	"sudo":    {"-u", "--user", "-g", "--group", "-C", "-D", "-h", "-p", "-r", "-t", "-U"},
+	"nice":    {"-n", "--adjustment"},
+}
+
+// coarseCommand is the coarse key of a command's usage records, the only
+// command text a record holds: its program and first subcommand ("go
+// test"), past variables, wrappers and a leading "cd DIR &&". Advisory.
+func coarseCommand(text string) string {
+	words := strings.Fields(normalizeCommand(text))
 	if len(words) >= 3 && words[0] == "cd" && words[2] == "&&" {
 		words = words[3:]
 	}
-	for len(words) > 0 && envAssignment.MatchString(words[0]) {
+	for len(words) > 0 {
+		w := words[0]
+		withArg, wrapper := wrappers[w]
+		if !wrapper {
+			if !envAssignment.MatchString(w) {
+				break
+			}
+			words = words[1:]
+			continue
+		}
 		words = words[1:]
+		for len(words) > 0 && strings.HasPrefix(words[0], "-") {
+			opt := words[0]
+			words = words[1:]
+			if opt == "--" {
+				break
+			}
+			if slices.Contains(withArg, opt) && len(words) > 0 {
+				words = words[1:]
+			}
+		}
+		if w == "timeout" && len(words) > 0 {
+			words = words[1:] // its duration
+		}
 	}
 	if len(words) == 0 {
 		return ""

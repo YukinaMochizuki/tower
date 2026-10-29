@@ -1,6 +1,7 @@
 package apiserver
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,17 +21,8 @@ import (
 )
 
 // commandUseKind holds what the last runs of a command used, per project,
-// repository (its box's first checkout's), working directory and command:
-// under its exact key (normalizeCommand) and its coarse one
-// (coarseCommand), which is advisory, for hints alone, never to route a
-// run by (docs/decisions/process-usage.md). It is not an API kind; nothing
-// serves or watches it.
-//
-// It holds a command line as the caller gave it, as the guest's process
-// list does and ListProcesses shows, and never a command's environment,
-// where a privileged box's secrets go (docs/decisions/secrets.md). A
-// secret written into the command line itself is in both already; this
-// record reaches no client.
+// repository, directory and command key, never the command's text or
+// environment (docs/decisions/process-usage.md). Not an API kind.
 const commandUseKind = "CommandUse"
 
 // processesRecordedKind holds, per box, the processes whose exits its
@@ -43,9 +35,16 @@ const (
 	// commandUsesKeptFor is how long a command use outlives its last run,
 	// as a box's use record does its last use.
 	commandUsesKeptFor = useRecordsKeptFor
-	// maxRecordedCommand bounds the command line a record keeps; its key
-	// is made of the whole of it.
-	maxRecordedCommand = 4 << 10
+	// commandUsesPruneEvery is how often command uses are pruned: each
+	// prune reads them all.
+	commandUsesPruneEvery = time.Hour
+	// maxCommandUses bounds a project's command uses, the least recently
+	// run going first: about 4KiB each, 4MiB a project, far above the
+	// distinct commands a project's boxes run in commandUsesKeptFor.
+	maxCommandUses = 1000
+	// recordTimeout bounds recording the exits a call read, which goes on
+	// once the call ends: a run claimed and not recorded is lost.
+	recordTimeout = 30 * time.Second
 )
 
 // The keys a command use is kept under.
@@ -58,27 +57,26 @@ const (
 type commandUse struct {
 	Repository string `json:"repository"`
 	// Dir is the working directory relative to /workspace: "." for
-	// /workspace itself, absolute for one outside it, empty for the
-	// box's default.
+	// /workspace itself, absolute for one outside it.
 	Dir string `json:"dir"`
-	// Key is commandKeyExact or commandKeyCoarse, and Command the
-	// normalized command or its coarse key.
-	Key     string       `json:"key"`
-	Command string       `json:"command"`
-	LastRun time.Time    `json:"lastRun"`
-	Runs    []commandRun `json:"runs"`
+	// Key is commandKeyExact, with CommandSHA256 the exact key, or
+	// commandKeyCoarse, with Coarse the coarse key.
+	Key           string `json:"key"`
+	CommandSHA256 string `json:"commandSha256,omitempty"`
+	Coarse        string `json:"coarse,omitempty"`
+	// LastRecorded is when its last run was recorded, on tower's clock.
+	LastRecorded time.Time    `json:"lastRecorded"`
+	Runs         []commandRun `json:"runs"`
 }
 
 // commandRun is one run of a command and what it used.
 type commandRun struct {
-	// At is when it ended.
-	At      time.Time `json:"at"`
-	Box     string    `json:"box"`
-	Process string    `json:"process"`
-	// Command is the normalized command, in a coarse record.
-	Command  string `json:"command,omitempty"`
-	ExitCode int    `json:"exitCode"`
-	Signal   int    `json:"signal,omitempty"`
+	// At is when it was recorded, on tower's clock.
+	At       time.Time `json:"at"`
+	Box      string    `json:"box"`
+	Process  string    `json:"process"`
+	ExitCode int       `json:"exitCode"`
+	Signal   int       `json:"signal,omitempty"`
 	// MemoryPeak to Wall are as ProcessExit says them; nil where the box's
 	// kernel did not offer one.
 	MemoryPeak *int64         `json:"memoryPeak,omitempty"`
@@ -106,7 +104,7 @@ type processesRecorded struct {
 }
 
 // commandUseKey is the key of the record of a command, a hash of what
-// keys it: commands can be long, and hold any byte.
+// keys it.
 func commandUseKey(project, repository, dir, key, command string) store.Key {
 	h := sha256.New()
 	for _, part := range []string{repository, dir, key, command} {
@@ -128,40 +126,6 @@ func workspaceRelative(dir string) string {
 		return rel[1:]
 	}
 	return clean
-}
-
-// changeRecord changes the record of key, made from its zero value if
-// there is none; change reports whether to write it.
-func changeRecord[T any](ctx context.Context, s *Server, key store.Key, change func(*T) bool) error {
-	for range maxRetries {
-		var r T
-		o, err := s.store.Get(ctx, key)
-		found := err == nil
-		switch {
-		case found:
-			if err := json.Unmarshal(o.Data, &r); err != nil {
-				return err
-			}
-		case !errors.Is(err, store.ErrNotFound):
-			return err
-		}
-		if !change(&r) {
-			return nil
-		}
-		data, err := json.Marshal(r)
-		if err != nil {
-			return err
-		}
-		if found {
-			_, err = s.store.Update(ctx, key, data, o.Revision)
-		} else {
-			_, err = s.store.Create(ctx, key, data)
-		}
-		if !errors.Is(err, store.ErrConflict) && !errors.Is(err, store.ErrExists) {
-			return err
-		}
-	}
-	return fmt.Errorf("too many writers of %s %s/%s", key.Kind, key.Project, key.Name)
 }
 
 // exitRead records the usage of a box's process whose exit an attach
@@ -189,17 +153,14 @@ func (s *Server) exitRead(ctx context.Context, e *environment, id string, exit *
 }
 
 // exitsListed records the usage of a box's finished processes not counted
-// yet. Each is claimed first, so one read by two calls at once is counted
-// by one; a claimed one whose record fails to be written is not counted.
-// A failure is logged, never the call's.
+// yet, apart from ctx's end. Each is claimed first, so one read by two
+// calls at once is counted once. A failure is logged, never the call's.
 func (s *Server) exitsListed(ctx context.Context, e *environment, ps []provider.Process) {
-	if e.box == nil {
+	if e.box == nil || !slices.ContainsFunc(ps, func(p provider.Process) bool { return p.Exit != nil && p.Exit.Usage != nil }) {
 		return
 	}
-	measured := slices.ContainsFunc(ps, func(p provider.Process) bool { return p.Exit != nil && p.Exit.Usage != nil })
-	if !measured {
-		return
-	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
+	defer cancel()
 	var claimed []provider.Process
 	key := store.Key{Kind: processesRecordedKind, Project: e.key.Project, Name: e.key.Name}
 	err := changeRecord(ctx, s, key, func(r *processesRecorded) bool {
@@ -228,24 +189,13 @@ func (s *Server) exitsListed(ctx context.Context, e *environment, ps []provider.
 	if len(claimed) == 0 {
 		return
 	}
-	at := s.ranOn(ctx, e)
+	res := s.instanceResources(ctx, e)
+	at := ranOn{Kind: "box", CPU: res.GetCpu(), Memory: res.GetMemory()}
 	for _, p := range claimed {
 		if err := s.recordRun(ctx, e, p, at); err != nil {
 			s.log.Error("recording a process's usage failed", "environment", e.String(), "process", p.ID, "error", err)
 		}
 	}
-}
-
-// ranOn is the instance e's processes run on, as its spec has it now.
-func (s *Server) ranOn(ctx context.Context, e *environment) ranOn {
-	r := ranOn{Kind: "box"}
-	res := e.box.GetSpec().GetResources()
-	in, ok, err := getTyped[*envv1alpha1.Instance](ctx, s, registry.Instance, resource.Key{Project: e.ref.Project, Name: e.ref.Name})
-	if err == nil && ok {
-		res = in.GetSpec().GetResources()
-	}
-	r.CPU, r.Memory = res.GetCpu(), res.GetMemory()
-	return r
 }
 
 // recordRun adds a process's run to its command's records under both
@@ -256,61 +206,70 @@ func (s *Server) recordRun(ctx context.Context, e *environment, p provider.Proce
 		repository = cs[0].GetRepository()
 	}
 	dir := workspaceRelative(p.Dir)
-	exact := normalizeCommand(commandText(e.givenCommand(p.Command)))
-	u := p.Exit.Usage
+	text := commandText(e.givenCommand(p.Command))
+	u, now := p.Exit.Usage, s.clock.Now()
 	run := commandRun{
-		At: p.Started.Add(u.Wall), Box: e.key.Name, Process: p.ID, ExitCode: p.Exit.Code, Signal: int(p.Exit.Signal),
+		At: now, Box: e.key.Name, Process: p.ID, ExitCode: p.Exit.Code, Signal: int(p.Exit.Signal),
 		MemoryPeak: u.MemoryPeak, OOMKilled: u.OOMKilled, CPUUsage: u.CPUUsage, CPUWait: u.CPUWait, Wall: u.Wall, RanOn: at,
 	}
-	coarseRun := run
-	coarseRun.Command = bounded(exact)
 	var errs []error
-	for _, k := range []struct {
-		key, command string
-		run          commandRun
-	}{{commandKeyExact, exact, run}, {commandKeyCoarse, coarseCommand(exact), coarseRun}} {
-		if k.command == "" {
+	for _, r := range []commandUse{
+		{Repository: repository, Dir: dir, Key: commandKeyExact, CommandSHA256: exactKey(text)},
+		{Repository: repository, Dir: dir, Key: commandKeyCoarse, Coarse: coarseCommand(text)},
+	} {
+		if r.CommandSHA256 == "" && r.Coarse == "" {
 			continue
 		}
-		rk := commandUseKey(e.key.Project, repository, dir, k.key, k.command)
-		errs = append(errs, changeRecord(ctx, s, rk, func(r *commandUse) bool {
-			if slices.ContainsFunc(r.Runs, func(old commandRun) bool { return old.Box == run.Box && old.Process == run.Process }) {
+		rk := commandUseKey(e.key.Project, repository, dir, r.Key, r.CommandSHA256+r.Coarse)
+		errs = append(errs, changeRecord(ctx, s, rk, func(old *commandUse) bool {
+			if slices.ContainsFunc(old.Runs, func(o commandRun) bool { return o.Box == run.Box && o.Process == run.Process }) {
 				return false
 			}
-			r.Repository, r.Dir, r.Key, r.Command = repository, dir, k.key, bounded(k.command)
-			r.Runs = append(r.Runs, k.run)
-			slices.SortStableFunc(r.Runs, func(a, b commandRun) int { return a.At.Compare(b.At) })
-			if len(r.Runs) > commandRunsKept {
-				r.Runs = r.Runs[len(r.Runs)-commandRunsKept:]
+			runs := append(old.Runs, run)
+			if len(runs) > commandRunsKept {
+				runs = runs[len(runs)-commandRunsKept:]
 			}
-			r.LastRun = maxTime(r.LastRun, run.At)
+			*old = r
+			old.Runs, old.LastRecorded = runs, now
 			return true
 		}))
 	}
 	return errors.Join(errs...)
 }
 
-// bounded is a command line as a record keeps it.
-func bounded(command string) string {
-	if len(command) > maxRecordedCommand {
-		return command[:maxRecordedCommand] + "..."
-	}
-	return command
-}
-
-// pruneCommandUses deletes the command uses not run for
-// commandUsesKeptFor, and the counted processes of boxes gone.
+// pruneCommandUses, at most every commandUsesPruneEvery, deletes the
+// command uses not run for commandUsesKeptFor, those of a project past
+// maxCommandUses, and the counted processes of boxes gone.
 func (s *Server) pruneCommandUses(ctx context.Context) error {
+	now := s.clock.Now()
+	if last := s.commandUsesPruned.Load(); last != 0 && now.Sub(time.Unix(0, last)) < commandUsesPruneEvery {
+		return nil
+	}
 	objs, _, err := s.store.List(ctx, store.ListOptions{Kind: commandUseKind})
 	if err != nil {
 		return err
 	}
+	type use struct {
+		o    store.Object
+		last time.Time
+	}
+	byProject := map[string][]use{}
+	var gone []store.Object
 	for _, o := range objs {
 		var r commandUse
-		if json.Unmarshal(o.Data, &r) == nil && s.clock.Since(r.LastRun) > commandUsesKeptFor {
-			if _, _, err := s.store.Delete(ctx, o.Key, o.Revision); err != nil && !errors.Is(err, store.ErrConflict) {
-				return err
-			}
+		if json.Unmarshal(o.Data, &r) != nil || now.Sub(r.LastRecorded) > commandUsesKeptFor {
+			gone = append(gone, o)
+			continue
+		}
+		byProject[o.Project] = append(byProject[o.Project], use{o, r.LastRecorded})
+	}
+	for _, uses := range byProject {
+		if len(uses) <= maxCommandUses {
+			continue
+		}
+		slices.SortFunc(uses, func(a, b use) int { return cmp.Or(a.last.Compare(b.last), strings.Compare(a.o.Name, b.o.Name)) })
+		for _, u := range uses[:len(uses)-maxCommandUses] {
+			gone = append(gone, u.o)
 		}
 	}
 	objs, _, err = s.store.List(ctx, store.ListOptions{Kind: processesRecordedKind})
@@ -323,10 +282,14 @@ func (s *Server) pruneCommandUses(ctx context.Context) error {
 			return err
 		}
 		if !ok {
-			if _, _, err := s.store.Delete(ctx, o.Key, o.Revision); err != nil && !errors.Is(err, store.ErrConflict) {
-				return err
-			}
+			gone = append(gone, o)
 		}
 	}
+	for _, o := range gone {
+		if _, _, err := s.store.Delete(ctx, o.Key, o.Revision); err != nil && !errors.Is(err, store.ErrConflict) && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+	}
+	s.commandUsesPruned.Store(now.UnixNano())
 	return nil
 }

@@ -71,6 +71,40 @@ func (s *Server) putRecord(ctx context.Context, key store.Key, v any) error {
 	return fmt.Errorf("too many writers of %s %s/%s", key.Kind, key.Project, key.Name)
 }
 
+// changeRecord changes the record of key, made from its zero value if
+// there is none; change reports whether to write it.
+func changeRecord[T any](ctx context.Context, s *Server, key store.Key, change func(*T) bool) error {
+	for range maxRetries {
+		var r T
+		o, err := s.store.Get(ctx, key)
+		found := err == nil
+		switch {
+		case found:
+			if err := json.Unmarshal(o.Data, &r); err != nil {
+				return err
+			}
+		case !errors.Is(err, store.ErrNotFound):
+			return err
+		}
+		if !change(&r) {
+			return nil
+		}
+		data, err := json.Marshal(r)
+		if err != nil {
+			return err
+		}
+		if found {
+			_, err = s.store.Update(ctx, key, data, o.Revision)
+		} else {
+			_, err = s.store.Create(ctx, key, data)
+		}
+		if !errors.Is(err, store.ErrConflict) && !errors.Is(err, store.ErrExists) {
+			return err
+		}
+	}
+	return fmt.Errorf("too many writers of %s %s/%s", key.Kind, key.Project, key.Name)
+}
+
 // deleteRecord deletes the record of key, if there is one.
 func (s *Server) deleteRecord(ctx context.Context, key store.Key) error {
 	for range maxRetries {
