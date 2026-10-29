@@ -502,10 +502,24 @@ func boostPack(args []string) (*Manifest, error) {
 			return nil, err
 		}
 		if n != "0" {
-			if _, err := gitRun(*dir, nil, nil, append([]string{"bundle", "create", "-q", filepath.Join(*out, "head.bundle"), "HEAD"}, not...)...); err != nil {
+			bundle := filepath.Join(*out, "head.bundle")
+			if _, err := gitRun(*dir, nil, nil, append([]string{"bundle", "create", "-q", bundle, "HEAD"}, not...)...); err != nil {
 				return nil, err
 			}
 			m.Bundle = true
+			// The commits count with what changed toward the cap.
+			info, err := os.Stat(bundle)
+			if err != nil {
+				return nil, err
+			}
+			if total+info.Size() > *limit {
+				what := "the box's commits origin lacks"
+				if *bundleAll {
+					what = "HEAD's whole history"
+				}
+				return nil, codedError{ExitTooLarge, fmt.Errorf("what changed (%d bytes) and %s (%d bytes, %d commits) are past the %d a sync sends",
+					total, what, info.Size(), mustAtoi(n), *limit)}
+			}
 		}
 	}
 	b, err := json.Marshal(m)
@@ -513,6 +527,11 @@ func boostPack(args []string) (*Manifest, error) {
 		return nil, err
 	}
 	return m, os.WriteFile(filepath.Join(*out, "manifest.json"), b, 0o644)
+}
+
+func mustAtoi(s string) int {
+	n, _ := strconv.Atoi(s)
+	return n
 }
 
 // splitDelta splits es into the blobs to send and the paths deleted,
@@ -831,15 +850,20 @@ func extractDelta(dir, file string) error {
 }
 
 // clearDir removes the directory at p of dir, with all it holds, if one
-// is there and is not a symlink.
+// is there and is not a symlink; never anything outside dir, through a
+// name or a link (os.Root).
 func clearDir(dir, p string) error {
 	p = path.Clean(p)
 	if p == "." || p == ".." || strings.HasPrefix(p, "../") || path.IsAbs(p) {
 		return fmt.Errorf("%q is outside %s", p, dir)
 	}
-	full := filepath.Join(dir, filepath.FromSlash(p))
-	if info, err := os.Lstat(full); err == nil && info.IsDir() {
-		return os.RemoveAll(full)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if info, err := root.Lstat(p); err == nil && info.IsDir() {
+		return root.RemoveAll(p)
 	}
 	return nil
 }
@@ -1007,23 +1031,28 @@ func removeIn(dir, p string) error {
 	if p == "." || p == ".." || strings.HasPrefix(p, "../") || path.IsAbs(p) {
 		return fmt.Errorf("%q is outside %s", p, dir)
 	}
-	full := filepath.Join(dir, filepath.FromSlash(p))
-	if err := os.Remove(full); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	// Never anything outside dir, through a name or a link (os.Root).
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if err := root.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		// A directory where a file was: what it holds is gone already, or
 		// is untracked and stays.
-		if info, serr := os.Lstat(full); serr != nil || !info.IsDir() {
+		if info, serr := root.Lstat(p); serr != nil || !info.IsDir() {
 			return err
 		}
 		return nil
 	}
-	for d := filepath.Dir(full); d != filepath.Clean(dir) && strings.HasPrefix(d, filepath.Clean(dir)+string(filepath.Separator)) && removedEmpty(d); d = filepath.Dir(d) {
+	for d := path.Dir(p); d != "." && removedEmpty(root, d); d = path.Dir(d) {
 	}
 	return nil
 }
 
-// removedEmpty removes the directory d if it is empty, saying whether it
-// did.
-func removedEmpty(d string) bool { return os.Remove(d) == nil }
+// removedEmpty removes the directory d of root if it is empty, saying
+// whether it did.
+func removedEmpty(root *os.Root, d string) bool { return root.Remove(d) == nil }
 
 func splitNUL(b []byte) []string {
 	if len(b) == 0 {

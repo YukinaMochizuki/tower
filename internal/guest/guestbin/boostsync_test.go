@@ -3,6 +3,7 @@ package guestbin_test
 import (
 	"archive/tar"
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"io"
 	"os"
@@ -591,5 +592,44 @@ func TestABoostLackingOriginsCommitsGetsHEADsHistory(t *testing.T) {
 	}
 	if got, want := git(t, p.boost, "rev-parse", "HEAD"), git(t, p.box, "rev-parse", "HEAD"); got != want {
 		t.Errorf("the boost's HEAD %s, the box's %s", got, want)
+	}
+}
+
+// TestABundlePastTheCapIsRefused: the commits a sync bundles count with
+// what changed toward its cap: a file committed and removed again changes
+// nothing, but the commits hold it.
+func TestABundlePastTheCapIsRefused(t *testing.T) {
+	p := newPair(t)
+	write(t, filepath.Join(p.box, "big.bin"), rand.Text()+rand.Text()+rand.Text()+rand.Text()+rand.Text()+rand.Text()+rand.Text()+rand.Text(), 0o644)
+	git(t, p.box, "add", "big.bin")
+	git(t, p.box, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "big")
+	git(t, p.box, "rm", "-q", "big.bin")
+	git(t, p.box, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "no big")
+	out := filepath.Join(t.TempDir(), "out")
+	code, _, stderr := boostRun("boost-pack", "--dir", p.box, "--base", p.first, "--out", out, "--max", "200", "--bundle-all")
+	if code != guestbin.ExitTooLarge || !strings.Contains(stderr, "HEAD's whole history") {
+		t.Errorf("a bundle past the cap: exit %d, %q", code, stderr)
+	}
+}
+
+// TestNothingOutsideTheCheckoutIsRemoved: a path the box deleted, which
+// on the boost leads out of the checkout through a symlink, removes
+// nothing out there.
+func TestNothingOutsideTheCheckoutIsRemoved(t *testing.T) {
+	p := newPair(t)
+	outside := t.TempDir()
+	write(t, filepath.Join(outside, "c.txt"), "outside\n", 0o644)
+	if err := os.RemoveAll(filepath.Join(p.boost, "d")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(p.boost, "d")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(p.box, "d", "c.txt")); err != nil {
+		t.Fatal(err)
+	}
+	p.send(t, p.first)
+	if got := read(t, filepath.Join(outside, "c.txt")); got != "outside\n" {
+		t.Errorf("a file outside the checkout, through a symlink: %q", got)
 	}
 }
