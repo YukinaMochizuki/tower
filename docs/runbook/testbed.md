@@ -153,4 +153,8 @@ TOWER_BOOST_IDLE=2m \
 go test -tags boostcheck -count=1 -v -timeout 60m ./test/boostcheck/
 ```
 
-Each check logs what it saw, the boost's output among it.
+Each check logs what it saw, the boost's output among it. The sync's
+checks edit `TOWER_SYNC_FILE` in box A (README.md unless given) and put
+it back; `TOWER_SYNC_CMD` adds a command to the first boosted job (such
+as `go test ./pkg`), and `TOWER_GEN_CMD` is the job that rewrites
+tracked files (such as `make gen`).

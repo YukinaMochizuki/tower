@@ -18,7 +18,14 @@
 //   - TOWER_PROJECT and TOWER_TARGET, the project and its hangar target;
 //   - TOWER_BOX_A and TOWER_BOX_B, two READY boxes of the project, of
 //     two workstreams;
-//   - TOWER_BOOST_IDLE, the boost_idle set for the run, 2m unless given.
+//   - TOWER_BOOST_IDLE, the boost_idle set for the run, 2m unless given;
+//   - for the sync's checks (Boost 2/4): TOWER_SYNC_FILE, a tracked file
+//     of box A's repository, relative to /workspace, which they edit and
+//     put back (README.md unless given); TOWER_SYNC_CMD, what the first
+//     boosted job runs after `git diff --stat`, such as `go test ./pkg`
+//     (none unless given); and TOWER_GEN_CMD, a boosted job that rewrites
+//     tracked files, such as `make gen` (unless given, one that appends
+//     to TOWER_SYNC_FILE on the boost).
 //
 // Each check logs what it saw, the boost's output among it.
 package boostcheck
@@ -200,6 +207,129 @@ func (r *run) boostGone(box string, within time.Duration) {
 		_, err := r.ws.Get(context.Background(), registry.Boost, client.Key{Project: r.project, Name: box})
 		return connect.CodeOf(err) == connect.CodeNotFound, fmt.Sprint(err)
 	})
+}
+
+// file is a box's file, read through tower; "" for one not there.
+func (r *run) file(box, p string) string {
+	r.t.Helper()
+	stream, err := r.envs.ReadFile(context.Background(), connect.NewRequest(&envv1alpha1.ReadFileRequest{Environment: r.env(box), Path: "/workspace/" + p}))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	var out strings.Builder
+	for stream.Receive() {
+		out.Write(stream.Msg().GetData())
+	}
+	if connect.CodeOf(stream.Err()) == connect.CodeNotFound {
+		return ""
+	}
+	if err := stream.Err(); err != nil {
+		r.t.Fatal(err)
+	}
+	return out.String()
+}
+
+// setFile writes a box's file through tower, and puts it back as it was
+// once the test ends.
+func (r *run) setFile(box, p, text string) {
+	r.t.Helper()
+	before := r.file(box, p)
+	write := func(text string) error {
+		_, err := r.envs.WriteFile(context.Background(), connect.NewRequest(&envv1alpha1.WriteFileRequest{Environment: r.env(box), Path: "/workspace/" + p, Data: []byte(text)}))
+		return err
+	}
+	if err := write(text); err != nil {
+		r.t.Fatal(err)
+	}
+	r.t.Cleanup(func() {
+		if before == "" {
+			_, err := r.envs.Exec(context.Background(), connect.NewRequest(&envv1alpha1.ExecRequest{
+				Environment: r.env(box), Command: &envv1alpha1.ExecRequest_Argv{Argv: &envv1alpha1.Argv{Args: []string{"rm", "-f", "/workspace/" + p}}},
+			}))
+			if err != nil {
+				r.t.Errorf("removing %s from %s: %v", p, box, err)
+			}
+			return
+		}
+		if err := write(before); err != nil {
+			r.t.Errorf("putting %s back in %s: %v", p, box, err)
+		}
+	})
+}
+
+func envOr(name, def string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return def
+}
+
+// TestABoostSeesTheBoxsEdits: an edit in the box, not committed, is on
+// its boost when a boosted job runs: `git diff --stat` there shows it.
+func TestABoostSeesTheBoxsEdits(t *testing.T) {
+	r := setup(t)
+	file := envOr("TOWER_SYNC_FILE", "README.md")
+	marker := "boostcheck " + strconv.FormatInt(time.Now().UnixNano(), 36)
+	r.setFile(r.boxA, file, r.file(r.boxA, file)+marker+"\n")
+	line := "git diff --stat && grep -c '" + marker + "' " + file
+	if cmd := os.Getenv("TOWER_SYNC_CMD"); cmd != "" {
+		line += " && " + cmd
+	}
+	res := r.start(r.boxA, line, true)
+	b := res.GetBoost()
+	t.Logf("synced in %s: %d files, %d deleted, %d bytes, whole tree %v", b.GetSync().AsDuration(), b.GetSyncFiles(), b.GetSyncDeleted(), b.GetSyncBytes(), b.GetSyncFull())
+	out, exit := r.output(r.boxA, res.GetProcess())
+	t.Logf("its output:\n%s", out)
+	if exit.GetCode() != 0 || exit.GetLost() {
+		t.Errorf("it exited %v", exit)
+	}
+	if !strings.Contains(out, file) || !strings.Contains(out, "\n1\n") {
+		t.Errorf("the boost's git diff --stat does not show the box's edit of %s", file)
+	}
+}
+
+// TestASecondJobSendsOnlyWhatChanged: after another edit, a second
+// boosted job's sync sends that file alone.
+func TestASecondJobSendsOnlyWhatChanged(t *testing.T) {
+	r := setup(t)
+	r.output(r.boxA, r.start(r.boxA, "true", true).GetProcess())
+	r.setFile(r.boxA, "boostcheck.tmp", "only this\n")
+	res := r.start(r.boxA, "cat boostcheck.tmp", true)
+	b := res.GetBoost()
+	t.Logf("the second sync: %s, %d files, %d deleted, %d bytes", b.GetSync().AsDuration(), b.GetSyncFiles(), b.GetSyncDeleted(), b.GetSyncBytes())
+	if b.GetSyncFull() || b.GetSyncFiles() != 1 || b.GetSyncDeleted() != 0 {
+		t.Errorf("the second sync sent %v, want the one file", b)
+	}
+	if out, _ := r.output(r.boxA, res.GetProcess()); out != "only this\n" {
+		t.Errorf("the second job saw %q", out)
+	}
+}
+
+// TestAGenJobListsWhatItChanged: a boosted job that rewrites tracked
+// files lists them in its exit, and the box's are as they were.
+func TestAGenJobListsWhatItChanged(t *testing.T) {
+	r := setup(t)
+	file := envOr("TOWER_SYNC_FILE", "README.md")
+	gen := envOr("TOWER_GEN_CMD", "echo boostcheck-generated >> "+file)
+	res := r.start(r.boxA, "true", true)
+	r.output(r.boxA, res.GetProcess())
+	res = r.start(r.boxA, gen, true)
+	_, exit := r.output(r.boxA, res.GetProcess())
+	changed := exit.GetBoost().GetChanged()
+	t.Logf("%q changed %d files: %v", gen, changed.GetTotal(), changed.GetFiles())
+	if exit.GetCode() != 0 || changed.GetTotal() == 0 {
+		t.Fatalf("it exited %v, changing %d files, want some", exit, changed.GetTotal())
+	}
+	// What it changed on the boost is not in the box.
+	for _, f := range changed.GetFiles() {
+		if f.GetStatus() == "A" && r.file(r.boxA, f.GetPath()) != "" {
+			t.Errorf("%s, which it added on the boost, is in the box", f.GetPath())
+		}
+	}
+	if f := envOr("TOWER_SYNC_FILE", "README.md"); os.Getenv("TOWER_GEN_CMD") == "" && strings.Contains(r.file(r.boxA, f), "boostcheck-generated") {
+		t.Errorf("%s, which it rewrote on the boost, changed in the box", f)
+	}
 }
 
 // TestABoostShowsItsSizeAndGoesWhenIdle: a boosted `nproc; free -g` runs

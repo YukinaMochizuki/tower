@@ -102,6 +102,9 @@ picks, its services and its agent included.
 
 ## Consequences
 
+- A process run on a boost runs under `tower-guest boost-job`, which,
+  once its command ends, lists in the same cgroup what the command
+  changed: its usage includes that git diff (`boost.md`).
 - An agent learns from the exit that its job, or the process the OOM
   picked instead, ran out of memory, and the box it ran in and its agent
   are still there; its other processes started through tower may not be.
