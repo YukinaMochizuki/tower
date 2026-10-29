@@ -23,6 +23,115 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// PendingReason is why a start is pending.
+type PendingReason int32
+
+const (
+	PendingReason_PENDING_REASON_UNSPECIFIED PendingReason = 0
+	// The target's boosts hold its boost_budget, or its Plan's quota left
+	// is less than the boost: it waits its turn, first come first served,
+	// workstream by workstream in turn.
+	PendingReason_PENDING_REASON_QUEUED_BUDGET PendingReason = 1
+	// The box's boost is being made: its instance started, the box's
+	// checkouts and setup steps run in it.
+	PendingReason_PENDING_REASON_BOOST_STARTING PendingReason = 2
+	// The box's boost is smaller than asked and runs a process: it is made
+	// again larger once its processes end.
+	PendingReason_PENDING_REASON_BOOST_BUSY PendingReason = 3
+)
+
+// Enum value maps for PendingReason.
+var (
+	PendingReason_name = map[int32]string{
+		0: "PENDING_REASON_UNSPECIFIED",
+		1: "PENDING_REASON_QUEUED_BUDGET",
+		2: "PENDING_REASON_BOOST_STARTING",
+		3: "PENDING_REASON_BOOST_BUSY",
+	}
+	PendingReason_value = map[string]int32{
+		"PENDING_REASON_UNSPECIFIED":    0,
+		"PENDING_REASON_QUEUED_BUDGET":  1,
+		"PENDING_REASON_BOOST_STARTING": 2,
+		"PENDING_REASON_BOOST_BUSY":     3,
+	}
+)
+
+func (x PendingReason) Enum() *PendingReason {
+	p := new(PendingReason)
+	*p = x
+	return p
+}
+
+func (x PendingReason) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PendingReason) Descriptor() protoreflect.EnumDescriptor {
+	return file_tower_environments_v1alpha1_environment_service_proto_enumTypes[0].Descriptor()
+}
+
+func (PendingReason) Type() protoreflect.EnumType {
+	return &file_tower_environments_v1alpha1_environment_service_proto_enumTypes[0]
+}
+
+func (x PendingReason) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use PendingReason.Descriptor instead.
+func (PendingReason) EnumDescriptor() ([]byte, []int) {
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{0}
+}
+
+type RanOnKind int32
+
+const (
+	RanOnKind_RAN_ON_KIND_UNSPECIFIED RanOnKind = 0
+	RanOnKind_RAN_ON_KIND_BOX         RanOnKind = 1
+	RanOnKind_RAN_ON_KIND_BOOST       RanOnKind = 2
+)
+
+// Enum value maps for RanOnKind.
+var (
+	RanOnKind_name = map[int32]string{
+		0: "RAN_ON_KIND_UNSPECIFIED",
+		1: "RAN_ON_KIND_BOX",
+		2: "RAN_ON_KIND_BOOST",
+	}
+	RanOnKind_value = map[string]int32{
+		"RAN_ON_KIND_UNSPECIFIED": 0,
+		"RAN_ON_KIND_BOX":         1,
+		"RAN_ON_KIND_BOOST":       2,
+	}
+)
+
+func (x RanOnKind) Enum() *RanOnKind {
+	p := new(RanOnKind)
+	*p = x
+	return p
+}
+
+func (x RanOnKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RanOnKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_tower_environments_v1alpha1_environment_service_proto_enumTypes[1].Descriptor()
+}
+
+func (RanOnKind) Type() protoreflect.EnumType {
+	return &file_tower_environments_v1alpha1_environment_service_proto_enumTypes[1]
+}
+
+func (x RanOnKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RanOnKind.Descriptor instead.
+func (RanOnKind) EnumDescriptor() ([]byte, []int) {
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{1}
+}
+
 // OutputStream is which of a process's outputs a chunk was written to.
 type OutputStream int32
 
@@ -57,11 +166,11 @@ func (x OutputStream) String() string {
 }
 
 func (OutputStream) Descriptor() protoreflect.EnumDescriptor {
-	return file_tower_environments_v1alpha1_environment_service_proto_enumTypes[0].Descriptor()
+	return file_tower_environments_v1alpha1_environment_service_proto_enumTypes[2].Descriptor()
 }
 
 func (OutputStream) Type() protoreflect.EnumType {
-	return &file_tower_environments_v1alpha1_environment_service_proto_enumTypes[0]
+	return &file_tower_environments_v1alpha1_environment_service_proto_enumTypes[2]
 }
 
 func (x OutputStream) Number() protoreflect.EnumNumber {
@@ -70,7 +179,7 @@ func (x OutputStream) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use OutputStream.Descriptor instead.
 func (OutputStream) EnumDescriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{0}
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{2}
 }
 
 // Signal is a signal a process's group can be sent.
@@ -110,11 +219,11 @@ func (x Signal) String() string {
 }
 
 func (Signal) Descriptor() protoreflect.EnumDescriptor {
-	return file_tower_environments_v1alpha1_environment_service_proto_enumTypes[1].Descriptor()
+	return file_tower_environments_v1alpha1_environment_service_proto_enumTypes[3].Descriptor()
 }
 
 func (Signal) Type() protoreflect.EnumType {
-	return &file_tower_environments_v1alpha1_environment_service_proto_enumTypes[1]
+	return &file_tower_environments_v1alpha1_environment_service_proto_enumTypes[3]
 }
 
 func (x Signal) Number() protoreflect.EnumNumber {
@@ -123,7 +232,7 @@ func (x Signal) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Signal.Descriptor instead.
 func (Signal) EnumDescriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{1}
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{3}
 }
 
 // Environment names a box or a machine.
@@ -1275,7 +1384,18 @@ type StartProcessRequest struct {
 	// Added to the environment's own for this process alone.
 	Env map[string]string `protobuf:"bytes,5,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// A name for people, such as "dev server"; tower does not read it.
-	Name          string `protobuf:"bytes,6,opt,name=name,proto3" json:"name,omitempty"`
+	Name string `protobuf:"bytes,6,opt,name=name,proto3" json:"name,omitempty"`
+	// Runs it on the box's boost rather than in the box: a larger instance of
+	// the box's, made for it if the box has none (docs/decisions/boost.md).
+	// Unset runs it in the box. A box on a hangar target alone has one.
+	Boost *BoostIntent `protobuf:"bytes,7,opt,name=boost,proto3" json:"boost,omitempty"`
+	// The ticket of a start answered pending, asked about again with the
+	// same request: it is answered pending again, or started. A ticket not
+	// asked about for two minutes is dropped.
+	Pending string `protobuf:"bytes,8,opt,name=pending,proto3" json:"pending,omitempty"`
+	// With pending, gives the ticket up instead: nothing starts, and its
+	// place goes to the next.
+	Cancel        bool `protobuf:"varint,9,opt,name=cancel,proto3" json:"cancel,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1363,6 +1483,27 @@ func (x *StartProcessRequest) GetName() string {
 	return ""
 }
 
+func (x *StartProcessRequest) GetBoost() *BoostIntent {
+	if x != nil {
+		return x.Boost
+	}
+	return nil
+}
+
+func (x *StartProcessRequest) GetPending() string {
+	if x != nil {
+		return x.Pending
+	}
+	return ""
+}
+
+func (x *StartProcessRequest) GetCancel() bool {
+	if x != nil {
+		return x.Cancel
+	}
+	return false
+}
+
 type isStartProcessRequest_Command interface {
 	isStartProcessRequest_Command()
 }
@@ -1381,17 +1522,109 @@ func (*StartProcessRequest_Argv) isStartProcessRequest_Command() {}
 
 func (*StartProcessRequest_Shell) isStartProcessRequest_Command() {}
 
+// BoostIntent is the boost a process asks for.
+type BoostIntent struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Size:
+	//
+	//	*BoostIntent_On
+	//	*BoostIntent_Resources
+	Size          isBoostIntent_Size `protobuf_oneof:"size"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BoostIntent) Reset() {
+	*x = BoostIntent{}
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BoostIntent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BoostIntent) ProtoMessage() {}
+
+func (x *BoostIntent) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BoostIntent.ProtoReflect.Descriptor instead.
+func (*BoostIntent) Descriptor() ([]byte, []int) {
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *BoostIntent) GetSize() isBoostIntent_Size {
+	if x != nil {
+		return x.Size
+	}
+	return nil
+}
+
+func (x *BoostIntent) GetOn() bool {
+	if x != nil {
+		if x, ok := x.Size.(*BoostIntent_On); ok {
+			return x.On
+		}
+	}
+	return false
+}
+
+func (x *BoostIntent) GetResources() *Resources {
+	if x != nil {
+		if x, ok := x.Size.(*BoostIntent_Resources); ok {
+			return x.Resources
+		}
+	}
+	return nil
+}
+
+type isBoostIntent_Size interface {
+	isBoostIntent_Size()
+}
+
+type BoostIntent_On struct {
+	// The target's boost_resources.
+	On bool `protobuf:"varint,1,opt,name=on,proto3,oneof"`
+}
+
+type BoostIntent_Resources struct {
+	// A size: cpu and memory, each unset one the target's default. It is
+	// held to the target's boost_max, and its cpus to hangar's shapes
+	// (512Mi to 8Gi of memory per vCPU).
+	Resources *Resources `protobuf:"bytes,2,opt,name=resources,proto3,oneof"`
+}
+
+func (*BoostIntent_On) isBoostIntent_Size() {}
+
+func (*BoostIntent_Resources) isBoostIntent_Size() {}
+
 type StartProcessResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The process's id in its environment.
-	Process       string `protobuf:"bytes,1,opt,name=process,proto3" json:"process,omitempty"`
+	// The process's id in its environment; empty while pending says the
+	// start is pending.
+	Process string `protobuf:"bytes,1,opt,name=process,proto3" json:"process,omitempty"`
+	// Set when it has not started yet: ask again with its ticket.
+	Pending *PendingStart `protobuf:"bytes,2,opt,name=pending,proto3" json:"pending,omitempty"`
+	// Where it runs, once started.
+	RanOn         *RanOn `protobuf:"bytes,3,opt,name=ran_on,json=ranOn,proto3" json:"ran_on,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StartProcessResponse) Reset() {
 	*x = StartProcessResponse{}
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[19]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1403,7 +1636,7 @@ func (x *StartProcessResponse) String() string {
 func (*StartProcessResponse) ProtoMessage() {}
 
 func (x *StartProcessResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[19]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1416,7 +1649,7 @@ func (x *StartProcessResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartProcessResponse.ProtoReflect.Descriptor instead.
 func (*StartProcessResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{19}
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *StartProcessResponse) GetProcess() string {
@@ -1424,6 +1657,156 @@ func (x *StartProcessResponse) GetProcess() string {
 		return x.Process
 	}
 	return ""
+}
+
+func (x *StartProcessResponse) GetPending() *PendingStart {
+	if x != nil {
+		return x.Pending
+	}
+	return nil
+}
+
+func (x *StartProcessResponse) GetRanOn() *RanOn {
+	if x != nil {
+		return x.RanOn
+	}
+	return nil
+}
+
+// PendingStart is a boosted start that has not started yet, as tower
+// answers it at once rather than waiting: the caller asks again with its
+// ticket, or gives the ticket up, and decides meanwhile whether to wait.
+type PendingStart struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Ticket string                 `protobuf:"bytes,1,opt,name=ticket,proto3" json:"ticket,omitempty"`
+	Reason PendingReason          `protobuf:"varint,2,opt,name=reason,proto3,enum=tower.environments.v1alpha1.PendingReason" json:"reason,omitempty"`
+	// Why, for people.
+	Message string `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	// Its place in its target's queue, 1 first; 0 when not queued.
+	Position int32 `protobuf:"varint,4,opt,name=position,proto3" json:"position,omitempty"`
+	// About how long until it starts: at least this, as far as tower knows.
+	EstimatedWait *durationpb.Duration `protobuf:"bytes,5,opt,name=estimated_wait,json=estimatedWait,proto3" json:"estimated_wait,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PendingStart) Reset() {
+	*x = PendingStart{}
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PendingStart) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PendingStart) ProtoMessage() {}
+
+func (x *PendingStart) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PendingStart.ProtoReflect.Descriptor instead.
+func (*PendingStart) Descriptor() ([]byte, []int) {
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *PendingStart) GetTicket() string {
+	if x != nil {
+		return x.Ticket
+	}
+	return ""
+}
+
+func (x *PendingStart) GetReason() PendingReason {
+	if x != nil {
+		return x.Reason
+	}
+	return PendingReason_PENDING_REASON_UNSPECIFIED
+}
+
+func (x *PendingStart) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *PendingStart) GetPosition() int32 {
+	if x != nil {
+		return x.Position
+	}
+	return 0
+}
+
+func (x *PendingStart) GetEstimatedWait() *durationpb.Duration {
+	if x != nil {
+		return x.EstimatedWait
+	}
+	return nil
+}
+
+// RanOn is where a process runs or ran.
+type RanOn struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Kind  RanOnKind              `protobuf:"varint,1,opt,name=kind,proto3,enum=tower.environments.v1alpha1.RanOnKind" json:"kind,omitempty"`
+	// The size of what it runs on: cpu and memory.
+	Resources     *Resources `protobuf:"bytes,2,opt,name=resources,proto3" json:"resources,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RanOn) Reset() {
+	*x = RanOn{}
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RanOn) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RanOn) ProtoMessage() {}
+
+func (x *RanOn) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RanOn.ProtoReflect.Descriptor instead.
+func (*RanOn) Descriptor() ([]byte, []int) {
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *RanOn) GetKind() RanOnKind {
+	if x != nil {
+		return x.Kind
+	}
+	return RanOnKind_RAN_ON_KIND_UNSPECIFIED
+}
+
+func (x *RanOn) GetResources() *Resources {
+	if x != nil {
+		return x.Resources
+	}
+	return nil
 }
 
 type AttachProcessRequest struct {
@@ -1443,7 +1826,7 @@ type AttachProcessRequest struct {
 
 func (x *AttachProcessRequest) Reset() {
 	*x = AttachProcessRequest{}
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[20]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1455,7 +1838,7 @@ func (x *AttachProcessRequest) String() string {
 func (*AttachProcessRequest) ProtoMessage() {}
 
 func (x *AttachProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[20]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1468,7 +1851,7 @@ func (x *AttachProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttachProcessRequest.ProtoReflect.Descriptor instead.
 func (*AttachProcessRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{20}
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *AttachProcessRequest) GetEnvironment() *Environment {
@@ -1512,7 +1895,7 @@ type AttachProcessResponse struct {
 
 func (x *AttachProcessResponse) Reset() {
 	*x = AttachProcessResponse{}
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[21]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1524,7 +1907,7 @@ func (x *AttachProcessResponse) String() string {
 func (*AttachProcessResponse) ProtoMessage() {}
 
 func (x *AttachProcessResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[21]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1537,7 +1920,7 @@ func (x *AttachProcessResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttachProcessResponse.ProtoReflect.Descriptor instead.
 func (*AttachProcessResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{21}
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *AttachProcessResponse) GetResponse() isAttachProcessResponse_Response {
@@ -1596,7 +1979,7 @@ type ProcessOutput struct {
 
 func (x *ProcessOutput) Reset() {
 	*x = ProcessOutput{}
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[22]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1608,7 +1991,7 @@ func (x *ProcessOutput) String() string {
 func (*ProcessOutput) ProtoMessage() {}
 
 func (x *ProcessOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[22]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1621,7 +2004,7 @@ func (x *ProcessOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessOutput.ProtoReflect.Descriptor instead.
 func (*ProcessOutput) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{22}
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ProcessOutput) GetStream() OutputStream {
@@ -1662,7 +2045,7 @@ type ProcessEnd struct {
 
 func (x *ProcessEnd) Reset() {
 	*x = ProcessEnd{}
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[23]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1674,7 +2057,7 @@ func (x *ProcessEnd) String() string {
 func (*ProcessEnd) ProtoMessage() {}
 
 func (x *ProcessEnd) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[23]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1687,7 +2070,7 @@ func (x *ProcessEnd) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessEnd.ProtoReflect.Descriptor instead.
 func (*ProcessEnd) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{23}
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ProcessEnd) GetHeldFrom() int64 {
@@ -1743,7 +2126,7 @@ type ProcessExit struct {
 
 func (x *ProcessExit) Reset() {
 	*x = ProcessExit{}
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[24]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1755,7 +2138,7 @@ func (x *ProcessExit) String() string {
 func (*ProcessExit) ProtoMessage() {}
 
 func (x *ProcessExit) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[24]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1768,7 +2151,7 @@ func (x *ProcessExit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessExit.ProtoReflect.Descriptor instead.
 func (*ProcessExit) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{24}
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ProcessExit) GetCode() int32 {
@@ -1832,7 +2215,7 @@ type SignalProcessRequest struct {
 
 func (x *SignalProcessRequest) Reset() {
 	*x = SignalProcessRequest{}
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[25]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1844,7 +2227,7 @@ func (x *SignalProcessRequest) String() string {
 func (*SignalProcessRequest) ProtoMessage() {}
 
 func (x *SignalProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[25]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1857,7 +2240,7 @@ func (x *SignalProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalProcessRequest.ProtoReflect.Descriptor instead.
 func (*SignalProcessRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{25}
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *SignalProcessRequest) GetEnvironment() *Environment {
@@ -1889,7 +2272,7 @@ type SignalProcessResponse struct {
 
 func (x *SignalProcessResponse) Reset() {
 	*x = SignalProcessResponse{}
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[26]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1901,7 +2284,7 @@ func (x *SignalProcessResponse) String() string {
 func (*SignalProcessResponse) ProtoMessage() {}
 
 func (x *SignalProcessResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[26]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1914,7 +2297,7 @@ func (x *SignalProcessResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignalProcessResponse.ProtoReflect.Descriptor instead.
 func (*SignalProcessResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{26}
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{29}
 }
 
 type ListProcessesRequest struct {
@@ -1927,7 +2310,7 @@ type ListProcessesRequest struct {
 
 func (x *ListProcessesRequest) Reset() {
 	*x = ListProcessesRequest{}
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[27]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1939,7 +2322,7 @@ func (x *ListProcessesRequest) String() string {
 func (*ListProcessesRequest) ProtoMessage() {}
 
 func (x *ListProcessesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[27]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1952,7 +2335,7 @@ func (x *ListProcessesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProcessesRequest.ProtoReflect.Descriptor instead.
 func (*ListProcessesRequest) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{27}
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ListProcessesRequest) GetEnvironment() *Environment {
@@ -1974,7 +2357,7 @@ type ListProcessesResponse struct {
 
 func (x *ListProcessesResponse) Reset() {
 	*x = ListProcessesResponse{}
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[28]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1986,7 +2369,7 @@ func (x *ListProcessesResponse) String() string {
 func (*ListProcessesResponse) ProtoMessage() {}
 
 func (x *ListProcessesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[28]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1999,7 +2382,7 @@ func (x *ListProcessesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProcessesResponse.ProtoReflect.Descriptor instead.
 func (*ListProcessesResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{28}
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ListProcessesResponse) GetProcesses() []*ProcessInfo {
@@ -2019,14 +2402,18 @@ type ProcessInfo struct {
 	StartTime *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
 	Running   bool                   `protobuf:"varint,5,opt,name=running,proto3" json:"running,omitempty"`
 	// How it ended; unset while it runs.
-	Exit          *ProcessExit `protobuf:"bytes,6,opt,name=exit,proto3" json:"exit,omitempty"`
+	Exit *ProcessExit `protobuf:"bytes,6,opt,name=exit,proto3" json:"exit,omitempty"`
+	// Where it runs or ran: a box's processes and its boost's are listed
+	// together. A process of a boost deleted since keeps its exit, and its
+	// output is gone.
+	RanOn         *RanOn `protobuf:"bytes,7,opt,name=ran_on,json=ranOn,proto3" json:"ran_on,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ProcessInfo) Reset() {
 	*x = ProcessInfo{}
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[29]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2038,7 +2425,7 @@ func (x *ProcessInfo) String() string {
 func (*ProcessInfo) ProtoMessage() {}
 
 func (x *ProcessInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[29]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2051,7 +2438,7 @@ func (x *ProcessInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessInfo.ProtoReflect.Descriptor instead.
 func (*ProcessInfo) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{29}
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ProcessInfo) GetProcess() string {
@@ -2096,6 +2483,13 @@ func (x *ProcessInfo) GetExit() *ProcessExit {
 	return nil
 }
 
+func (x *ProcessInfo) GetRanOn() *RanOn {
+	if x != nil {
+		return x.RanOn
+	}
+	return nil
+}
+
 type IssueTicketResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Where to connect.
@@ -2109,7 +2503,7 @@ type IssueTicketResponse struct {
 
 func (x *IssueTicketResponse) Reset() {
 	*x = IssueTicketResponse{}
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[30]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2121,7 +2515,7 @@ func (x *IssueTicketResponse) String() string {
 func (*IssueTicketResponse) ProtoMessage() {}
 
 func (x *IssueTicketResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[30]
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2134,7 +2528,7 @@ func (x *IssueTicketResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IssueTicketResponse.ProtoReflect.Descriptor instead.
 func (*IssueTicketResponse) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{30}
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *IssueTicketResponse) GetUrl() string {
@@ -2162,7 +2556,7 @@ var File_tower_environments_v1alpha1_environment_service_proto protoreflect.File
 
 const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\n" +
-	"5tower/environments/v1alpha1/environment_service.proto\x12\x1btower.environments.v1alpha1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"_\n" +
+	"5tower/environments/v1alpha1/environment_service.proto\x12\x1btower.environments.v1alpha1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a(tower/environments/v1alpha1/common.proto\"_\n" +
 	"\vEnvironment\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x12\n" +
 	"\x03box\x18\x02 \x01(\tH\x00R\x03box\x12\x1a\n" +
@@ -2234,20 +2628,38 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\fPushResponse\"t\n" +
 	"\x12IssueTicketRequest\x12J\n" +
 	"\venvironment\x18\x01 \x01(\v2(.tower.environments.v1alpha1.EnvironmentR\venvironment\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\"\xe8\x02\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\"\xda\x03\n" +
 	"\x13StartProcessRequest\x12J\n" +
 	"\venvironment\x18\x01 \x01(\v2(.tower.environments.v1alpha1.EnvironmentR\venvironment\x127\n" +
 	"\x04argv\x18\x02 \x01(\v2!.tower.environments.v1alpha1.ArgvH\x00R\x04argv\x12\x16\n" +
 	"\x05shell\x18\x03 \x01(\tH\x00R\x05shell\x12\x10\n" +
 	"\x03dir\x18\x04 \x01(\tR\x03dir\x12K\n" +
 	"\x03env\x18\x05 \x03(\v29.tower.environments.v1alpha1.StartProcessRequest.EnvEntryR\x03env\x12\x12\n" +
-	"\x04name\x18\x06 \x01(\tR\x04name\x1a6\n" +
+	"\x04name\x18\x06 \x01(\tR\x04name\x12>\n" +
+	"\x05boost\x18\a \x01(\v2(.tower.environments.v1alpha1.BoostIntentR\x05boost\x12\x18\n" +
+	"\apending\x18\b \x01(\tR\apending\x12\x16\n" +
+	"\x06cancel\x18\t \x01(\bR\x06cancel\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\t\n" +
-	"\acommand\"0\n" +
+	"\acommand\"o\n" +
+	"\vBoostIntent\x12\x10\n" +
+	"\x02on\x18\x01 \x01(\bH\x00R\x02on\x12F\n" +
+	"\tresources\x18\x02 \x01(\v2&.tower.environments.v1alpha1.ResourcesH\x00R\tresourcesB\x06\n" +
+	"\x04size\"\xb0\x01\n" +
 	"\x14StartProcessResponse\x12\x18\n" +
-	"\aprocess\x18\x01 \x01(\tR\aprocess\"\xac\x01\n" +
+	"\aprocess\x18\x01 \x01(\tR\aprocess\x12C\n" +
+	"\apending\x18\x02 \x01(\v2).tower.environments.v1alpha1.PendingStartR\apending\x129\n" +
+	"\x06ran_on\x18\x03 \x01(\v2\".tower.environments.v1alpha1.RanOnR\x05ranOn\"\xe2\x01\n" +
+	"\fPendingStart\x12\x16\n" +
+	"\x06ticket\x18\x01 \x01(\tR\x06ticket\x12B\n" +
+	"\x06reason\x18\x02 \x01(\x0e2*.tower.environments.v1alpha1.PendingReasonR\x06reason\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12\x1a\n" +
+	"\bposition\x18\x04 \x01(\x05R\bposition\x12@\n" +
+	"\x0eestimated_wait\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\restimatedWait\"\x89\x01\n" +
+	"\x05RanOn\x12:\n" +
+	"\x04kind\x18\x01 \x01(\x0e2&.tower.environments.v1alpha1.RanOnKindR\x04kind\x12D\n" +
+	"\tresources\x18\x02 \x01(\v2&.tower.environments.v1alpha1.ResourcesR\tresources\"\xac\x01\n" +
 	"\x14AttachProcessRequest\x12J\n" +
 	"\venvironment\x18\x01 \x01(\v2(.tower.environments.v1alpha1.EnvironmentR\venvironment\x12\x18\n" +
 	"\aprocess\x18\x02 \x01(\tR\aprocess\x12\x16\n" +
@@ -2287,7 +2699,7 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\x14ListProcessesRequest\x12J\n" +
 	"\venvironment\x18\x01 \x01(\v2(.tower.environments.v1alpha1.EnvironmentR\venvironment\"_\n" +
 	"\x15ListProcessesResponse\x12F\n" +
-	"\tprocesses\x18\x01 \x03(\v2(.tower.environments.v1alpha1.ProcessInfoR\tprocesses\"\xe8\x01\n" +
+	"\tprocesses\x18\x01 \x03(\v2(.tower.environments.v1alpha1.ProcessInfoR\tprocesses\"\xa3\x02\n" +
 	"\vProcessInfo\x12\x18\n" +
 	"\aprocess\x18\x01 \x01(\tR\aprocess\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -2295,12 +2707,22 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\n" +
 	"start_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x12\x18\n" +
 	"\arunning\x18\x05 \x01(\bR\arunning\x12<\n" +
-	"\x04exit\x18\x06 \x01(\v2(.tower.environments.v1alpha1.ProcessExitR\x04exit\"|\n" +
+	"\x04exit\x18\x06 \x01(\v2(.tower.environments.v1alpha1.ProcessExitR\x04exit\x129\n" +
+	"\x06ran_on\x18\a \x01(\v2\".tower.environments.v1alpha1.RanOnR\x05ranOn\"|\n" +
 	"\x13IssueTicketResponse\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x16\n" +
 	"\x06ticket\x18\x02 \x01(\tR\x06ticket\x12;\n" +
 	"\vexpire_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"expireTime*a\n" +
+	"expireTime*\x93\x01\n" +
+	"\rPendingReason\x12\x1e\n" +
+	"\x1aPENDING_REASON_UNSPECIFIED\x10\x00\x12 \n" +
+	"\x1cPENDING_REASON_QUEUED_BUDGET\x10\x01\x12!\n" +
+	"\x1dPENDING_REASON_BOOST_STARTING\x10\x02\x12\x1d\n" +
+	"\x19PENDING_REASON_BOOST_BUSY\x10\x03*T\n" +
+	"\tRanOnKind\x12\x1b\n" +
+	"\x17RAN_ON_KIND_UNSPECIFIED\x10\x00\x12\x13\n" +
+	"\x0fRAN_ON_KIND_BOX\x10\x01\x12\x15\n" +
+	"\x11RAN_ON_KIND_BOOST\x10\x02*a\n" +
 	"\fOutputStream\x12\x1d\n" +
 	"\x19OUTPUT_STREAM_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14OUTPUT_STREAM_STDOUT\x10\x01\x12\x18\n" +
@@ -2337,108 +2759,123 @@ func file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP() []
 	return file_tower_environments_v1alpha1_environment_service_proto_rawDescData
 }
 
-var file_tower_environments_v1alpha1_environment_service_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_tower_environments_v1alpha1_environment_service_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
+var file_tower_environments_v1alpha1_environment_service_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_tower_environments_v1alpha1_environment_service_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
 var file_tower_environments_v1alpha1_environment_service_proto_goTypes = []any{
-	(OutputStream)(0),             // 0: tower.environments.v1alpha1.OutputStream
-	(Signal)(0),                   // 1: tower.environments.v1alpha1.Signal
-	(*Environment)(nil),           // 2: tower.environments.v1alpha1.Environment
-	(*ExecRequest)(nil),           // 3: tower.environments.v1alpha1.ExecRequest
-	(*Argv)(nil),                  // 4: tower.environments.v1alpha1.Argv
-	(*ExecResponse)(nil),          // 5: tower.environments.v1alpha1.ExecResponse
-	(*ExecExit)(nil),              // 6: tower.environments.v1alpha1.ExecExit
-	(*ReadFileRequest)(nil),       // 7: tower.environments.v1alpha1.ReadFileRequest
-	(*ReadFileResponse)(nil),      // 8: tower.environments.v1alpha1.ReadFileResponse
-	(*ReadFileEnd)(nil),           // 9: tower.environments.v1alpha1.ReadFileEnd
-	(*WriteFileRequest)(nil),      // 10: tower.environments.v1alpha1.WriteFileRequest
-	(*WriteFileResponse)(nil),     // 11: tower.environments.v1alpha1.WriteFileResponse
-	(*CopyFileRequest)(nil),       // 12: tower.environments.v1alpha1.CopyFileRequest
-	(*CopyFileResponse)(nil),      // 13: tower.environments.v1alpha1.CopyFileResponse
-	(*FetchOriginRequest)(nil),    // 14: tower.environments.v1alpha1.FetchOriginRequest
-	(*FetchOriginResponse)(nil),   // 15: tower.environments.v1alpha1.FetchOriginResponse
-	(*FetchedCheckout)(nil),       // 16: tower.environments.v1alpha1.FetchedCheckout
-	(*PushRequest)(nil),           // 17: tower.environments.v1alpha1.PushRequest
-	(*PushResponse)(nil),          // 18: tower.environments.v1alpha1.PushResponse
-	(*IssueTicketRequest)(nil),    // 19: tower.environments.v1alpha1.IssueTicketRequest
-	(*StartProcessRequest)(nil),   // 20: tower.environments.v1alpha1.StartProcessRequest
-	(*StartProcessResponse)(nil),  // 21: tower.environments.v1alpha1.StartProcessResponse
-	(*AttachProcessRequest)(nil),  // 22: tower.environments.v1alpha1.AttachProcessRequest
-	(*AttachProcessResponse)(nil), // 23: tower.environments.v1alpha1.AttachProcessResponse
-	(*ProcessOutput)(nil),         // 24: tower.environments.v1alpha1.ProcessOutput
-	(*ProcessEnd)(nil),            // 25: tower.environments.v1alpha1.ProcessEnd
-	(*ProcessExit)(nil),           // 26: tower.environments.v1alpha1.ProcessExit
-	(*SignalProcessRequest)(nil),  // 27: tower.environments.v1alpha1.SignalProcessRequest
-	(*SignalProcessResponse)(nil), // 28: tower.environments.v1alpha1.SignalProcessResponse
-	(*ListProcessesRequest)(nil),  // 29: tower.environments.v1alpha1.ListProcessesRequest
-	(*ListProcessesResponse)(nil), // 30: tower.environments.v1alpha1.ListProcessesResponse
-	(*ProcessInfo)(nil),           // 31: tower.environments.v1alpha1.ProcessInfo
-	(*IssueTicketResponse)(nil),   // 32: tower.environments.v1alpha1.IssueTicketResponse
-	nil,                           // 33: tower.environments.v1alpha1.ExecRequest.EnvEntry
-	nil,                           // 34: tower.environments.v1alpha1.StartProcessRequest.EnvEntry
-	(*durationpb.Duration)(nil),   // 35: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil), // 36: google.protobuf.Timestamp
+	(PendingReason)(0),            // 0: tower.environments.v1alpha1.PendingReason
+	(RanOnKind)(0),                // 1: tower.environments.v1alpha1.RanOnKind
+	(OutputStream)(0),             // 2: tower.environments.v1alpha1.OutputStream
+	(Signal)(0),                   // 3: tower.environments.v1alpha1.Signal
+	(*Environment)(nil),           // 4: tower.environments.v1alpha1.Environment
+	(*ExecRequest)(nil),           // 5: tower.environments.v1alpha1.ExecRequest
+	(*Argv)(nil),                  // 6: tower.environments.v1alpha1.Argv
+	(*ExecResponse)(nil),          // 7: tower.environments.v1alpha1.ExecResponse
+	(*ExecExit)(nil),              // 8: tower.environments.v1alpha1.ExecExit
+	(*ReadFileRequest)(nil),       // 9: tower.environments.v1alpha1.ReadFileRequest
+	(*ReadFileResponse)(nil),      // 10: tower.environments.v1alpha1.ReadFileResponse
+	(*ReadFileEnd)(nil),           // 11: tower.environments.v1alpha1.ReadFileEnd
+	(*WriteFileRequest)(nil),      // 12: tower.environments.v1alpha1.WriteFileRequest
+	(*WriteFileResponse)(nil),     // 13: tower.environments.v1alpha1.WriteFileResponse
+	(*CopyFileRequest)(nil),       // 14: tower.environments.v1alpha1.CopyFileRequest
+	(*CopyFileResponse)(nil),      // 15: tower.environments.v1alpha1.CopyFileResponse
+	(*FetchOriginRequest)(nil),    // 16: tower.environments.v1alpha1.FetchOriginRequest
+	(*FetchOriginResponse)(nil),   // 17: tower.environments.v1alpha1.FetchOriginResponse
+	(*FetchedCheckout)(nil),       // 18: tower.environments.v1alpha1.FetchedCheckout
+	(*PushRequest)(nil),           // 19: tower.environments.v1alpha1.PushRequest
+	(*PushResponse)(nil),          // 20: tower.environments.v1alpha1.PushResponse
+	(*IssueTicketRequest)(nil),    // 21: tower.environments.v1alpha1.IssueTicketRequest
+	(*StartProcessRequest)(nil),   // 22: tower.environments.v1alpha1.StartProcessRequest
+	(*BoostIntent)(nil),           // 23: tower.environments.v1alpha1.BoostIntent
+	(*StartProcessResponse)(nil),  // 24: tower.environments.v1alpha1.StartProcessResponse
+	(*PendingStart)(nil),          // 25: tower.environments.v1alpha1.PendingStart
+	(*RanOn)(nil),                 // 26: tower.environments.v1alpha1.RanOn
+	(*AttachProcessRequest)(nil),  // 27: tower.environments.v1alpha1.AttachProcessRequest
+	(*AttachProcessResponse)(nil), // 28: tower.environments.v1alpha1.AttachProcessResponse
+	(*ProcessOutput)(nil),         // 29: tower.environments.v1alpha1.ProcessOutput
+	(*ProcessEnd)(nil),            // 30: tower.environments.v1alpha1.ProcessEnd
+	(*ProcessExit)(nil),           // 31: tower.environments.v1alpha1.ProcessExit
+	(*SignalProcessRequest)(nil),  // 32: tower.environments.v1alpha1.SignalProcessRequest
+	(*SignalProcessResponse)(nil), // 33: tower.environments.v1alpha1.SignalProcessResponse
+	(*ListProcessesRequest)(nil),  // 34: tower.environments.v1alpha1.ListProcessesRequest
+	(*ListProcessesResponse)(nil), // 35: tower.environments.v1alpha1.ListProcessesResponse
+	(*ProcessInfo)(nil),           // 36: tower.environments.v1alpha1.ProcessInfo
+	(*IssueTicketResponse)(nil),   // 37: tower.environments.v1alpha1.IssueTicketResponse
+	nil,                           // 38: tower.environments.v1alpha1.ExecRequest.EnvEntry
+	nil,                           // 39: tower.environments.v1alpha1.StartProcessRequest.EnvEntry
+	(*durationpb.Duration)(nil),   // 40: google.protobuf.Duration
+	(*Resources)(nil),             // 41: tower.environments.v1alpha1.Resources
+	(*timestamppb.Timestamp)(nil), // 42: google.protobuf.Timestamp
 }
 var file_tower_environments_v1alpha1_environment_service_proto_depIdxs = []int32{
-	2,  // 0: tower.environments.v1alpha1.ExecRequest.environment:type_name -> tower.environments.v1alpha1.Environment
-	4,  // 1: tower.environments.v1alpha1.ExecRequest.argv:type_name -> tower.environments.v1alpha1.Argv
-	33, // 2: tower.environments.v1alpha1.ExecRequest.env:type_name -> tower.environments.v1alpha1.ExecRequest.EnvEntry
-	35, // 3: tower.environments.v1alpha1.ExecRequest.timeout:type_name -> google.protobuf.Duration
-	6,  // 4: tower.environments.v1alpha1.ExecResponse.exit:type_name -> tower.environments.v1alpha1.ExecExit
-	2,  // 5: tower.environments.v1alpha1.ReadFileRequest.environment:type_name -> tower.environments.v1alpha1.Environment
-	9,  // 6: tower.environments.v1alpha1.ReadFileResponse.end:type_name -> tower.environments.v1alpha1.ReadFileEnd
-	2,  // 7: tower.environments.v1alpha1.WriteFileRequest.environment:type_name -> tower.environments.v1alpha1.Environment
-	2,  // 8: tower.environments.v1alpha1.CopyFileRequest.from:type_name -> tower.environments.v1alpha1.Environment
-	2,  // 9: tower.environments.v1alpha1.CopyFileRequest.to:type_name -> tower.environments.v1alpha1.Environment
-	2,  // 10: tower.environments.v1alpha1.FetchOriginRequest.environment:type_name -> tower.environments.v1alpha1.Environment
-	16, // 11: tower.environments.v1alpha1.FetchOriginResponse.checkouts:type_name -> tower.environments.v1alpha1.FetchedCheckout
-	2,  // 12: tower.environments.v1alpha1.PushRequest.environment:type_name -> tower.environments.v1alpha1.Environment
-	2,  // 13: tower.environments.v1alpha1.IssueTicketRequest.environment:type_name -> tower.environments.v1alpha1.Environment
-	2,  // 14: tower.environments.v1alpha1.StartProcessRequest.environment:type_name -> tower.environments.v1alpha1.Environment
-	4,  // 15: tower.environments.v1alpha1.StartProcessRequest.argv:type_name -> tower.environments.v1alpha1.Argv
-	34, // 16: tower.environments.v1alpha1.StartProcessRequest.env:type_name -> tower.environments.v1alpha1.StartProcessRequest.EnvEntry
-	2,  // 17: tower.environments.v1alpha1.AttachProcessRequest.environment:type_name -> tower.environments.v1alpha1.Environment
-	24, // 18: tower.environments.v1alpha1.AttachProcessResponse.output:type_name -> tower.environments.v1alpha1.ProcessOutput
-	25, // 19: tower.environments.v1alpha1.AttachProcessResponse.end:type_name -> tower.environments.v1alpha1.ProcessEnd
-	0,  // 20: tower.environments.v1alpha1.ProcessOutput.stream:type_name -> tower.environments.v1alpha1.OutputStream
-	26, // 21: tower.environments.v1alpha1.ProcessEnd.exit:type_name -> tower.environments.v1alpha1.ProcessExit
-	1,  // 22: tower.environments.v1alpha1.ProcessExit.signal:type_name -> tower.environments.v1alpha1.Signal
-	35, // 23: tower.environments.v1alpha1.ProcessExit.cpu_usage:type_name -> google.protobuf.Duration
-	35, // 24: tower.environments.v1alpha1.ProcessExit.cpu_wait:type_name -> google.protobuf.Duration
-	35, // 25: tower.environments.v1alpha1.ProcessExit.wall:type_name -> google.protobuf.Duration
-	2,  // 26: tower.environments.v1alpha1.SignalProcessRequest.environment:type_name -> tower.environments.v1alpha1.Environment
-	1,  // 27: tower.environments.v1alpha1.SignalProcessRequest.signal:type_name -> tower.environments.v1alpha1.Signal
-	2,  // 28: tower.environments.v1alpha1.ListProcessesRequest.environment:type_name -> tower.environments.v1alpha1.Environment
-	31, // 29: tower.environments.v1alpha1.ListProcessesResponse.processes:type_name -> tower.environments.v1alpha1.ProcessInfo
-	36, // 30: tower.environments.v1alpha1.ProcessInfo.start_time:type_name -> google.protobuf.Timestamp
-	26, // 31: tower.environments.v1alpha1.ProcessInfo.exit:type_name -> tower.environments.v1alpha1.ProcessExit
-	36, // 32: tower.environments.v1alpha1.IssueTicketResponse.expire_time:type_name -> google.protobuf.Timestamp
-	3,  // 33: tower.environments.v1alpha1.EnvironmentService.Exec:input_type -> tower.environments.v1alpha1.ExecRequest
-	7,  // 34: tower.environments.v1alpha1.EnvironmentService.ReadFile:input_type -> tower.environments.v1alpha1.ReadFileRequest
-	10, // 35: tower.environments.v1alpha1.EnvironmentService.WriteFile:input_type -> tower.environments.v1alpha1.WriteFileRequest
-	12, // 36: tower.environments.v1alpha1.EnvironmentService.CopyFile:input_type -> tower.environments.v1alpha1.CopyFileRequest
-	14, // 37: tower.environments.v1alpha1.EnvironmentService.FetchOrigin:input_type -> tower.environments.v1alpha1.FetchOriginRequest
-	17, // 38: tower.environments.v1alpha1.EnvironmentService.Push:input_type -> tower.environments.v1alpha1.PushRequest
-	19, // 39: tower.environments.v1alpha1.EnvironmentService.IssueTicket:input_type -> tower.environments.v1alpha1.IssueTicketRequest
-	20, // 40: tower.environments.v1alpha1.EnvironmentService.StartProcess:input_type -> tower.environments.v1alpha1.StartProcessRequest
-	22, // 41: tower.environments.v1alpha1.EnvironmentService.AttachProcess:input_type -> tower.environments.v1alpha1.AttachProcessRequest
-	27, // 42: tower.environments.v1alpha1.EnvironmentService.SignalProcess:input_type -> tower.environments.v1alpha1.SignalProcessRequest
-	29, // 43: tower.environments.v1alpha1.EnvironmentService.ListProcesses:input_type -> tower.environments.v1alpha1.ListProcessesRequest
-	5,  // 44: tower.environments.v1alpha1.EnvironmentService.Exec:output_type -> tower.environments.v1alpha1.ExecResponse
-	8,  // 45: tower.environments.v1alpha1.EnvironmentService.ReadFile:output_type -> tower.environments.v1alpha1.ReadFileResponse
-	11, // 46: tower.environments.v1alpha1.EnvironmentService.WriteFile:output_type -> tower.environments.v1alpha1.WriteFileResponse
-	13, // 47: tower.environments.v1alpha1.EnvironmentService.CopyFile:output_type -> tower.environments.v1alpha1.CopyFileResponse
-	15, // 48: tower.environments.v1alpha1.EnvironmentService.FetchOrigin:output_type -> tower.environments.v1alpha1.FetchOriginResponse
-	18, // 49: tower.environments.v1alpha1.EnvironmentService.Push:output_type -> tower.environments.v1alpha1.PushResponse
-	32, // 50: tower.environments.v1alpha1.EnvironmentService.IssueTicket:output_type -> tower.environments.v1alpha1.IssueTicketResponse
-	21, // 51: tower.environments.v1alpha1.EnvironmentService.StartProcess:output_type -> tower.environments.v1alpha1.StartProcessResponse
-	23, // 52: tower.environments.v1alpha1.EnvironmentService.AttachProcess:output_type -> tower.environments.v1alpha1.AttachProcessResponse
-	28, // 53: tower.environments.v1alpha1.EnvironmentService.SignalProcess:output_type -> tower.environments.v1alpha1.SignalProcessResponse
-	30, // 54: tower.environments.v1alpha1.EnvironmentService.ListProcesses:output_type -> tower.environments.v1alpha1.ListProcessesResponse
-	44, // [44:55] is the sub-list for method output_type
-	33, // [33:44] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	4,  // 0: tower.environments.v1alpha1.ExecRequest.environment:type_name -> tower.environments.v1alpha1.Environment
+	6,  // 1: tower.environments.v1alpha1.ExecRequest.argv:type_name -> tower.environments.v1alpha1.Argv
+	38, // 2: tower.environments.v1alpha1.ExecRequest.env:type_name -> tower.environments.v1alpha1.ExecRequest.EnvEntry
+	40, // 3: tower.environments.v1alpha1.ExecRequest.timeout:type_name -> google.protobuf.Duration
+	8,  // 4: tower.environments.v1alpha1.ExecResponse.exit:type_name -> tower.environments.v1alpha1.ExecExit
+	4,  // 5: tower.environments.v1alpha1.ReadFileRequest.environment:type_name -> tower.environments.v1alpha1.Environment
+	11, // 6: tower.environments.v1alpha1.ReadFileResponse.end:type_name -> tower.environments.v1alpha1.ReadFileEnd
+	4,  // 7: tower.environments.v1alpha1.WriteFileRequest.environment:type_name -> tower.environments.v1alpha1.Environment
+	4,  // 8: tower.environments.v1alpha1.CopyFileRequest.from:type_name -> tower.environments.v1alpha1.Environment
+	4,  // 9: tower.environments.v1alpha1.CopyFileRequest.to:type_name -> tower.environments.v1alpha1.Environment
+	4,  // 10: tower.environments.v1alpha1.FetchOriginRequest.environment:type_name -> tower.environments.v1alpha1.Environment
+	18, // 11: tower.environments.v1alpha1.FetchOriginResponse.checkouts:type_name -> tower.environments.v1alpha1.FetchedCheckout
+	4,  // 12: tower.environments.v1alpha1.PushRequest.environment:type_name -> tower.environments.v1alpha1.Environment
+	4,  // 13: tower.environments.v1alpha1.IssueTicketRequest.environment:type_name -> tower.environments.v1alpha1.Environment
+	4,  // 14: tower.environments.v1alpha1.StartProcessRequest.environment:type_name -> tower.environments.v1alpha1.Environment
+	6,  // 15: tower.environments.v1alpha1.StartProcessRequest.argv:type_name -> tower.environments.v1alpha1.Argv
+	39, // 16: tower.environments.v1alpha1.StartProcessRequest.env:type_name -> tower.environments.v1alpha1.StartProcessRequest.EnvEntry
+	23, // 17: tower.environments.v1alpha1.StartProcessRequest.boost:type_name -> tower.environments.v1alpha1.BoostIntent
+	41, // 18: tower.environments.v1alpha1.BoostIntent.resources:type_name -> tower.environments.v1alpha1.Resources
+	25, // 19: tower.environments.v1alpha1.StartProcessResponse.pending:type_name -> tower.environments.v1alpha1.PendingStart
+	26, // 20: tower.environments.v1alpha1.StartProcessResponse.ran_on:type_name -> tower.environments.v1alpha1.RanOn
+	0,  // 21: tower.environments.v1alpha1.PendingStart.reason:type_name -> tower.environments.v1alpha1.PendingReason
+	40, // 22: tower.environments.v1alpha1.PendingStart.estimated_wait:type_name -> google.protobuf.Duration
+	1,  // 23: tower.environments.v1alpha1.RanOn.kind:type_name -> tower.environments.v1alpha1.RanOnKind
+	41, // 24: tower.environments.v1alpha1.RanOn.resources:type_name -> tower.environments.v1alpha1.Resources
+	4,  // 25: tower.environments.v1alpha1.AttachProcessRequest.environment:type_name -> tower.environments.v1alpha1.Environment
+	29, // 26: tower.environments.v1alpha1.AttachProcessResponse.output:type_name -> tower.environments.v1alpha1.ProcessOutput
+	30, // 27: tower.environments.v1alpha1.AttachProcessResponse.end:type_name -> tower.environments.v1alpha1.ProcessEnd
+	2,  // 28: tower.environments.v1alpha1.ProcessOutput.stream:type_name -> tower.environments.v1alpha1.OutputStream
+	31, // 29: tower.environments.v1alpha1.ProcessEnd.exit:type_name -> tower.environments.v1alpha1.ProcessExit
+	3,  // 30: tower.environments.v1alpha1.ProcessExit.signal:type_name -> tower.environments.v1alpha1.Signal
+	40, // 31: tower.environments.v1alpha1.ProcessExit.cpu_usage:type_name -> google.protobuf.Duration
+	40, // 32: tower.environments.v1alpha1.ProcessExit.cpu_wait:type_name -> google.protobuf.Duration
+	40, // 33: tower.environments.v1alpha1.ProcessExit.wall:type_name -> google.protobuf.Duration
+	4,  // 34: tower.environments.v1alpha1.SignalProcessRequest.environment:type_name -> tower.environments.v1alpha1.Environment
+	3,  // 35: tower.environments.v1alpha1.SignalProcessRequest.signal:type_name -> tower.environments.v1alpha1.Signal
+	4,  // 36: tower.environments.v1alpha1.ListProcessesRequest.environment:type_name -> tower.environments.v1alpha1.Environment
+	36, // 37: tower.environments.v1alpha1.ListProcessesResponse.processes:type_name -> tower.environments.v1alpha1.ProcessInfo
+	42, // 38: tower.environments.v1alpha1.ProcessInfo.start_time:type_name -> google.protobuf.Timestamp
+	31, // 39: tower.environments.v1alpha1.ProcessInfo.exit:type_name -> tower.environments.v1alpha1.ProcessExit
+	26, // 40: tower.environments.v1alpha1.ProcessInfo.ran_on:type_name -> tower.environments.v1alpha1.RanOn
+	42, // 41: tower.environments.v1alpha1.IssueTicketResponse.expire_time:type_name -> google.protobuf.Timestamp
+	5,  // 42: tower.environments.v1alpha1.EnvironmentService.Exec:input_type -> tower.environments.v1alpha1.ExecRequest
+	9,  // 43: tower.environments.v1alpha1.EnvironmentService.ReadFile:input_type -> tower.environments.v1alpha1.ReadFileRequest
+	12, // 44: tower.environments.v1alpha1.EnvironmentService.WriteFile:input_type -> tower.environments.v1alpha1.WriteFileRequest
+	14, // 45: tower.environments.v1alpha1.EnvironmentService.CopyFile:input_type -> tower.environments.v1alpha1.CopyFileRequest
+	16, // 46: tower.environments.v1alpha1.EnvironmentService.FetchOrigin:input_type -> tower.environments.v1alpha1.FetchOriginRequest
+	19, // 47: tower.environments.v1alpha1.EnvironmentService.Push:input_type -> tower.environments.v1alpha1.PushRequest
+	21, // 48: tower.environments.v1alpha1.EnvironmentService.IssueTicket:input_type -> tower.environments.v1alpha1.IssueTicketRequest
+	22, // 49: tower.environments.v1alpha1.EnvironmentService.StartProcess:input_type -> tower.environments.v1alpha1.StartProcessRequest
+	27, // 50: tower.environments.v1alpha1.EnvironmentService.AttachProcess:input_type -> tower.environments.v1alpha1.AttachProcessRequest
+	32, // 51: tower.environments.v1alpha1.EnvironmentService.SignalProcess:input_type -> tower.environments.v1alpha1.SignalProcessRequest
+	34, // 52: tower.environments.v1alpha1.EnvironmentService.ListProcesses:input_type -> tower.environments.v1alpha1.ListProcessesRequest
+	7,  // 53: tower.environments.v1alpha1.EnvironmentService.Exec:output_type -> tower.environments.v1alpha1.ExecResponse
+	10, // 54: tower.environments.v1alpha1.EnvironmentService.ReadFile:output_type -> tower.environments.v1alpha1.ReadFileResponse
+	13, // 55: tower.environments.v1alpha1.EnvironmentService.WriteFile:output_type -> tower.environments.v1alpha1.WriteFileResponse
+	15, // 56: tower.environments.v1alpha1.EnvironmentService.CopyFile:output_type -> tower.environments.v1alpha1.CopyFileResponse
+	17, // 57: tower.environments.v1alpha1.EnvironmentService.FetchOrigin:output_type -> tower.environments.v1alpha1.FetchOriginResponse
+	20, // 58: tower.environments.v1alpha1.EnvironmentService.Push:output_type -> tower.environments.v1alpha1.PushResponse
+	37, // 59: tower.environments.v1alpha1.EnvironmentService.IssueTicket:output_type -> tower.environments.v1alpha1.IssueTicketResponse
+	24, // 60: tower.environments.v1alpha1.EnvironmentService.StartProcess:output_type -> tower.environments.v1alpha1.StartProcessResponse
+	28, // 61: tower.environments.v1alpha1.EnvironmentService.AttachProcess:output_type -> tower.environments.v1alpha1.AttachProcessResponse
+	33, // 62: tower.environments.v1alpha1.EnvironmentService.SignalProcess:output_type -> tower.environments.v1alpha1.SignalProcessResponse
+	35, // 63: tower.environments.v1alpha1.EnvironmentService.ListProcesses:output_type -> tower.environments.v1alpha1.ListProcessesResponse
+	53, // [53:64] is the sub-list for method output_type
+	42, // [42:53] is the sub-list for method input_type
+	42, // [42:42] is the sub-list for extension type_name
+	42, // [42:42] is the sub-list for extension extendee
+	0,  // [0:42] is the sub-list for field type_name
 }
 
 func init() { file_tower_environments_v1alpha1_environment_service_proto_init() }
@@ -2446,6 +2883,7 @@ func file_tower_environments_v1alpha1_environment_service_proto_init() {
 	if File_tower_environments_v1alpha1_environment_service_proto != nil {
 		return
 	}
+	file_tower_environments_v1alpha1_common_proto_init()
 	file_tower_environments_v1alpha1_environment_service_proto_msgTypes[0].OneofWrappers = []any{
 		(*Environment_Box)(nil),
 		(*Environment_Machine)(nil),
@@ -2467,18 +2905,22 @@ func file_tower_environments_v1alpha1_environment_service_proto_init() {
 		(*StartProcessRequest_Argv)(nil),
 		(*StartProcessRequest_Shell)(nil),
 	}
-	file_tower_environments_v1alpha1_environment_service_proto_msgTypes[21].OneofWrappers = []any{
+	file_tower_environments_v1alpha1_environment_service_proto_msgTypes[19].OneofWrappers = []any{
+		(*BoostIntent_On)(nil),
+		(*BoostIntent_Resources)(nil),
+	}
+	file_tower_environments_v1alpha1_environment_service_proto_msgTypes[24].OneofWrappers = []any{
 		(*AttachProcessResponse_Output)(nil),
 		(*AttachProcessResponse_End)(nil),
 	}
-	file_tower_environments_v1alpha1_environment_service_proto_msgTypes[24].OneofWrappers = []any{}
+	file_tower_environments_v1alpha1_environment_service_proto_msgTypes[27].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tower_environments_v1alpha1_environment_service_proto_rawDesc), len(file_tower_environments_v1alpha1_environment_service_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   33,
+			NumEnums:      4,
+			NumMessages:   36,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

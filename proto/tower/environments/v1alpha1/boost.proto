@@ -1,0 +1,166 @@
+syntax = "proto3";
+
+package tower.environments.v1alpha1;
+
+import "google/protobuf/timestamp.proto";
+import "tower/environments/v1alpha1/common.proto";
+import "tower/meta/v1/meta.proto";
+import "tower/meta/v1/options.proto";
+
+// Boost is a short-lived instance of a box's, larger than the box, that
+// the box's heavy jobs run on: made from the box's image and its first
+// repository's warm golden, on the box's workstream network, with the
+// box's checkouts, environment and secrets. tower makes one when a process
+// asks for it (EnvironmentService.StartProcess's boost), runs later
+// boosted processes of the box on it, and deletes it once none has run on
+// it for its target's boost_idle. A box has at most one, named as the
+// box; deleting the box deletes it. Only tower writes it; workstream reads
+// it. hangar targets only. See docs/decisions/boost.md.
+message Boost {
+  option (tower.meta.v1.resource) = {
+    kind: "Boost"
+    plural: "boosts"
+    short_names: ["bst"]
+    scope: SCOPE_PROJECT
+  };
+  string api_version = 1;
+  string kind = 2;
+  tower.meta.v1.ObjectMeta metadata = 3;
+  BoostSpec spec = 4;
+  BoostStatus status = 5;
+}
+
+// BoostSpec is the boost tower wants.
+message BoostSpec {
+  // The Box it is a boost of, whose name it has.
+  string box = 1 [(tower.meta.v1.field).immutable = true];
+  // Its size: cpu and memory, within the target's boost_max and hangar's
+  // shapes (512Mi to 8Gi of memory per vCPU). A boost too small for a
+  // process asked of it is deleted and made again larger, never resized.
+  Resources resources = 2 [(tower.meta.v1.field).immutable = true];
+  // The Target it runs on, its box's: what its target's boost_budget
+  // counts it against.
+  string target = 3 [(tower.meta.v1.field).immutable = true];
+}
+
+// BoostPhase is where a boost is in its life.
+enum BoostPhase {
+  BOOST_PHASE_UNSPECIFIED = 0;
+  // Waiting for its box, or its instance is being made.
+  BOOST_PHASE_PENDING = 1;
+  // Its instance is starting, or the box's checkouts, secret files and
+  // setup steps are being made in it.
+  BOOST_PHASE_STARTING = 2;
+  // Processes run on it.
+  BOOST_PHASE_READY = 3;
+  // It cannot be made; the Ready condition says why. It is deleted as an
+  // idle one is.
+  BOOST_PHASE_FAILED = 4;
+}
+
+// BoostStatus is what tower reports about the boost.
+message BoostStatus {
+  int64 observed_generation = 1;
+  // Ready, with Materialized on the way to it, and SetUp, which says
+  // whether the box's devcontainer setup steps passed in it. While it is
+  // STARTING, Ready's message says what it waits for, and
+  // setup_start_time since when its setup steps run: a slow setup is why
+  // a boost is slow to start.
+  repeated tower.meta.v1.Condition conditions = 2;
+  BoostPhase phase = 3;
+  // The Instance that holds it, and its name on the workstream's network.
+  string instance = 4;
+  string alias = 5;
+  // The Goldens it was made from: its box's image, and the warm checkout
+  // of the box's first repository it was cloned from, if one was ready.
+  string image_golden = 6;
+  string warm_golden = 7;
+  // When a process last started on it or was last seen running on it: it
+  // is deleted once this is boost_idle ago and nothing runs on it.
+  google.protobuf.Timestamp last_use_time = 8;
+  // How many of its processes are running, as its instance reports.
+  int32 processes_running = 9;
+  // When the box's devcontainer setup steps started and ended in it;
+  // unset until they do.
+  google.protobuf.Timestamp setup_start_time = 10;
+  google.protobuf.Timestamp setup_end_time = 11;
+}
+
+// BoostService reads boosts; only tower writes them.
+service BoostService {
+  rpc GetBoost(GetBoostRequest) returns (GetBoostResponse);
+  rpc ListBoosts(ListBoostsRequest) returns (ListBoostsResponse);
+  rpc WatchBoosts(WatchBoostsRequest) returns (stream WatchBoostsResponse);
+  rpc ApplyBoost(ApplyBoostRequest) returns (ApplyBoostResponse);
+  rpc DeleteBoost(DeleteBoostRequest) returns (DeleteBoostResponse);
+  rpc UpdateBoostStatus(UpdateBoostStatusRequest) returns (UpdateBoostStatusResponse);
+}
+
+message GetBoostRequest {
+  string project = 1;
+  string name = 2;
+}
+
+message GetBoostResponse {
+  Boost boost = 1;
+}
+
+message ListBoostsRequest {
+  // Empty lists across every project the caller can read.
+  string project = 1;
+  string label_selector = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+}
+
+message ListBoostsResponse {
+  repeated Boost items = 1;
+  string next_page_token = 2;
+  int64 revision = 3;
+}
+
+message WatchBoostsRequest {
+  // Empty watches every project the caller can read.
+  string project = 1;
+  string label_selector = 2;
+  int64 since_revision = 3;
+}
+
+message WatchBoostsResponse {
+  tower.meta.v1.EventType type = 1;
+  Boost boost = 2;
+  int64 revision = 3;
+}
+
+message ApplyBoostRequest {
+  Boost boost = 1;
+  // Refuses an existing object with ALREADY_EXISTS, changing nothing.
+  bool create_only = 2;
+}
+
+message ApplyBoostResponse {
+  Boost boost = 1;
+  repeated string warnings = 2;
+  bool created = 3;
+}
+
+message DeleteBoostRequest {
+  string project = 1;
+  string name = 2;
+  optional int64 expected_resource_version = 3;
+}
+
+message DeleteBoostResponse {
+  Boost boost = 1;
+}
+
+message UpdateBoostStatusRequest {
+  string project = 1;
+  string name = 2;
+  BoostStatus status = 3;
+  optional int64 expected_resource_version = 4;
+}
+
+message UpdateBoostStatusResponse {
+  Boost boost = 1;
+}

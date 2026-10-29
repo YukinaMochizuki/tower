@@ -127,6 +127,28 @@ message TargetSettings {
   // root holds mostly the image, so it grows later and by less.
   string box_root_disk_grow_threshold = 14;
   string box_root_disk_grow_step = 15;
+  // A boost's size when a process asks for one without a size ("on"), as
+  // cpu and memory; unset, 8 vCPU and 8Gi. A boost is a short-lived larger
+  // instance of a box's that heavy jobs run on, on a hangar target alone
+  // (docs/decisions/boost.md). Each size is within hangar's shapes: 512Mi
+  // to 8Gi of memory per vCPU.
+  BoostSize boost_resources = 16;
+  // The largest boost a process may ask for; unset, 8 vCPU and 16Gi.
+  BoostSize boost_max = 17;
+  // What all of the target's boosts together may hold, within its Plan's
+  // quota left; unset, 16 vCPU and 16Gi. A boosted start that does not fit
+  // waits its turn, first come first served, workstream by workstream.
+  BoostSize boost_budget = 18;
+  // A boost nothing has run on for this long is deleted, freeing its cpu,
+  // memory and disk; unset, 10 minutes.
+  google.protobuf.Duration boost_idle = 19;
+}
+
+// BoostSize is an amount of cpu and memory, as quantities such as "8" and
+// "8Gi"; each unset one takes tower's default.
+message BoostSize {
+  string cpu = 1;
+  string memory = 2;
 }
 
 // TimeWindow is a daily window of wall-clock time.
@@ -177,6 +199,10 @@ message Capacity {
   string memory_total = 3;
   string memory_free = 4;
   int32 cpus = 5;
+  // The vCPUs left, as a quantity such as "6500m": on a hangar target,
+  // its Plan's limit less what its running machines count. Empty is not
+  // known.
+  string cpu_free = 6;
 }
 
 // Usage is what holds the target's disk, by what it is for.

@@ -74,6 +74,9 @@ const (
 	DefaultBoxWorkspaceDiskGrowStep      = "4Gi"
 	DefaultBoxRootDiskGrowThreshold      = "90%"
 	DefaultBoxRootDiskGrowStep           = "2Gi"
+	// DefaultBoostIdle is how long a boost nothing runs on is kept; the
+	// boost sizes' defaults are in boostsize.go.
+	DefaultBoostIdle = 10 * time.Minute
 )
 
 // DefaultHangarBoxMemory is a box's memory on a hangar target, where a
@@ -123,6 +126,10 @@ type settings struct {
 	workspaceDisk, workspaceDiskMax, rootDisk, rootDiskMax string
 	// How full each disk is when it grows, and by how much.
 	workspaceGrowThreshold, workspaceGrowStep, rootGrowThreshold, rootGrowStep string
+	// A boost's default size, the largest one, what all of the target's
+	// may hold, and how long one nothing runs on is kept.
+	boostResources, boostMax, boostBudget boostSize
+	boostIdle                             time.Duration
 }
 
 func settingsOf(t *targetsv1alpha1.Target) settings {
@@ -134,6 +141,18 @@ func settingsOf(t *targetsv1alpha1.Target) settings {
 		rootDisk: DefaultBoxRootDisk, rootDiskMax: DefaultBoxRootDiskMax,
 		workspaceGrowThreshold: DefaultBoxWorkspaceDiskGrowThreshold, workspaceGrowStep: DefaultBoxWorkspaceDiskGrowStep,
 		rootGrowThreshold: DefaultBoxRootDiskGrowThreshold, rootGrowStep: DefaultBoxRootDiskGrowStep,
+		boostResources: defaultBoostResources, boostMax: defaultBoostMax, boostBudget: defaultBoostBudget,
+		boostIdle: DefaultBoostIdle,
+	}
+	// Read as a whole, as validateTarget checks them: one setting that
+	// does not hold with the others leaves all of them tower's.
+	if boostSettingsError(set) == nil {
+		s.boostResources, _ = readBoostSetting(set.GetBoostResources(), defaultBoostResources)
+		s.boostMax, _ = readBoostSetting(set.GetBoostMax(), defaultBoostMax)
+		s.boostBudget, _ = readBoostSetting(set.GetBoostBudget(), defaultBoostBudget)
+		if d := set.GetBoostIdle(); d != nil && d.AsDuration() > 0 {
+			s.boostIdle = d.AsDuration()
+		}
 	}
 	for _, q := range []struct {
 		to  *string

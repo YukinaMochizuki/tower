@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"slices"
 	"strconv"
 
@@ -122,6 +123,17 @@ func quota(p *hangartenancy.Project, facts []*targetsv1alpha1.Fact) (*targetsv1a
 	if lim.Cpu != nil {
 		if cpus, err := quantity.CPU(lim.GetCpu()); err == nil {
 			c.Cpus = cpus
+		}
+		// In thousandths, as hangar counts a fraction of a vCPU.
+		total, terr := quantity.Parse(lim.GetCpu())
+		used, uerr := quantity.Parse(or(use.GetCpu(), "0"))
+		if terr == nil && uerr == nil {
+			free := new(big.Rat).Sub(total, used)
+			if free.Sign() < 0 {
+				free.SetInt64(0)
+			}
+			m := new(big.Rat).Mul(free, big.NewRat(1000, 1))
+			c.CpuFree = new(big.Int).Quo(m.Num(), m.Denom()).String() + "m"
 		}
 	}
 	count := func(name string, used int32, limit *int32) {

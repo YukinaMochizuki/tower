@@ -4,6 +4,7 @@ package tower.environments.v1alpha1;
 
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
+import "tower/environments/v1alpha1/common.proto";
 
 // EnvironmentService is what workstream does in a box or a machine: run a
 // command, read and write files, copy between two environments, refresh a
@@ -206,11 +207,81 @@ message StartProcessRequest {
   map<string, string> env = 5;
   // A name for people, such as "dev server"; tower does not read it.
   string name = 6;
+  // Runs it on the box's boost rather than in the box: a larger instance of
+  // the box's, made for it if the box has none (docs/decisions/boost.md).
+  // Unset runs it in the box. A box on a hangar target alone has one.
+  BoostIntent boost = 7;
+  // The ticket of a start answered pending, asked about again with the
+  // same request: it is answered pending again, or started. A ticket not
+  // asked about for two minutes is dropped.
+  string pending = 8;
+  // With pending, gives the ticket up instead: nothing starts, and its
+  // place goes to the next.
+  bool cancel = 9;
+}
+
+// BoostIntent is the boost a process asks for.
+message BoostIntent {
+  oneof size {
+    // The target's boost_resources.
+    bool on = 1;
+    // A size: cpu and memory, each unset one the target's default. It is
+    // held to the target's boost_max, and its cpus to hangar's shapes
+    // (512Mi to 8Gi of memory per vCPU).
+    Resources resources = 2;
+  }
 }
 
 message StartProcessResponse {
-  // The process's id in its environment.
+  // The process's id in its environment; empty while pending says the
+  // start is pending.
   string process = 1;
+  // Set when it has not started yet: ask again with its ticket.
+  PendingStart pending = 2;
+  // Where it runs, once started.
+  RanOn ran_on = 3;
+}
+
+// PendingStart is a boosted start that has not started yet, as tower
+// answers it at once rather than waiting: the caller asks again with its
+// ticket, or gives the ticket up, and decides meanwhile whether to wait.
+message PendingStart {
+  string ticket = 1;
+  PendingReason reason = 2;
+  // Why, for people.
+  string message = 3;
+  // Its place in its target's queue, 1 first; 0 when not queued.
+  int32 position = 4;
+  // About how long until it starts: at least this, as far as tower knows.
+  google.protobuf.Duration estimated_wait = 5;
+}
+
+// PendingReason is why a start is pending.
+enum PendingReason {
+  PENDING_REASON_UNSPECIFIED = 0;
+  // The target's boosts hold its boost_budget, or its Plan's quota left
+  // is less than the boost: it waits its turn, first come first served,
+  // workstream by workstream in turn.
+  PENDING_REASON_QUEUED_BUDGET = 1;
+  // The box's boost is being made: its instance started, the box's
+  // checkouts and setup steps run in it.
+  PENDING_REASON_BOOST_STARTING = 2;
+  // The box's boost is smaller than asked and runs a process: it is made
+  // again larger once its processes end.
+  PENDING_REASON_BOOST_BUSY = 3;
+}
+
+// RanOn is where a process runs or ran.
+message RanOn {
+  RanOnKind kind = 1;
+  // The size of what it runs on: cpu and memory.
+  Resources resources = 2;
+}
+
+enum RanOnKind {
+  RAN_ON_KIND_UNSPECIFIED = 0;
+  RAN_ON_KIND_BOX = 1;
+  RAN_ON_KIND_BOOST = 2;
 }
 
 message AttachProcessRequest {
@@ -327,6 +398,10 @@ message ProcessInfo {
   bool running = 5;
   // How it ended; unset while it runs.
   ProcessExit exit = 6;
+  // Where it runs or ran: a box's processes and its boost's are listed
+  // together. A process of a boost deleted since keeps its exit, and its
+  // output is gone.
+  RanOn ran_on = 7;
 }
 
 message IssueTicketResponse {

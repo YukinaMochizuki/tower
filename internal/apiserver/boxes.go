@@ -47,6 +47,10 @@ const (
 	// setupAnnotation is the warnings of its devcontainer's setup steps
 	// that did not pass, if any.
 	setupAnnotation = registry.Domain + "/setup-warnings"
+	// setupStartedAnnotation and setupEndedAnnotation are when its
+	// devcontainer's setup steps started and ended, RFC 3339.
+	setupStartedAnnotation = registry.Domain + "/setup-started"
+	setupEndedAnnotation   = registry.Domain + "/setup-ended"
 )
 
 // errMirrorNotFetched waits for a repository's mirror on the target.
@@ -489,52 +493,21 @@ func fellBack(st *envv1alpha1.BoxStatus) bool {
 	return conditions.Find(st.GetConditions(), BoxDevcontainerFellBack).GetStatus() == metav1.ConditionStatus_CONDITION_STATUS_TRUE
 }
 
-// makeBoxInstance makes the box's instance from its image, with its disk
-// cloned from its first repository's warm golden when one is ready, its
-// disks as its target grows them (boxDisks) and its caches in /workspace
-// (boxEnv).
+// makeBoxInstance makes the box's instance (boxInstanceSpec).
 func (s *Server) makeBoxInstance(ctx context.Context, key controller.Key, box *envv1alpha1.Box, p provider.Provider, target *targetsv1alpha1.Target, img *envv1alpha1.Golden, name string, bs *boxState) error {
 	st, spec := bs.st, box.GetSpec()
-	warm := ""
-	if cs := spec.GetCheckouts(); len(cs) > 0 {
-		var err error
-		if warm, err = s.readyWarm(ctx, key.Project, cs[0].GetRepository(), st.Target, img.GetMetadata().GetName()); err != nil {
-			return err
-		}
-	}
-	runState := envv1alpha1.RunState_RUN_STATE_RUNNING
-	if spec.GetRunState() == envv1alpha1.RunState_RUN_STATE_STOPPED {
-		runState = envv1alpha1.RunState_RUN_STATE_STOPPED
-	}
-	// Recorded before the instance names them, so pruning, which reads the
-	// use, never takes a golden an instance is about to be made of.
-	for _, g := range []string{img.GetMetadata().GetName(), warm} {
-		if g == "" {
-			continue
-		}
-		if err := s.goldenUsed(ctx, key.Project, g); err != nil {
-			return err
-		}
-	}
-	// Its devcontainer's containerEnv, recorded with its image's build.
-	var build buildSpec
-	if _, err := s.getRecord(ctx, goldenBuildKey(key.Project, img.GetMetadata().GetName()), &build); err != nil {
-		return err
-	}
-	env, err := imageBoxEnv(ctx, p, img.GetStatus().GetArtifact(), build.Env)
+	is, warm, err := s.boxInstanceSpec(ctx, key, box, p, target, img, spec.GetResources())
 	if err != nil {
 		bs.cond(BoxReady, false, "ImageUnresolved", "reading its image's environment, retried: "+err.Error())
 		return err
 	}
-	resources, growth := boxDisks(target, spec.GetResources())
+	is.Alias, is.RunState = key.Name, envv1alpha1.RunState_RUN_STATE_RUNNING
+	if spec.GetRunState() == envv1alpha1.RunState_RUN_STATE_STOPPED {
+		is.RunState = envv1alpha1.RunState_RUN_STATE_STOPPED
+	}
 	_, err = s.backend(registry.Instance).Create(s.system(ctx), &envv1alpha1.Instance{
 		Metadata: &metav1.ObjectMeta{Project: key.Project, Name: name, OwnerReferences: []*metav1.OwnerReference{ownedBy(registry.Box, box)}},
-		Spec: &envv1alpha1.InstanceSpec{
-			Target: st.Target, Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, Image: img.GetStatus().GetArtifact(),
-			DiskGolden: warm, Network: spec.GetWorkstream(), Alias: key.Name,
-			Resources: resources, DiskGrowth: growth, RunState: runState,
-			Env: env,
-		},
+		Spec:     is,
 	})
 	if err != nil && connect.CodeOf(err) != connect.CodeAlreadyExists {
 		return err
@@ -543,6 +516,48 @@ func (s *Server) makeBoxInstance(ctx context.Context, key controller.Key, box *e
 	bs.cond(BoxMaterialized, false, "Creating", "")
 	bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", "its instance is being made")
 	return nil
+}
+
+// boxInstanceSpec is the spec of an instance of the box's, of resources,
+// the box's own or its boost's: from its image img, with its disk cloned
+// from its first repository's warm golden when one is ready, its disks as
+// its target grows them (boxDisks), its caches in /workspace (boxEnv), on
+// its workstream's network. The caller names it there (alias) and says
+// whether it runs. It returns the warm golden, "" for none, and records
+// the goldens' use.
+func (s *Server) boxInstanceSpec(ctx context.Context, key controller.Key, box *envv1alpha1.Box, p provider.Provider, target *targetsv1alpha1.Target, img *envv1alpha1.Golden, resources *envv1alpha1.Resources) (*envv1alpha1.InstanceSpec, string, error) {
+	spec, tname := box.GetSpec(), target.GetMetadata().GetName()
+	warm := ""
+	if cs := spec.GetCheckouts(); len(cs) > 0 {
+		var err error
+		if warm, err = s.readyWarm(ctx, key.Project, cs[0].GetRepository(), tname, img.GetMetadata().GetName()); err != nil {
+			return nil, "", err
+		}
+	}
+	// Recorded before the instance names them, so pruning, which reads the
+	// use, never takes a golden an instance is about to be made of.
+	for _, g := range []string{img.GetMetadata().GetName(), warm} {
+		if g == "" {
+			continue
+		}
+		if err := s.goldenUsed(ctx, key.Project, g); err != nil {
+			return nil, "", err
+		}
+	}
+	// Its devcontainer's containerEnv, recorded with its image's build.
+	var build buildSpec
+	if _, err := s.getRecord(ctx, goldenBuildKey(key.Project, img.GetMetadata().GetName()), &build); err != nil {
+		return nil, "", err
+	}
+	env, err := imageBoxEnv(ctx, p, img.GetStatus().GetArtifact(), build.Env)
+	if err != nil {
+		return nil, "", err
+	}
+	res, growth := boxDisks(target, resources)
+	return &envv1alpha1.InstanceSpec{
+		Target: tname, Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER, Image: img.GetStatus().GetArtifact(),
+		DiskGolden: warm, Network: spec.GetWorkstream(), Resources: res, DiskGrowth: growth, Env: env,
+	}, warm, nil
 }
 
 // readyWarm is the repository's newest ready warm golden on target made on
@@ -597,46 +612,12 @@ func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *en
 	}
 	target := bs.st.GetTarget()
 	ref := provider.Instance{Project: key.Project, Name: in.GetMetadata().GetName()}
-	checkouts := box.GetSpec().GetCheckouts()
 	s.startJob(target, job, s.boxCtrl, key, func(ctx context.Context) error {
 		if done, err := s.instanceMarked(ctx, key.Project, ref.Name, materializedAnnotation); err != nil || done {
 			return err
 		}
-		var first string
-		for i, c := range checkouts {
-			repo, ok, err := getTyped[*envv1alpha1.Repository](ctx, s, registry.Repository, resource.Key{Project: key.Project, Name: c.GetRepository()})
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return fmt.Errorf("repository %q is gone: %w", c.GetRepository(), provider.ErrFailed)
-			}
-			if mirrorHead(repo, target) == "" {
-				s.fetchNow(controller.Key{Project: key.Project, Name: c.GetRepository()})
-				return errMirrorNotFetched
-			}
-			dir := "/workspace"
-			if i > 0 {
-				dir = "/repos/" + c.GetRepository()
-			}
-			commit, err := p.Checkout(ctx, ref, mirrorName(key.Project, c.GetRepository()), c.GetRef(), dir)
-			if err != nil {
-				return err
-			}
-			if i == 0 {
-				first = commit
-				if err := s.mustRun(ctx, p, ref, nil, dir, excludeCaches...); err != nil {
-					return err
-				}
-			}
-		}
-		if err := s.mustRun(ctx, p, ref, nil, "/", adoptToolDirs...); err != nil {
+		if err := s.materializeInstance(ctx, p, key, box, ref, target); err != nil {
 			return err
-		}
-		if len(checkouts) > 0 {
-			if err := s.setUpBox(ctx, p, key, box, ref, mirrorName(key.Project, checkouts[0].GetRepository()), first); err != nil {
-				return err
-			}
 		}
 		if err := s.annotateInstance(ctx, key.Project, ref.Name, materializedAnnotation, "true"); err != nil {
 			return err
@@ -644,6 +625,55 @@ func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *en
 		return s.stepPassed(ctx, step)
 	})
 	return nil
+}
+
+// materializeInstance checks the box's repositories out in ref, an
+// instance of the box's on target, its own or its boost, and runs its
+// devcontainer's setup steps there, marking the instance with when they
+// started and ended.
+func (s *Server) materializeInstance(ctx context.Context, p provider.Provider, key controller.Key, box *envv1alpha1.Box, ref provider.Instance, target string) error {
+	checkouts := box.GetSpec().GetCheckouts()
+	var first string
+	for i, c := range checkouts {
+		repo, ok, err := getTyped[*envv1alpha1.Repository](ctx, s, registry.Repository, resource.Key{Project: key.Project, Name: c.GetRepository()})
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("repository %q is gone: %w", c.GetRepository(), provider.ErrFailed)
+		}
+		if mirrorHead(repo, target) == "" {
+			s.fetchNow(controller.Key{Project: key.Project, Name: c.GetRepository()})
+			return errMirrorNotFetched
+		}
+		dir := "/workspace"
+		if i > 0 {
+			dir = "/repos/" + c.GetRepository()
+		}
+		commit, err := p.Checkout(ctx, ref, mirrorName(key.Project, c.GetRepository()), c.GetRef(), dir)
+		if err != nil {
+			return err
+		}
+		if i == 0 {
+			first = commit
+			if err := s.mustRun(ctx, p, ref, nil, dir, excludeCaches...); err != nil {
+				return err
+			}
+		}
+	}
+	if err := s.mustRun(ctx, p, ref, nil, "/", adoptToolDirs...); err != nil {
+		return err
+	}
+	if len(checkouts) == 0 {
+		return nil
+	}
+	if err := s.annotateInstance(ctx, key.Project, ref.Name, setupStartedAnnotation, s.clock.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	if err := s.setUpBox(ctx, p, key, box, ref, mirrorName(key.Project, checkouts[0].GetRepository()), first); err != nil {
+		return err
+	}
+	return s.annotateInstance(ctx, key.Project, ref.Name, setupEndedAnnotation, s.clock.Now().UTC().Format(time.RFC3339Nano))
 }
 
 // boxStep is one of the box's instance steps, in its instance's run.
@@ -768,37 +798,47 @@ func (s *Server) writeSecretFiles(ctx context.Context, key controller.Key, box *
 	ref := provider.Instance{Project: key.Project, Name: in.GetMetadata().GetName()}
 	run, files := runOf(in), box.GetSpec().GetSecretFiles()
 	s.startJob(bs.st.GetTarget(), job, s.boxCtrl, key, func(ctx context.Context) error {
-		values, err := openSecretValues(ctx, s, key.Project, files)
-		if err != nil {
-			return fmt.Errorf("%w: %w", err, provider.ErrFailed)
-		}
-		for i, f := range files {
-			mode := fs.FileMode(f.GetMode())
-			if mode == 0 {
-				mode = 0o600
-			}
-			// The value in memory (provider.SecretsDir), and at its path a
-			// link to it, which a disk may hold.
-			sum := sha256.Sum256([]byte(f.GetPath()))
-			held := provider.SecretsDir + "/" + hex.EncodeToString(sum[:8])
-			if err := p.WriteFile(ctx, ref, held, mode, 0, bytes.NewReader(values[i])); err != nil {
-				return fmt.Errorf("writing the secret file %s: %w", f.GetPath(), err)
-			}
-			code, err := p.Exec(ctx, provider.ExecRequest{Instance: ref, Command: []string{
-				"sh", "-c", `mkdir -p "$(dirname "$2")" && ln -sfn "$1" "$2"`, "sh", held, f.GetPath(),
-			}})
-			if err == nil && code != 0 {
-				err = fmt.Errorf("exit %d: %w", code, provider.ErrFailed)
-			}
-			if err != nil {
-				return fmt.Errorf("linking the secret file %s: %w", f.GetPath(), err)
-			}
+		if err := s.writeSecretFilesIn(ctx, p, key.Project, ref, files); err != nil {
+			return err
 		}
 		if err := s.annotateInstance(ctx, key.Project, ref.Name, secretFilesAnnotation, run); err != nil {
 			return err
 		}
 		return s.stepPassed(ctx, step)
 	})
+	return nil
+}
+
+// writeSecretFilesIn writes a box's secret files into ref, an instance of
+// the box's, its own or its boost. The values are opened for it alone and
+// go nowhere but the files.
+func (s *Server) writeSecretFilesIn(ctx context.Context, p provider.Provider, project string, ref provider.Instance, files []*envv1alpha1.SecretFile) error {
+	values, err := openSecretValues(ctx, s, project, files)
+	if err != nil {
+		return fmt.Errorf("%w: %w", err, provider.ErrFailed)
+	}
+	for i, f := range files {
+		mode := fs.FileMode(f.GetMode())
+		if mode == 0 {
+			mode = 0o600
+		}
+		// The value in memory (provider.SecretsDir), and at its path a
+		// link to it, which a disk may hold.
+		sum := sha256.Sum256([]byte(f.GetPath()))
+		held := provider.SecretsDir + "/" + hex.EncodeToString(sum[:8])
+		if err := p.WriteFile(ctx, ref, held, mode, 0, bytes.NewReader(values[i])); err != nil {
+			return fmt.Errorf("writing the secret file %s: %w", f.GetPath(), err)
+		}
+		code, err := p.Exec(ctx, provider.ExecRequest{Instance: ref, Command: []string{
+			"sh", "-c", `mkdir -p "$(dirname "$2")" && ln -sfn "$1" "$2"`, "sh", held, f.GetPath(),
+		}})
+		if err == nil && code != 0 {
+			err = fmt.Errorf("exit %d: %w", code, provider.ErrFailed)
+		}
+		if err != nil {
+			return fmt.Errorf("linking the secret file %s: %w", f.GetPath(), err)
+		}
+	}
 	return nil
 }
 

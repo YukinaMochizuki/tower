@@ -162,6 +162,9 @@ func validateTarget(_ context.Context, _ *Server, _ authz.Caller, _, obj proto.M
 			return invalid("spec.settings.%s: %v", g.name, err)
 		}
 	}
+	if err := boostSettingsError(set); err != nil {
+		return invalid("spec.settings.%v", err)
+	}
 	// Each start against its max, with tower's default for the one unset.
 	eff := settingsOf(t)
 	for _, d := range []struct{ name, start, max string }{

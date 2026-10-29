@@ -28,6 +28,7 @@ type Backends func(registry.Resource) resource.Backend
 
 // Mount registers a handler for every resource kind on mux.
 func Mount(mux *http.ServeMux, backends Backends, opts ...connect.HandlerOption) {
+	mux.Handle(environmentsv1alpha1connect.NewBoostServiceHandler(&boostService{b: backends(registry.Boost)}, opts...))
 	mux.Handle(environmentsv1alpha1connect.NewBoxServiceHandler(&boxService{b: backends(registry.Box)}, opts...))
 	mux.Handle(environmentsv1alpha1connect.NewGoldenServiceHandler(&goldenService{b: backends(registry.Golden)}, opts...))
 	mux.Handle(environmentsv1alpha1connect.NewInstanceServiceHandler(&instanceService{b: backends(registry.Instance)}, opts...))
@@ -38,6 +39,73 @@ func Mount(mux *http.ServeMux, backends Backends, opts ...connect.HandlerOption)
 	mux.Handle(targetsv1alpha1connect.NewPlacementServiceHandler(&placementService{b: backends(registry.Placement)}, opts...))
 	mux.Handle(targetsv1alpha1connect.NewTargetServiceHandler(&targetService{b: backends(registry.Target)}, opts...))
 	mux.Handle(tenancyv1alpha1connect.NewProjectServiceHandler(&projectService{b: backends(registry.Project)}, opts...))
+}
+
+type boostService struct {
+	b resource.Backend
+}
+
+func (s *boostService) GetBoost(ctx context.Context, req *connect.Request[v1alpha1.GetBoostRequest]) (*connect.Response[v1alpha1.GetBoostResponse], error) {
+	obj, err := s.b.Get(ctx, resource.Key{Project: req.Msg.GetProject(), Name: req.Msg.GetName()})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&v1alpha1.GetBoostResponse{Boost: obj.(*v1alpha1.Boost)}), nil
+}
+
+func (s *boostService) ListBoosts(ctx context.Context, req *connect.Request[v1alpha1.ListBoostsRequest]) (*connect.Response[v1alpha1.ListBoostsResponse], error) {
+	res, err := s.b.List(ctx, resource.ListOptions{Project: req.Msg.GetProject(), LabelSelector: req.Msg.GetLabelSelector(), PageSize: req.Msg.GetPageSize(), PageToken: req.Msg.GetPageToken()})
+	if err != nil {
+		return nil, err
+	}
+	out := &v1alpha1.ListBoostsResponse{NextPageToken: res.NextPageToken, Revision: res.Revision}
+	for _, item := range res.Items {
+		out.Items = append(out.Items, item.(*v1alpha1.Boost))
+	}
+	return connect.NewResponse(out), nil
+}
+
+func (s *boostService) WatchBoosts(ctx context.Context, req *connect.Request[v1alpha1.WatchBoostsRequest], stream *connect.ServerStream[v1alpha1.WatchBoostsResponse]) error {
+	opts := resource.WatchOptions{Project: req.Msg.GetProject(), LabelSelector: req.Msg.GetLabelSelector(), SinceRevision: req.Msg.GetSinceRevision()}
+	return s.b.Watch(ctx, opts, func(ev resource.Event) error {
+		out := &v1alpha1.WatchBoostsResponse{Type: ev.Type, Revision: ev.Revision}
+		if ev.Object != nil {
+			out.Boost = ev.Object.(*v1alpha1.Boost)
+		}
+		return stream.Send(out)
+	})
+}
+
+func (s *boostService) ApplyBoost(ctx context.Context, req *connect.Request[v1alpha1.ApplyBoostRequest]) (*connect.Response[v1alpha1.ApplyBoostResponse], error) {
+	in := req.Msg.GetBoost()
+	if in == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("boost is required"))
+	}
+	apply := s.b.Apply
+	if req.Msg.GetCreateOnly() {
+		apply = s.b.Create
+	}
+	res, err := apply(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&v1alpha1.ApplyBoostResponse{Boost: res.Object.(*v1alpha1.Boost), Warnings: res.Warnings, Created: res.Created}), nil
+}
+
+func (s *boostService) DeleteBoost(ctx context.Context, req *connect.Request[v1alpha1.DeleteBoostRequest]) (*connect.Response[v1alpha1.DeleteBoostResponse], error) {
+	obj, err := s.b.Delete(ctx, resource.Key{Project: req.Msg.GetProject(), Name: req.Msg.GetName()}, req.Msg.ExpectedResourceVersion)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&v1alpha1.DeleteBoostResponse{Boost: obj.(*v1alpha1.Boost)}), nil
+}
+
+func (s *boostService) UpdateBoostStatus(ctx context.Context, req *connect.Request[v1alpha1.UpdateBoostStatusRequest]) (*connect.Response[v1alpha1.UpdateBoostStatusResponse], error) {
+	obj, err := s.b.UpdateStatus(ctx, resource.Key{Project: req.Msg.GetProject(), Name: req.Msg.GetName()}, req.Msg.GetStatus(), req.Msg.ExpectedResourceVersion)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&v1alpha1.UpdateBoostStatusResponse{Boost: obj.(*v1alpha1.Boost)}), nil
 }
 
 type boxService struct {

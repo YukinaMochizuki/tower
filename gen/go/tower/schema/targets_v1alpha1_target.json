@@ -140,10 +140,27 @@
       },
       "type": "object"
     },
+    "tower.targets.v1alpha1.BoostSize": {
+      "additionalProperties": false,
+      "description": "BoostSize is an amount of cpu and memory, as quantities such as \"8\" and \"8Gi\"; each unset one takes tower's default.",
+      "properties": {
+        "cpu": {
+          "type": "string"
+        },
+        "memory": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "tower.targets.v1alpha1.Capacity": {
       "additionalProperties": false,
       "description": "Capacity is the target's room, as quantities.",
       "properties": {
+        "cpuFree": {
+          "description": "The vCPUs left, as a quantity such as \"6500m\": on a hangar target, its Plan's limit less what its running machines count. Empty is not known.",
+          "type": "string"
+        },
         "cpus": {
           "format": "int32",
           "type": "integer"
@@ -247,6 +264,27 @@
       "additionalProperties": false,
       "description": "TargetSettings are the knobs of tower's policy on this target. Each unset one takes tower's default.",
       "properties": {
+        "boostBudget": {
+          "$ref": "#/$defs/tower.targets.v1alpha1.BoostSize",
+          "description": "What all of the target's boosts together may hold, within its Plan's quota left; unset, 16 vCPU and 16Gi. A boosted start that does not fit waits its turn, first come first served, workstream by workstream."
+        },
+        "boostIdle": {
+          "description": "A boost nothing has run on for this long is deleted, freeing its cpu, memory and disk; unset, 10 minutes.",
+          "examples": [
+            "30s",
+            "1.5s"
+          ],
+          "pattern": "^-?[0-9]+(\\.[0-9]{1,9})?s$",
+          "type": "string"
+        },
+        "boostMax": {
+          "$ref": "#/$defs/tower.targets.v1alpha1.BoostSize",
+          "description": "The largest boost a process may ask for; unset, 8 vCPU and 16Gi."
+        },
+        "boostResources": {
+          "$ref": "#/$defs/tower.targets.v1alpha1.BoostSize",
+          "description": "A boost's size when a process asks for one without a size (\"on\"), as cpu and memory; unset, 8 vCPU and 8Gi. A boost is a short-lived larger instance of a box's that heavy jobs run on, on a hangar target alone (docs/decisions/boost.md). Each size is within hangar's shapes: 512Mi to 8Gi of memory per vCPU."
+        },
         "boxRootDisk": {
           "description": "The same for a box's container root disk, at least 2Gi; unset, 2Gi and 30Gi. hangar starts a root disk at its image's base when that is larger.",
           "type": "string"
