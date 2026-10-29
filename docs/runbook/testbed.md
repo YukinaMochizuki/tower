@@ -153,6 +153,14 @@ TOWER_BOOST_IDLE=2m \
 go test -tags boostcheck -count=1 -v -timeout 60m ./test/boostcheck/
 ```
 
+Run it on scratch boxes made for it, not boxes in use, and on a quiet
+target: it sets the target's boost settings for its run (other boxes'
+boosts follow them meanwhile), waits for boosts to go idle, and edits
+box A. A run killed before it ends leaves what its cleanups would have
+put back: the target's boost settings as the run set them (put them
+back by hand from a copy taken before), `TOWER_SYNC_FILE` edited and
+`boostcheck.tmp` in box A, and the boxes' boosts until they go idle.
+
 Each check logs what it saw, the boost's output among it. The sync's
 checks edit `TOWER_SYNC_FILE` in box A (README.md unless given) and put
 it back; `TOWER_SYNC_CMD` adds a command to the first boosted job (such

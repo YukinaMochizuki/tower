@@ -209,8 +209,9 @@ func (r *run) boostGone(box string, within time.Duration) {
 	})
 }
 
-// file is a box's file, read through tower; "" for one not there.
-func (r *run) file(box, p string) string {
+// file is a box's file, read through tower, and whether it is there: an
+// empty file is not a missing one.
+func (r *run) file(box, p string) (string, bool) {
 	r.t.Helper()
 	stream, err := r.envs.ReadFile(context.Background(), connect.NewRequest(&envv1alpha1.ReadFileRequest{Environment: r.env(box), Path: "/workspace/" + p}))
 	if err != nil {
@@ -222,19 +223,26 @@ func (r *run) file(box, p string) string {
 		out.Write(stream.Msg().GetData())
 	}
 	if connect.CodeOf(stream.Err()) == connect.CodeNotFound {
-		return ""
+		return "", false
 	}
 	if err := stream.Err(); err != nil {
 		r.t.Fatal(err)
 	}
-	return out.String()
+	return out.String(), true
+}
+
+// text is a box's file, "" for one not there.
+func (r *run) text(box, p string) string {
+	r.t.Helper()
+	s, _ := r.file(box, p)
+	return s
 }
 
 // setFile writes a box's file through tower, and puts it back as it was
 // once the test ends.
 func (r *run) setFile(box, p, text string) {
 	r.t.Helper()
-	before := r.file(box, p)
+	before, existed := r.file(box, p)
 	write := func(text string) error {
 		_, err := r.envs.WriteFile(context.Background(), connect.NewRequest(&envv1alpha1.WriteFileRequest{Environment: r.env(box), Path: "/workspace/" + p, Data: []byte(text)}))
 		return err
@@ -243,7 +251,7 @@ func (r *run) setFile(box, p, text string) {
 		r.t.Fatal(err)
 	}
 	r.t.Cleanup(func() {
-		if before == "" {
+		if !existed {
 			_, err := r.envs.Exec(context.Background(), connect.NewRequest(&envv1alpha1.ExecRequest{
 				Environment: r.env(box), Command: &envv1alpha1.ExecRequest_Argv{Argv: &envv1alpha1.Argv{Args: []string{"rm", "-f", "/workspace/" + p}}},
 			}))
@@ -271,7 +279,7 @@ func TestABoostSeesTheBoxsEdits(t *testing.T) {
 	r := setup(t)
 	file := envOr("TOWER_SYNC_FILE", "README.md")
 	marker := "boostcheck " + strconv.FormatInt(time.Now().UnixNano(), 36)
-	r.setFile(r.boxA, file, r.file(r.boxA, file)+marker+"\n")
+	r.setFile(r.boxA, file, r.text(r.boxA, file)+marker+"\n")
 	line := "git diff --stat && grep -c '" + marker + "' " + file
 	if cmd := os.Getenv("TOWER_SYNC_CMD"); cmd != "" {
 		line += " && " + cmd
@@ -323,11 +331,11 @@ func TestAGenJobListsWhatItChanged(t *testing.T) {
 	}
 	// What it changed on the boost is not in the box.
 	for _, f := range changed.GetFiles() {
-		if f.GetStatus() == "A" && r.file(r.boxA, f.GetPath()) != "" {
+		if _, there := r.file(r.boxA, f.GetPath()); f.GetStatus() == "A" && there {
 			t.Errorf("%s, which it added on the boost, is in the box", f.GetPath())
 		}
 	}
-	if f := envOr("TOWER_SYNC_FILE", "README.md"); os.Getenv("TOWER_GEN_CMD") == "" && strings.Contains(r.file(r.boxA, f), "boostcheck-generated") {
+	if f := envOr("TOWER_SYNC_FILE", "README.md"); os.Getenv("TOWER_GEN_CMD") == "" && strings.Contains(r.text(r.boxA, f), "boostcheck-generated") {
 		t.Errorf("%s, which it rewrote on the boost, changed in the box", f)
 	}
 }

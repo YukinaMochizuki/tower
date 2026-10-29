@@ -151,27 +151,47 @@ What is accepted and built, in the API's terms:
   backoff from 100ms doubling to a minute, counted across its restarts.
 - **Before each boosted process, the box's work tree is synced.**
   tower-guest's subcommands, run through Exec as argv, never a shell
-  line: `boost-pack` in the box writes the work tree as a tree through
-  a copy of the box's index (`GIT_INDEX_FILE`; the box's own is never
-  touched), tracked files and untracked ones git does not ignore, and
-  packs what changed since a base, read from the object store, with
-  modes and symlinks, the paths deleted, and a bundle of HEAD's commits
-  no remote ref reaches. tower copies the pack to the boost
-  (`Provider.Copy`), fetches the mirror there (`UpdateOrigin`), and
-  `boost-apply` puts back what the boost's own jobs changed since the
-  base, applies the pack, sets HEAD to the box's commit on its branch
-  (the index read from it), and checks the tree made is the one sent.
-  The base is the tree last sent to that boost's instance (a
-  `BoostSync` record per box), else the commit the boost was checked
-  out at, else none: the whole tree. A base the boost lacks, or a tree
-  that does not match, sends the whole tree once more in the same start.
-  Submodules' checkouts are not sent (`submodules_not_synced`). A sync
-  past 2GiB is refused, naming its largest paths. Each staging directory
-  is removed after the sync, in the box and on the boost, and what a
-  crash leaves is swept after a day.
+  line; every path they give git is a path, never a pattern
+  (`GIT_LITERAL_PATHSPECS`), and each git call takes the checkout as a
+  safe directory for itself alone. `boost-pack` in the box writes the
+  work tree as a tree through a copy of the box's index
+  (`GIT_INDEX_FILE`; the box's own is never touched), tracked files and
+  untracked ones git does not ignore, and packs what changed since a
+  base, read from the object store, with modes and symlinks, the paths
+  deleted, what is staged where it differs from the work tree, and a
+  bundle of HEAD's commits no `origin` ref reaches. tower copies the
+  pack to the boost (`Provider.Copy`), fetches the mirror there
+  (`UpdateOrigin`), and `boost-apply` puts back what the boost's own
+  jobs changed since the base, applies the pack, and checks the tree
+  made is the one sent; then sets HEAD to the box's commit on its
+  branch and the index to the box's, so `git status` and `git diff` say
+  there what they say in the box. The base is the tree last sent to
+  that boost's instance (a `BoostSync` record per box), else the commit
+  the boost was checked out at, else none: the whole tree. A base the
+  boost lacks, or a tree that does not match, sends the whole tree once
+  more in the same start; a bundle whose commits the boost lacks the
+  parents of sends HEAD's whole history once more. A sync past 2GiB is
+  refused, naming its largest paths. Each staging directory is removed
+  after the sync, in the box and on the boost, and what a crash leaves
+  is swept after a day.
+- **Submodules' checkouts are never sent** (`submodules_not_synced`):
+  a committed submodule, or an untracked nested repository `git add -A`
+  takes as one, is a gitlink of the tree sent, and the tree made on the
+  boost is checked with the tree's gitlinks in place of whatever the
+  boost holds there. The boost keeps its own checkout of each, or none.
+- **A path that is a directory on the boost and a file in the box** is
+  the box's file: the directory goes with what it holds, ignored files
+  too.
 - **A sync beside another process of the box on the boost** leaves what
   that one wrote and does not check the work tree; the next process's
-  exit says so (`base_shared`).
+  exit says so (`base_shared`). Whether one runs is read from the
+  boost's processes when the sync applies, under the box's sync lock,
+  which a start holds as it starts its process: no start is between a
+  sync's look and its apply. A start whose sync another start's sync
+  overtook, or that ended longer ago than a start waits for one, syncs
+  again before it starts. A sync that is not shared first settles the
+  box's ended processes on the boost, so their artifacts are copied back
+  before it puts back what they wrote.
 - **A sync answers within 10 seconds or pends.** It runs as a job,
   holding the box in use; a start whose sync is not done in 10 seconds
   answers `PENDING_REASON_SYNCING` with its ticket, and starts from that
@@ -185,14 +205,18 @@ What is accepted and built, in the API's terms:
   then exits as its command did, by the same signal. That diff runs in
   the process's cgroup: a boosted process's peak memory, CPU time and
   wall time include it (`process-usage.md`). Its changed files are not
-  copied back.
-- **Artifacts** (`StartProcessRequest.artifacts`, paths in /workspace)
-  are copied back to the same paths in the box (`Provider.Copy`, boost
-  to box) when the process is settled: at the first read of its exit,
-  or by the boost controller once it ends, or before its boost goes;
-  once. They copy in their order up to 1GiB together; one not there,
-  leading out of /workspace, past the cap, or not copied (the box
-  stopped) says why in the exit, whose code it never changes.
+  copied back; a box keeps the list for its last 10 processes, the count
+  for all.
+- **Artifacts** (`StartProcessRequest.artifacts`, paths in /workspace,
+  none in a `.git` directory) are copied back to the same paths in the
+  box (`Provider.Copy`, boost to box) when the process is settled: at
+  the first read of its exit, by the boost controller once it ends,
+  before a sync puts back what it wrote, or before its boost goes; once,
+  the settling kept before its report is removed. Each is measured
+  again on the boost right before it is copied; they copy in their order
+  up to 1GiB together; one not there, leading out of /workspace by a
+  name or a symlink, past the cap, or not copied (the box stopped) says
+  why in the exit, whose code it never changes.
 - `test/boostcheck` checks the above on a real tower and hangar target
   (`docs/runbook/testbed.md`).
 
