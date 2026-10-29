@@ -36,6 +36,8 @@ func Main(args []string) int {
 	case "version":
 		fmt.Println(Version)
 		return 0
+	case "boost-pack", "boost-apply", "boost-job", "boost-clean":
+		return boostMain(args)
 	}
 	fmt.Fprintf(os.Stderr, "tower-guest: no command %q\n", args[0])
 	return 2
