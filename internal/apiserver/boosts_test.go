@@ -521,29 +521,33 @@ func TestARetireRacingAStartLeavesTheBoost(t *testing.T) {
 	b, _ := w.boost("dev")
 	var once sync.Once
 	started := make(chan *envv1alpha1.StartProcessResponse, 1)
+	release := make(chan struct{})
 	w.srv.SetBeforeBoostRetire(func(_, box string) {
 		once.Do(func() {
 			res, err := w.as(workstream).envs.StartProcess(context.Background(), connect.NewRequest(boostOn(box, "sleep")))
 			if err != nil {
 				t.Error(err)
 				started <- nil
-				return
+			} else {
+				started <- res.Msg
 			}
-			// Until the boost says the process runs, so nothing writes it
-			// while its deletion is decided.
-			for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-				if o, err := w.get(registry.Boost, "web", box); err == nil && o.(*envv1alpha1.Boost).GetStatus().GetProcessesRunning() == 1 {
-					break
-				}
-			}
-			started <- res.Msg
+			// The retire goes on once the boost says the process runs, so
+			// nothing writes the boost while its deletion is decided.
+			<-release
 		})
 	})
-	w.advance(2 * time.Minute)
+	w.waitSettled()
+	w.clock.Advance(2 * time.Minute)
 	res := <-started
 	if res.GetProcess() == "" {
+		close(release)
 		t.Fatalf("the start racing the retire: %v", res)
 	}
+	testutil.Eventually(t, "the boost says its new process runs", func() bool {
+		b, _ := w.boost("dev")
+		return b.GetStatus().GetProcessesRunning() == 1
+	})
+	close(release)
 	w.waitSettled()
 	nb, ok := w.boost("dev")
 	if !ok || nb.GetMetadata().GetUid() != b.GetMetadata().GetUid() || nb.GetMetadata().GetDeleteTime() != nil {

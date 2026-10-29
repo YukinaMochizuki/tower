@@ -150,7 +150,9 @@ func (t *targetBoosts) order() []*boostTicket {
 			byWS[tk.workstream] = append(byWS[tk.workstream], tk)
 		}
 	}
-	first := func(a, b *boostTicket) int { return cmp.Or(a.arrived.Compare(b.arrived), cmp.Compare(a.arrival, b.arrival)) }
+	first := func(a, b *boostTicket) int {
+		return cmp.Or(a.arrived.Compare(b.arrived), cmp.Compare(a.arrival, b.arrival))
+	}
 	var wss []string
 	for ws, tks := range byWS {
 		slices.SortFunc(tks, first)
