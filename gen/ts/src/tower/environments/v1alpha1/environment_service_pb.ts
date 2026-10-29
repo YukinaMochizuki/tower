@@ -1397,8 +1397,12 @@ export enum PendingReason {
   BOOST_GOING = 4,
 
   /**
-   * The box's work tree is being synced to its ready boost; the process
-   * starts when asked again once it is done.
+   * The box's work tree is being synced to its ready boost, or another
+   * start of the box is syncing or starting: the process starts when asked
+   * again once it is done. Each ask waits up to 10 seconds for it; ask
+   * again at once, or within 30 seconds: a sync that ended stays good for
+   * its start for 40 seconds, then is made again, as the box may have
+   * changed since.
    *
    * @generated from enum value: PENDING_REASON_SYNCING = 5;
    */

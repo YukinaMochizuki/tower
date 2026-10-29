@@ -1,6 +1,7 @@
 package apiserver_test
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	osexec "os/exec"
@@ -457,5 +458,168 @@ func TestArtifactsOutliveTheNextSync(t *testing.T) {
 	w.run(`ls out 2>&1`)
 	if got := w.read(w.box, "out/r"); got != "kept\n" {
 		t.Errorf("the first job's artifact in the box: %q", got)
+	}
+}
+
+// packsOf counts the syncs packed so far.
+func packsOf(w *world) int {
+	n := 0
+	for _, x := range w.fake.Execs() {
+		if len(x.Command) > 1 && x.Command[1] == "boost-pack" {
+			n++
+		}
+	}
+	return n
+}
+
+// gatePacks holds each boost-pack until the returned channel lets one
+// through.
+func gatePacks(w *world) chan<- struct{} {
+	tokens := make(chan struct{}, 16)
+	w.fake.OnExec(func(req provider.ExecRequest) (int, bool) {
+		if len(req.Command) > 1 && req.Command[0] == provider.GuestBinary && req.Command[1] == "boost-pack" {
+			<-tokens
+		}
+		return 0, false
+	})
+	return tokens
+}
+
+// TestAStartWaitsForTheSyncLockNoLongerThanItsWait: a start whose sync is
+// done, waiting for the box's sync lock behind another start's sync,
+// answers SYNCING within the inline wait, and starts when asked again
+// once the lock is free.
+func TestAStartWaitsForTheSyncLockNoLongerThanItsWait(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	w.readyBox("dev")
+	w.startBoosted(boostOn("dev", "true"))
+	w.srv.SetBoostSync(-1, 0)
+	tokens := gatePacks(w)
+	b := boostOn("dev", "sleep")
+	b.Pending = w.start(b).GetPending().GetTicket()
+	tokens <- struct{}{}
+	w.waitSettled() // b's sync is done; b has not started
+	a := boostOn("dev", "sleep")
+	a.Pending = w.start(a).GetPending().GetTicket() // a's sync holds the lock, at the gate
+	testutil.Eventually(t, "a's sync holding the box's sync lock", func() bool { return packsOf(w) == 3 })
+
+	w.srv.SetBoostSync(300*time.Millisecond, 0)
+	answered := make(chan *envv1alpha1.StartProcessResponse, 1)
+	asked := time.Now()
+	go func() {
+		res, err := w.as(workstream).envs.StartProcess(context.Background(), connect.NewRequest(b))
+		if err != nil {
+			t.Error(err)
+		}
+		answered <- res.Msg
+	}()
+	select {
+	case res := <-answered:
+		answered <- res
+		if res.GetPending().GetReason() != envv1alpha1.PendingReason_PENDING_REASON_SYNCING || res.GetPending().GetTicket() != b.Pending {
+			t.Errorf("a start waiting for the sync lock answered %v, want SYNCING with its ticket", res)
+		}
+		if took := time.Since(asked); took > 3*time.Second {
+			t.Errorf("it answered after %s, past its 300ms wait", took)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("a start waiting for the box's sync lock did not answer within 5s, with a wait of 300ms")
+	}
+	w.srv.SetBoostSync(-1, 0)
+	// a's sync, and b's again: a's overtook it.
+	for range 8 {
+		tokens <- struct{}{}
+	}
+	<-answered
+	w.waitSettled()
+	if res := w.startBoosted(b); res.GetProcess() == "" {
+		t.Errorf("asked again once the lock is free: %v", res)
+	}
+}
+
+// TestASyncWaitsForAStartToStart: a sync of the box waits, for the box's
+// sync lock, for a start that is starting its process: it applies once
+// the process runs, beside it.
+func TestASyncWaitsForAStartToStart(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	w.readyBox("dev")
+	w.startBoosted(boostOn("dev", "true"))
+	applies := func() int {
+		n := 0
+		for _, x := range w.fake.Execs() {
+			if len(x.Command) > 1 && x.Command[1] == "boost-apply" {
+				n++
+			}
+		}
+		return n
+	}
+	var once sync.Once
+	b := boostOn("dev", "sleep")
+	w.srv.SetBeforeBoostStart(func(_, _ string) {
+		once.Do(func() {
+			// a holds the lock, about to start its process: b's start and
+			// its sync now.
+			w.srv.SetBoostSync(-1, 0)
+			before := applies()
+			res, err := w.as(workstream).envs.StartProcess(context.Background(), connect.NewRequest(b))
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			b.Pending = res.Msg.GetPending().GetTicket()
+			testutil.Eventually(t, "b's sync waiting for the lock, or applied", func() bool {
+				return w.srv.BoostSyncsWaiting("t1", "web", "dev") > 0 || applies() > before
+			})
+		})
+	})
+	w.startBoosted(boostOn("dev", "sleep"))
+	w.waitSettled()
+	w.startBoosted(b)
+	if got := appliedBeforeStarts(w); len(got) != 2 || !got[1] {
+		t.Errorf("the syncs before a's and b's starts shared: %v, want b's beside a, applied once a ran", got)
+	}
+	// b's sync was applied after a's process started.
+	var order []string
+	for _, x := range w.fake.Execs() {
+		switch {
+		case x.Instance.Name == "boost-dev" && x.Process:
+			order = append(order, "start")
+		case len(x.Command) > 1 && x.Command[1] == "boost-apply":
+			order = append(order, "apply")
+		}
+	}
+	if len(order) < 4 || order[len(order)-4] != "apply" || order[len(order)-3] != "start" || order[len(order)-2] != "apply" {
+		t.Errorf("applies and starts in order %v, want ... apply, start (a), apply (b), start (b)", order)
+	}
+}
+
+// TestASyncStaysGoodForAReask: a start asked again 20 seconds after its
+// sync ended, as a caller asking every 10 seconds may be, starts from it.
+func TestASyncStaysGoodForAReask(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	w.srv.SetBoostSync(-1, 0)
+	w.readyBox("dev")
+	tokens := gatePacks(w)
+	first := w.start(boostOn("dev", "true"))
+	w.waitBoost("dev", envv1alpha1.BoostPhase_BOOST_PHASE_READY)
+	req := boostOn("dev", "true")
+	req.Pending = first.GetPending().GetTicket()
+	if res := w.start(req); res.GetPending().GetReason() != envv1alpha1.PendingReason_PENDING_REASON_SYNCING {
+		t.Fatalf("%v, want SYNCING", res)
+	}
+	tokens <- struct{}{}
+	w.waitSettled()
+	w.clock.Advance(20 * time.Second)
+	for range 4 {
+		tokens <- struct{}{} // so a sync made again ends, rather than hangs
+	}
+	if res := w.start(req); res.GetProcess() == "" {
+		t.Errorf("asked again 20s after its sync: %v, want started", res)
+	}
+	if packs := packsOf(w); packs != 1 {
+		t.Errorf("%d syncs, want 1", packs)
 	}
 }

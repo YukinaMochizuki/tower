@@ -145,7 +145,7 @@ var errSyncTooLarge = errors.New("the box's changes are too large to sync")
 // no base for is sent again whole, once, in the call. shared says a
 // process of the box runs on the boost: what it wrote stays. A box with
 // no checkout has no work tree to send.
-func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.Boost, in *envv1alpha1.Instance) (*syncStats, error) {
+func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.Boost, in *envv1alpha1.Instance, tq *targetBoosts) (*syncStats, error) {
 	checkouts := e.box.GetSpec().GetCheckouts()
 	if len(checkouts) == 0 {
 		return nil, nil
@@ -161,11 +161,17 @@ func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.B
 		s.log.Warn("listing a boost's processes before a sync failed; what they wrote stays", "environment", e.String(), "error", err)
 		shared = true
 	}
+	// A process being started counts as one that runs, which the start's
+	// hold on the lock makes none; this holds without it.
+	tq.mu.Lock()
+	shared = shared || tq.starting[boxKey] > 0
+	tq.mu.Unlock()
 	if !shared {
 		// What the ended ones changed and copied back, before the sync puts
-		// their writes back.
+		// their writes back; if that fails, their writes stay.
 		if err := s.settleInstance(ctx, boxKey, b, in, e.p); err != nil {
-			s.log.Warn("settling a boost's ended processes before a sync failed", "environment", e.String(), "error", err)
+			s.log.Warn("settling a boost's ended processes before a sync failed; what they wrote stays", "environment", e.String(), "error", err)
+			shared = true
 		}
 	}
 	var rec boostSyncRecord
@@ -519,14 +525,20 @@ type syncRun struct {
 func (s *Server) startSync(e *environment, b *envv1alpha1.Boost, in *envv1alpha1.Instance, tq *targetBoosts, boxKey controller.Key) *syncRun {
 	run := &syncRun{id: randomID(), done: make(chan struct{}), instance: in.GetMetadata().GetUid()}
 	release := s.beginUse(e.key.Project, e.key.Name)
-	mu := tq.syncLock(boxKey)
+	lock := tq.syncLock(boxKey)
 	job := "boost-sync/" + boxKey.String() + "/" + run.id
 	started := s.jobs.start(s.runCtx, job, s.boostCtrl, boxKey, func(ctx context.Context) error {
 		defer release()
 		defer close(run.done)
-		mu.Lock()
-		defer mu.Unlock()
-		run.stats, run.err = s.syncBoost(ctx, e, b, in)
+		tq.mu.Lock()
+		tq.syncWaiting[boxKey]++
+		tq.mu.Unlock()
+		lock.lock()
+		tq.mu.Lock()
+		tq.syncWaiting[boxKey]--
+		tq.mu.Unlock()
+		defer lock.unlock()
+		run.stats, run.err = s.syncBoost(ctx, e, b, in, tq)
 		run.finished = s.clock.Now()
 		if run.err == nil {
 			tq.mu.Lock()
@@ -545,7 +557,18 @@ func (s *Server) startSync(e *environment, b *envv1alpha1.Boost, in *envv1alpha1
 
 func (s *Server) artifactsLimit() int64 { return cmp.Or(s.artifactsMax, boostArtifactsMax) }
 
-func (s *Server) syncWaitFor() time.Duration { return cmp.Or(s.syncWait, boostSyncWait) }
+func (s *Server) syncWaitFor() time.Duration {
+	return cmp.Or(time.Duration(s.syncWait.Load()), boostSyncWait)
+}
+
+// syncValidFor is how long a sync that ended stays good for its start,
+// asked again: the inline wait and a margin, so a caller asking again
+// every 10 seconds, as it should, starts from it.
+func (s *Server) syncValidFor() time.Duration { return max(s.syncWaitFor(), 0) + syncValidMargin }
+
+// syncValidMargin is how much longer than the inline wait a sync that
+// ended is good for.
+const syncValidMargin = 30 * time.Second
 
 // waitSync waits for run within wait, or ctx.
 func waitSync(ctx context.Context, run *syncRun, wait time.Duration) bool {

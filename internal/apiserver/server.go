@@ -164,7 +164,7 @@ type Server struct {
 	boostSettling settling
 	// syncWait and artifactsMax are boostSyncWait and boostArtifactsMax
 	// unless a test sets them.
-	syncWait     time.Duration
+	syncWait     atomic.Int64
 	artifactsMax int64
 	jobs         jobs
 	// jobErrs are the jobs' last failures by target, for last_error.
@@ -188,6 +188,9 @@ type Server struct {
 	// noSettleJob, set, keeps the boost controller from settling ended
 	// processes itself, for tests of the other paths that do.
 	noSettleJob atomic.Bool
+	// beforeBoostStart, if set, runs as a boosted start, holding the box's
+	// sync lock, is about to start its process, for tests.
+	beforeBoostStart atomic.Pointer[func(controller.Key)]
 	// beforeBoostRetire, if set, runs between a boost's exits being read
 	// for its idleness and its deletion being decided, for tests.
 	beforeBoostRetire atomic.Pointer[func(controller.Key)]

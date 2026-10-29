@@ -170,10 +170,13 @@ What is accepted and built, in the API's terms:
   the boost was checked out at, else none: the whole tree. A base the
   boost lacks, or a tree that does not match, sends the whole tree once
   more in the same start; a bundle whose commits the boost lacks the
-  parents of sends HEAD's whole history once more. A sync past 2GiB is
-  refused, naming its largest paths. Each staging directory is removed
-  after the sync, in the box and on the boost, and what a crash leaves
-  is swept after a day.
+  parents of sends HEAD's whole history once more. A sync past 2GiB,
+  what changed and the bundle of commits together, is refused
+  (`FAILED_PRECONDITION`), naming its largest paths or the bundle. The
+  sync removes and replaces paths in the boost's checkout through an
+  `os.Root` of it, so a symlink there never leads it outside. Each
+  staging directory is removed after the sync, in the box and on the
+  boost, and what a crash leaves is swept after a day.
 - **Submodules' checkouts are never sent** (`submodules_not_synced`):
   a committed submodule, or an untracked nested repository `git add -A`
   takes as one, is a gitlink of the tree sent, and the tree made on the
@@ -187,17 +190,25 @@ What is accepted and built, in the API's terms:
   exit says so (`base_shared`). Whether one runs is read from the
   boost's processes when the sync applies, under the box's sync lock,
   which a start holds as it starts its process: no start is between a
-  sync's look and its apply. A start whose sync another start's sync
-  overtook, or that ended longer ago than a start waits for one, syncs
+  sync's look and its apply. A start being started counts as a process
+  that runs too, whether or not it holds the lock. A start whose sync
+  another start's sync overtook, or that ended more than 40 seconds ago
+  (the 10-second wait and 30 seconds for the caller to ask again), syncs
   again before it starts. A sync that is not shared first settles the
   box's ended processes on the boost, so their artifacts are copied back
-  before it puts back what they wrote.
+  before it puts back what they wrote; if that settling fails, the sync
+  is shared and what they wrote stays.
 - **A sync answers within 10 seconds or pends.** It runs as a job,
   holding the box in use; a start whose sync is not done in 10 seconds
   answers `PENDING_REASON_SYNCING` with its ticket, and starts from that
-  sync when asked again. A box tower stopped for idleness is woken first,
-  as by any data-plane call. The sync's time, files, deletions and bytes
-  are in the start's answer and the process's exit (`BoostRun`).
+  sync when asked again. Its wait for the box's sync lock, behind another
+  start's sync or start, counts in the same 10 seconds: past them it
+  answers `PENDING_REASON_SYNCING` too. A caller asks again at once on
+  `SYNCING` (each ask waits up to 10 seconds), and no later than 30
+  seconds after, or its sync is made again. A box tower stopped for
+  idleness is woken first, as by any data-plane call. The sync's time,
+  files, deletions and bytes are in the start's answer and the
+  process's exit (`BoostRun`).
 - **A boosted process runs under `tower-guest boost-job`**, in its
   process's group and cgroup, which once its command ends writes what
   it changed on the boost relative to the tree synced (new files not

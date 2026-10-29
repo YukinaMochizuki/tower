@@ -29,12 +29,28 @@ func (s *Server) SetBeforeBoostRetire(fn func(project, box string)) {
 // SetBoostSync sets how long a boosted start waits for its sync, a
 // negative wait none, and the most artifacts copy back, for tests.
 func (s *Server) SetBoostSync(wait time.Duration, artifactsMax int64) {
-	s.syncWait, s.artifactsMax = wait, artifactsMax
+	s.syncWait.Store(int64(wait))
+	s.artifactsMax = artifactsMax
 }
 
 // SetNoSettleJob keeps the boost controller from settling ended
 // processes itself, for tests.
 func (s *Server) SetNoSettleJob() { s.noSettleJob.Store(true) }
+
+// SetBeforeBoostStart runs fn as a boosted start, holding the box's sync
+// lock, is about to start its process, for tests of what happens then.
+func (s *Server) SetBeforeBoostStart(fn func(project, box string)) {
+	hook := func(k controller.Key) { fn(k.Project, k.Name) }
+	s.beforeBoostStart.Store(&hook)
+}
+
+// BoostSyncsWaiting is how many syncs of the box wait for its sync lock.
+func (s *Server) BoostSyncsWaiting(target, project, box string) int {
+	tq := s.boosts.of(target)
+	tq.mu.Lock()
+	defer tq.mu.Unlock()
+	return tq.syncWaiting[controller.Key{Project: project, Name: box}]
+}
 
 // InUse reports whether a call into the box is under way.
 func (s *Server) InUse(project, box string) bool {

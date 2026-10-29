@@ -106,21 +106,55 @@ type targetBoosts struct {
 	// syncs holds each box's syncs to its boost, and the starts of
 	// processes there, one at a time; lastSync is the box's sync last
 	// applied, which a start runs on.
-	syncs    map[controller.Key]*sync.Mutex
+	syncs    map[controller.Key]syncLock
 	lastSync map[controller.Key]string
+	// syncWaiting counts each box's syncs waiting for its sync lock.
+	syncWaiting map[controller.Key]int
 }
 
+// syncLock is a box's sync lock: a semaphore of one, so a start can give
+// up waiting for it.
+type syncLock chan struct{}
+
+// lock takes the lock, waiting as long as it takes.
+func (l syncLock) lock() { l <- struct{}{} }
+
+// lockWithin takes the lock unless it is not free within wait (none, for
+// a wait of 0 or less) or ctx ends, and says whether it took it.
+func (l syncLock) lockWithin(ctx context.Context, wait time.Duration) bool {
+	select {
+	case l <- struct{}{}:
+		return true
+	default:
+	}
+	if wait <= 0 {
+		return false
+	}
+	t := time.NewTimer(wait)
+	defer t.Stop()
+	select {
+	case l <- struct{}{}:
+		return true
+	case <-t.C:
+		return false
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (l syncLock) unlock() { <-l }
+
 // syncLock is the box's sync lock. Held mu.
-func (t *targetBoosts) syncLock(box controller.Key) *sync.Mutex {
+func (t *targetBoosts) syncLock(box controller.Key) syncLock {
 	if t.syncs == nil {
-		t.syncs = map[controller.Key]*sync.Mutex{}
+		t.syncs = map[controller.Key]syncLock{}
 	}
-	mu, ok := t.syncs[box]
+	l, ok := t.syncs[box]
 	if !ok {
-		mu = &sync.Mutex{}
-		t.syncs[box] = mu
+		l = make(syncLock, 1)
+		t.syncs[box] = l
 	}
-	return mu
+	return l
 }
 
 func (q *boostQueues) of(target string) *targetBoosts {
@@ -132,7 +166,7 @@ func (q *boostQueues) of(target string) *targetBoosts {
 	t, ok := q.targets[target]
 	if !ok {
 		t = &targetBoosts{tickets: map[string]*boostTicket{}, starting: map[controller.Key]int{}, used: map[controller.Key]time.Time{}, starts: map[controller.Key]uint64{},
-			lastSync: map[controller.Key]string{}}
+			lastSync: map[controller.Key]string{}, syncWaiting: map[controller.Key]int{}}
 		q.targets[target] = t
 	}
 	return t

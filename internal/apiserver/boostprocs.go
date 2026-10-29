@@ -572,9 +572,12 @@ func (h environmentService) syncAndStart(ctx context.Context, c authz.Caller, e 
 	if !ok || !owns(registry.Boost, b, in) {
 		return pending(envv1alpha1.PendingReason_PENDING_REASON_BOOST_STARTING, "its boost's instance is being made again", 0, boostStartEstimate), nil
 	}
-	mu := tq.syncLock(boxKey)
+	lock := tq.syncLock(boxKey)
+	// A start never waits longer than the inline wait, for its sync or
+	// for the box's sync lock behind another start's.
+	deadline := time.Now().Add(s.syncWaitFor())
 	// A sync is redone, cheaply, if it was to another instance, if it
-	// ended longer ago than a start waits for one (the box may have changed
+	// ended longer ago than it stays good for (the box may have changed
 	// since), or if another sync of the box was applied after it.
 	stale := func(run *syncRun) bool {
 		select {
@@ -582,7 +585,7 @@ func (h environmentService) syncAndStart(ctx context.Context, c authz.Caller, e 
 		default:
 			return false
 		}
-		return run.err == nil && (s.clock.Since(run.finished) > max(s.syncWaitFor(), 0) || tq.lastSync[boxKey] != run.id)
+		return run.err == nil && (s.clock.Since(run.finished) > s.syncValidFor() || tq.lastSync[boxKey] != run.id)
 	}
 	for attempt := 0; ; attempt++ {
 		if tk.sync != nil && (tk.sync.instance != in.GetMetadata().GetUid() || stale(tk.sync)) {
@@ -594,23 +597,27 @@ func (h environmentService) syncAndStart(ctx context.Context, c authz.Caller, e 
 		run := tk.sync
 		tq.mu.Unlock()
 		*locked = false
-		if !waitSync(ctx, run, s.syncWaitFor()) {
+		if !waitSync(ctx, run, time.Until(deadline)) {
 			return pending(envv1alpha1.PendingReason_PENDING_REASON_SYNCING, "the box's work tree is being synced to its boost", 0, s.syncWaitFor()), nil
 		}
 		// The start holds the box's sync lock, so no sync decides what
-		// runs on the boost while a process is being started there.
-		mu.Lock()
+		// runs on the boost, or changes its tree, while a process is being
+		// started there; it waits for it no longer than the inline wait.
+		if !lock.lockWithin(ctx, time.Until(deadline)) {
+			return pending(envv1alpha1.PendingReason_PENDING_REASON_SYNCING,
+				"another start of the box is syncing or starting; asked again, this one starts", 0, s.syncWaitFor()), nil
+		}
 		tq.mu.Lock()
 		*locked = true
 		if run.err != nil {
 			delete(tq.tickets, tk.id)
-			mu.Unlock()
+			lock.unlock()
 			return nil, syncError(e, run.err)
 		}
 		if tq.lastSync[boxKey] != run.id {
 			// Another start's sync was applied after this one, which put
 			// the boost's tree to that start's: this one syncs again.
-			mu.Unlock()
+			lock.unlock()
 			if attempt == 0 {
 				tk.sync = nil
 				continue
@@ -622,7 +629,10 @@ func (h environmentService) syncAndStart(ctx context.Context, c authz.Caller, e 
 		tq.starting[boxKey]++
 		tq.mu.Unlock()
 		*locked = false
-		defer mu.Unlock()
+		defer lock.unlock()
+		if hook := s.beforeBoostStart.Load(); hook != nil {
+			(*hook)(boxKey)
+		}
 		return h.startOnBoost(ctx, c, e, m, command, b, tq, boxKey, run.stats)
 	}
 }
