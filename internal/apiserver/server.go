@@ -154,7 +154,11 @@ type Server struct {
 	controllers                                   []*controller.Controller
 	placementCtrl, repositoryCtrl, boxCtrl        *controller.Controller
 	machineCtrl, goldenCtrl, warmCtrl, targetCtrl *controller.Controller
-	jobs                                          jobs
+	boostCtrl                                     *controller.Controller
+	// boosts are the targets' boosted starts not started yet, and what
+	// keeps their boosts in use (boosts.go).
+	boosts boostQueues
+	jobs   jobs
 	// jobErrs are the jobs' last failures by target, for last_error.
 	jobErrs jobErrors
 	// teardowns are the last teardown passes of Targets being deleted.

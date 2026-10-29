@@ -26,7 +26,7 @@ var admin = map[string][]authz.Verb{
 	registry.Project.Kind: writes, registry.Secret.Kind: writes, registry.ServiceToken.Kind: writes,
 	registry.Target.Kind: writes, registry.Placement.Kind: writes,
 	registry.Repository.Kind: writes, registry.Box.Kind: writes, registry.Machine.Kind: writes,
-	registry.Golden.Kind: reads, registry.Instance.Kind: reads,
+	registry.Golden.Kind: reads, registry.Instance.Kind: reads, registry.Boost.Kind: reads,
 }
 
 // TestTheRoleTable holds every role's verbs on every kind exactly: what it
@@ -44,7 +44,7 @@ func TestTheRoleTable(t *testing.T) {
 			registry.Project.Kind: writes, registry.Secret.Kind: writes,
 			registry.Repository.Kind: writes, registry.Box.Kind: writes, registry.Machine.Kind: writes,
 			registry.Target.Kind: reads, registry.Placement.Kind: {authz.Get, authz.List, authz.Watch, authz.Apply},
-			registry.Golden.Kind: reads, registry.Instance.Kind: reads,
+			registry.Golden.Kind: reads, registry.Instance.Kind: reads, registry.Boost.Kind: reads,
 		}},
 		// On its own target's objects alone, which the apiserver checks.
 		{"hostd", token(iamv1alpha1.Role_ROLE_HOSTD), map[string][]authz.Verb{

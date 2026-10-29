@@ -43,7 +43,7 @@ var readVerbs = []Verb{Get, List, Watch}
 
 // systemKinds are made only by tower's own controllers: a role reads them
 // at most.
-var systemKinds = []string{registry.Golden.Kind, registry.Instance.Kind}
+var systemKinds = []string{registry.Golden.Kind, registry.Instance.Kind, registry.Boost.Kind}
 
 // grants is each role's verbs by kind. A kind or role it does not list is
 // refused everything. ROLE_HOSTD's verbs hold only on its own target's
@@ -69,6 +69,8 @@ var grants = map[iamv1alpha1.Role]map[string][]Verb{
 		registry.Placement.Kind: {Get, List, Watch, Apply},
 		registry.Golden.Kind:    readVerbs,
 		registry.Instance.Kind:  readVerbs,
+		// A box's boost, which tower makes and deletes.
+		registry.Boost.Kind: readVerbs,
 	},
 }
 

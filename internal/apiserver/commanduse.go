@@ -89,8 +89,15 @@ type commandRun struct {
 	RanOn ranOn `json:"ranOn"`
 }
 
-// ranOn is an instance a run ran on: its kind ("box"; later a boost) and
-// its size as its spec had it when the exit was read.
+// The kinds of instance a run ran on (ranOn).
+const (
+	ranOnBox   = "box"
+	ranOnBoost = "boost"
+)
+
+// ranOn is an instance a run ran on: its kind (ranOnBox, ranOnBoost) and
+// its size as its spec had it when the run started (a boost's) or its
+// exit was read (a box's).
 type ranOn struct {
 	Kind   string `json:"kind"`
 	CPU    string `json:"cpu,omitempty"`
@@ -130,7 +137,7 @@ func workspaceRelative(dir string) string {
 
 // exitRead records the usage of a box's process whose exit an attach
 // read, unless it was counted. The exit does not say the command, which
-// the box's processes are listed for.
+// the box's processes are listed for, its boost's with them.
 func (s *Server) exitRead(ctx context.Context, e *environment, id string, exit *provider.ProcessExit) {
 	if e.box == nil || exit == nil || exit.Usage == nil {
 		return
@@ -144,38 +151,46 @@ func (s *Server) exitRead(ctx context.Context, e *environment, id string, exit *
 	if slices.Contains(rec.IDs, id) {
 		return
 	}
-	ps, err := e.p.ListProcesses(ctx, e.ref)
+	ps, err := s.boxProcessesOf(ctx, e)
 	if err != nil {
 		s.log.Error("listing processes to count one's usage failed", "environment", e.String(), "process", id, "error", err)
 		return
 	}
-	s.exitsListed(ctx, e, ps)
+	s.exitsListed(ctx, e, ps, true)
 }
 
 // exitsListed records the usage of a box's finished processes not counted
 // yet, apart from ctx's end. Each is claimed first, so one read by two
-// calls at once is counted once. A failure is logged, never the call's.
-func (s *Server) exitsListed(ctx context.Context, e *environment, ps []provider.Process) {
-	if e.box == nil || !slices.ContainsFunc(ps, func(p provider.Process) bool { return p.Exit != nil && p.Exit.Usage != nil }) {
+// calls at once is counted once; one kept from a boost deleted was
+// counted before it went, and is never claimed. complete says ps are all
+// the box's processes, so those it lacks are dropped from the claims. A
+// failure is logged, never the call's.
+func (s *Server) exitsListed(ctx context.Context, e *environment, ps []listedProcess, complete bool) {
+	if e.box == nil || !slices.ContainsFunc(ps, func(p listedProcess) bool { return p.Exit != nil && p.Exit.Usage != nil && !p.kept }) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
 	defer cancel()
-	var claimed []provider.Process
+	var claimed []listedProcess
 	key := store.Key{Kind: processesRecordedKind, Project: e.key.Project, Name: e.key.Name}
 	err := changeRecord(ctx, s, key, func(r *processesRecorded) bool {
 		claimed = nil
 		var kept []string
+		if !complete {
+			kept = slices.Clone(r.IDs)
+		}
 		for _, p := range ps {
 			switch {
 			case slices.Contains(r.IDs, p.ID):
-				kept = append(kept, p.ID)
-			case p.Exit != nil && p.Exit.Usage != nil:
+				if complete {
+					kept = append(kept, p.ID)
+				}
+			case p.Exit != nil && p.Exit.Usage != nil && !p.kept:
 				kept = append(kept, p.ID)
 				claimed = append(claimed, p)
 			}
 		}
-		// Those the instance keeps no more are read never again.
+		// Those the box keeps no more are read never again.
 		if len(claimed) == 0 && len(kept) == len(r.IDs) {
 			return false
 		}
@@ -186,13 +201,8 @@ func (s *Server) exitsListed(ctx context.Context, e *environment, ps []provider.
 		s.log.Error("claiming processes to count failed", "environment", e.String(), "error", err)
 		return
 	}
-	if len(claimed) == 0 {
-		return
-	}
-	res := s.instanceResources(ctx, e)
-	at := ranOn{Kind: "box", CPU: res.GetCpu(), Memory: res.GetMemory()}
 	for _, p := range claimed {
-		if err := s.recordRun(ctx, e, p, at); err != nil {
+		if err := s.recordRun(ctx, e, p.Process, p.at); err != nil {
 			s.log.Error("recording a process's usage failed", "environment", e.String(), "process", p.ID, "error", err)
 		}
 	}
@@ -276,7 +286,11 @@ func (s *Server) pruneCommandUses(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, o := range objs {
+	boxProcs, _, err := s.store.List(ctx, store.ListOptions{Kind: boxProcessesKind})
+	if err != nil {
+		return err
+	}
+	for _, o := range append(objs, boxProcs...) {
 		_, ok, err := getTyped[*envv1alpha1.Box](ctx, s, registry.Box, resource.Key{Project: o.Project, Name: o.Name})
 		if err != nil {
 			return err

@@ -108,8 +108,8 @@ func (s *Server) stepPassed(ctx context.Context, ref stepRef) error {
 	return s.deleteRecord(ctx, ref.key)
 }
 
-// pruneStepBackoffs deletes the step failures of boxes and machines that
-// are gone.
+// pruneStepBackoffs deletes the step failures of boxes, machines and
+// boosts that are gone.
 func (s *Server) pruneStepBackoffs(ctx context.Context) error {
 	objs, _, err := s.store.List(ctx, store.ListOptions{Kind: stepBackoffKind})
 	if err != nil {
@@ -119,8 +119,11 @@ func (s *Server) pruneStepBackoffs(ctx context.Context) error {
 		kind, rest, _ := strings.Cut(o.Name, "/")
 		name, _, _ := strings.Cut(rest, "/")
 		owner := registry.Box
-		if kind == "machine" {
+		switch kind {
+		case "machine":
 			owner = registry.Machine
+		case "boost":
+			owner = registry.Boost
 		}
 		_, err := s.store.Get(ctx, store.Key{Kind: owner.Kind, Project: o.Project, Name: name})
 		if !errors.Is(err, store.ErrNotFound) {

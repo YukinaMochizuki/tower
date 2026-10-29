@@ -46,6 +46,8 @@ func (s *Server) newControllers() []*controller.Controller {
 		controller.Watch{Kind: registry.Box.Kind, Map: controller.Self},
 		controller.Watch{Kind: registry.Placement.Kind, Map: s.inProjectOfPlacement(registry.Box), SkipResync: true},
 		controller.Watch{Kind: registry.Instance.Kind, Map: s.ownerOf(registry.Box), SkipResync: true},
+		// Its boost's processes keep it in use.
+		controller.Watch{Kind: registry.Boost.Kind, Map: s.ownerOf(registry.Box), SkipResync: true},
 		controller.Watch{Kind: registry.Golden.Kind, Map: s.inProject(registry.Box), SkipResync: true},
 		controller.Watch{Kind: registry.Repository.Kind, Map: s.inProject(registry.Box), SkipResync: true},
 	)
@@ -61,6 +63,7 @@ func (s *Server) newControllers() []*controller.Controller {
 		// What references a golden going lets it be pruned.
 		controller.Watch{Kind: registry.Box.Kind, Map: s.inProject(registry.Golden), SkipResync: true},
 		controller.Watch{Kind: registry.Machine.Kind, Map: s.inProject(registry.Golden), SkipResync: true},
+		controller.Watch{Kind: registry.Boost.Kind, Map: s.inProject(registry.Golden), SkipResync: true},
 	)
 	s.warmCtrl = c("warm", s.reconcileWarm,
 		controller.Watch{Kind: registry.Target.Kind, Map: controller.Self},
@@ -77,7 +80,16 @@ func (s *Server) newControllers() []*controller.Controller {
 		controller.Watch{Kind: registry.Instance.Kind, Map: instanceTarget, SkipResync: true},
 		controller.Watch{Kind: registry.Golden.Kind, Map: goldenTarget, SkipResync: true},
 	)
-	return []*controller.Controller{s.placementCtrl, s.repositoryCtrl, s.boxCtrl, s.machineCtrl, s.goldenCtrl, s.warmCtrl, s.targetCtrl}
+	s.boostCtrl = c("boost", s.reconcileBoost,
+		controller.Watch{Kind: registry.Boost.Kind, Map: controller.Self},
+		controller.Watch{Kind: registry.Instance.Kind, Map: s.ownerOf(registry.Boost), SkipResync: true},
+		// A box's boost has its name.
+		controller.Watch{Kind: registry.Box.Kind, Map: controller.Self, SkipResync: true},
+		controller.Watch{Kind: registry.Target.Kind, Map: s.boostsOnTarget, SkipResync: true},
+	)
+	// Idleness is time passing: looked at more often than the default.
+	s.boostCtrl.Resync = boostResync
+	return []*controller.Controller{s.placementCtrl, s.repositoryCtrl, s.boxCtrl, s.machineCtrl, s.goldenCtrl, s.warmCtrl, s.targetCtrl, s.boostCtrl}
 }
 
 // againOnConflict runs a reconcile again at once when a write of it lost a

@@ -35,6 +35,11 @@ func (s *Server) RecordExits(ctx context.Context, project, box string, ps []prov
 		return fmt.Errorf("box %s not found", box)
 	}
 	e := &environment{kind: "box", key: resource.Key{Project: project, Name: box}, box: b, ref: provider.Instance{Project: project, Name: b.GetStatus().GetInstance()}}
-	s.exitsListed(ctx, e, ps)
+	res := s.instanceResources(ctx, e)
+	listed := make([]listedProcess, 0, len(ps))
+	for _, p := range ps {
+		listed = append(listed, listedProcess{Process: p, at: ranOn{Kind: ranOnBox, CPU: res.GetCpu(), Memory: res.GetMemory()}})
+	}
+	s.exitsListed(ctx, e, listed, true)
 	return nil
 }

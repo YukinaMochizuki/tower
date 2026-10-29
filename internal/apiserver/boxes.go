@@ -272,7 +272,11 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 	}
 	st.Instance, st.Alias = name, key.Name
 
-	s.activitySeen(key, in.GetStatus().GetProcessesRunning()+in.GetStatus().GetStreamsOpen())
+	boosted, err := s.boostActivity(ctx, key)
+	if err != nil {
+		return err
+	}
+	s.activitySeen(key, in.GetStatus().GetProcessesRunning()+in.GetStatus().GetStreamsOpen()+boosted)
 
 	// Whether it runs.
 	desired, reason := envv1alpha1.RunState_RUN_STATE_RUNNING, ""
