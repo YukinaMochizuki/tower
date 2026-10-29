@@ -263,21 +263,33 @@ the goldens; and `projects`, one per product.
 A hangar Disk only grows. To give a target's system container a smaller
 disk (after a release lowers the default), or to start it again
 from nothing, delete its container and then its disk in the hangar
-project; tower makes both again on its next check, at the current
-default:
+project with tower's apiserver stopped; tower makes both again once it
+starts, at the current default. Stop it first: it checks the system
+container every 30 seconds, and one that finds the container gone makes
+it again on the disk still there, which then cannot be deleted. The
+stop takes every target's API down for as long as the deletes take,
+usually seconds:
 
 ```sh
 hangar get containers -p <hangar project> -l tower/role=system
+sudo systemctl stop tower-apiserver                          # on tower's host
 hangar delete container tower-sys-<hash> -p <hangar project>
 hangar delete disk tower-sys-<hash> -p <hangar project>     # once the container is gone
+sudo systemctl start tower-apiserver
 ```
+
+Remove the old tailnet node (below) before tower starts again, or the new
+one joins as `tower-builder-<target>-1`.
 
 What goes with the disk: BuildKit's cache (the next builds are cold), the
 mirrors (fetched again, every repository of the product), and the
 container's tailnet state, so it joins again with `hangar-tailnet`'s key,
 which must then be valid. The tailnet keeps the old node: remove it from
 the admin console. The target is back when its facts show the system
-container Ready, on the tailnet, and its repositories Fetched.
+container Ready and on the tailnet. Its repositories still say Fetched,
+of the heads the old mirrors had: until each is fetched again, at most
+ten minutes later, a box of it fails `DevcontainerUnresolvable` ("the
+repository has no <commit>"), and is to be made again after.
 
 ## When something is wrong
 
