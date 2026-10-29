@@ -23,4 +23,5 @@ the change.
 | `authentication.md` | Service tokens with one fixed role each (admin, workstream, hostd); root on the host through a unix socket; tailnet only |
 | `deployment.md` | tower and the registry run on a dedicated machine on the tailnet |
 | `process-usage.md` | Each process in a box on a hangar target runs in a cgroup of its own under `/tower`, which holds them together below the box's memory, so an OOM kills one of them whole; tower keeps the last runs of each command under a hashed exact key and an advisory coarse key, never its text |
+| `boost.md` | (proposed) Heavy jobs on a hangar target run on a boost, a short-lived larger instance of the box's, made from its warm golden, synced from the box, routed by measured usage, budgeted and queued per target |
 | `testing-strategy.md` | hangar's test layers and rules; fakes behind every outside dependency, kept honest by conformance suites |
