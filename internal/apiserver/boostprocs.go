@@ -119,6 +119,21 @@ func (r *boxProcesses) add(p boostProcess) {
 		}
 		r.Boost = slices.Delete(r.Boost, i, i+1)
 	}
+	r.trimChanged()
+}
+
+// changedKept is how many of the last processes keep their changed
+// files' list; older ones keep its count alone.
+const changedKept = 10
+
+// trimChanged drops the changed files' lists of all but the last
+// changedKept processes, keeping their counts.
+func (r *boxProcesses) trimChanged() {
+	for i := 0; i < len(r.Boost)-changedKept; i++ {
+		if run := r.Boost[i].Run; run != nil && run.Changed != nil {
+			r.Boost[i].Run.Changed = nil
+		}
+	}
 }
 
 func (r *boxProcesses) find(id string) (boostProcess, bool) {
@@ -557,30 +572,59 @@ func (h environmentService) syncAndStart(ctx context.Context, c authz.Caller, e 
 	if !ok || !owns(registry.Boost, b, in) {
 		return pending(envv1alpha1.PendingReason_PENDING_REASON_BOOST_STARTING, "its boost's instance is being made again", 0, boostStartEstimate), nil
 	}
-	if tk.sync != nil && tk.sync.instance != in.GetMetadata().GetUid() {
-		tk.sync = nil
+	mu := tq.syncLock(boxKey)
+	// A sync is redone, cheaply, if it was to another instance, if it
+	// ended longer ago than a start waits for one (the box may have changed
+	// since), or if another sync of the box was applied after it.
+	stale := func(run *syncRun) bool {
+		select {
+		case <-run.done:
+		default:
+			return false
+		}
+		return run.err == nil && (s.clock.Since(run.finished) > max(s.syncWaitFor(), 0) || tq.lastSync[boxKey] != run.id)
 	}
-	if tk.sync == nil {
-		// Another process of the box on the boost, running or starting:
-		// what it wrote stays.
-		shared := b.GetStatus().GetProcessesRunning() > 0 || tq.starting[boxKey] > 0
-		tk.sync = s.startSync(e, b, in, shared, tq, boxKey)
-	}
-	run := tk.sync
-	tq.mu.Unlock()
-	*locked = false
-	if !waitSync(ctx, run, s.syncWaitFor()) {
-		return pending(envv1alpha1.PendingReason_PENDING_REASON_SYNCING, "the box's work tree is being synced to its boost", 0, s.syncWaitFor()), nil
-	}
-	tq.mu.Lock()
-	delete(tq.tickets, tk.id)
-	if run.err != nil {
+	for attempt := 0; ; attempt++ {
+		if tk.sync != nil && (tk.sync.instance != in.GetMetadata().GetUid() || stale(tk.sync)) {
+			tk.sync = nil
+		}
+		if tk.sync == nil {
+			tk.sync = s.startSync(e, b, in, tq, boxKey)
+		}
+		run := tk.sync
 		tq.mu.Unlock()
-		return nil, syncError(e, run.err)
+		*locked = false
+		if !waitSync(ctx, run, s.syncWaitFor()) {
+			return pending(envv1alpha1.PendingReason_PENDING_REASON_SYNCING, "the box's work tree is being synced to its boost", 0, s.syncWaitFor()), nil
+		}
+		// The start holds the box's sync lock, so no sync decides what
+		// runs on the boost while a process is being started there.
+		mu.Lock()
+		tq.mu.Lock()
+		*locked = true
+		if run.err != nil {
+			delete(tq.tickets, tk.id)
+			mu.Unlock()
+			return nil, syncError(e, run.err)
+		}
+		if tq.lastSync[boxKey] != run.id {
+			// Another start's sync was applied after this one, which put
+			// the boost's tree to that start's: this one syncs again.
+			mu.Unlock()
+			if attempt == 0 {
+				tk.sync = nil
+				continue
+			}
+			tk.sync = nil
+			return pending(envv1alpha1.PendingReason_PENDING_REASON_SYNCING, "another start of the box synced since; it is synced again when asked", 0, s.syncWaitFor()), nil
+		}
+		delete(tq.tickets, tk.id)
+		tq.starting[boxKey]++
+		tq.mu.Unlock()
+		*locked = false
+		defer mu.Unlock()
+		return h.startOnBoost(ctx, c, e, m, command, b, tq, boxKey, run.stats)
 	}
-	tq.starting[boxKey]++
-	tq.mu.Unlock()
-	return h.startOnBoost(ctx, c, e, m, command, b, tq, boxKey, run.stats)
 }
 
 // startOnBoost starts the process on the box's READY boost b, keeping

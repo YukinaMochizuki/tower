@@ -10,6 +10,7 @@ import (
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/controller"
+	"github.com/YukinaMochizuki/tower/internal/guest/guestbin"
 )
 
 // TestTheBoostQueueTakesWorkstreamsInTurn: first come first served within
@@ -168,6 +169,20 @@ func TestTheReportCountsWhatRanBeforeIt(t *testing.T) {
 	} {
 		if got := countedByReport(tc.in, tc.at); got != tc.want {
 			t.Errorf("%s: counted %v, want %v", tc.what, got, tc.want)
+		}
+	}
+}
+
+// TestOnlyTheLastProcessesKeepTheirChangedFiles: a box's processes past
+// the last ten keep how many files they changed, not the list.
+func TestOnlyTheLastProcessesKeepTheirChangedFiles(t *testing.T) {
+	var r boxProcesses
+	for i := range 12 {
+		r.add(boostProcess{ID: string(rune('a' + i)), Run: &runResult{Total: 1, Changed: []guestbin.Changed{{Path: "x", Status: "M"}}}})
+	}
+	for i, p := range r.Boost {
+		if keep := i >= 2; (p.Run.Changed != nil) != keep || p.Run.Total != 1 {
+			t.Errorf("process %d of 12: %+v", i, p.Run)
 		}
 	}
 }

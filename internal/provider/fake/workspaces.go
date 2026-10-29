@@ -169,6 +169,8 @@ func plainGuest(w *workspaces, command []string) (string, bool) {
 		return `{"tree":"fake-tree"}` + "\n", true
 	case "boost-clean":
 		return "{}\n", true
+	case "boost-measure":
+		return "[]\n", true
 	}
 	return "", false
 }

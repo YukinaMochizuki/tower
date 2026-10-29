@@ -32,6 +32,10 @@ func (s *Server) SetBoostSync(wait time.Duration, artifactsMax int64) {
 	s.syncWait, s.artifactsMax = wait, artifactsMax
 }
 
+// SetNoSettleJob keeps the boost controller from settling ended
+// processes itself, for tests.
+func (s *Server) SetNoSettleJob() { s.noSettleJob.Store(true) }
+
 // InUse reports whether a call into the box is under way.
 func (s *Server) InUse(project, box string) bool {
 	_, _, busy := s.useOf(controller.Key{Project: project, Name: box})

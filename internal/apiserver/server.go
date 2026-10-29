@@ -185,6 +185,9 @@ type Server struct {
 	// beforeIdleStop, if set, runs between a box's idle stop being decided
 	// and its being written, for tests.
 	beforeIdleStop atomic.Pointer[func(controller.Key)]
+	// noSettleJob, set, keeps the boost controller from settling ended
+	// processes itself, for tests of the other paths that do.
+	noSettleJob atomic.Bool
 	// beforeBoostRetire, if set, runs between a boost's exits being read
 	// for its idleness and its deletion being decided, for tests.
 	beforeBoostRetire atomic.Pointer[func(controller.Key)]

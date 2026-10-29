@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -308,11 +310,152 @@ func TestArtifactsAreRefused(t *testing.T) {
 	if _, err := envs.StartProcess(t.Context(), connect.NewRequest(plain)); connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Errorf("artifacts on a start not boosted: %v", err)
 	}
-	for _, bad := range []string{"/etc/passwd", "../up", ".git/config", ""} {
+	for _, bad := range []string{"/etc/passwd", "../up", ".git/config", "sub/.git/config", ""} {
 		req := boostOn("dev", "true")
 		req.Artifacts = []string{bad}
 		if _, err := envs.StartProcess(t.Context(), connect.NewRequest(req)); connect.CodeOf(err) != connect.CodeInvalidArgument {
 			t.Errorf("artifact %q: %v", bad, err)
 		}
+	}
+	for _, good := range []string{".github/out", ".gitignore", "dist/.gitkeep"} {
+		req := boostOn("dev", "true")
+		req.Artifacts = []string{good}
+		if _, err := envs.StartProcess(t.Context(), connect.NewRequest(req)); err != nil {
+			t.Errorf("artifact %q: %v", good, err)
+		}
+	}
+}
+
+// appliedBeforeStarts says, for each process started on the boost after
+// the first, whether the last boost-apply before it was --shared: a sync
+// beside a process already started.
+func appliedBeforeStarts(w *world) []bool {
+	var out []bool
+	shared, starts := false, 0
+	for _, x := range w.fake.Execs() {
+		switch {
+		case x.Instance.Name == "boost-dev" && x.Process:
+			if starts++; starts > 1 {
+				out = append(out, shared)
+			}
+		case len(x.Command) > 1 && x.Command[1] == "boost-apply":
+			shared = slices.Contains(x.Command, "--shared")
+		}
+	}
+	return out
+}
+
+// TestTwoStartsBackToBackShareTheBoost: a second boosted start made at
+// once after a first, before any status says the first runs, syncs as
+// shared: the first's writes stay.
+func TestTwoStartsBackToBackShareTheBoost(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	w.readyBox("dev")
+	w.startBoosted(boostOn("dev", "sleep"))
+	res := w.startBoosted(boostOn("dev", "sleep"))
+	if !res.GetBoost().GetBaseShared() {
+		t.Errorf("a start right after another: %v, want base_shared", res.GetBoost())
+	}
+	if got := appliedBeforeStarts(w); len(got) != 1 || !got[0] {
+		t.Errorf("the sync before the second start was shared: %v, want [true]", got)
+	}
+}
+
+// TestASyncOvertakenIsMadeAgain: two boosted starts whose syncs run one
+// after the other before either starts: the one whose sync was overtaken
+// syncs again before it starts, and the second to start syncs beside the
+// first, which runs: no start runs on another's tree, and no sync puts
+// back what a started process writes.
+func TestASyncOvertakenIsMadeAgain(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	w.readyBox("dev")
+	w.startBoosted(boostOn("dev", "true"))
+	w.srv.SetBoostSync(-1, 0)
+	gate := make(chan struct{})
+	var once sync.Once
+	w.fake.OnExec(func(req provider.ExecRequest) (int, bool) {
+		if len(req.Command) > 1 && req.Command[0] == provider.GuestBinary && req.Command[1] == "boost-pack" {
+			once.Do(func() { <-gate })
+		}
+		return 0, false
+	})
+	packs := func() int {
+		n := 0
+		for _, x := range w.fake.Execs() {
+			if len(x.Command) > 1 && x.Command[1] == "boost-pack" {
+				n++
+			}
+		}
+		return n
+	}
+	before := packs()
+	a, b := boostOn("dev", "sleep"), boostOn("dev", "sleep")
+	a.Pending = w.start(a).GetPending().GetTicket() // its sync holds the lock, held at the gate
+	b.Pending = w.start(b).GetPending().GetTicket() // its sync waits for the lock
+	close(gate)
+	w.waitSettled() // a's sync, then b's: b's is the boost's tree
+	w.startBoosted(a)
+	w.startBoosted(b)
+	if got := packs() - before; got != 4 {
+		t.Errorf("%d syncs for two starts whose syncs overtook each other, want 4: each synced again before it started", got)
+	}
+	if got := appliedBeforeStarts(w); len(got) != 2 || got[0] || !got[1] {
+		t.Errorf("the syncs before a's and b's starts shared: %v, want [false true]: a's on its own tree, b's beside a", got)
+	}
+}
+
+// TestAStaleSyncIsMadeAgain: a start asked again long after its sync
+// ended syncs again, as the box may have changed since.
+func TestAStaleSyncIsMadeAgain(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	w.srv.SetBoostSync(-1, 0)
+	w.readyBox("dev")
+	release := make(chan struct{})
+	w.fake.OnExec(func(req provider.ExecRequest) (int, bool) {
+		if len(req.Command) > 1 && req.Command[0] == provider.GuestBinary && req.Command[1] == "boost-pack" {
+			<-release
+		}
+		return 0, false
+	})
+	first := w.start(boostOn("dev", "true"))
+	w.waitBoost("dev", envv1alpha1.BoostPhase_BOOST_PHASE_READY)
+	req := boostOn("dev", "true")
+	req.Pending = first.GetPending().GetTicket()
+	if res := w.start(req); res.GetPending().GetReason() != envv1alpha1.PendingReason_PENDING_REASON_SYNCING {
+		t.Fatalf("%v, want SYNCING", res)
+	}
+	close(release)
+	w.waitSettled()
+	w.clock.Advance(time.Minute)
+	w.startBoosted(req)
+	packs := 0
+	for _, x := range w.fake.Execs() {
+		if len(x.Command) > 1 && x.Command[1] == "boost-pack" {
+			packs++
+		}
+	}
+	if packs != 2 {
+		t.Errorf("%d syncs for a start asked again a minute after its sync, want 2", packs)
+	}
+}
+
+// TestArtifactsOutliveTheNextSync: a process's artifacts reach the box
+// even if nobody reads its exit before the next boosted start, whose sync
+// puts back what the first wrote on the boost.
+func TestArtifactsOutliveTheNextSync(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	// The sync settles it, not the controller once it ends.
+	w.srv.SetNoSettleJob()
+	req := boostOn("dev", "sh", "-c", "mkdir -p out && echo kept > out/r")
+	req.Artifacts = []string{"out"}
+	w.startBoosted(req)
+	w.write(w.box, "a.txt", "changed\n")
+	w.run(`ls out 2>&1`)
+	if got := w.read(w.box, "out/r"); got != "kept\n" {
+		t.Errorf("the first job's artifact in the box: %q", got)
 	}
 }

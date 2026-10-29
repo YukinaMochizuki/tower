@@ -103,8 +103,11 @@ type targetBoosts struct {
 	// counts them: a retire sees a start since it read the boost's exits.
 	used   map[controller.Key]time.Time
 	starts map[controller.Key]uint64
-	// syncs holds each box's syncs to its boost one at a time.
-	syncs map[controller.Key]*sync.Mutex
+	// syncs holds each box's syncs to its boost, and the starts of
+	// processes there, one at a time; lastSync is the box's sync last
+	// applied, which a start runs on.
+	syncs    map[controller.Key]*sync.Mutex
+	lastSync map[controller.Key]string
 }
 
 // syncLock is the box's sync lock. Held mu.
@@ -128,7 +131,8 @@ func (q *boostQueues) of(target string) *targetBoosts {
 	}
 	t, ok := q.targets[target]
 	if !ok {
-		t = &targetBoosts{tickets: map[string]*boostTicket{}, starting: map[controller.Key]int{}, used: map[controller.Key]time.Time{}, starts: map[controller.Key]uint64{}}
+		t = &targetBoosts{tickets: map[string]*boostTicket{}, starting: map[controller.Key]int{}, used: map[controller.Key]time.Time{}, starts: map[controller.Key]uint64{},
+			lastSync: map[controller.Key]string{}}
 		q.targets[target] = t
 	}
 	return t
@@ -776,39 +780,44 @@ func (s *Server) settleEnded(ctx context.Context, key controller.Key, b *envv1al
 			open++
 		}
 	}
-	if open <= int(in.GetStatus().GetProcessesRunning()) {
+	if open <= int(in.GetStatus().GetProcessesRunning()) || s.noSettleJob.Load() {
 		return nil
 	}
-	ref := provider.Instance{Project: key.Project, Name: in.GetMetadata().GetName()}
 	return s.startBoostJob(b.GetSpec().GetTarget(), "boost-settle/"+key.String(), key, func(ctx context.Context) (bool, error) {
-		// Their exits kept, their usage recorded, and settled, as before
-		// a boost goes.
-		if _, err := s.keepBoostExits(ctx, boxKey, b, true); err != nil {
-			return false, err
-		}
-		ps, err := p.ListProcesses(ctx, ref)
-		if err != nil {
-			return false, err
-		}
-		var rec boxProcesses
-		if _, err := s.getRecord(ctx, boxProcessesKey(boxKey), &rec); err != nil {
-			return false, err
-		}
-		for _, bp := range rec.Boost {
-			if bp.InstanceUID != in.GetMetadata().GetUid() || bp.Settled || bp.RunID == "" {
-				continue
-			}
-			// Ended, or no longer kept by the instance, which keeps a few
-			// ended ones: settled either way, from its report.
-			if i := slices.IndexFunc(ps, func(p provider.Process) bool { return p.ID == bp.ProviderID }); i >= 0 && ps[i].Exit == nil {
-				continue
-			}
-			if _, err := s.settleBoostProcess(ctx, p, boxKey, ref, bp.ID); err != nil {
-				return false, err
-			}
-		}
-		return false, nil
+		return false, s.settleInstance(ctx, boxKey, b, in, p)
 	})
+}
+
+// settleInstance settles the box's processes on the boost's instance in
+// that ended: their exits kept, their usage recorded, their reports read
+// and artifacts copied back, as before a boost goes.
+func (s *Server) settleInstance(ctx context.Context, boxKey controller.Key, b *envv1alpha1.Boost, in *envv1alpha1.Instance, p provider.Provider) error {
+	ref := provider.Instance{Project: boxKey.Project, Name: in.GetMetadata().GetName()}
+	if _, err := s.keepBoostExits(ctx, boxKey, b, true); err != nil {
+		return err
+	}
+	ps, err := p.ListProcesses(ctx, ref)
+	if err != nil {
+		return err
+	}
+	var rec boxProcesses
+	if _, err := s.getRecord(ctx, boxProcessesKey(boxKey), &rec); err != nil {
+		return err
+	}
+	for _, bp := range rec.Boost {
+		if bp.InstanceUID != in.GetMetadata().GetUid() || bp.Settled || bp.RunID == "" {
+			continue
+		}
+		// Ended, or no longer kept by the instance, which keeps a few
+		// ended ones: settled either way, from its report.
+		if i := slices.IndexFunc(ps, func(p provider.Process) bool { return p.ID == bp.ProviderID }); i >= 0 && ps[i].Exit == nil {
+			continue
+		}
+		if _, err := s.settleBoostProcess(ctx, p, boxKey, ref, bp.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // boostIdle says why a boost is to go for idleness, "" if it is not: a

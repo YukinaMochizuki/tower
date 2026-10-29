@@ -145,7 +145,7 @@ var errSyncTooLarge = errors.New("the box's changes are too large to sync")
 // no base for is sent again whole, once, in the call. shared says a
 // process of the box runs on the boost: what it wrote stays. A box with
 // no checkout has no work tree to send.
-func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.Boost, in *envv1alpha1.Instance, shared bool) (*syncStats, error) {
+func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.Boost, in *envv1alpha1.Instance) (*syncStats, error) {
 	checkouts := e.box.GetSpec().GetCheckouts()
 	if len(checkouts) == 0 {
 		return nil, nil
@@ -153,6 +153,21 @@ func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.B
 	started := s.clock.Now()
 	boxKey := controller.Key{Project: e.key.Project, Name: e.key.Name}
 	boostRef := provider.Instance{Project: e.key.Project, Name: in.GetMetadata().GetName()}
+	// Whether a process of the box runs on the boost, read now, under the
+	// box's sync lock, which a start holds too: what it wrote stays. One
+	// not known to run nothing is taken to run something.
+	shared, err := s.boostRunsSomething(ctx, e.p, boxKey, in)
+	if err != nil {
+		s.log.Warn("listing a boost's processes before a sync failed; what they wrote stays", "environment", e.String(), "error", err)
+		shared = true
+	}
+	if !shared {
+		// What the ended ones changed and copied back, before the sync puts
+		// their writes back.
+		if err := s.settleInstance(ctx, boxKey, b, in, e.p); err != nil {
+			s.log.Warn("settling a boost's ended processes before a sync failed", "environment", e.String(), "error", err)
+		}
+	}
 	var rec boostSyncRecord
 	if _, err := s.getRecord(ctx, boostSyncKey(boxKey), &rec); err != nil {
 		return nil, err
@@ -162,10 +177,14 @@ func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.B
 	if known {
 		base = rec.Tree
 	}
-	for attempt := 0; ; attempt++ {
+	bundleAll, wholeTree := false, false
+	for {
 		id := "sync-" + randomID()
 		stage := path.Join(boostDir, id)
 		args := []string{"boost-pack", "--dir", workspace, "--base", base, "--out", stage, "--max", strconv.Itoa(boostSyncMax)}
+		if bundleAll {
+			args = append(args, "--bundle-all")
+		}
 		code, out, msg, err := guestRun(ctx, e.p, e.ref, args...)
 		clean := func() {
 			// Removed whatever came of the sync; a crash's leftovers are
@@ -192,19 +211,25 @@ func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.B
 			clean()
 			return nil, fmt.Errorf("boost-pack's answer: %w", err)
 		}
-		_, err = s.applySync(ctx, e, boostRef, stage, &m, known && rec.Head == m.Head, shared)
+		_, err = s.applySync(ctx, e, boostRef, stage, &m, known && rec.Head == m.Head && !bundleAll, shared)
 		clean()
-		if errors.Is(err, errNoBase) && attempt == 0 && !m.Full {
+		switch {
+		case errors.Is(err, errNoBase) && !wholeTree && !m.Full:
 			// The boost lacks the base, or made another tree: the whole
 			// tree, once.
 			s.log.Warn("a boost lacks its sync's base; sending the whole tree", "environment", e.String(), "base", base, "error", err)
 			if err := s.deleteRecord(ctx, boostSyncKey(boxKey)); err != nil {
 				return nil, err
 			}
-			base, known = "", false
+			base, known, wholeTree = "", false, true
 			continue
-		}
-		if err != nil {
+		case errors.Is(err, errNoHead) && !bundleAll:
+			// The boost lacks what the bundle needs: HEAD's whole history,
+			// once.
+			s.log.Warn("a boost lacks what its sync's bundle needs; sending HEAD's history", "environment", e.String(), "error", err)
+			bundleAll = true
+			continue
+		case err != nil:
 			return nil, err
 		}
 		if err := s.putRecord(ctx, boostSyncKey(boxKey), boostSyncRecord{
@@ -213,7 +238,7 @@ func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.B
 			return nil, err
 		}
 		st := &syncStats{Tree: m.Tree, Took: s.clock.Since(started), Bytes: m.Bytes, Files: m.Files, Deleted: m.Deleted, Full: m.Full, Shared: shared}
-		for _, g := range m.Gitlinks {
+		for _, g := range m.Links {
 			st.Submodules = append(st.Submodules, g.Path)
 		}
 		s.log.Info("synced a box to its boost", "environment", e.String(), "files", st.Files, "deleted", st.Deleted, "bytes", st.Bytes,
@@ -221,6 +246,19 @@ func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.B
 		return st, nil
 	}
 }
+
+// boostRunsSomething says whether a process of the box runs on its
+// boost's instance in, as the instance lists them now.
+func (s *Server) boostRunsSomething(ctx context.Context, p provider.Provider, boxKey controller.Key, in *envv1alpha1.Instance) (bool, error) {
+	ps, err := p.ListProcesses(ctx, provider.Instance{Project: boxKey.Project, Name: in.GetMetadata().GetName()})
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(ps, func(p provider.Process) bool { return p.Exit == nil }), nil
+}
+
+// errNoHead is a boost lacking the box's HEAD, or what its bundle needs.
+var errNoHead = errors.New("the boost lacks the box's HEAD")
 
 // errNoBase is a sync's base the boost lacks, or a tree it made that is
 // not the one sent.
@@ -249,6 +287,8 @@ func (s *Server) applySync(ctx context.Context, e *environment, boostRef provide
 		return nil, providerError(e, fmt.Errorf("applying the box's changes on its boost: %w", err))
 	case code == guestbin.ExitBaseMissing || code == guestbin.ExitTreeMismatch:
 		return nil, fmt.Errorf("%w: %s", errNoBase, msg)
+	case code == guestbin.ExitHeadMissing:
+		return nil, fmt.Errorf("%w: %s", errNoHead, msg)
 	case code != 0:
 		return nil, providerError(e, fmt.Errorf("applying the box's changes on its boost: exit %d: %s: %w", code, msg, provider.ErrFailed))
 	}
@@ -288,12 +328,14 @@ func withoutBoostJob(command []string) []string {
 // reportPath is where a boosted run's boost-job writes its report.
 func reportPath(runID string) string { return path.Join(boostDir, "job-"+runID+".json") }
 
-// checkArtifacts refuses artifacts that are no paths in /workspace.
+// checkArtifacts refuses artifacts that are no paths in /workspace, or
+// are in a .git directory, its own or a submodule's.
 func checkArtifacts(artifacts []string) error {
 	for _, a := range artifacts {
 		clean := path.Clean(a)
-		if a == "" || path.IsAbs(a) || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, ".git") {
-			return invalid("artifact %q is no path in /workspace: one relative to it, not climbing out, not in .git", a)
+		if a == "" || path.IsAbs(a) || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") ||
+			slices.Contains(strings.Split(clean, "/"), ".git") {
+			return invalid("artifact %q is no path in /workspace: one relative to it, not climbing out, not in a .git directory", a)
 		}
 	}
 	return nil
@@ -306,7 +348,13 @@ func (st *settling) lock(id string) func() {
 	v, _ := st.m.LoadOrStore(id, &sync.Mutex{})
 	mu := v.(*sync.Mutex)
 	mu.Lock()
-	return mu.Unlock
+	return func() {
+		// Its id goes once settled, so the map does not grow: a settling
+		// begun meanwhile finds the process settled in the record, whose
+		// write takes one settling alone.
+		st.m.CompareAndDelete(id, mu)
+		mu.Unlock()
+	}
 }
 
 // settleBoostProcess, once, for an ended boost process: reads what it
@@ -346,20 +394,26 @@ func (s *Server) settleBoostProcess(ctx context.Context, p provider.Provider, bo
 			run.Artifacts = append(run.Artifacts, artifactResult{Path: a, Error: "not measured: " + run.Error})
 		}
 	}
-	if code, _, msg, err := guestRun(ctx, p, boostRef, "boost-clean", "--dir", workspace, "--name", path.Base(reportPath(bp.RunID))); err != nil || code != 0 {
-		s.log.Warn("removing a boost process's report failed", "box", boxKey.String(), "process", id, "error", err, "stderr", msg)
-	}
+	// Settled before its report goes: one settled again after a crash
+	// reads the report, and copies its artifacts, again.
 	err := changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool {
 		for i := range r.Boost {
 			if r.Boost[i].ID == id && !r.Boost[i].Settled {
 				r.Boost[i].Run, r.Boost[i].Settled = run, true
 				bp = r.Boost[i]
+				r.trimChanged()
 				return true
 			}
 		}
 		return false
 	})
-	return bp, err
+	if err != nil {
+		return bp, err
+	}
+	if code, _, msg, err := guestRun(ctx, p, boostRef, "boost-clean", "--dir", workspace, "--name", path.Base(reportPath(bp.RunID))); err != nil || code != 0 {
+		s.log.Warn("removing a boost process's report failed", "box", boxKey.String(), "process", id, "error", err, "stderr", msg)
+	}
+	return bp, nil
 }
 
 // copyArtifacts copies measured artifacts back to the box, in order, up
@@ -375,8 +429,28 @@ func (s *Server) copyArtifacts(ctx context.Context, prov provider.Provider, boxK
 	if running {
 		boxRef = provider.Instance{Project: boxKey.Project, Name: box.GetStatus().GetInstance()}
 	}
+	// Measured again right before they are copied: what the report says
+	// was measured when the process ended, and what is there now may have
+	// grown, or become a link out of /workspace.
+	var paths []string
+	for _, a := range measured {
+		if a.Error == "" && a.Exists {
+			paths = append(paths, a.Path)
+		}
+	}
+	now, merr := s.measureArtifacts(ctx, prov, boostRef, paths)
 	var total int64
 	for _, a := range measured {
+		if a.Error == "" && a.Exists {
+			switch m, ok := now[a.Path]; {
+			case merr != nil:
+				a.Error = "it could not be measured again: " + merr.Error()
+			case !ok:
+				a.Error = "it could not be measured again"
+			default:
+				a = m
+			}
+		}
 		r := artifactResult{Path: a.Path, Bytes: a.Bytes, Error: a.Error}
 		switch {
 		case a.Error != "" || !a.Exists:
@@ -399,29 +473,66 @@ func (s *Server) copyArtifacts(ctx context.Context, prov provider.Provider, boxK
 	return out
 }
 
+// measureArtifacts measures paths on the boost, as boost-job does.
+func (s *Server) measureArtifacts(ctx context.Context, p provider.Provider, boostRef provider.Instance, paths []string) (map[string]guestbin.Artifact, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	args := []string{"boost-measure", "--dir", workspace}
+	for _, a := range paths {
+		args = append(args, "--artifact", a)
+	}
+	code, out, msg, err := guestRun(ctx, p, boostRef, args...)
+	if err != nil {
+		return nil, err
+	}
+	if code != 0 {
+		return nil, fmt.Errorf("exit %d: %s", code, msg)
+	}
+	var as []guestbin.Artifact
+	if err := json.Unmarshal(out, &as); err != nil {
+		return nil, err
+	}
+	m := map[string]guestbin.Artifact{}
+	for _, a := range as {
+		m[a.Path] = a
+	}
+	return m, nil
+}
+
 // syncRun is one boosted start's sync, run as a job: done once it ends.
 type syncRun struct {
+	id   string
 	done chan struct{}
-	// instance is the boost's instance it synced to, by uid.
+	// instance is the boost's instance it synced to, by uid; finished
+	// when it ended, on tower's clock.
 	instance string
+	finished time.Time
 	stats    *syncStats
 	err      error
 }
 
 // startSync starts the sync of e's box to its boost's instance in, as a
-// job, holding the box in use until it ends, one sync of the box at a
-// time.
-func (s *Server) startSync(e *environment, b *envv1alpha1.Boost, in *envv1alpha1.Instance, shared bool, tq *targetBoosts, boxKey controller.Key) *syncRun {
-	run := &syncRun{done: make(chan struct{}), instance: in.GetMetadata().GetUid()}
+// job, holding the box in use until it ends, under the box's sync lock,
+// which a start on the boost holds too. A sync that succeeds is the box's
+// last applied (tq.lastSync).
+func (s *Server) startSync(e *environment, b *envv1alpha1.Boost, in *envv1alpha1.Instance, tq *targetBoosts, boxKey controller.Key) *syncRun {
+	run := &syncRun{id: randomID(), done: make(chan struct{}), instance: in.GetMetadata().GetUid()}
 	release := s.beginUse(e.key.Project, e.key.Name)
 	mu := tq.syncLock(boxKey)
-	job := "boost-sync/" + boxKey.String() + "/" + randomID()
+	job := "boost-sync/" + boxKey.String() + "/" + run.id
 	started := s.jobs.start(s.runCtx, job, s.boostCtrl, boxKey, func(ctx context.Context) error {
 		defer release()
 		defer close(run.done)
 		mu.Lock()
 		defer mu.Unlock()
-		run.stats, run.err = s.syncBoost(ctx, e, b, in, shared)
+		run.stats, run.err = s.syncBoost(ctx, e, b, in)
+		run.finished = s.clock.Now()
+		if run.err == nil {
+			tq.mu.Lock()
+			tq.lastSync[boxKey] = run.id
+			tq.mu.Unlock()
+		}
 		return run.err
 	})
 	if !started {
