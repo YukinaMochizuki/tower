@@ -158,7 +158,9 @@ type Server struct {
 	// boosts are the targets' boosted starts not started yet, and what
 	// keeps their boosts in use (boosts.go).
 	boosts boostQueues
-	jobs   jobs
+	// boostBackoffs hold back boosts' jobs that failed (boosts.go).
+	boostBackoffs boostBackoffs
+	jobs          jobs
 	// jobErrs are the jobs' last failures by target, for last_error.
 	jobErrs jobErrors
 	// teardowns are the last teardown passes of Targets being deleted.

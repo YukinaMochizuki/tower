@@ -272,6 +272,10 @@ enum PendingReason {
   // The box's boost is smaller than asked and runs a process: it is made
   // again larger once its processes end.
   PENDING_REASON_BOOST_BUSY = 3;
+  // The box's boost is being deleted, its processes' exits kept first:
+  // another is made when asked again once it is gone. No wait is
+  // estimated.
+  PENDING_REASON_BOOST_GOING = 4;
 }
 
 // RanOn is where a process runs or ran.
@@ -369,8 +373,9 @@ message ProcessExit {
   // How long it ran.
   google.protobuf.Duration wall = 7;
   // Its end was not seen: it ran on a boost that went, deleted or its
-  // instance vanished, before its exit was read. It has ended; code and
-  // the rest are unset.
+  // instance vanished, before its exit was read. It has ended; its code
+  // is 255, so a reader that does not look at lost takes it as failed,
+  // and the rest are unset.
   bool lost = 8;
 }
 

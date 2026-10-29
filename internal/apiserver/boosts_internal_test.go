@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
@@ -140,5 +142,32 @@ func TestTheRoomOfATarget(t *testing.T) {
 	}
 	if r := roomOf(&targetsv1alpha1.Target{}, v); r.hasCPU || r.hasMemory || !r.fits(boostSize{8000, 8 * gi}) {
 		t.Error("a target that reports no quota bounds a boost by it")
+	}
+}
+
+// TestTheReportCountsWhatRanBeforeIt: the target's report of its Plan's
+// usage counts a boost's instance only if it ran before the report.
+func TestTheReportCountsWhatRanBeforeIt(t *testing.T) {
+	t0 := time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC)
+	in := func(phase envv1alpha1.InstancePhase, started *timestamppb.Timestamp) *envv1alpha1.Instance {
+		return &envv1alpha1.Instance{Status: &envv1alpha1.InstanceStatus{Phase: phase, StartTime: started}}
+	}
+	running := envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING
+	report := timestamppb.New(t0)
+	for _, tc := range []struct {
+		what string
+		in   *envv1alpha1.Instance
+		at   *timestamppb.Timestamp
+		want bool
+	}{
+		{"running before the report", in(running, timestamppb.New(t0.Add(-time.Minute))), report, true},
+		{"running since the report", in(running, timestamppb.New(t0.Add(time.Second))), report, false},
+		{"running, its start not known", in(running, nil), report, false},
+		{"pending", in(envv1alpha1.InstancePhase_INSTANCE_PHASE_PENDING, timestamppb.New(t0.Add(-time.Minute))), report, false},
+		{"no report yet", in(running, timestamppb.New(t0.Add(-time.Minute))), nil, false},
+	} {
+		if got := countedByReport(tc.in, tc.at); got != tc.want {
+			t.Errorf("%s: counted %v, want %v", tc.what, got, tc.want)
+		}
 	}
 }

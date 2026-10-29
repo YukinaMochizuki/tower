@@ -39,6 +39,10 @@ const (
 	// The box's boost is smaller than asked and runs a process: it is made
 	// again larger once its processes end.
 	PendingReason_PENDING_REASON_BOOST_BUSY PendingReason = 3
+	// The box's boost is being deleted, its processes' exits kept first:
+	// another is made when asked again once it is gone. No wait is
+	// estimated.
+	PendingReason_PENDING_REASON_BOOST_GOING PendingReason = 4
 )
 
 // Enum value maps for PendingReason.
@@ -48,12 +52,14 @@ var (
 		1: "PENDING_REASON_QUEUED_BUDGET",
 		2: "PENDING_REASON_BOOST_STARTING",
 		3: "PENDING_REASON_BOOST_BUSY",
+		4: "PENDING_REASON_BOOST_GOING",
 	}
 	PendingReason_value = map[string]int32{
 		"PENDING_REASON_UNSPECIFIED":    0,
 		"PENDING_REASON_QUEUED_BUDGET":  1,
 		"PENDING_REASON_BOOST_STARTING": 2,
 		"PENDING_REASON_BOOST_BUSY":     3,
+		"PENDING_REASON_BOOST_GOING":    4,
 	}
 )
 
@@ -2124,8 +2130,9 @@ type ProcessExit struct {
 	// How long it ran.
 	Wall *durationpb.Duration `protobuf:"bytes,7,opt,name=wall,proto3" json:"wall,omitempty"`
 	// Its end was not seen: it ran on a boost that went, deleted or its
-	// instance vanished, before its exit was read. It has ended; code and
-	// the rest are unset.
+	// instance vanished, before its exit was read. It has ended; its code
+	// is 255, so a reader that does not look at lost takes it as failed,
+	// and the rest are unset.
 	Lost          bool `protobuf:"varint,8,opt,name=lost,proto3" json:"lost,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2728,12 +2735,13 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x16\n" +
 	"\x06ticket\x18\x02 \x01(\tR\x06ticket\x12;\n" +
 	"\vexpire_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"expireTime*\x93\x01\n" +
+	"expireTime*\xb3\x01\n" +
 	"\rPendingReason\x12\x1e\n" +
 	"\x1aPENDING_REASON_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cPENDING_REASON_QUEUED_BUDGET\x10\x01\x12!\n" +
 	"\x1dPENDING_REASON_BOOST_STARTING\x10\x02\x12\x1d\n" +
-	"\x19PENDING_REASON_BOOST_BUSY\x10\x03*T\n" +
+	"\x19PENDING_REASON_BOOST_BUSY\x10\x03\x12\x1e\n" +
+	"\x1aPENDING_REASON_BOOST_GOING\x10\x04*T\n" +
 	"\tRanOnKind\x12\x1b\n" +
 	"\x17RAN_ON_KIND_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fRAN_ON_KIND_BOX\x10\x01\x12\x15\n" +

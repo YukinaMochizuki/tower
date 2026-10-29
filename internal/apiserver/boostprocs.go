@@ -2,7 +2,6 @@ package apiserver
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -163,10 +162,14 @@ type listedProcess struct {
 // running says the process runs.
 func (p listedProcess) running() bool { return p.Exit == nil && !p.lost }
 
+// lostExitCode is a lost exit's code: not 0, so a reader that does not
+// look at lost takes it as failed.
+const lostExitCode = 255
+
 // exit is how the API says the process ended; nil while it runs.
 func (p listedProcess) exit() *envv1alpha1.ProcessExit {
 	if p.lost {
-		return &envv1alpha1.ProcessExit{Lost: true}
+		return &envv1alpha1.ProcessExit{Code: lostExitCode, Lost: true}
 	}
 	return processExit(p.Exit)
 }
@@ -272,8 +275,10 @@ func (s *Server) boxProcessesOf(ctx context.Context, e *environment) ([]listedPr
 
 // keepBoostExits reads the exits of b's processes into boxProcesses and
 // records their usage. Unless forced, running says one still runs, and
-// nothing is kept; forced, as before b's instance goes whatever runs, it
-// keeps what ended and leaves the rest to be marked lost, and an
+// nothing is kept, and a listing that fails is an error, so a READY
+// boost goes only on one that shows nothing running; forced, as before
+// b's instance goes whatever runs, it keeps what ended and leaves the
+// rest to be marked lost, and an
 // instance that does not answer keeps nothing. Its box gone, the usage is
 // kept under the repository boxProcesses names.
 func (s *Server) keepBoostExits(ctx context.Context, boxKey controller.Key, b *envv1alpha1.Boost, force bool) (running bool, err error) {
@@ -297,13 +302,18 @@ func (s *Server) keepBoostExits(ctx context.Context, boxKey controller.Key, b *e
 		return false, fmt.Errorf("%w: %w", controller.ErrWaiting, err)
 	}
 	ps, err := p.ListProcesses(ctx, provider.Instance{Project: boxKey.Project, Name: in.GetMetadata().GetName()})
-	if err != nil {
-		if !force && b.GetStatus().GetPhase() == envv1alpha1.BoostPhase_BOOST_PHASE_READY && !errors.Is(err, provider.ErrNotFound) {
-			return false, err
-		}
-		// One never READY, gone from its target, or going whatever: none
-		// to keep.
+	switch {
+	case err == nil:
+	case force:
+		// Going whatever: none to keep.
 		return false, nil
+	case b.GetStatus().GetPhase() == envv1alpha1.BoostPhase_BOOST_PHASE_PENDING || b.GetStatus().GetPhase() == envv1alpha1.BoostPhase_BOOST_PHASE_STARTING:
+		// Never READY: nothing ran on it.
+		return false, nil
+	default:
+		// Not known to run nothing, even not found: it stays, and a later
+		// reconcile tries again.
+		return false, fmt.Errorf("listing its processes before it goes for idleness: %w", err)
 	}
 	if !force && slices.ContainsFunc(ps, func(p provider.Process) bool { return p.Exit == nil }) {
 		return true, nil
@@ -406,7 +416,7 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 			return nil, err
 		}
 	}
-	v, err := s.boostsOnTargetNow(ctx, e.target.GetMetadata().GetName())
+	v, err := s.boostsOnTargetNow(ctx, e.target)
 	if err != nil {
 		return nil, apiError(err)
 	}
@@ -447,11 +457,12 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 		switch {
 		case b.GetMetadata().GetDeleteTime() != nil:
 			ticket(false)
-			return pending(envv1alpha1.PendingReason_PENDING_REASON_BOOST_STARTING, "its boost is going; another is made once it is gone", 0, boostStartEstimate), nil
+			return pending(envv1alpha1.PendingReason_PENDING_REASON_BOOST_GOING, "its boost is being deleted, its processes' exits kept first; ask again: another is made once it is gone", 0, 0), nil
 		case b.GetStatus().GetPhase() == envv1alpha1.BoostPhase_BOOST_PHASE_FAILED:
 			// Its room is free already; this start replaces it.
 			ticket(false)
-			s.retireBoost(boxKey, b, boostRetire{why: "a boosted start replaces it", force: true})
+			// One held back by its backoff is tried again at the next ask.
+			_ = s.retireBoost(boxKey, b, boostRetire{why: "a boosted start replaces it", force: true})
 			return pending(envv1alpha1.PendingReason_PENDING_REASON_BOOST_STARTING, "its failed boost is replaced: "+readyMsg, 0, boostStartEstimate), nil
 		case have.covers(size) && b.GetStatus().GetPhase() == envv1alpha1.BoostPhase_BOOST_PHASE_READY:
 			if tk != nil {
@@ -471,7 +482,7 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 			return pending(envv1alpha1.PendingReason_PENDING_REASON_BOOST_BUSY, fmt.Sprintf(
 				"its boost (%s) is smaller than asked (%s) and runs a process: it is made again larger once its processes end", have, size), 0, 0), nil
 		}
-		s.retireBoost(boxKey, b, boostRetire{why: fmt.Sprintf("a larger one (%s) is asked for", size)})
+		_ = s.retireBoost(boxKey, b, boostRetire{why: fmt.Sprintf("a larger one (%s) is asked for", size)})
 		return pending(envv1alpha1.PendingReason_PENDING_REASON_BOOST_STARTING, fmt.Sprintf(
 			"its boost (%s) is smaller than asked (%s): it is made again larger", have, size), 0, boostStartEstimate), nil
 	}
@@ -485,7 +496,7 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 	if tk.admitted {
 		return pending(envv1alpha1.PendingReason_PENDING_REASON_BOOST_STARTING, "its boost is being made", 0, boostStartEstimate), nil
 	}
-	if v, err = s.boostsOnTargetNow(ctx, e.target.GetMetadata().GetName()); err != nil {
+	if v, err = s.boostsOnTargetNow(ctx, e.target); err != nil {
 		return nil, apiError(err)
 	}
 	order := tq.order()

@@ -108,9 +108,11 @@ type Fake struct {
 	// holdFetches every fetch.
 	holdBuilds, holdFetches chan struct{}
 	// fetches counts the fetches started.
-	fetches      int
-	captureErr   error
-	checkoutErr  error
+	fetches     int
+	captureErr  error
+	checkoutErr error
+	// listErrs fail the listing of each instance's processes.
+	listErrs     map[string]error
 	checkouts    map[provider.Instance]int
 	failCommands []string
 	diskTotal    uint64

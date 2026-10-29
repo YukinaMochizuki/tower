@@ -238,7 +238,7 @@ func (r *boostRoom) give(size boostSize) {
 }
 
 // boostsNow are the boosts on a target as admission reads them, and
-// which of them its Plan's report counts, their instance RUNNING.
+// which of them its Plan's last report counts (countedByReport).
 type boostsNow struct {
 	boosts  []*envv1alpha1.Boost
 	counted map[string]bool
@@ -250,9 +250,10 @@ func holds(b *envv1alpha1.Boost) bool {
 	return b.GetStatus().GetPhase() != envv1alpha1.BoostPhase_BOOST_PHASE_FAILED
 }
 
-// boostsOnTargetNow lists the boosts on target, and which its Plan's
-// report counts: hangar counts a machine's cpu and memory once it runs.
-func (s *Server) boostsOnTargetNow(ctx context.Context, target string) (boostsNow, error) {
+// boostsOnTargetNow lists the boosts on t, and which its Plan's last
+// report counts.
+func (s *Server) boostsOnTargetNow(ctx context.Context, t *targetsv1alpha1.Target) (boostsNow, error) {
+	target, reported := t.GetMetadata().GetName(), t.GetStatus().GetLastReportTime()
 	all, err := listTyped[*envv1alpha1.Boost](ctx, s, registry.Boost, "")
 	if err != nil {
 		return boostsNow{}, err
@@ -267,9 +268,20 @@ func (s *Server) boostsOnTargetNow(ctx context.Context, target string) (boostsNo
 		if err != nil {
 			return boostsNow{}, err
 		}
-		v.counted[b.GetMetadata().GetUid()] = ok && owns(registry.Boost, b, in) && in.GetStatus().GetPhase() == envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING
+		v.counted[b.GetMetadata().GetUid()] = ok && owns(registry.Boost, b, in) && countedByReport(in, reported)
 	}
 	return v, nil
+}
+
+// countedByReport says the target's report of its Plan's usage, made at
+// reported, counts the instance in: hangar counts a machine's cpu and
+// memory once it runs, so the instance ran before the report was made.
+// One that started since, or whose start is not known, is not counted
+// yet.
+func countedByReport(in *envv1alpha1.Instance, reported *timestamppb.Timestamp) bool {
+	started := in.GetStatus().GetStartTime()
+	return in.GetStatus().GetPhase() == envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING &&
+		started != nil && reported != nil && started.AsTime().Before(reported.AsTime())
 }
 
 // quotaOf is the Plan's quota left as t reports it.
@@ -331,7 +343,7 @@ func (s *Server) admitBoosts(ctx context.Context, t *targetsv1alpha1.Target, tq 
 		return nil
 	}
 	target := t.GetMetadata().GetName()
-	v, err := s.boostsOnTargetNow(ctx, target)
+	v, err := s.boostsOnTargetNow(ctx, t)
 	if err != nil {
 		return err
 	}
@@ -533,8 +545,7 @@ func (s *Server) reconcileBoost(ctx context.Context, key controller.Key) error {
 		return err
 	}
 	if b.GetMetadata().GetDeleteTime() != nil {
-		s.finishBoost(key, b)
-		return nil
+		return s.finishBoost(key, b)
 	}
 	box, ok, err := getTyped[*envv1alpha1.Box](ctx, s, registry.Box, resource.Key{Project: key.Project, Name: b.GetSpec().GetBox()})
 	if err != nil || !ok || box.GetMetadata().GetDeleteTime() != nil || !owns(registry.Box, box, b) {
@@ -558,7 +569,9 @@ func (s *Server) reconcileBoost(ctx context.Context, key controller.Key) error {
 		return err
 	}
 	if retire.why != "" {
-		s.retireBoost(key, b, retire)
+		if err := s.retireBoost(key, b, retire); err != nil && waitErr == nil {
+			waitErr = err
+		}
 	}
 	return waitErr
 }
@@ -602,8 +615,7 @@ func (s *Server) boostSteps(ctx context.Context, key controller.Key, b *envv1alp
 	// box replaces it.
 	if st.Phase == envv1alpha1.BoostPhase_BOOST_PHASE_FAILED {
 		if mine {
-			s.dropBoostInstance(key, b, in)
-			return boostRetire{}, nil
+			return boostRetire{}, s.dropBoostInstance(key, b, in)
 		}
 		return boostRetire{why: s.boostIdle(st, false, set.boostIdle)}, nil
 	}
@@ -807,8 +819,83 @@ func (s *Server) makeBoostInstance(ctx context.Context, key controller.Key, b *e
 	return nil
 }
 
+// The backoff of a boost's job that failed, or found it must try again
+// later: its first retry, and the most it doubles to.
+const (
+	boostRetryFirst = 100 * time.Millisecond
+	boostRetryMax   = time.Minute
+)
+
+// boostBackoffs are the boosts' jobs that failed, or were to try again,
+// that many times in a row, and when each may run again. A job restarted
+// after its failure counts on, so one that fails at once does not run at
+// the controller's first retry forever. In memory: a restart tries each
+// at once.
+type boostBackoffs struct {
+	mu sync.Mutex
+	m  map[string]boostTry
+}
+
+type boostTry struct {
+	n    int
+	next time.Time
+}
+
+// wait is how long until job may run again, 0 if it may now.
+func (b *boostBackoffs) wait(job string, now time.Time) time.Duration {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return max(b.m[job].next.Sub(now), 0)
+}
+
+// ended counts a run of job: one to try again later pushes its next run
+// back, doubling; one that did what it was for clears it.
+func (b *boostBackoffs) ended(job string, again bool, now time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !again {
+		delete(b.m, job)
+		return
+	}
+	if b.m == nil {
+		b.m = map[string]boostTry{}
+	}
+	t := b.m[job]
+	delay := min(boostRetryFirst<<min(t.n, 20), boostRetryMax)
+	b.m[job] = boostTry{n: t.n + 1, next: now.Add(delay)}
+}
+
+// forget drops the backoffs of the boost of key, gone.
+func (b *boostBackoffs) forget(key controller.Key) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for job := range b.m {
+		if strings.HasSuffix(job, "/"+key.String()) {
+			delete(b.m, job)
+		}
+	}
+}
+
+// startBoostJob starts job for the boost of key, as startJob does, unless
+// its backoff has not passed: then it is ErrWaiting, and the boost's
+// reconcile asks again. fn's again, or its error, backs the job off.
+func (s *Server) startBoostJob(target, job string, key controller.Key, fn func(ctx context.Context) (again bool, err error)) error {
+	if wait := s.boostBackoffs.wait(job, s.clock.Now()); wait > 0 {
+		return fmt.Errorf("boost %s: %s runs again in %s: %w", key, job, wait, controller.ErrWaiting)
+	}
+	s.startJob(target, job, s.boostCtrl, key, func(ctx context.Context) error {
+		again, err := fn(ctx)
+		if ctx.Err() == nil {
+			s.boostBackoffs.ended(job, again || err != nil, s.clock.Now())
+		}
+		return err
+	})
+	return nil
+}
+
 // boostJob runs one of the boost's instance steps as a job, as a box's
-// are, saying msg while it runs; one that failed fails the boost.
+// are, saying msg while it runs; one that failed fails the boost, and one
+// that waits on its target is tried again as its backoff lets it.
 func (s *Server) boostJob(ctx context.Context, key controller.Key, b *envv1alpha1.Boost, in *envv1alpha1.Instance, bs *boostState, fail func(reason, msg string), step, msg string, fn func(context.Context, provider.Instance) error) error {
 	job := "boost-" + step + "/" + key.String()
 	ref := newStepRef("boost", key.Project, key.Name, step, in.GetMetadata().GetUid()+"/"+runOf(in), b.GetMetadata().GetGeneration())
@@ -830,33 +917,32 @@ func (s *Server) boostJob(ctx context.Context, key controller.Key, b *envv1alpha
 		return nil
 	}
 	inst := provider.Instance{Project: key.Project, Name: in.GetMetadata().GetName()}
-	s.startJob(b.GetSpec().GetTarget(), job, s.boostCtrl, key, func(ctx context.Context) error {
+	return s.startBoostJob(b.GetSpec().GetTarget(), job, key, func(ctx context.Context) (bool, error) {
 		if err := fn(ctx, inst); err != nil {
-			return err
+			return false, err
 		}
-		return s.stepPassed(ctx, ref)
+		return false, s.stepPassed(ctx, ref)
 	})
-	return nil
 }
 
 // dropBoostInstance deletes a FAILED boost's instance, in a job, its
 // processes' exits kept first as far as they can be read, so its room is
 // free for the target's queue.
-func (s *Server) dropBoostInstance(key controller.Key, b *envv1alpha1.Boost, in *envv1alpha1.Instance) {
+func (s *Server) dropBoostInstance(key controller.Key, b *envv1alpha1.Boost, in *envv1alpha1.Instance) error {
 	target := b.GetSpec().GetTarget()
 	boxKey := controller.Key{Project: key.Project, Name: b.GetSpec().GetBox()}
-	s.startJob(target, "boost-drop/"+key.String(), s.boostCtrl, key, func(ctx context.Context) error {
+	return s.startBoostJob(target, "boost-drop/"+key.String(), key, func(ctx context.Context) (bool, error) {
 		if _, err := s.keepBoostExits(ctx, boxKey, b, true); err != nil {
-			return err
+			return false, err
 		}
 		if err := changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool { return r.instanceGone(in.GetMetadata().GetUid()) }); err != nil {
-			return err
+			return false, err
 		}
 		rv := in.GetMetadata().GetResourceVersion()
 		if _, err := s.backend(registry.Instance).Delete(s.system(ctx), resource.Key{Project: key.Project, Name: in.GetMetadata().GetName()}, &rv); err != nil && !isNotFound(err) && connect.CodeOf(err) != connect.CodeAborted {
-			return err
+			return false, err
 		}
-		return s.admitTarget(ctx, target)
+		return false, s.admitTarget(ctx, target)
 	})
 }
 
@@ -874,24 +960,27 @@ func (s *Server) admitTarget(ctx context.Context, target string) error {
 
 // retireBoost deletes a boost, in a job. Unless forced, its processes'
 // exits are read and kept first (keepBoostExits), and it goes only if
-// nothing runs on it, no start waits for it, and nothing started on it
-// since they were read. Deleted, it goes once finishBoost has kept what
-// is left of its processes.
-func (s *Server) retireBoost(key controller.Key, b *envv1alpha1.Boost, r boostRetire) {
+// that listing showed nothing running, no start waits for it, and nothing
+// started on it since; else it is tried again as its backoff lets it.
+// Deleted, it goes once finishBoost has kept what is left of its
+// processes.
+func (s *Server) retireBoost(key controller.Key, b *envv1alpha1.Boost, r boostRetire) error {
 	target, uid := b.GetSpec().GetTarget(), b.GetMetadata().GetUid()
 	boxKey := controller.Key{Project: key.Project, Name: b.GetSpec().GetBox()}
-	s.startJob(target, "boost-retire/"+key.String(), s.boostCtrl, key, func(ctx context.Context) error {
+	// A forced one is not held back by an idle one's backoff.
+	job := "boost-retire/" + key.String()
+	if r.force {
+		job = "boost-retire-forced/" + key.String()
+	}
+	return s.startBoostJob(target, job, key, func(ctx context.Context) (bool, error) {
 		tq := s.boosts.of(target)
 		tq.mu.Lock()
 		read := tq.starts[boxKey]
 		tq.mu.Unlock()
 		if !r.force {
 			running, err := s.keepBoostExits(ctx, boxKey, b, false)
-			if err != nil {
-				return err
-			}
-			if running {
-				return nil
+			if err != nil || running {
+				return true, err
 			}
 			if hook := s.beforeBoostRetire.Load(); hook != nil {
 				(*hook)(boxKey)
@@ -900,18 +989,18 @@ func (s *Server) retireBoost(key controller.Key, b *envv1alpha1.Boost, r boostRe
 		tq.mu.Lock()
 		defer tq.mu.Unlock()
 		if !r.force && (tq.busy(boxKey, s.clock.Now()) || tq.starts[boxKey] != read) {
-			return nil
+			return true, nil
 		}
 		cur, ok, err := getTyped[*envv1alpha1.Boost](ctx, s, registry.Boost, resource.Key{Project: key.Project, Name: key.Name})
 		if err != nil || !ok || cur.GetMetadata().GetUid() != uid || cur.GetMetadata().GetDeleteTime() != nil {
-			return err
+			return false, err
 		}
 		rv := cur.GetMetadata().GetResourceVersion()
 		if _, err := s.backend(registry.Boost).Delete(s.system(ctx), resource.Key{Project: key.Project, Name: key.Name}, &rv); err != nil && !isNotFound(err) {
-			return err
+			return false, err
 		}
 		s.log.Info("deleting a boost", "project", key.Project, "box", boxKey.Name, "target", target, "why", r.why)
-		return nil
+		return false, nil
 	})
 }
 
@@ -919,27 +1008,29 @@ func (s *Server) retireBoost(key controller.Key, b *envv1alpha1.Boost, r boostRe
 // processes are read and kept as far as they can be, their usage
 // recorded, those not read marked lost; then its finalizer goes, its
 // instance after it, and the target's queue is admitted again.
-func (s *Server) finishBoost(key controller.Key, b *envv1alpha1.Boost) {
+func (s *Server) finishBoost(key controller.Key, b *envv1alpha1.Boost) error {
 	target, uid := b.GetSpec().GetTarget(), b.GetMetadata().GetUid()
 	boxKey := controller.Key{Project: key.Project, Name: b.GetSpec().GetBox()}
-	s.startJob(target, "boost-finish/"+key.String(), s.boostCtrl, key, func(ctx context.Context) error {
+	return s.startBoostJob(target, "boost-finish/"+key.String(), key, func(ctx context.Context) (bool, error) {
 		if _, err := s.keepBoostExits(ctx, boxKey, b, true); err != nil {
-			return err
+			return false, err
 		}
 		if err := changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool { return r.boostGone(uid) }); err != nil {
-			return err
+			return false, err
 		}
 		err := s.removeFinalizerOf(ctx, registry.Boost, resource.Key{Project: key.Project, Name: key.Name}, uid, boostExitsFinalizer)
 		if err != nil && !errors.Is(err, errOtherUID) {
-			return err
+			return false, err
 		}
 		tq := s.boosts.of(target)
 		tq.mu.Lock()
 		delete(tq.used, boxKey)
 		tq.mu.Unlock()
+		// What a later boost of the box does starts afresh.
+		s.boostBackoffs.forget(key)
 		if s.boxCtrl != nil {
 			s.boxCtrl.Enqueue(boxKey)
 		}
-		return s.admitTarget(ctx, target)
+		return false, s.admitTarget(ctx, target)
 	})
 }

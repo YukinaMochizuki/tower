@@ -218,6 +218,9 @@ func (f *Fake) ListProcesses(_ context.Context, in provider.Instance) ([]provide
 	if err := f.answering(); err != nil {
 		return nil, err
 	}
+	if err := f.listErrs[in.Name]; err != nil {
+		return nil, err
+	}
 	local := f.instances[in]
 	if local == nil || f.vanished[local.uid] {
 		return nil, fmt.Errorf("instance %s/%s: %w", in.Project, in.Name, provider.ErrNotFound)
@@ -295,6 +298,17 @@ func (f *Fake) SetStreams(in provider.Instance, n int) error {
 	}
 	f.enqueue(in)
 	return nil
+}
+
+// FailListProcesses makes listing the processes of the instance of the
+// name fail with err, until cleared with nil.
+func (f *Fake) FailListProcesses(name string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.listErrs == nil {
+		f.listErrs = map[string]error{}
+	}
+	f.listErrs[name] = err
 }
 
 // Following counts the attaches waiting for a process to write or end.

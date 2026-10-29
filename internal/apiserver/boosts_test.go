@@ -342,11 +342,11 @@ func TestAStoppedBoxLosesItsBoost(t *testing.T) {
 	if p := got[ended]; p.GetRunning() || p.GetExit().GetCode() != 0 || p.GetExit().GetLost() || p.GetCommand() != "true" {
 		t.Errorf("the ended process, after its boost went: %v", p)
 	}
-	if p := got[running]; p.GetRunning() || !p.GetExit().GetLost() {
-		t.Errorf("the process that still ran, after its boost went: %v, want ended, its exit lost", p)
+	if p := got[running]; p.GetRunning() || !p.GetExit().GetLost() || p.GetExit().GetCode() != 255 {
+		t.Errorf("the process that still ran, after its boost went: %v, want ended, its exit lost, code 255", p)
 	}
 	_, end, err := attachProcess(t.Context(), w.as(workstream).envs, &envv1alpha1.AttachProcessRequest{Environment: boxEnv("dev"), Process: running, Follow: true})
-	if err != nil || !end.GetExit().GetLost() {
+	if err != nil || !end.GetExit().GetLost() || end.GetExit().GetCode() != 255 {
 		t.Errorf("following a process whose boost went: %v, %v; want its end, lost", end, err)
 	}
 }
@@ -739,4 +739,50 @@ func TestBoostsAreRefused(t *testing.T) {
 			t.Errorf("boost_max below the default boost_resources: %v, want InvalidArgument", err)
 		}
 	})
+}
+
+// TestAnIdleBoostGoesOnlyOnAListing: an idle READY boost goes only once a
+// listing of its processes shows nothing running; while its instance's
+// listing fails, even as not found, it stays.
+func TestAnIdleBoostGoesOnlyOnAListing(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, &targetsv1alpha1.TargetSettings{BoostIdle: durationpb.New(time.Minute)})
+	w.readyBox("dev")
+	w.startBoosted(boostOn("dev", "true"))
+	b, _ := w.boost("dev")
+	w.fake.FailListProcesses("boost-dev", fmt.Errorf("instance web/boost-dev: %w", provider.ErrNotFound))
+	w.advance(2 * time.Minute)
+	w.advance(2 * time.Minute)
+	if nb, ok := w.boost("dev"); !ok || nb.GetMetadata().GetDeleteTime() != nil {
+		t.Fatalf("an idle boost whose processes could not be listed was deleted: %v", nb)
+	}
+	w.fake.FailListProcesses("boost-dev", nil)
+	w.advance(2 * time.Minute)
+	testutil.Eventually(t, "the idle boost gone once listed", func() bool {
+		nb, ok := w.boost("dev")
+		return !ok || nb.GetMetadata().GetUid() != b.GetMetadata().GetUid()
+	})
+}
+
+// TestABoostStepBacksOff: a boost's step that keeps waiting on its target
+// is tried again less and less often, not at the controller's first
+// retry each time.
+func TestABoostStepBacksOff(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	w.readyBox("dev")
+	w.fake.FailCheckouts(fmt.Errorf("the mirror does not answer: %w", provider.ErrUnavailable))
+	w.start(boostOn("dev", "true"))
+	w.waitBoost("dev", envv1alpha1.BoostPhase_BOOST_PHASE_STARTING)
+	in := provider.Instance{Project: "web", Name: "boost-dev"}
+	testutil.Eventually(t, "the boost's first checkout", func() bool { return w.fake.Checkouts(in) > 0 })
+	before := w.fake.Checkouts(in)
+	for range 120 {
+		w.advance(500 * time.Millisecond)
+	}
+	// One minute: tries at about 0.1, 0.3, 0.7, 1.5, 3.1, 6.3, 12.7,
+	// 25.5 and 51.1 seconds, not every 100ms.
+	if n := w.fake.Checkouts(in) - before; n > 15 {
+		t.Errorf("a step waiting on its target was tried %d times in a minute", n)
+	}
 }

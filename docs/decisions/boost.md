@@ -100,8 +100,9 @@ What is accepted and built, in the API's terms:
 - **A boosted start never waits.** It answers at once: started, with the
   process's id and `ran_on`, when the box's boost is READY and large
   enough; else `pending`, with a ticket, a reason (`QUEUED_BUDGET`,
-  `BOOST_STARTING` or `BOOST_BUSY`), a message, its place in the queue and
-  about how long. The caller asks again with the ticket, or gives it up
+  `BOOST_STARTING`, `BOOST_BUSY`, or `BOOST_GOING` while the box's boost
+  is being deleted, with no estimate), a message, its place in the queue
+  and about how long. The caller asks again with the ticket, or gives it up
   (`cancel`); asking again keeps the ticket's place. A ticket not asked
   about for five minutes is dropped; while one waits for its boost to
   start, the boost is not reclaimed. A boost that cannot fit the Plan
@@ -117,7 +118,8 @@ What is accepted and built, in the API's terms:
   their usage recorded with `ranOn.kind = boost`; an attach after
   answers the exit, the output gone. A process whose exit could not be
   read, as one that still ran when its box was stopped or whose instance
-  vanished, is reported ended, its exit `lost`.
+  vanished, is reported ended, its exit `lost` with code 255, so a reader
+  that does not look at `lost` takes it as failed.
 - **Settings** on the Target: `boost_resources` (default 8 vCPU, 8Gi),
   `boost_max` (8 vCPU, 16Gi), `boost_budget` (16 vCPU, 16Gi),
   `boost_idle` (10 minutes) and `boost_start_timeout` (15 minutes: four
@@ -127,8 +129,8 @@ What is accepted and built, in the API's terms:
   (so a budget below one boost lets one at a time), and when it fits the
   Plan's quota left as the target reports it (`Capacity.memory_free`,
   and `cpu_free`, which the hangar provider reports from the project's
-  limits and usage), less the boosts whose instance hangar does not
-  count yet, not being RUNNING.
+  limits and usage), less the boosts its last report does not count: all
+  but those whose instance was RUNNING before `last_report_time`.
 - **The queue is in the apiserver's memory**, per target, admitted in
   order and stopping at the first that does not fit, so a large boost is
   not passed forever. An apiserver restarted loses it: a ticket it no
@@ -139,9 +141,13 @@ What is accepted and built, in the API's terms:
   whose box's image golden is gone, is FAILED with the reason: its
   instance is deleted at once and its room freed; the box's next boosted
   start replaces it, and it is deleted after `boost_idle`. A READY boost
-  is deleted once nothing ran on it for `boost_idle` and no start waits
-  for it, or at once when its box is stopped at workstream's request,
-  whatever runs on it.
+  is deleted once nothing ran on it for `boost_idle`, no start waits for
+  it, and a listing of its processes succeeds and shows none running (a
+  listing that fails, even as not found, keeps it for a later try); or
+  at once when its box is stopped at workstream's request, whatever runs
+  on it. A boost's job that fails or must try again later (a step
+  waiting on the target, a retire that found it busy) is held back by a
+  backoff from 100ms doubling to a minute, counted across its restarts.
 - `test/boostcheck` checks the above on a real tower and hangar target
   (`docs/runbook/testbed.md`).
 
