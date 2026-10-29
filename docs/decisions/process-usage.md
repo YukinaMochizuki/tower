@@ -40,8 +40,12 @@ picks, its services and its agent included.
   measured processes together, however many, leave the reserve to the
   box's own processes. Past it, the OOM stays inside `/tower`: the kernel
   picks one process cgroup there and kills it whole, its children with it,
-  and its exit says `oom_killed`. `/agent` and `/workload` run on. A
-  limit per process would not bound two heavy jobs at once.
+  and its exit says `oom_killed`. What is guaranteed is that much and no
+  more: `/agent` and `/workload` run on, and one `/tower` child is killed
+  whole. Which one the kernel picks is its own choice (the largest,
+  usually), and a box's services and editor started through tower are
+  `/tower` children too, so any of them may be the one killed. A limit
+  per process would not bound two heavy jobs at once.
 - **tower's apiserver decides the limit** (`layers.md`) and passes it on
   `provider.ProcessRequest`; the hangar provider says only whether it can
   measure (a container yes, a VM no) and passes the limit to the guest.
@@ -82,10 +86,14 @@ picks, its services and its agent included.
     `| head`, `| grep`) stripped. A line holding a list (`;`, `&&`, `||`),
     a background `&`, a substitution or a subshell keeps its filters,
     whatever follows them;
-  - the coarse key is the program and its first subcommand (`go test`,
-    `make e2e`), past variables set before it, wrappers (`env`, `time`,
-    `timeout`, `sudo`, `nice`) and a leading `cd DIR &&`. It is the only
-    command text a record holds.
+  - the coarse key is the program's name and its first subcommand (`go
+    test`, `make e2e`), past variables set before it, wrappers (`env`,
+    `time`, `timeout`, `sudo`, `nice`) and a leading `cd DIR &&`. It is the
+    only command text a record holds, so each word in it is a plain name:
+    lower-case letters, digits, `-` and `_`, starting with a letter, 32
+    characters at most, and not hex or digit-heavy as a token is. A
+    subcommand that is not one is left out; a program that is not one, a
+    script's name, say, is `<program>`, with no subcommand.
 
   The coarse key is advisory: it may hint (a box size to suggest, a warning
   that a command of this kind ran out of memory before) but never decides
@@ -94,8 +102,9 @@ picks, its services and its agent included.
 
 ## Consequences
 
-- An agent learns from the exit that its job ran out of memory, and the
-  box it ran in, its services and its agent, are still there.
+- An agent learns from the exit that its job, or the process the OOM
+  picked instead, ran out of memory, and the box it ran in and its agent
+  are still there; its other processes started through tower may not be.
 - The box's measured processes together can no longer use the last 768Mi
   of its memory, which its own processes keep.
 - A record says which command it is only to whoever already knows the

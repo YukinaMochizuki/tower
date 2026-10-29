@@ -282,10 +282,10 @@ message ProcessExit {
   Signal signal = 2;
   // Its peak memory, in bytes (memory.peak).
   optional int64 memory_peak_bytes = 3;
-  // Whether an OOM killed it, its children with it. A box's measured
-  // processes together are held to the box's memory less a reserve tower
-  // keeps; past it, one of them is killed whole, while the box's own
-  // processes run on.
+  // Whether an OOM killed it, its children with it. A box's processes
+  // started through tower are held together to the box's memory less a
+  // reserve tower keeps; past it, one of them, any one, is killed whole.
+  // Only the box's processes not started through tower are sure to run on.
   optional bool oom_killed = 4;
   // The CPU time it used (cpu.stat's usage_usec).
   google.protobuf.Duration cpu_usage = 5;

@@ -3,6 +3,7 @@ package apiserver
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -139,9 +140,9 @@ func lastPipe(s string) int {
 var (
 	// envAssignment is a word setting a variable for the command after it.
 	envAssignment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
-	// subcommand is a word that may name a program's subcommand: no flag,
-	// path, assignment or quoted text.
-	subcommand = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.:-]*$`)
+	// keyWord is the shape of a word the coarse key may hold: a program's
+	// or a subcommand's name, not a path, flag, value or quoted text.
+	keyWord = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 )
 
 // wrappers are the programs that run the command after them, skipped to
@@ -154,19 +155,23 @@ var wrappers = map[string][]string{
 	"nice":    {"-n", "--adjustment"},
 }
 
+// otherProgram is the coarse key of a command whose program's name is no
+// keyWord, a script's, say: its name and arguments may hold anything.
+const otherProgram = "<program>"
+
 // coarseCommand is the coarse key of a command's usage records, the only
 // command text a record holds: its program and first subcommand ("go
-// test"), past variables, wrappers and a leading "cd DIR &&". Advisory.
+// test") where each is a nameWord, past variables, wrappers and a cd.
 func coarseCommand(text string) string {
 	words := strings.Fields(normalizeCommand(text))
 	if len(words) >= 3 && words[0] == "cd" && words[2] == "&&" {
 		words = words[3:]
 	}
 	for len(words) > 0 {
-		w := words[0]
+		w := path.Base(words[0])
 		withArg, wrapper := wrappers[w]
 		if !wrapper {
-			if !envAssignment.MatchString(w) {
+			if !envAssignment.MatchString(words[0]) {
 				break
 			}
 			words = words[1:]
@@ -190,8 +195,35 @@ func coarseCommand(text string) string {
 	if len(words) == 0 {
 		return ""
 	}
-	if len(words) > 1 && subcommand.MatchString(words[1]) {
-		return words[0] + " " + words[1]
+	program := path.Base(words[0])
+	if !nameWord(program) {
+		return otherProgram
 	}
-	return words[0]
+	if len(words) > 1 && nameWord(words[1]) {
+		return program + " " + words[1]
+	}
+	return program
+}
+
+// nameWord reports whether w may name a program or subcommand in a coarse
+// key: a keyWord that does not look like a token (hex, or digit-heavy as
+// base64 is), which a short secret could still be.
+func nameWord(w string) bool {
+	if !keyWord.MatchString(w) {
+		return false
+	}
+	if len(w) < 8 {
+		return true
+	}
+	hexDigits, digits := 0, 0
+	for _, c := range w {
+		switch {
+		case c >= '0' && c <= '9':
+			digits++
+			hexDigits++
+		case c >= 'a' && c <= 'f':
+			hexDigits++
+		}
+	}
+	return hexDigits < len(w) && digits*4 < len(w)
 }

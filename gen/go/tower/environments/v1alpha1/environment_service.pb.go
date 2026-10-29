@@ -1725,10 +1725,10 @@ type ProcessExit struct {
 	Signal Signal `protobuf:"varint,2,opt,name=signal,proto3,enum=tower.environments.v1alpha1.Signal" json:"signal,omitempty"`
 	// Its peak memory, in bytes (memory.peak).
 	MemoryPeakBytes *int64 `protobuf:"varint,3,opt,name=memory_peak_bytes,json=memoryPeakBytes,proto3,oneof" json:"memory_peak_bytes,omitempty"`
-	// Whether an OOM killed it, its children with it. A box's measured
-	// processes together are held to the box's memory less a reserve tower
-	// keeps; past it, one of them is killed whole, while the box's own
-	// processes run on.
+	// Whether an OOM killed it, its children with it. A box's processes
+	// started through tower are held together to the box's memory less a
+	// reserve tower keeps; past it, one of them, any one, is killed whole.
+	// Only the box's processes not started through tower are sure to run on.
 	OomKilled *bool `protobuf:"varint,4,opt,name=oom_killed,json=oomKilled,proto3,oneof" json:"oom_killed,omitempty"`
 	// The CPU time it used (cpu.stat's usage_usec).
 	CpuUsage *durationpb.Duration `protobuf:"bytes,5,opt,name=cpu_usage,json=cpuUsage,proto3" json:"cpu_usage,omitempty"`

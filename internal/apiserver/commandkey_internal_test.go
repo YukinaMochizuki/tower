@@ -1,6 +1,9 @@
 package apiserver
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCommandText(t *testing.T) {
 	for _, tc := range []struct {
@@ -106,12 +109,37 @@ func TestCoarseCommand(t *testing.T) {
 		{"make -j4 check", "make"},
 		{"python3 -c 'b=bytearray(8<<30)'", "python3"},
 		{"pytest tests/test_x.py", "pytest"},
-		{"./scripts/test.sh all", "./scripts/test.sh all"},
+		{"./scripts/test.sh all", "<program>"},
+		{"/usr/local/bin/go test ./...", "go test"},
+		{"/usr/bin/env FOO=1 make e2e", "make e2e"},
 		{"CGO_ENABLED=0 GOOS=linux go build ./cmd/x", "go build"},
 		{"cd /workspace && go test ./... 2>&1 | tail", "go test"},
 		{"cd sub && make e2e", "make e2e"},
 		{"go test ./... | grep FAIL | wc -l", "go test"},
-		{"cargo nextest:run", "cargo nextest:run"},
+		{"cargo nextest:run", "cargo"},
+		{"npm run build:prod", "npm run"},
+		{"Make e2e", "<program>"},
+		{"make E2E", "make"},
+		{"python3.12 -m pytest", "<program>"},
+		{"k8s-deploy apply-all", "k8s-deploy apply-all"},
+		{"make " + strings.Repeat("z", 32), "make " + strings.Repeat("z", 32)},
+		{"make " + strings.Repeat("z", 33), "make"},
+		// What may be a secret never reaches the key.
+		{"./deploy.sh ghp_xxx", "<program>"},
+		// Token-shaped, built so that no secret scanner reads them as real.
+		{"deploy " + "ghp" + "_" + strings.Repeat("Xy9", 12), "deploy"},
+		{"deploy " + "sk" + "_live_" + strings.Repeat("Qz7", 8), "deploy"},
+		{"deploy a9f8e7d6c5b4", "deploy"},
+		{"deploy x7k2m9q4p1z8", "deploy"},
+		{"curl https://user:hunter2@example.com/hook", "curl"},
+		{"git clone https://x-access-token:ghs_abc@github.com/o/r", "git clone"},
+		{"/run/secrets/tok3n-a9f8e7d6c5b4/run.sh build", "<program>"},
+		{"cat /run/secrets/abcd1234ef567890", "cat"},
+		{"deploy --token=abc123", "deploy"},
+		{"deploy --token abc123", "deploy"},
+		{"git 3f2a9c1b7e4d5f6071829304a5b6c7d8e9f00112", "git"},
+		{"make deadbeefcafe", "make"},
+		{"git checkout 3f2a9c1b7e4d", "git checkout"},
 		{"env FOO=1 go test ./...", "go test"},
 		{"env -u HOME -i PATH=/bin make check", "make check"},
 		{"time go test ./...", "go test"},

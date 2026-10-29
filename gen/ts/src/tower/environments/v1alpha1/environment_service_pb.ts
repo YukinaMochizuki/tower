@@ -774,10 +774,10 @@ export type ProcessExit = Message<"tower.environments.v1alpha1.ProcessExit"> & {
   memoryPeakBytes?: bigint | undefined;
 
   /**
-   * Whether an OOM killed it, its children with it. A box's measured
-   * processes together are held to the box's memory less a reserve tower
-   * keeps; past it, one of them is killed whole, while the box's own
-   * processes run on.
+   * Whether an OOM killed it, its children with it. A box's processes
+   * started through tower are held together to the box's memory less a
+   * reserve tower keeps; past it, one of them, any one, is killed whole.
+   * Only the box's processes not started through tower are sure to run on.
    *
    * @generated from field: optional bool oom_killed = 4;
    */
