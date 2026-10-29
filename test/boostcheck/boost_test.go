@@ -25,6 +25,7 @@ package boostcheck
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -42,6 +43,7 @@ import (
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
 	"github.com/YukinaMochizuki/tower/internal/client"
+	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
 // bearer adds a token's secret to every request.
@@ -149,7 +151,9 @@ func (r *run) start(box, line string, wait bool) *envv1alpha1.StartProcessRespon
 		Environment: r.env(box), Command: &envv1alpha1.StartProcessRequest_Shell{Shell: line},
 		Boost: &envv1alpha1.BoostIntent{Size: &envv1alpha1.BoostIntent_On{On: true}},
 	}
-	for deadline := time.Now().Add(30 * time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Second) {
+	// Paced as a client of a real tower asks again, not as
+	// testutil.EventuallyWithin polls (every 50ms, for up to 30 minutes).
+	for deadline := time.Now().Add(30 * time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Second) { //nolint:forbidigo // pacing a real tower's re-asks, which wait for a real boost
 		res, err := r.envs.StartProcess(context.Background(), connect.NewRequest(req))
 		if err != nil {
 			r.t.Fatalf("a boosted start in %s: %v", box, err)
@@ -192,16 +196,10 @@ func (r *run) output(box, id string) (string, *envv1alpha1.ProcessExit) {
 // boostGone waits until box has no boost, within within.
 func (r *run) boostGone(box string, within time.Duration) {
 	r.t.Helper()
-	for deadline := time.Now().Add(within); time.Now().Before(deadline); time.Sleep(15 * time.Second) {
+	testutil.EventuallyWithin(r.t, within, box+"'s boost deleted", func() (bool, string) {
 		_, err := r.ws.Get(context.Background(), registry.Boost, client.Key{Project: r.project, Name: box})
-		if connect.CodeOf(err) == connect.CodeNotFound {
-			return
-		}
-		if err != nil {
-			r.t.Fatal(err)
-		}
-	}
-	r.t.Fatalf("%s's boost is still there %s on", box, within)
+		return connect.CodeOf(err) == connect.CodeNotFound, fmt.Sprint(err)
+	})
 }
 
 // TestABoostShowsItsSizeAndGoesWhenIdle: a boosted `nproc; free -g` runs
