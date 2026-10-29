@@ -61,7 +61,11 @@ or by an administrator, says which Target a project's environments run on
 is a working copy and a `Machine` a converged VM: what workstream asks for.
 tower's controllers make them out of `Golden`s, shared images and disks per
 target and inputs, and `Instance`s, the containers and VMs a provider makes
-real. hostd sees only the Instances and Goldens of its own target.
+real. On a hangar target a box's heavy jobs may run on its `Boost`, a
+short-lived larger Instance of the box's that tower makes when a process
+asks for one and deletes once idle, within the target's boost budget
+(`docs/decisions/boost.md`). hostd sees only the Instances and Goldens of
+its own target.
 
 Commands, files, background processes and pushes are RPCs on a box or a
 machine (`EnvironmentService`); tower relays them to a hostd target over

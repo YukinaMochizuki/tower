@@ -1,0 +1,277 @@
+{
+  "$defs": {
+    "tower.environments.v1alpha1.BoostSpec": {
+      "additionalProperties": false,
+      "description": "BoostSpec is the boost tower wants.",
+      "properties": {
+        "box": {
+          "description": "The Box it is a boost of, whose name it has.",
+          "type": "string"
+        },
+        "resources": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.Resources",
+          "description": "Its size: cpu and memory, within the target's boost_max and hangar's shapes (512Mi to 8Gi of memory per vCPU). A boost too small for a process asked of it is deleted and made again larger, never resized."
+        },
+        "target": {
+          "description": "The Target it runs on, its box's: what its target's boost_budget counts it against.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.BoostStatus": {
+      "additionalProperties": false,
+      "description": "BoostStatus is what tower reports about the boost.",
+      "properties": {
+        "alias": {
+          "type": "string"
+        },
+        "conditions": {
+          "description": "Ready, with Materialized on the way to it, and SetUp, which says whether the box's devcontainer setup steps passed in it. While it is STARTING, Ready's message says what it waits for, and setup_start_time since when its setup steps run: a slow setup is why a boost is slow to start.",
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.Condition"
+          },
+          "type": "array"
+        },
+        "imageGolden": {
+          "description": "The Goldens it was made from: its box's image, and the warm checkout of the box's first repository it was cloned from, if one was ready.",
+          "type": "string"
+        },
+        "instance": {
+          "description": "The Instance that holds it, and its name on the workstream's network.",
+          "type": "string"
+        },
+        "lastUseTime": {
+          "description": "When a process last started on it or was last seen running on it: it is deleted once this is boost_idle ago and nothing runs on it.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "observedGeneration": {
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "phase": {
+          "description": "BoostPhase is where a boost is in its life.\n\n- BOOST_PHASE_PENDING: Waiting for its box, or its instance is being made. A boost not READY within its target's boost_start_timeout of being made is FAILED, and so is one whose box failed.\n- BOOST_PHASE_STARTING: Its instance is starting, or the box's checkouts, secret files and setup steps are being made in it.\n- BOOST_PHASE_READY: Processes run on it.\n- BOOST_PHASE_FAILED: It cannot be made, or did not start in time; the Ready condition says why. Its instance is deleted and its room freed at once; the box's next boosted start replaces it, and it is deleted as an idle one is.",
+          "enum": [
+            "BOOST_PHASE_PENDING",
+            "BOOST_PHASE_STARTING",
+            "BOOST_PHASE_READY",
+            "BOOST_PHASE_FAILED"
+          ],
+          "type": "string"
+        },
+        "processesRunning": {
+          "description": "How many of its processes are running, as its instance reports.",
+          "format": "int32",
+          "type": "integer"
+        },
+        "setupEndTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "setupStartTime": {
+          "description": "When the box's devcontainer setup steps started and ended in it; unset until they do.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "warmGolden": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.Resources": {
+      "additionalProperties": false,
+      "description": "Resources is a shape, as quantities; an empty one takes tower's default.",
+      "properties": {
+        "cpu": {
+          "description": "Such as \"2\".",
+          "type": "string"
+        },
+        "disk": {
+          "description": "Such as \"40Gi\"; a disk only grows.",
+          "type": "string"
+        },
+        "memory": {
+          "description": "Such as \"4Gi\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.Condition": {
+      "additionalProperties": false,
+      "description": "Condition is one observed aspect of an object's state, such as \"Ready\".",
+      "properties": {
+        "lastTransitionTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "message": {
+          "description": "Human-readable detail.",
+          "type": "string"
+        },
+        "observedGeneration": {
+          "description": "The generation this condition was computed from.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "reason": {
+          "description": "CamelCase machine-readable cause of the last transition.",
+          "type": "string"
+        },
+        "status": {
+          "description": "ConditionStatus is the state of a condition.",
+          "enum": [
+            "CONDITION_STATUS_TRUE",
+            "CONDITION_STATUS_FALSE",
+            "CONDITION_STATUS_UNKNOWN"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "description": "CamelCase, such as \"Ready\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.ObjectMeta": {
+      "additionalProperties": false,
+      "description": "ObjectMeta is the metadata every resource carries. Users set name, project, labels and annotations; everything else is owned by the system. See docs/decisions/apply-semantics.md.",
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "createTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "deleteTime": {
+          "description": "Set when deletion was requested and finalizers are still pending.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "finalizers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "generation": {
+          "description": "Incremented on every change to spec.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Keys under a *.tower.hangarlab.cloud/ prefix are reserved for the system.",
+          "type": "object"
+        },
+        "name": {
+          "description": "DNS-1123 label, unique within the project (or the platform, for global kinds). An Invitation's is an email instead.",
+          "type": "string"
+        },
+        "ownerReferences": {
+          "items": {
+            "$ref": "#/$defs/tower.meta.v1.OwnerReference"
+          },
+          "type": "array"
+        },
+        "project": {
+          "description": "Empty for global kinds.",
+          "type": "string"
+        },
+        "resourceVersion": {
+          "description": "Store revision of the last write to this object.",
+          "format": "int64",
+          "pattern": "^-?[0-9]+$",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "uid": {
+          "description": "UUIDv7, assigned at creation.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.meta.v1.OwnerReference": {
+      "additionalProperties": false,
+      "description": "OwnerReference points at the object that owns this one. An owner is in the same project, a global object, or, for a global object, one in the project the reference names; when it is deleted, its dependents are garbage collected.",
+      "properties": {
+        "apiVersion": {
+          "type": "string"
+        },
+        "controller": {
+          "description": "The owner is the controller responsible for this object.",
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "project": {
+          "description": "The owner's project, when the owner is project-scoped and this object is global, as a RoleBinding owned by the ServiceToken it names. Empty otherwise.",
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Boost is a short-lived instance of a box's, larger than the box, that the box's heavy jobs run on: made from the box's image and its first repository's warm golden, on the box's workstream network, with the box's checkouts, environment and secrets. tower makes one when a process asks for it (EnvironmentService.StartProcess's boost), runs later boosted processes of the box on it, and deletes it once none has run on it for its target's boost_idle. A box has at most one, named as the box; deleting the box deletes it. Only tower writes it; workstream reads it. hangar targets only. See docs/decisions/boost.md.",
+  "properties": {
+    "apiVersion": {
+      "const": "environments.tower.hangarlab.cloud/v1alpha1",
+      "type": "string"
+    },
+    "kind": {
+      "const": "Boost",
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/tower.meta.v1.ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/tower.environments.v1alpha1.BoostSpec"
+    },
+    "status": {
+      "$ref": "#/$defs/tower.environments.v1alpha1.BoostStatus",
+      "readOnly": true
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata"
+  ],
+  "title": "Boost",
+  "type": "object"
+}

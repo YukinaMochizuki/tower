@@ -52,6 +52,16 @@ func environmentHooks(r registry.Resource) (kindHooks, bool) {
 			validate: validateGolden,
 			targetOf: func(obj proto.Message) string { return obj.(*envv1alpha1.Golden).GetSpec().GetTarget() },
 		}, true
+	case registry.Boost.Kind:
+		// Only tower writes it (authz's systemKinds); its box owns it too,
+		// named by the boost controller as it makes it. Deleted, it stays
+		// until the boost controller has kept its processes' exits.
+		return kindHooks{
+			owner:      ownedByProject,
+			validate:   validateBoost,
+			finalizers: []string{boostExitsFinalizer},
+			targetOf:   func(obj proto.Message) string { return obj.(*envv1alpha1.Boost).GetSpec().GetTarget() },
+		}, true
 	case registry.Instance.Kind:
 		return kindHooks{
 			owner:    ownedByProject,
@@ -161,6 +171,9 @@ func validateTarget(_ context.Context, _ *Server, _ authz.Caller, _, obj proto.M
 		if err := g.valid(g.v); err != nil {
 			return invalid("spec.settings.%s: %v", g.name, err)
 		}
+	}
+	if err := boostSettingsError(set); err != nil {
+		return invalid("spec.settings.%v", err)
 	}
 	// Each start against its max, with tower's default for the one unset.
 	eff := settingsOf(t)
@@ -456,6 +469,11 @@ func (s *Server) refuseAliasInUse(ctx context.Context, project, workstream, alia
 		}
 		if b.GetMetadata().GetName() == alias {
 			return failedPrecondition("alias %q is box %s's name in workstream %s; give the %s another name", alias, b.GetMetadata().GetName(), workstream, kind)
+		}
+		// A box's boost answers to boostAlias, and a new box's would.
+		if boostAlias(b.GetMetadata().GetName()) == alias || (kind == "box" && boostAlias(alias) == b.GetMetadata().GetName()) {
+			return failedPrecondition("alias %q is taken by box %s's boost in workstream %s, or would take its name; give the %s another name",
+				alias, b.GetMetadata().GetName(), workstream, kind)
 		}
 	}
 	machines, err := listTyped[*envv1alpha1.Machine](ctx, s, registry.Machine, project)

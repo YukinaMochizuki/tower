@@ -6,6 +6,9 @@ package schema
 
 import _ "embed"
 
+//go:embed environments_v1alpha1_boost.json
+var environmentsv1alpha1Boost []byte
+
 //go:embed environments_v1alpha1_box.json
 var environmentsv1alpha1Box []byte
 
@@ -39,6 +42,8 @@ var tenancyv1alpha1Project []byte
 // Get returns the JSON Schema of a kind, by its group, version and kind.
 func Get(group, version, kind string) ([]byte, bool) {
 	switch group + "/" + version + "/" + kind {
+	case "environments/v1alpha1/Boost":
+		return environmentsv1alpha1Boost, true
 	case "environments/v1alpha1/Box":
 		return environmentsv1alpha1Box, true
 	case "environments/v1alpha1/Golden":

@@ -94,6 +94,8 @@ func sample(r registry.Resource, name string) proto.Message {
 		}}
 	case registry.Instance.Kind:
 		return &envv1alpha1.Instance{Metadata: meta, Spec: &envv1alpha1.InstanceSpec{Target: "t1", Kind: envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER}}
+	case registry.Boost.Kind:
+		return &envv1alpha1.Boost{Metadata: meta, Spec: &envv1alpha1.BoostSpec{Box: name, Target: "t1", Resources: &envv1alpha1.Resources{Cpu: "2", Memory: "4Gi"}}}
 	}
 	panic("no sample of " + r.Kind)
 }
@@ -119,6 +121,7 @@ func (e *env) fixtures() {
 		{registry.Machine, sample(registry.Machine, "mc")},
 		{registry.Golden, sample(registry.Golden, "gd")},
 		{registry.Instance, sample(registry.Instance, "in")},
+		{registry.Boost, sample(registry.Boost, "bx")},
 	} {
 		if _, err := sys.Apply(ctx, m.r, m.obj); err != nil {
 			e.t.Fatalf("making %s: %v", m.r.Kind, err)
@@ -142,6 +145,7 @@ var fixtureOf = map[string]string{
 	registry.Project.Kind: "web", registry.Secret.Kind: "s", registry.ServiceToken.Kind: workstream,
 	registry.Target.Kind: "t1", registry.Placement.Kind: "web", registry.Repository.Kind: "repo",
 	registry.Box.Kind: "bx", registry.Machine.Kind: "mc", registry.Golden.Kind: "gd", registry.Instance.Kind: "in",
+	registry.Boost.Kind: "bx",
 }
 
 // TestEveryRolesVerbs: every caller may use exactly the verbs its role
@@ -162,7 +166,7 @@ func TestEveryRolesVerbs(t *testing.T) {
 	for _, r := range registry.All {
 		every[r.Kind] = writes
 	}
-	every[registry.Golden.Kind], every[registry.Instance.Kind] = reads, reads
+	every[registry.Golden.Kind], every[registry.Instance.Kind], every[registry.Boost.Kind] = reads, reads, reads
 	for _, tc := range []struct {
 		name    string
 		c       clients
@@ -175,7 +179,7 @@ func TestEveryRolesVerbs(t *testing.T) {
 			registry.Project.Kind: writes, registry.Secret.Kind: writes,
 			registry.Repository.Kind: writes, registry.Box.Kind: writes, registry.Machine.Kind: writes,
 			registry.Target.Kind: reads, registry.Placement.Kind: {authz.Get, authz.List, authz.Watch, authz.Apply},
-			registry.Golden.Kind: reads, registry.Instance.Kind: reads,
+			registry.Golden.Kind: reads, registry.Instance.Kind: reads, registry.Boost.Kind: reads,
 		}},
 		{"a token that is not there", e.as("nobody"), nil},
 	} {

@@ -98,11 +98,21 @@ func (h environmentService) StartProcess(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, err
 	}
+	if m.GetPending() != "" && m.GetBoost() == nil && !m.GetCancel() {
+		return nil, invalid("pending asks again for a boosted start: give its boost as first asked")
+	}
 	e, err := h.open(ctx, m.GetEnvironment())
 	if err != nil {
 		return nil, err
 	}
 	defer e.release()
+	if m.GetBoost() != nil || m.GetPending() != "" {
+		res, err := h.startBoosted(ctx, c, e, m, command)
+		if err != nil {
+			return nil, err
+		}
+		return connect.NewResponse(res), nil
+	}
 	id, err := e.p.StartProcess(ctx, provider.ProcessRequest{
 		Instance: e.ref, Command: e.asRunAs(command, m.GetDir()), Env: e.commandEnv(m.GetEnv()), Dir: m.GetDir(), Name: m.GetName(),
 		MemoryMax: h.s.processMemoryMaxOf(ctx, e),
@@ -114,7 +124,12 @@ func (h environmentService) StartProcess(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, providerError(e, err)
 	}
-	return connect.NewResponse(&envv1alpha1.StartProcessResponse{Process: id}), nil
+	res := &envv1alpha1.StartProcessResponse{Process: id}
+	if e.box != nil {
+		r := h.s.instanceResources(ctx, e)
+		res.RanOn = ranOn{Kind: ranOnBox, CPU: r.GetCpu(), Memory: r.GetMemory()}.proto()
+	}
+	return connect.NewResponse(res), nil
 }
 
 func (h environmentService) AttachProcess(ctx context.Context, req *connect.Request[envv1alpha1.AttachProcessRequest], stream *connect.ServerStream[envv1alpha1.AttachProcessResponse]) error {
@@ -132,7 +147,27 @@ func (h environmentService) AttachProcess(ctx context.Context, req *connect.Requ
 		return err
 	}
 	defer e.release()
-	at, err := e.p.AttachProcess(ctx, e.ref, m.GetProcess(), m.GetOffset(), m.GetFollow(), func(c provider.OutputChunk) error {
+	ref, pid := e.ref, m.GetProcess()
+	if strings.HasPrefix(pid, boostProcessPrefix) && e.box != nil {
+		bp, err := h.s.boostProcessOf(ctx, e, pid)
+		if err != nil {
+			return err
+		}
+		live, err := h.s.liveInstanceOf(ctx, e.key.Project, bp)
+		if err != nil {
+			return apiError(err)
+		}
+		if !live {
+			// Its boost's instance is gone, its output with it: its exit as
+			// kept, or lost.
+			p := listedProcess{Process: provider.Process{Exit: bp.Exit}, lost: bp.Exit == nil}
+			return stream.Send(&envv1alpha1.AttachProcessResponse{Response: &envv1alpha1.AttachProcessResponse_End{End: &envv1alpha1.ProcessEnd{
+				HeldFrom: m.GetOffset(), NextOffset: m.GetOffset(), Exit: p.exit(),
+			}}})
+		}
+		ref, pid = provider.Instance{Project: e.key.Project, Name: bp.Instance}, bp.ProviderID
+	}
+	at, err := e.p.AttachProcess(ctx, ref, pid, m.GetOffset(), m.GetFollow(), func(c provider.OutputChunk) error {
 		for len(c.Data) > 0 {
 			k := min(len(c.Data), outputChunk)
 			if err := stream.Send(&envv1alpha1.AttachProcessResponse{Response: &envv1alpha1.AttachProcessResponse_Output{Output: &envv1alpha1.ProcessOutput{
@@ -168,7 +203,22 @@ func (h environmentService) SignalProcess(ctx context.Context, req *connect.Requ
 		return nil, err
 	}
 	defer e.release()
-	err = e.p.SignalProcess(ctx, e.ref, m.GetProcess(), sig)
+	ref, pid := e.ref, m.GetProcess()
+	if strings.HasPrefix(pid, boostProcessPrefix) && e.box != nil {
+		bp, err := h.s.boostProcessOf(ctx, e, pid)
+		if err != nil {
+			return nil, err
+		}
+		live, err := h.s.liveInstanceOf(ctx, e.key.Project, bp)
+		if err != nil {
+			return nil, apiError(err)
+		}
+		if !live {
+			return nil, failedPrecondition("process %q ran on %s's boost, deleted since: it has ended", pid, e)
+		}
+		ref, pid = provider.Instance{Project: e.key.Project, Name: bp.Instance}, bp.ProviderID
+	}
+	err = e.p.SignalProcess(ctx, ref, pid, sig)
 	h.s.log.Info("process signalled", "caller", c.String(), "environment", e.String(), "process", m.GetProcess(), "signal", m.GetSignal().String(), "failed", err != nil)
 	if err != nil {
 		return nil, providerError(e, err)
@@ -186,19 +236,20 @@ func (h environmentService) ListProcesses(ctx context.Context, req *connect.Requ
 		return nil, err
 	}
 	defer e.release()
-	ps, err := e.p.ListProcesses(ctx, e.ref)
+	ps, err := h.s.boxProcessesOf(ctx, e)
 	if err != nil {
 		return nil, providerError(e, err)
 	}
-	h.s.exitsListed(ctx, e, ps)
+	h.s.exitsListed(ctx, e, ps, true)
 	res := &envv1alpha1.ListProcessesResponse{}
 	for _, p := range ps {
-		cmd := strings.Join(e.givenCommand(p.Command), " ")
-		if len(cmd) > commandSummaryLen {
-			cmd = cmd[:commandSummaryLen] + "..."
+		cmd := commandSummary(e.givenCommand(p.Command))
+		if p.kept {
+			cmd = p.Command[0]
 		}
 		res.Processes = append(res.Processes, &envv1alpha1.ProcessInfo{
-			Process: p.ID, Name: p.Name, Command: cmd, StartTime: timestamppb.New(p.Started), Running: p.Exit == nil, Exit: processExit(p.Exit),
+			Process: p.ID, Name: p.Name, Command: cmd, StartTime: timestamppb.New(p.Started), Running: p.running(), Exit: p.exit(),
+			RanOn: p.at.proto(),
 		})
 	}
 	return connect.NewResponse(res), nil

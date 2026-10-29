@@ -130,3 +130,27 @@ the image's registry, which the provider gives hangar as a registry-auth
 Secret; leave it out for a registry read anonymously. A run deletes what
 it made as it ends, but for its networks, which the next run's sweep
 takes.
+
+## Boosts on a deployed tower
+
+`test/boostcheck` runs a boost's checks (`docs/decisions/boost.md`)
+against a tower already deployed with a hangar target, as its issue's
+verification does by hand: a boosted `nproc; free -g` shows the boost's
+size, the box lists it, and the boost is deleted after `boost_idle`; and,
+with `boost_budget` below one boost, a second box's boosted start answers
+queued at once and runs once the first boost is gone. It sets the
+target's boost settings for the run and puts them back after. It needs
+two READY boxes of the project, of two workstreams, and a ROLE_WORKSTREAM
+and a ROLE_ADMIN token:
+
+```sh
+TOWER_URL=https://tower.example \
+TOWER_TOKEN_FILE=/path/to/workstream-token \
+TOWER_ADMIN_TOKEN_FILE=/path/to/admin-token \
+TOWER_PROJECT=tower TOWER_TARGET=hangar-ardge \
+TOWER_BOX_A=box-a TOWER_BOX_B=box-b \
+TOWER_BOOST_IDLE=2m \
+go test -tags boostcheck -count=1 -v -timeout 60m ./test/boostcheck/
+```
+
+Each check logs what it saw, the boost's output among it.

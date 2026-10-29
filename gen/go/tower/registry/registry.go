@@ -40,6 +40,16 @@ func (r Resource) APIVersion() string { return r.Group + "." + Domain + "/" + r.
 func (r Resource) ProjectScoped() bool { return r.Scope == v1.Scope_SCOPE_PROJECT }
 
 var (
+	Boost = Resource{
+		Group:      "environments",
+		Version:    "v1alpha1",
+		Kind:       "Boost",
+		Plural:     "boosts",
+		ShortNames: []string{"bst"},
+		Scope:      v1.Scope_SCOPE_PROJECT,
+		Message:    (*v1alpha1.Boost)(nil).ProtoReflect().Type(),
+		Service:    "tower.environments.v1alpha1.BoostService",
+	}
 	Box = Resource{
 		Group:      "environments",
 		Version:    "v1alpha1",
@@ -144,6 +154,7 @@ var (
 
 // All lists every resource kind, ordered by group and kind.
 var All = []Resource{
+	Boost,
 	Box,
 	Golden,
 	Instance,

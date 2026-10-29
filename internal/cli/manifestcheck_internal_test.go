@@ -63,7 +63,7 @@ func TestManifestErrorsSayWhatIsRight(t *testing.T) {
 		{
 			"kind in the wrong case",
 			"apiVersion: environments.tower.hangarlab.cloud/v1alpha1\nkind: box\n",
-			[]string{"unknown kind \"box\"; did you mean Box?", "environments.tower.hangarlab.cloud/v1alpha1: Box"},
+			[]string{"unknown kind \"box\"; did you mean Box?", "environments.tower.hangarlab.cloud/v1alpha1: Boost, Box"},
 		},
 		{
 			"no kind",

@@ -154,7 +154,13 @@ type Server struct {
 	controllers                                   []*controller.Controller
 	placementCtrl, repositoryCtrl, boxCtrl        *controller.Controller
 	machineCtrl, goldenCtrl, warmCtrl, targetCtrl *controller.Controller
-	jobs                                          jobs
+	boostCtrl                                     *controller.Controller
+	// boosts are the targets' boosted starts not started yet, and what
+	// keeps their boosts in use (boosts.go).
+	boosts boostQueues
+	// boostBackoffs hold back boosts' jobs that failed (boosts.go).
+	boostBackoffs boostBackoffs
+	jobs          jobs
 	// jobErrs are the jobs' last failures by target, for last_error.
 	jobErrs jobErrors
 	// teardowns are the last teardown passes of Targets being deleted.
@@ -173,6 +179,9 @@ type Server struct {
 	// beforeIdleStop, if set, runs between a box's idle stop being decided
 	// and its being written, for tests.
 	beforeIdleStop atomic.Pointer[func(controller.Key)]
+	// beforeBoostRetire, if set, runs between a boost's exits being read
+	// for its idleness and its deletion being decided, for tests.
+	beforeBoostRetire atomic.Pointer[func(controller.Key)]
 	// runCtx is Run's, which jobs run under.
 	runCtx context.Context
 	// tunnels are the tunnels hostd hosts opened, one per target, and

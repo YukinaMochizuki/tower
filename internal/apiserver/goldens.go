@@ -916,6 +916,15 @@ func (s *Server) goldenReferenced(ctx context.Context, g *envv1alpha1.Golden) (b
 			return true, nil
 		}
 	}
+	boosts, err := listTyped[*envv1alpha1.Boost](ctx, s, registry.Boost, project)
+	if err != nil {
+		return false, err
+	}
+	for _, b := range boosts {
+		if b.GetStatus().GetImageGolden() == name || b.GetStatus().GetWarmGolden() == name {
+			return true, nil
+		}
+	}
 	machines, err := listTyped[*envv1alpha1.Machine](ctx, s, registry.Machine, project)
 	if err != nil {
 		return false, err
