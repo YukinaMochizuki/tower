@@ -269,12 +269,31 @@ enum Signal {
   SIGNAL_INT = 3;
 }
 
-// ProcessExit is how a process ended.
+// ProcessExit is how a process ended, and what it used, its children
+// included. The usage fields are set for a process of a box on a hangar
+// target, where each process runs in a cgroup of its own; they are unset
+// in a machine, on a hostd target, for a process whose box could make no
+// cgroup, and for one whose box stopped under it. Each is also unset
+// where the box's kernel does not offer it.
 message ProcessExit {
   // Its exit code; 128 plus the signal's number when a signal ended it.
   int32 code = 1;
   // The signal that ended it, unset if it exited.
   Signal signal = 2;
+  // Its peak memory, in bytes (memory.peak).
+  optional int64 memory_peak_bytes = 3;
+  // Whether an OOM killed it, its children with it. A box's processes
+  // started through tower are held together to the box's memory less a
+  // reserve tower keeps; past it, one of them, any one, is killed whole.
+  // Only the box's processes not started through tower are sure to run on.
+  optional bool oom_killed = 4;
+  // The CPU time it used (cpu.stat's usage_usec).
+  google.protobuf.Duration cpu_usage = 5;
+  // The time it was runnable but waited for a CPU (cpu.pressure's "some"
+  // total): how much a larger box would have sped it up.
+  google.protobuf.Duration cpu_wait = 6;
+  // How long it ran.
+  google.protobuf.Duration wall = 7;
 }
 
 message SignalProcessRequest {

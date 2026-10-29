@@ -240,7 +240,7 @@ func (o Ops) StartProcess(ctx context.Context, spec guest.ProcessSpec) (string, 
 		return "", errors.New("a process needs a command")
 	}
 	var out bytes.Buffer
-	h := guestbin.Header{Op: guestbin.OpStart, Root: o.ProcRoot, Name: spec.Name, Command: spec.Command, Env: spec.Env, Dir: spec.Dir, LogCap: spec.LogCap, Keep: spec.Keep}
+	h := guestbin.Header{Op: guestbin.OpStart, Root: o.ProcRoot, Name: spec.Name, Command: spec.Command, Env: spec.Env, Dir: spec.Dir, LogCap: spec.LogCap, Keep: spec.Keep, Measure: spec.Measure, MemoryMax: spec.MemoryMax}
 	// Started apart from ctx: a call ended once the process runs ends
 	// nothing of it, and one ended before has the shim kill nothing it
 	// made but what it was told.
@@ -265,11 +265,14 @@ func (o Ops) SignalProcess(ctx context.Context, id string, sig int) error {
 }
 
 func processInfo(in proclog.Info) guest.ProcessInfo {
-	p := guest.ProcessInfo{ID: in.ID, Name: in.Name, Command: in.Command, Started: in.Started}
-	if in.Exit != nil {
-		p.Exit = &guest.ProcessExit{Code: in.Exit.Code, Signal: in.Exit.Signal}
+	return guest.ProcessInfo{ID: in.ID, Name: in.Name, Command: in.Command, Dir: in.Dir, Started: in.Started, Exit: processExit(in.Exit)}
+}
+
+func processExit(e *proclog.Exit) *guest.ProcessExit {
+	if e == nil {
+		return nil
 	}
-	return p
+	return &guest.ProcessExit{Code: e.Code, Signal: e.Signal, Usage: (*guest.ProcessUsage)(e.Usage)}
 }
 
 // ListProcesses lists the guest's processes, oldest first.
@@ -298,11 +301,7 @@ func (o Ops) ListProcesses(ctx context.Context) ([]guest.ProcessInfo, error) {
 }
 
 func logEnd(e proclog.End) guest.LogEnd {
-	end := guest.LogEnd{HeldFrom: e.HeldFrom, Next: e.Next}
-	if e.Exit != nil {
-		end.Exit = &guest.ProcessExit{Code: e.Exit.Code, Signal: e.Exit.Signal}
-	}
-	return end
+	return guest.LogEnd{HeldFrom: e.HeldFrom, Next: e.Next, Exit: processExit(e.Exit)}
 }
 
 // ReadProcessLog gives out a process's log from from, then, with follow,

@@ -69,12 +69,16 @@ func (t *Target) changed(ref provider.Instance) {
 }
 
 func (t *Target) StartProcess(ctx context.Context, req provider.ProcessRequest) (string, error) {
-	_, o, err := t.running(ctx, req.Instance)
+	p, o, err := t.running(ctx, req.Instance)
 	if err != nil {
 		return "", err
 	}
 	logCap, keep := t.processLimits()
-	id, err := o.StartProcess(ctx, guest.ProcessSpec{Name: req.Name, Command: req.Command, Env: req.Env, Dir: req.Dir, LogCap: logCap, Keep: keep})
+	spec := guest.ProcessSpec{Name: req.Name, Command: req.Command, Env: req.Env, Dir: req.Dir, LogCap: logCap, Keep: keep}
+	if measures(p) {
+		spec.Measure, spec.MemoryMax = true, req.MemoryMax
+	}
+	id, err := o.StartProcess(ctx, spec)
 	if err != nil {
 		return "", guestError(err)
 	}
@@ -151,7 +155,7 @@ func (t *Target) listProcesses(ctx context.Context, p placed, o processLister) (
 	}
 	out := make([]provider.Process, 0, len(list))
 	for _, pr := range list {
-		out = append(out, provider.Process{ID: pr.ID, Name: pr.Name, Command: slices.Clone(pr.Command), Started: pr.Started, Exit: exitOf(pr.Exit)})
+		out = append(out, provider.Process{ID: pr.ID, Name: pr.Name, Command: slices.Clone(pr.Command), Dir: pr.Dir, Started: pr.Started, Exit: exitOf(pr.Exit)})
 	}
 	t.procs.listed(p.uid, slices.Clone(out))
 	return out, nil
@@ -166,8 +170,13 @@ func exitOf(e *guest.ProcessExit) *provider.ProcessExit {
 	if e == nil {
 		return nil
 	}
-	return &provider.ProcessExit{Code: e.Code, Signal: provider.Signal(e.Signal)}
+	return &provider.ProcessExit{Code: e.Code, Signal: provider.Signal(e.Signal), Usage: (*provider.ProcessUsage)(e.Usage)}
 }
+
+// measures says whether a process of p is measured: in a container,
+// whose guest's cgroup2 tower-guest may write, and not in a VM, where a
+// cgroup beside systemd's own wants a decision of its own.
+func measures(p placed) bool { return !p.vm }
 
 // countTimeout bounds counting a machine's processes.
 const countTimeout = 15 * time.Second

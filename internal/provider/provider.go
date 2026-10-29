@@ -204,6 +204,10 @@ type ProcessRequest struct {
 	Dir string
 	// Name is for people.
 	Name string
+	// MemoryMax is the memory tower holds the instance's measured
+	// processes to, all together; 0 for no bound. A provider that measures
+	// processes applies it, and decides nothing of it.
+	MemoryMax int64
 }
 
 // Signal is a signal a process's group can be sent.
@@ -222,6 +226,20 @@ const (
 type ProcessExit struct {
 	Code   int
 	Signal Signal
+	// Usage is nil for a process its provider does not measure.
+	Usage *ProcessUsage
+}
+
+// ProcessUsage is what a process used, its children included: its peak
+// memory, whether an OOM killed it, the CPU time it used and the time it
+// waited for a CPU, and how long it ran. A field its instance's kernel
+// does not offer is nil.
+type ProcessUsage struct {
+	MemoryPeak *int64
+	OOMKilled  *bool
+	CPUUsage   *time.Duration
+	CPUWait    *time.Duration
+	Wall       time.Duration
 }
 
 // Killed is the exit of a process ended by sig.
@@ -232,6 +250,9 @@ type Process struct {
 	ID      string
 	Name    string
 	Command []string
+	// Dir is the working directory it was started in, empty for its
+	// instance's default or where its provider does not say.
+	Dir     string
 	Started time.Time
 	// Exit is nil while it runs.
 	Exit *ProcessExit

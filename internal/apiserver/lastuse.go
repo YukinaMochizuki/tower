@@ -211,6 +211,7 @@ func (s *Server) flushUses(ctx context.Context) error {
 		}
 	}
 	errs = append(errs, s.pruneUseRecords(ctx))
+	errs = append(errs, s.pruneCommandUses(ctx))
 	errs = append(errs, s.pruneStepBackoffs(ctx))
 	errs = append(errs, s.recheckTimed(ctx))
 	return errors.Join(errs...)

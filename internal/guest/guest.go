@@ -51,18 +51,35 @@ type ProcessSpec struct {
 	// its oldest going first.
 	LogCap int64
 	Keep   int
+	// Measure runs it in a cgroup of its own, measured; MemoryMax, above
+	// 0, holds all measured processes of the guest together to it. A guest
+	// where no cgroup can be made runs it unmeasured.
+	Measure   bool
+	MemoryMax int64
 }
 
 // ProcessExit is how a process ended: Code, 128 plus the signal's number
-// for one a signal ended, and Signal, 0 if it exited.
+// for one a signal ended, and Signal, 0 if it exited. Usage is nil for a
+// process not measured.
 type ProcessExit struct {
 	Code, Signal int
+	Usage        *ProcessUsage
+}
+
+// ProcessUsage is what a measured process used, as proclog.Usage says.
+type ProcessUsage struct {
+	MemoryPeak *int64
+	OOMKilled  *bool
+	CPUUsage   *time.Duration
+	CPUWait    *time.Duration
+	Wall       time.Duration
 }
 
 // ProcessInfo is a process of a guest as the guest keeps it.
 type ProcessInfo struct {
 	ID, Name string
 	Command  []string
+	Dir      string
 	Started  time.Time
 	// Exit is nil while it runs.
 	Exit *ProcessExit
