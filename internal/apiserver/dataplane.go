@@ -516,6 +516,8 @@ const inHomeExec = `cd "$HOME" || exit; exec "$@"`
 // givenCommand is the command a caller gave, of one asRunAs made of it,
 // so what a process is said to run is what was asked for.
 func (e *environment) givenCommand(command []string) []string {
+	// A boosted process runs under boost-job (boostsync.go).
+	command = withoutBoostJob(command)
 	if e.runAs == "" {
 		return command
 	}

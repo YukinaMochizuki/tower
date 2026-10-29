@@ -73,6 +73,8 @@ type boostTicket struct {
 	// admitted says its box's boost is made for it: it waits for the
 	// boost, no longer for room.
 	admitted bool
+	// sync is the sync made for it once its boost was READY, if any.
+	sync *syncRun
 }
 
 // boostQueues are each target's boosted starts not started yet, and what
@@ -101,6 +103,58 @@ type targetBoosts struct {
 	// counts them: a retire sees a start since it read the boost's exits.
 	used   map[controller.Key]time.Time
 	starts map[controller.Key]uint64
+	// syncs holds each box's syncs to its boost, and the starts of
+	// processes there, one at a time; lastSync is the box's sync last
+	// applied, which a start runs on.
+	syncs    map[controller.Key]syncLock
+	lastSync map[controller.Key]string
+	// syncWaiting counts each box's syncs waiting for its sync lock.
+	syncWaiting map[controller.Key]int
+}
+
+// syncLock is a box's sync lock: a semaphore of one, so a start can give
+// up waiting for it.
+type syncLock chan struct{}
+
+// lock takes the lock, waiting as long as it takes.
+func (l syncLock) lock() { l <- struct{}{} }
+
+// lockWithin takes the lock unless it is not free within wait (none, for
+// a wait of 0 or less) or ctx ends, and says whether it took it.
+func (l syncLock) lockWithin(ctx context.Context, wait time.Duration) bool {
+	select {
+	case l <- struct{}{}:
+		return true
+	default:
+	}
+	if wait <= 0 {
+		return false
+	}
+	t := time.NewTimer(wait)
+	defer t.Stop()
+	select {
+	case l <- struct{}{}:
+		return true
+	case <-t.C:
+		return false
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (l syncLock) unlock() { <-l }
+
+// syncLock is the box's sync lock. Held mu.
+func (t *targetBoosts) syncLock(box controller.Key) syncLock {
+	if t.syncs == nil {
+		t.syncs = map[controller.Key]syncLock{}
+	}
+	l, ok := t.syncs[box]
+	if !ok {
+		l = make(syncLock, 1)
+		t.syncs[box] = l
+	}
+	return l
 }
 
 func (q *boostQueues) of(target string) *targetBoosts {
@@ -111,7 +165,8 @@ func (q *boostQueues) of(target string) *targetBoosts {
 	}
 	t, ok := q.targets[target]
 	if !ok {
-		t = &targetBoosts{tickets: map[string]*boostTicket{}, starting: map[controller.Key]int{}, used: map[controller.Key]time.Time{}, starts: map[controller.Key]uint64{}}
+		t = &targetBoosts{tickets: map[string]*boostTicket{}, starting: map[controller.Key]int{}, used: map[controller.Key]time.Time{}, starts: map[controller.Key]uint64{},
+			lastSync: map[controller.Key]string{}, syncWaiting: map[controller.Key]int{}}
 		q.targets[target] = t
 	}
 	return t
@@ -741,7 +796,62 @@ func (s *Server) boostSteps(ctx context.Context, key controller.Key, b *envv1alp
 	}
 	st.Phase = envv1alpha1.BoostPhase_BOOST_PHASE_READY
 	bs.cond(BoostReady, true, "Ready", "")
-	return boostRetire{}, nil
+	return boostRetire{}, s.settleEnded(ctx, key, b, in, p)
+}
+
+// settleEnded settles, in a job, the boost's processes that ended and
+// nobody read yet: their artifacts are copied back when they end, not
+// when someone asks.
+func (s *Server) settleEnded(ctx context.Context, key controller.Key, b *envv1alpha1.Boost, in *envv1alpha1.Instance, p provider.Provider) error {
+	boxKey := controller.Key{Project: key.Project, Name: b.GetSpec().GetBox()}
+	var rec boxProcesses
+	if _, err := s.getRecord(ctx, boxProcessesKey(boxKey), &rec); err != nil {
+		return err
+	}
+	open := 0
+	for _, bp := range rec.Boost {
+		if bp.InstanceUID == in.GetMetadata().GetUid() && bp.RunID != "" && !bp.Settled && !bp.Gone {
+			open++
+		}
+	}
+	if open <= int(in.GetStatus().GetProcessesRunning()) || s.noSettleJob.Load() {
+		return nil
+	}
+	return s.startBoostJob(b.GetSpec().GetTarget(), "boost-settle/"+key.String(), key, func(ctx context.Context) (bool, error) {
+		return false, s.settleInstance(ctx, boxKey, b, in, p)
+	})
+}
+
+// settleInstance settles the box's processes on the boost's instance in
+// that ended: their exits kept, their usage recorded, their reports read
+// and artifacts copied back, as before a boost goes.
+func (s *Server) settleInstance(ctx context.Context, boxKey controller.Key, b *envv1alpha1.Boost, in *envv1alpha1.Instance, p provider.Provider) error {
+	ref := provider.Instance{Project: boxKey.Project, Name: in.GetMetadata().GetName()}
+	if _, err := s.keepBoostExits(ctx, boxKey, b, true); err != nil {
+		return err
+	}
+	ps, err := p.ListProcesses(ctx, ref)
+	if err != nil {
+		return err
+	}
+	var rec boxProcesses
+	if _, err := s.getRecord(ctx, boxProcessesKey(boxKey), &rec); err != nil {
+		return err
+	}
+	for _, bp := range rec.Boost {
+		if bp.InstanceUID != in.GetMetadata().GetUid() || bp.Settled || bp.RunID == "" {
+			continue
+		}
+		// Ended, or no longer kept by the instance, which keeps a few
+		// ended ones: settled either way, from its report.
+		if i := slices.IndexFunc(ps, func(p provider.Process) bool { return p.ID == bp.ProviderID }); i >= 0 && ps[i].Exit == nil {
+			continue
+		}
+		if _, err := s.settleBoostProcess(ctx, p, boxKey, ref, bp.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // boostIdle says why a boost is to go for idleness, "" if it is not: a

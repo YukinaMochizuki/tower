@@ -160,7 +160,13 @@ type Server struct {
 	boosts boostQueues
 	// boostBackoffs hold back boosts' jobs that failed (boosts.go).
 	boostBackoffs boostBackoffs
-	jobs          jobs
+	// boostSettling settles each ended boost process once (boostsync.go).
+	boostSettling settling
+	// syncWait and artifactsMax are boostSyncWait and boostArtifactsMax
+	// unless a test sets them.
+	syncWait     atomic.Int64
+	artifactsMax int64
+	jobs         jobs
 	// jobErrs are the jobs' last failures by target, for last_error.
 	jobErrs jobErrors
 	// teardowns are the last teardown passes of Targets being deleted.
@@ -179,6 +185,12 @@ type Server struct {
 	// beforeIdleStop, if set, runs between a box's idle stop being decided
 	// and its being written, for tests.
 	beforeIdleStop atomic.Pointer[func(controller.Key)]
+	// noSettleJob, set, keeps the boost controller from settling ended
+	// processes itself, for tests of the other paths that do.
+	noSettleJob atomic.Bool
+	// beforeBoostStart, if set, runs as a boosted start, holding the box's
+	// sync lock, is about to start its process, for tests.
+	beforeBoostStart atomic.Pointer[func(controller.Key)]
 	// beforeBoostRetire, if set, runs between a boost's exits being read
 	// for its idleness and its deletion being decided, for tests.
 	beforeBoostRetire atomic.Pointer[func(controller.Key)]

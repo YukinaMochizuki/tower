@@ -397,15 +397,20 @@ func TestADeletedBoxsBoostKeepsItsUsage(t *testing.T) {
 		_, inOK := w.instance(bref.Name)
 		return !ok && !inOK
 	})
-	uses, _ := w.commandUses()
-	for _, u := range uses {
-		for _, run := range u.Runs {
-			if run.Process == id && run.RanOn.Kind == "boost" && run.MemoryPeak != nil && *run.MemoryPeak == peak && u.Repository == "api" {
-				return
+	// Kept by whichever of the box's deletion and the settling of its
+	// ended process reads its exit first; the settling may end after the
+	// instance is gone.
+	testutil.Eventually(t, "the deleted box's boost process recorded", func() (bool, string) {
+		uses, _ := w.commandUses()
+		for _, u := range uses {
+			for _, run := range u.Runs {
+				if run.Process == id && run.RanOn.Kind == "boost" && run.MemoryPeak != nil && *run.MemoryPeak == peak && u.Repository == "api" {
+					return true, ""
+				}
 			}
 		}
-	}
-	t.Errorf("the deleted box's boost process is not recorded: %+v", uses)
+		return false, fmt.Sprintf("%+v", uses)
+	})
 }
 
 // TestABoostThatDoesNotStartFails: a boost not READY within the target's

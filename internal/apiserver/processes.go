@@ -16,6 +16,7 @@ import (
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
+	"github.com/YukinaMochizuki/tower/internal/controller"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 )
 
@@ -101,6 +102,12 @@ func (h environmentService) StartProcess(ctx context.Context, req *connect.Reque
 	if m.GetPending() != "" && m.GetBoost() == nil && !m.GetCancel() {
 		return nil, invalid("pending asks again for a boosted start: give its boost as first asked")
 	}
+	if len(m.GetArtifacts()) > 0 && m.GetBoost() == nil {
+		return nil, invalid("artifacts are a boosted process's: they are copied back from its boost")
+	}
+	if err := checkArtifacts(m.GetArtifacts()); err != nil {
+		return nil, err
+	}
 	e, err := h.open(ctx, m.GetEnvironment())
 	if err != nil {
 		return nil, err
@@ -160,7 +167,7 @@ func (h environmentService) AttachProcess(ctx context.Context, req *connect.Requ
 		if !live {
 			// Its boost's instance is gone, its output with it: its exit as
 			// kept, or lost.
-			p := listedProcess{Process: provider.Process{Exit: bp.Exit}, lost: bp.Exit == nil}
+			p := listedProcess{Process: provider.Process{Exit: bp.Exit}, lost: bp.Exit == nil, run: boostRunOf(bp)}
 			return stream.Send(&envv1alpha1.AttachProcessResponse{Response: &envv1alpha1.AttachProcessResponse_End{End: &envv1alpha1.ProcessEnd{
 				HeldFrom: m.GetOffset(), NextOffset: m.GetOffset(), Exit: p.exit(),
 			}}})
@@ -183,8 +190,18 @@ func (h environmentService) AttachProcess(ctx context.Context, req *connect.Requ
 		return providerError(e, err)
 	}
 	h.s.exitRead(ctx, e, m.GetProcess(), at.Exit)
+	exit := processExit(at.Exit)
+	if exit != nil && ref != e.ref {
+		// A boost's process: what it changed and copied back, before its
+		// end is said.
+		bp, err := h.s.settleBoostProcess(ctx, e.p, controller.Key{Project: e.key.Project, Name: e.key.Name}, ref, m.GetProcess())
+		if err != nil {
+			return apiError(err)
+		}
+		exit.Boost = boostRunOf(bp)
+	}
 	return stream.Send(&envv1alpha1.AttachProcessResponse{Response: &envv1alpha1.AttachProcessResponse_End{End: &envv1alpha1.ProcessEnd{
-		HeldFrom: at.HeldFrom, NextOffset: at.Next, Exit: processExit(at.Exit),
+		HeldFrom: at.HeldFrom, NextOffset: at.Next, Exit: exit,
 	}}})
 }
 

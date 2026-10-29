@@ -20,6 +20,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"maps"
+	"os"
 	"path"
 	"slices"
 	"strconv"
@@ -111,6 +112,9 @@ type Fake struct {
 	fetches     int
 	captureErr  error
 	checkoutErr error
+	// ws, if set, makes each instance's /workspace a real directory
+	// (RealWorkspaces).
+	ws *workspaces
 	// listErrs fail the listing of each instance's processes.
 	listErrs     map[string]error
 	checkouts    map[provider.Instance]int
@@ -700,6 +704,49 @@ func (f *Fake) Exec(ctx context.Context, req provider.ExecRequest) (int, error) 
 	}
 	f.execs = append(f.execs, Exec{Instance: req.Instance, Command: slices.Clone(req.Command), Env: maps.Clone(req.Env), ExitCode: -1})
 	i := len(f.execs) - 1
+	if onExec := f.onExec; onExec != nil && len(req.Command) > 0 && req.Command[0] == provider.GuestBinary {
+		// A test's hook sees tower-guest's commands first.
+		f.mu.Unlock()
+		if code, ok := onExec(req); ok {
+			f.mu.Lock()
+			f.execs[i].ExitCode = code
+			f.mu.Unlock()
+			return code, nil
+		}
+		f.mu.Lock()
+		if local, err = f.running(req.Instance); err != nil {
+			f.mu.Unlock()
+			return 0, err
+		}
+	}
+	if answer, ok := plainGuest(f.ws, req.Command); ok {
+		if i := slices.Index(req.Command, "--out"); req.Command[1] == "boost-pack" && i > 0 && i+1 < len(req.Command) {
+			// What it packed, for Copy to copy.
+			local.files[path.Join(path.Clean(req.Command[i+1]), "manifest.json")] = []byte(answer)
+		}
+		f.execs[i].ExitCode = 0
+		f.mu.Unlock()
+		if req.Stdout != nil {
+			_, _ = io.WriteString(req.Stdout, answer)
+		}
+		return 0, nil
+	}
+	if args, ok := f.ws.guestArgs(req.Instance, req.Command); ok {
+		guest := f.ws.guest
+		f.mu.Unlock()
+		stdout, stderr := req.Stdout, req.Stderr
+		if stdout == nil {
+			stdout = io.Discard
+		}
+		if stderr == nil {
+			stderr = io.Discard
+		}
+		code := guest(args, stdout, stderr)
+		f.mu.Lock()
+		f.execs[i].ExitCode = code
+		f.mu.Unlock()
+		return code, nil
+	}
 	// What the command reads of the fake, taken now: it runs, writing to
 	// its caller and reading its stdin, without holding f.mu.
 	if target, at, ok := linkCommand(req.Command); ok {
@@ -802,6 +849,15 @@ func (f *Fake) ReadFile(_ context.Context, in provider.Instance, p string, w io.
 	f.mu.Lock()
 	local, err := f.running(in)
 	var b []byte
+	if real := f.ws.path(in, p); err == nil && real != "" {
+		f.mu.Unlock()
+		b, err := os.ReadFile(real)
+		if err != nil {
+			return fmt.Errorf("%s: %w", p, err)
+		}
+		_, err = w.Write(b)
+		return err
+	}
 	if err == nil {
 		var ok bool
 		if b, ok = local.files[local.resolve(p)]; !ok {
@@ -855,6 +911,12 @@ func (f *Fake) Copy(_ context.Context, from provider.Instance, fromPath string, 
 		return err
 	}
 	fromPath, toPath = path.Clean(fromPath), path.Clean(toPath)
+	if from, to := f.ws.path(from, fromPath), f.ws.path(to, toPath); from != "" && to != "" {
+		if _, err := os.Lstat(from); err != nil {
+			return fmt.Errorf("%s: %w", fromPath, fs.ErrNotExist)
+		}
+		return copyPath(from, to)
+	}
 	found := false
 	for name, b := range src.files {
 		if rel, ok := under(name, fromPath); ok {
@@ -928,6 +990,10 @@ func (f *Fake) mirrorAt(mirror, ref string) (*repo, string, error) {
 	}
 	if ref == "" || ref == m.branch {
 		return m, m.head(), nil
+	}
+	if f.ws != nil && f.ws.fake[ref] != "" {
+		// A real commit RealWorkspaces made of a fake one.
+		ref = f.ws.fake[ref]
 	}
 	if !slices.Contains(m.commits, ref) {
 		return nil, "", fmt.Errorf("ref %q in mirror %s: %w", ref, mirror, provider.ErrNotFound)
@@ -1270,6 +1336,9 @@ func (f *Fake) Checkout(_ context.Context, in provider.Instance, mirror, ref, di
 		commit = ref
 	}
 	dir = path.Clean(dir)
+	if f.ws.path(in, dir) != "" {
+		return f.ws.checkout(in, mirror, m, commit, dir)
+	}
 	for name, b := range m.files {
 		local.files[path.Join(dir, name)] = slices.Clone(b)
 	}
@@ -1295,6 +1364,13 @@ func (f *Fake) UpdateOrigin(_ context.Context, in provider.Instance, mirror, dir
 		return fmt.Errorf("mirror %s: %w", mirror, provider.ErrNotFound)
 	}
 	dir = path.Clean(dir)
+	if real := f.ws.path(in, dir); real != "" {
+		if _, _, err := f.ws.realCommit(mirror, m, m.head()); err != nil {
+			return err
+		}
+		_, err := gitIn(real, "fetch", "-q", "origin")
+		return err
+	}
 	if string(local.files[path.Join(dir, ".git/origin")]) != mirror {
 		return fmt.Errorf("%s is no checkout of mirror %s: %w", dir, mirror, provider.ErrFailed)
 	}
