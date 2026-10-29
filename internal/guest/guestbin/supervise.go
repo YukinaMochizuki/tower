@@ -38,7 +38,7 @@ func startSupervised(h Header) (string, error) {
 			return "", err
 		}
 	}
-	meta := proclog.Meta{ID: id, Name: h.Name, Command: h.Command, Dir: h.Dir, Started: time.Now().UTC(), LogCap: h.LogCap}
+	meta := proclog.Meta{ID: id, Name: h.Name, Command: h.Command, Dir: workingDir(h.Dir), Started: time.Now().UTC(), LogCap: h.LogCap}
 	if err := proclog.WriteMeta(dir, meta); err != nil {
 		return "", err
 	}
@@ -77,6 +77,20 @@ func startSupervised(h Header) (string, error) {
 		return "", fmt.Errorf("starting %s: %s", h.Command[0], msg)
 	}
 	return id, nil
+}
+
+// workingDir is the directory a command asked to run in dir runs in: dir
+// against this process's own, which the supervisor and the command keep;
+// empty if that cannot be read.
+func workingDir(dir string) string {
+	if filepath.IsAbs(dir) {
+		return filepath.Clean(dir)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(wd, dir)
 }
 
 // supervise is tower-guest supervise DIR: it holds the process's lock,

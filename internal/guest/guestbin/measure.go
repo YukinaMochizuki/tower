@@ -1,6 +1,7 @@
 package guestbin
 
 import (
+	"os"
 	"os/exec"
 	"time"
 
@@ -23,18 +24,17 @@ type measured struct {
 }
 
 // startMeasured starts newCmd's command, with h.Measure in a cgroup of its
-// own named name, directly under the cgroup2 root: under the supervisor's
-// own (hangar's /workload) none can be made, as a cgroup holding processes
-// enables no controller for its children. A cgroup that cannot be made, or
-// a start into it that fails, starts the command as it would be without
-// one: measuring never keeps a process from running. The cgroup is nil
-// then.
-func startMeasured(newCmd func() *exec.Cmd, h Header, name string) (*exec.Cmd, *measured, error) {
+// own under /tower (docs/decisions/process-usage.md). Where none can be
+// made, or the start into it fails, the command starts unmeasured.
+func startMeasured(newCmd func() *exec.Cmd, h Header, id string) (*exec.Cmd, *measured, error) {
 	var m *measured
 	if h.Measure && cgroupAvailable(cgroupRoot) {
-		if g, err := cgroup.Make(cgroupRoot, "tower-"+name, h.MemoryMax); err == nil {
+		if parent, err := cgroup.EnsureParent(cgroupRoot, h.MemoryMax); err == nil {
 			self, _ := cgroup.Self(cgroupRoot)
-			m = &measured{g: g, self: self}
+			cgroup.Sweep(parent, self)
+			if g, err := cgroup.Make(parent, cgroup.Name(id, os.Getpid())); err == nil {
+				m = &measured{g: g, self: self}
+			}
 		}
 	}
 	if m != nil {
@@ -59,6 +59,5 @@ func (m *measured) usage(wall time.Duration) *proclog.Usage {
 }
 
 // remove removes the cgroup; one that stays, holding a child that would
-// not move, costs the guest an empty directory and nothing of the
-// process's.
+// not move, is swept as a later process starts.
 func (m *measured) remove() { _ = m.g.Remove(m.self) }

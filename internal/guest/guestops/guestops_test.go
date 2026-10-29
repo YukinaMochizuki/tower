@@ -387,7 +387,7 @@ func TestASupervisorKilledReadsAsKilled(t *testing.T) {
 // TestAProcessWithoutACgroupRunsUnmeasured: a process asked to be
 // measured where no cgroup can be made (a test's machine, as a guest that
 // is not root, or whose cgroupfs is read-only or v1) runs as one not
-// asked, its usage unset; its directory is kept.
+// asked, its usage unset; the directory it ran in is kept.
 func TestAProcessWithoutACgroupRunsUnmeasured(t *testing.T) {
 	o := ops(t)
 	dir := t.TempDir()
@@ -396,8 +396,15 @@ func TestAProcessWithoutACgroupRunsUnmeasured(t *testing.T) {
 	if text != dir+"\n" || end.Exit == nil || end.Exit.Code != 3 || end.Exit.Usage != nil {
 		t.Errorf("followed %q, ended %+v", text, end.Exit)
 	}
+	// One that asks for no directory runs in the guest's default, which
+	// its list says.
+	follow(t, o, startProc(t, o, guest.ProcessSpec{Command: []string{"true"}}))
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
 	list, err := o.ListProcesses(t.Context())
-	if err != nil || len(list) != 1 || list[0].Dir != dir || list[0].Exit == nil || list[0].Exit.Usage != nil {
+	if err != nil || len(list) != 2 || list[0].Dir != dir || list[0].Exit == nil || list[0].Exit.Usage != nil || list[1].Dir != wd {
 		t.Errorf("listed %+v, %v", list, err)
 	}
 }

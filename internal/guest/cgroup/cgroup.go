@@ -1,10 +1,8 @@
-// Package cgroup is the cgroup tower-guest runs one process's command in,
-// on a guest whose cgroup2 it may write (hangar's containers): made under
-// the cgroup2 root, bounded in memory so an OOM kills that command's group
-// alone, read for its usage once the command ends, and removed. It is no
-// general cgroup library: it writes and reads what that needs and nothing
-// else. docs/decisions/process-usage.md says why the root and why hangar's
-// containers alone.
+// Package cgroup is the cgroups tower-guest runs processes in, on a guest
+// whose cgroup2 it may write (hangar's containers): one parent, /tower,
+// holding all measured processes to one memory limit, and below it a
+// cgroup per process, read for its usage once it ends and removed. It is
+// no general cgroup library. docs/decisions/process-usage.md says why.
 package cgroup
 
 import (
@@ -33,26 +31,53 @@ func Available(root string) bool {
 	return syscall.Statfs(root, &st) == nil && st.Type == cgroup2Magic
 }
 
+// Parent is the cgroup under the root that every process cgroup is made
+// in.
+const Parent = "tower"
+
+// EnsureParent makes root's Parent, if racing supervisors have not, which
+// holds no process so it can enable memory and cpu for its children, and
+// holds it to memoryMax bytes if that is above 0. It returns its path.
+func EnsureParent(root string, memoryMax int64) (string, error) {
+	path := filepath.Join(root, Parent)
+	if err := os.Mkdir(path, 0o755); err != nil && !errors.Is(err, os.ErrExist) {
+		return "", err
+	}
+	if err := writeFile(path, "cgroup.subtree_control", "+memory"); err != nil {
+		return "", fmt.Errorf("cgroup %s: enabling memory: %w", Parent, err)
+	}
+	// cpu.stat and cpu.pressure are there without the cpu controller.
+	_ = writeFile(path, "cgroup.subtree_control", "+cpu")
+	if memoryMax > 0 {
+		if err := writeFile(path, "memory.max", strconv.FormatInt(memoryMax, 10)); err != nil {
+			return "", fmt.Errorf("cgroup %s: %w", Parent, err)
+		}
+	}
+	return path, nil
+}
+
+// Name is the cgroup of process id, whose supervisor is supervisor: the
+// supervisor's pid in it lets Sweep tell one whose supervisor is gone.
+func Name(id string, supervisor int) string {
+	return id + "-" + strconv.Itoa(supervisor)
+}
+
 // Group is a cgroup made for one command.
 type Group struct {
 	path string
 	dir  *os.File
 }
 
-// Make makes the cgroup name under root, which kills its processes
-// together on an OOM (memory.oom.group) and, with memoryMax above 0, holds
-// them to memoryMax bytes. A file the kernel does not offer, as when the
-// memory controller is not enabled for root's children, fails it, and
+// Make makes the cgroup name under parent, whose processes an OOM kills
+// together (memory.oom.group). A file the kernel does not offer, as when
+// parent enables no memory controller for its children, fails it, and
 // what it made is removed.
-func Make(root, name string, memoryMax int64) (*Group, error) {
-	path := filepath.Join(root, name)
+func Make(parent, name string) (*Group, error) {
+	path := filepath.Join(parent, name)
 	if err := os.Mkdir(path, 0o755); err != nil {
 		return nil, err
 	}
 	err := writeFile(path, "memory.oom.group", "1")
-	if err == nil && memoryMax > 0 {
-		err = writeFile(path, "memory.max", strconv.FormatInt(memoryMax, 10))
-	}
 	var dir *os.File
 	if err == nil {
 		dir, err = os.Open(path)
@@ -160,29 +185,74 @@ const moveTries = 3
 // stays.
 func (g *Group) Remove(to string) error {
 	_ = g.dir.Close()
+	return remove(g.path, to)
+}
+
+func remove(path, to string) error {
 	for range moveTries {
-		b, err := os.ReadFile(filepath.Join(g.path, "cgroup.procs"))
+		b, err := os.ReadFile(filepath.Join(path, "cgroup.procs"))
 		if err != nil || len(bytes.TrimSpace(b)) == 0 || to == "" {
 			break
 		}
 		for _, pid := range strings.Fields(string(b)) {
 			// One pid a write, as cgroup.procs takes them; one gone since
 			// is no error of the move's.
-			_ = appendFile(filepath.Join(to, "cgroup.procs"), pid)
+			_ = movePID(to, pid)
 		}
 	}
-	if err := syscall.Rmdir(g.path); err != nil {
-		return fmt.Errorf("removing cgroup %s: %w", filepath.Base(g.path), err)
+	if err := syscall.Rmdir(path); err != nil {
+		return fmt.Errorf("removing cgroup %s: %w", filepath.Base(path), err)
 	}
 	return nil
 }
 
-func appendFile(path, value string) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+// procDir is where the guest's processes are read.
+var procDir = "/proc"
+
+// Sweep removes, as Remove does, the process cgroups of parent whose
+// supervisor's pid runs no supervisor of their process any more, and
+// returns their names.
+func Sweep(parent, to string) []string {
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return nil
+	}
+	var swept []string
+	for _, e := range entries {
+		id, pid, ok := strings.Cut(e.Name(), "-")
+		n, err := strconv.Atoi(pid)
+		if !e.IsDir() || !ok || err != nil || n <= 0 || supervising(n, id) {
+			continue
+		}
+		if remove(filepath.Join(parent, e.Name()), to) == nil {
+			swept = append(swept, e.Name())
+		}
+	}
+	return swept
+}
+
+// supervising reports whether pid is a supervisor of process id: its
+// command line names the process's directory, which ends in id.
+func supervising(pid int, id string) bool {
+	b, err := os.ReadFile(filepath.Join(procDir, strconv.Itoa(pid), "cmdline"))
+	if err != nil {
+		return false
+	}
+	for arg := range strings.SplitSeq(string(b), "\x00") {
+		if filepath.Base(arg) == id {
+			return true
+		}
+	}
+	return false
+}
+
+// movePID moves pid into the cgroup to.
+var movePID = func(to, pid string) error {
+	f, err := os.OpenFile(filepath.Join(to, "cgroup.procs"), os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		return err
 	}
-	_, err = f.WriteString(value)
+	_, err = f.WriteString(pid)
 	return errors.Join(err, f.Close())
 }
 

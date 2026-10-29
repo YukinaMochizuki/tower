@@ -102,8 +102,8 @@ type Header struct {
 	From   int64  `json:"from,omitempty"`
 	Follow bool   `json:"follow,omitempty"`
 	// Start: whether the command runs in a cgroup of its own, measured
-	// (internal/guest/cgroup), and the memory that cgroup is held to, none
-	// if 0. A guest where no cgroup can be made runs it unmeasured.
+	// (internal/guest/cgroup), and the memory all measured processes are
+	// held to together, /tower's, none if 0.
 	Measure   bool  `json:"measure,omitempty"`
 	MemoryMax int64 `json:"memoryMax,omitempty"`
 	// Send and Receive (transfer.go): where the receiver listens, the

@@ -51,9 +51,9 @@ type ProcessSpec struct {
 	// its oldest going first.
 	LogCap int64
 	Keep   int
-	// Measure runs it in a cgroup of its own, measured, held to MemoryMax
-	// bytes if that is above 0; a guest where no cgroup can be made runs
-	// it unmeasured.
+	// Measure runs it in a cgroup of its own, measured; MemoryMax, above
+	// 0, holds all measured processes of the guest together to it. A guest
+	// where no cgroup can be made runs it unmeasured.
 	Measure   bool
 	MemoryMax int64
 }

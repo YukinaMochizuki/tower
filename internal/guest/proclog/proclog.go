@@ -49,8 +49,8 @@ const (
 	segPrefix = "log-"
 )
 
-// Meta is what a process is: never its environment. Dir is its working
-// directory as it was asked for, empty for the guest's default.
+// Meta is what a process is: never its environment. Dir is the absolute
+// directory it ran in, the guest's default for one that asked for none.
 type Meta struct {
 	ID      string    `json:"id"`
 	Name    string    `json:"name,omitempty"`
