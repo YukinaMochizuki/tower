@@ -76,6 +76,12 @@ const (
 	DefaultBoxRootDiskGrowStep           = "2Gi"
 )
 
+// DefaultHangarBoxMemory is a box's memory on a hangar target, where a
+// box's memory is held from the tenant's quota in full while it idles
+// (measured 2026-10-29: 240-420M used of 4Gi). Elsewhere a box has
+// defaultResources' container memory.
+const DefaultHangarBoxMemory = "2Gi"
+
 // defaultResources are an environment's, by kind, for each field left
 // empty.
 var defaultResources = map[envv1alpha1.InstanceKind]*envv1alpha1.Resources{
@@ -236,9 +242,7 @@ func boxDisks(t *targetsv1alpha1.Target, r *envv1alpha1.Resources) (*envv1alpha1
 		return withDefaults(kind, r), nil
 	}
 	set := settingsOf(t)
-	if r.GetDisk() == "" {
-		r = &envv1alpha1.Resources{Cpu: r.GetCpu(), Memory: r.GetMemory(), Disk: set.workspaceDisk}
-	}
+	r = &envv1alpha1.Resources{Cpu: r.GetCpu(), Memory: cmp.Or(r.GetMemory(), DefaultHangarBoxMemory), Disk: cmp.Or(r.GetDisk(), set.workspaceDisk)}
 	return withDefaults(kind, r), &envv1alpha1.DiskGrowth{
 		WorkspaceMax: set.workspaceDiskMax, Root: set.rootDisk, RootMax: set.rootDiskMax,
 		Threshold: set.workspaceGrowThreshold, Step: set.workspaceGrowStep,
@@ -325,7 +329,9 @@ func growSteps(start, maxSize uint64, step string) int {
 // builderDisks are boxDisks for a warm golden's builder on target t:
 // /workspace starts a quarter over last, what the repository's last warm
 // golden there held, to sit under the grow threshold; with none, as a
-// box's, so the golden is as large as its build needed.
+// box's, so the golden is as large as its build needed. It has the
+// container default's memory, not DefaultHangarBoxMemory: it runs the
+// pre-build, the build a box idles after, and lives only for it.
 func builderDisks(t *targetsv1alpha1.Target, last uint64) (*envv1alpha1.Resources, *envv1alpha1.DiskGrowth) {
 	if t.GetSpec().GetHangar() == nil {
 		return boxDisks(t, nil)
@@ -336,7 +342,7 @@ func builderDisks(t *targetsv1alpha1.Target, last uint64) (*envv1alpha1.Resource
 		gi := (last + last/4 + 1<<30 - 1) >> 30
 		start = fmt.Sprintf("%dGi", min(max(gi, mustBytes(set.workspaceDisk)>>30), mustBytes(set.workspaceDiskMax)>>30))
 	}
-	return boxDisks(t, &envv1alpha1.Resources{Disk: start})
+	return boxDisks(t, &envv1alpha1.Resources{Disk: start, Memory: defaultResources[envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER].GetMemory()})
 }
 
 // mustBytes reads a quantity written in this file.
