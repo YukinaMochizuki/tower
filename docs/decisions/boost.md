@@ -1,7 +1,9 @@
 # Heavy jobs run on a boost, not in a larger box
 
-Status: proposed, 2026-10-29. The direction was discussed with the human;
-the details below are a draft for review, not yet built.
+Status: accepted in part, 2026-10-29. The boost itself (its kind, its
+life, the pending answer, the settings and the queue, under "Built"
+below) is accepted and built; syncing the box's tree, artifacts and
+routing by the records are a draft for review, not yet built.
 
 ## Context
 
@@ -74,6 +76,55 @@ resize a machine's CPUs or memory while it runs (it grows disks only).
   wait, run it in the box, or do something else (decided with the human,
   2026-10-29).
 
+## Built
+
+What is accepted and built, in the API's terms:
+
+- **A `Boost` kind** (`proto/tower/environments/v1alpha1/boost.proto`),
+  named as its box and owned by it, so a box has at most one and deleting
+  the box deletes it. tower alone writes it; workstream reads it. Its
+  status says its phase (PENDING, STARTING, READY, FAILED), its instance
+  and alias (`<box>-boost`), the goldens it was made from, when it was
+  last used, its processes running, and when the box's setup steps
+  started and ended in it: a slow devcontainer setup is why a boost is
+  slow to start. It is made of its box's image and warm golden, with the
+  box's disk, env, checkouts, secret files, setup steps and privileged
+  secrets; its cpu and memory are its own.
+- **`StartProcessRequest.boost`**: unset runs a process in the box, as
+  before; `on` asks for the target's `boost_resources`; `resources` asks
+  for a size, held to `boost_max` and its vCPUs moved into hangar's
+  shapes. A boost smaller than asked is deleted and made again once
+  nothing runs on it, never resized.
+- **A boosted start never waits.** It answers at once: started, with the
+  process's id and `ran_on`, when the box's boost is READY and large
+  enough; else `pending`, with a ticket, a reason (`QUEUED_BUDGET`,
+  `BOOST_STARTING` or `BOOST_BUSY`), a message, its place in the queue and
+  about how long. The caller asks again with the ticket, or gives it up
+  (`cancel`). A ticket not asked about for two minutes is dropped; while
+  one waits for its boost to start, the boost is not reclaimed.
+- **Every process call on the box reaches its boost.** A process started
+  on a boost has an id of tower's, `boost-<uid end>-<id there>`, so no id
+  is used twice across boosts; tower keeps, per box, which instance runs
+  it. ListProcesses lists the box's and its boost's together, each with
+  `ran_on`. A boost's processes keep its box in use. Before a boost goes,
+  its processes' exits are read and kept, and their usage recorded with
+  `ranOn.kind = boost` (`process-usage.md`); an attach after answers the
+  exit, the output gone.
+- **Settings** on the Target: `boost_resources` (default 8 vCPU, 8Gi),
+  `boost_max` (8 vCPU, 16Gi), `boost_budget` (16 vCPU, 16Gi) and
+  `boost_idle` (10 minutes). A boost fits when the target's boosts with
+  it stay within `boost_budget`, or the target holds none (so a budget
+  below one boost lets one at a time), and when it fits the Plan's quota
+  left as the target reports it (`Capacity.memory_free`, and `cpu_free`,
+  which the hangar provider reports from the project's limits and usage).
+- **The queue is in the apiserver's memory**, per target, admitted in
+  order and stopping at the first that does not fit, so a large boost is
+  not passed forever. An apiserver restarted loses it: a ticket it no
+  longer knows is queued again at the back. The boosts themselves are in
+  the store and survive it.
+- A boost is deleted once nothing ran on it for `boost_idle`, or when its
+  box is stopped at workstream's request.
+
 ## Consequences
 
 - Boxes can be small: their memory is what an agent's session and
@@ -91,8 +142,8 @@ resize a machine's CPUs or memory while it runs (it grows disks only).
 ## Not decided yet
 
 - What workstream's tools take and show: the `boost` argument of a job,
-  artifacts, and how queueing and usage read in a job's result (usage on
-  `await_job` is asked for).
+  artifacts, and how a pending start and usage read in a job's result
+  (usage on `await_job` is asked for). The API they call is above.
 - Whether a boost runs Docker (docker-in-docker works in a hangar guest,
   but tower starts no dockerd today), which would move e2e that needs
   Docker or k3s from machines to boosts.
