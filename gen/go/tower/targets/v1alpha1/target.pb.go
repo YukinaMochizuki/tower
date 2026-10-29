@@ -402,9 +402,19 @@ type TargetSettings struct {
 	// When a warm golden is rebuilt for warm_max_age or
 	// warm_max_commits_behind alone; unset, at any time. A repository with
 	// no warm golden gets one at any time.
-	WarmOffPeak   *TimeWindow `protobuf:"bytes,11,opt,name=warm_off_peak,json=warmOffPeak,proto3" json:"warm_off_peak,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	WarmOffPeak *TimeWindow `protobuf:"bytes,11,opt,name=warm_off_peak,json=warmOffPeak,proto3" json:"warm_off_peak,omitempty"`
+	// How full a box's /workspace disk is when it grows, a whole percentage
+	// from 50% to 95%, and how much it grows by, a factor over 1x and at
+	// most 16x such as "2x", or a quantity of at least 1Gi such as "4Gi";
+	// unset, 80% and 4Gi. A warm golden's builder grows the same way.
+	BoxWorkspaceDiskGrowThreshold string `protobuf:"bytes,12,opt,name=box_workspace_disk_grow_threshold,json=boxWorkspaceDiskGrowThreshold,proto3" json:"box_workspace_disk_grow_threshold,omitempty"`
+	BoxWorkspaceDiskGrowStep      string `protobuf:"bytes,13,opt,name=box_workspace_disk_grow_step,json=boxWorkspaceDiskGrowStep,proto3" json:"box_workspace_disk_grow_step,omitempty"`
+	// The same for a box's container root disk; unset, 90% and 2Gi. The
+	// root holds mostly the image, so it grows later and by less.
+	BoxRootDiskGrowThreshold string `protobuf:"bytes,14,opt,name=box_root_disk_grow_threshold,json=boxRootDiskGrowThreshold,proto3" json:"box_root_disk_grow_threshold,omitempty"`
+	BoxRootDiskGrowStep      string `protobuf:"bytes,15,opt,name=box_root_disk_grow_step,json=boxRootDiskGrowStep,proto3" json:"box_root_disk_grow_step,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *TargetSettings) Reset() {
@@ -512,6 +522,34 @@ func (x *TargetSettings) GetWarmOffPeak() *TimeWindow {
 		return x.WarmOffPeak
 	}
 	return nil
+}
+
+func (x *TargetSettings) GetBoxWorkspaceDiskGrowThreshold() string {
+	if x != nil {
+		return x.BoxWorkspaceDiskGrowThreshold
+	}
+	return ""
+}
+
+func (x *TargetSettings) GetBoxWorkspaceDiskGrowStep() string {
+	if x != nil {
+		return x.BoxWorkspaceDiskGrowStep
+	}
+	return ""
+}
+
+func (x *TargetSettings) GetBoxRootDiskGrowThreshold() string {
+	if x != nil {
+		return x.BoxRootDiskGrowThreshold
+	}
+	return ""
+}
+
+func (x *TargetSettings) GetBoxRootDiskGrowStep() string {
+	if x != nil {
+		return x.BoxRootDiskGrowStep
+	}
+	return ""
 }
 
 // TimeWindow is a daily window of wall-clock time.
@@ -1651,7 +1689,7 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\x0fBaseImagesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\r\n" +
-	"\vHostdTarget\"\xda\x04\n" +
+	"\vHostdTarget\"\xda\x06\n" +
 	"\x0eTargetSettings\x12A\n" +
 	"\x0fidle_stop_after\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\ridleStopAfter\x12\x1f\n" +
 	"\vwarm_budget\x18\x02 \x01(\tR\n" +
@@ -1668,7 +1706,11 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\vwarm_settle\x18\n" +
 	" \x01(\v2\x19.google.protobuf.DurationR\n" +
 	"warmSettle\x12F\n" +
-	"\rwarm_off_peak\x18\v \x01(\v2\".tower.targets.v1alpha1.TimeWindowR\vwarmOffPeak\"Q\n" +
+	"\rwarm_off_peak\x18\v \x01(\v2\".tower.targets.v1alpha1.TimeWindowR\vwarmOffPeak\x12H\n" +
+	"!box_workspace_disk_grow_threshold\x18\f \x01(\tR\x1dboxWorkspaceDiskGrowThreshold\x12>\n" +
+	"\x1cbox_workspace_disk_grow_step\x18\r \x01(\tR\x18boxWorkspaceDiskGrowStep\x12>\n" +
+	"\x1cbox_root_disk_grow_threshold\x18\x0e \x01(\tR\x18boxRootDiskGrowThreshold\x124\n" +
+	"\x17box_root_disk_grow_step\x18\x0f \x01(\tR\x13boxRootDiskGrowStep\"Q\n" +
 	"\n" +
 	"TimeWindow\x12\x14\n" +
 	"\x05start\x18\x01 \x01(\tR\x05start\x12\x10\n" +

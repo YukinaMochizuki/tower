@@ -255,7 +255,11 @@ func (t *Target) containerSpec(in *envv1alpha1.Instance, name, network, pull str
 			s.Resources = &hangarcompute.Resources{}
 		}
 		s.Resources.Disk = g.GetRoot()
-		s.Resources.DiskGrow = &hangarcompute.DiskGrow{Max: atLeast(g.GetRootMax(), g.GetRoot()), Threshold: g.GetThreshold(), Step: g.GetStep()}
+		// An instance written before the root had its own grows as /workspace.
+		s.Resources.DiskGrow = &hangarcompute.DiskGrow{
+			Max:       atLeast(g.GetRootMax(), g.GetRoot()),
+			Threshold: or(g.GetRootThreshold(), g.GetThreshold()), Step: or(g.GetRootStep(), g.GetStep()),
+		}
 	}
 	for _, k := range slices.Sorted(maps.Keys(spec.GetEnv())) {
 		s.Env = append(s.Env, &hangarcompute.EnvVar{Name: k, Value: spec.GetEnv()[k]})

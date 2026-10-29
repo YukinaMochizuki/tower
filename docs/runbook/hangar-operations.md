@@ -235,10 +235,10 @@ but the quota is not). So the Plan is sized from what tower declares:
 
 | What | Disk declared |
 |---|---|
-| a box | 2Gi for `/workspace` and 2Gi for its container root at first (the root at its image's size when that is larger), each growing as it fills up to 30Gi; or as the Target's settings say |
+| a box | 2Gi for `/workspace` and 2Gi for its container root at first (the root at its image's size when that is larger), each growing as it fills up to 30Gi: `/workspace` by 4Gi once 80% full, the root by 2Gi once 90% full; or as the Target's settings say |
 | a warm golden's builder | as a box, but `/workspace` starts a quarter over what the repository's last warm golden held, or as a box's (2Gi) for the first |
 | a VM | 20Gi, or its Image's size if larger |
-| a target's system container | 4Gi, growing as it fills up to 50Gi (BuildKit keeps its cache under 20GB), plus a root from 2Gi (or its image's size, if larger) up to 10Gi; one made before this tower release keeps its disks until it is made again (below) |
+| a target's system container | 4Gi, growing by 4Gi once 80% full up to 50Gi (BuildKit keeps its cache under 20GB), plus a root from 2Gi (or its image's size, if larger) growing by 2Gi once 90% full up to 10Gi; one made before this tower release keeps its disks until it is made again (below) |
 | a golden | the size of what it captured, as a CustomImage |
 
 A box's disks grow by themselves (hangar's disk auto-grow): the
@@ -246,10 +246,18 @@ A box's disks grow by themselves (hangar's disk auto-grow): the
 `resources.disk`, or its warm golden's size, if larger) up to
 `box_workspace_disk_max`, the container root from `box_root_disk` (or
 its image's size, if larger: hangar starts it there) up to
-`box_root_disk_max`, in the Target's `spec.settings`; once it reaches 80%
-full, a disk doubles. hangar counts a grown disk at its grown size, so
-size the Plan for boxes at their max. A box made before this tower
-release keeps the disks it was made with until it is made again.
+`box_root_disk_max`, in the Target's `spec.settings`. Each grows by a
+fixed step once it is full enough: `/workspace` by 4Gi at 80%, the root
+by 2Gi at 90%, as `box_workspace_disk_grow_step` and
+`box_workspace_disk_grow_threshold`, and `box_root_disk_grow_step` and
+`box_root_disk_grow_threshold`, may say otherwise (a whole percentage
+from 50% to 95%; a factor over 1x and at most 16x, or a quantity of at
+least 1Gi, as hangar takes them). The root starts at its image's base,
+mostly full, so it grows later and by less: doubling it would count the
+image twice. A warm golden's builder grows as a box. hangar counts a
+grown disk at its grown size, so size the Plan for boxes at their max. A
+box made before this tower release keeps the disks it was made with, and
+how they grow, until it is made again.
 
 A stopped box keeps its disks, so it counts. Disk is what runs out
 first. The other limits a Plan sets, per target: a network per workstream

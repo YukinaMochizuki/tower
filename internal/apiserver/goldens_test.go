@@ -492,8 +492,8 @@ func TestAPreBuildStepOutOfDiskIsTriedAgain(t *testing.T) {
 	}{
 		"grows until it passes": {fails: 3, grows: true, runs: 4},
 		"stops growing":         {fails: 100, grows: false, runs: 1, says: "make build: no space left on device, and its disk did not grow in 45s"},
-		// From 2Gi to 30Gi by 2x is four steps: five runs after the first.
-		"grows, never enough": {fails: 100, grows: true, runs: 6, says: "make build: no space left on device, 6 times as its disk grew"},
+		// From 2Gi to 30Gi by 4Gi is seven steps: eight runs after the first.
+		"grows, never enough": {fails: 100, grows: true, runs: 9, says: "make build: no space left on device, 9 times as its disk grew"},
 	} {
 		t.Run(what, func(t *testing.T) {
 			t.Parallel()
@@ -549,14 +549,19 @@ func TestAPreBuildStepOutOfDiskIsTriedAgain(t *testing.T) {
 }
 
 // TestABoxAndItsWarmBuilderGrowOnAHangarTarget: on a hangar target a box's
-// disks grow from the target's starts, and a warm golden's builder's
-// /workspace starts as a box's, then at what the last golden held.
+// disks grow from the target's starts, by its grow settings or tower's
+// defaults, and a warm golden's builder's grow the same, its /workspace
+// starting as a box's, then at what the last golden held.
 func TestABoxAndItsWarmBuilderGrowOnAHangarTarget(t *testing.T) {
 	t.Parallel()
-	w := newWorld(t, worldOption{hangar: true, settings: &targetsv1alpha1.TargetSettings{WarmMaxAge: durationpb.New(time.Hour), BoxRootDiskMax: "40Gi"}})
+	w := newWorld(t, worldOption{hangar: true, settings: &targetsv1alpha1.TargetSettings{
+		WarmMaxAge: durationpb.New(time.Hour), BoxRootDiskMax: "40Gi", BoxWorkspaceDiskGrowStep: "8Gi", BoxRootDiskGrowThreshold: "85%",
+	}})
 	w.fake.CaptureSize(func(provider.Instance) uint64 { return 4 << 30 })
 	first := w.warmGolden()
-	growth := &envv1alpha1.DiskGrowth{WorkspaceMax: "30Gi", Root: "2Gi", RootMax: "40Gi", Threshold: "80%", Step: "2x"}
+	growth := &envv1alpha1.DiskGrowth{
+		WorkspaceMax: "30Gi", Root: "2Gi", RootMax: "40Gi", Threshold: "80%", Step: "8Gi", RootThreshold: "85%", RootStep: "2Gi",
+	}
 	b := w.box("a-0")
 	in, _ := w.instance(b.GetStatus().GetInstance())
 	if s := in.GetSpec(); s.GetResources().GetDisk() != "2Gi" || !proto.Equal(s.GetDiskGrowth(), growth) {

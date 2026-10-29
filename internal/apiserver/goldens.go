@@ -643,7 +643,8 @@ func (s *Server) convergeWarm(ctx context.Context, p provider.Provider, ref prov
 
 // noSpaceRetries is how many times a builder's pre-build step that ran out
 // of disk may run again: one more than the steps its /workspace takes,
-// doubling, from its start to its max; none for a disk that does not grow.
+// growing by its step, from its start to its max; none for a disk that
+// does not grow.
 func (s *Server) noSpaceRetries(ctx context.Context, ref provider.Instance) (int, error) {
 	in, ok, err := getTyped[*envv1alpha1.Instance](ctx, s, registry.Instance, resource.Key{Project: ref.Project, Name: ref.Name})
 	if err != nil || !ok || in.GetSpec().GetDiskGrowth() == nil {
@@ -655,11 +656,7 @@ func (s *Server) noSpaceRetries(ctx context.Context, ref provider.Instance) (int
 	if start == 0 {
 		return 1, nil
 	}
-	n := 1
-	for size := start; size < maxSize; size *= 2 {
-		n++
-	}
-	return n, nil
+	return 1 + growSteps(start, maxSize, in.GetSpec().GetDiskGrowth().GetStep()), nil
 }
 
 // workspaceSize is the size of the instance's /workspace filesystem in

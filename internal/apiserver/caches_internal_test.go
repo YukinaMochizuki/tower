@@ -142,6 +142,30 @@ func TestAWarmBuildersWorkspaceStartsAtTheLastGoldensSize(t *testing.T) {
 	}
 }
 
+// TestGrowStepsCountAsHangarGrows: the steps a disk takes to its max are
+// hangar's, by a factor or a quantity, each rounded up to whole Gi and the
+// max down; a step hangar refuses takes none.
+func TestGrowStepsCountAsHangarGrows(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		start, maxSize uint64
+		step           string
+		want           int
+	}{
+		{2 << 30, 30 << 30, "2x", 4},
+		{2 << 30, 30 << 30, "", 4},
+		{2 << 30, 30 << 30, "4Gi", 7},
+		{2 << 30, 30 << 30, "1.5x", 7},
+		{2 << 30, 30<<30 + 1<<29, "4Gi", 7},
+		{30 << 30, 30 << 30, "4Gi", 0},
+		{2 << 30, 30 << 30, "1x", 0},
+	} {
+		if got := growSteps(tc.start, tc.maxSize, tc.step); got != tc.want {
+			t.Errorf("from %d to %d by %q: %d steps, want %d", tc.start, tc.maxSize, tc.step, got, tc.want)
+		}
+	}
+}
+
 // TestABoxsDisksGrowOnAHangarTarget: a box's disks grow on a hangar
 // target, from tower's defaults or the target's settings, its own
 // resources.disk the start of /workspace; on a hostd target they do not,
@@ -154,6 +178,10 @@ func TestABoxsDisksGrowOnAHangarTarget(t *testing.T) {
 		}}
 	}
 	hostd := &targetsv1alpha1.Target{Spec: &targetsv1alpha1.TargetSpec{Provider: &targetsv1alpha1.TargetSpec_Hostd{Hostd: &targetsv1alpha1.HostdTarget{}}}}
+	// /workspace grows by 4Gi at 80%, the root by 2Gi at 90%.
+	defaults := &envv1alpha1.DiskGrowth{
+		WorkspaceMax: "30Gi", Root: "2Gi", RootMax: "30Gi", Threshold: "80%", Step: "4Gi", RootThreshold: "90%", RootStep: "2Gi",
+	}
 	for what, tc := range map[string]struct {
 		target    *targetsv1alpha1.Target
 		box       *envv1alpha1.Resources
@@ -168,17 +196,22 @@ func TestABoxsDisksGrowOnAHangarTarget(t *testing.T) {
 		},
 		"hangar, tower's defaults": {
 			target: hangar(nil), resources: &envv1alpha1.Resources{Cpu: "2", Memory: "4Gi", Disk: "2Gi"},
-			growth: &envv1alpha1.DiskGrowth{WorkspaceMax: "30Gi", Root: "2Gi", RootMax: "30Gi", Threshold: "80%", Step: "2x"},
+			growth: defaults,
 		},
 		"hangar, the target's settings": {
-			target:    hangar(&targetsv1alpha1.TargetSettings{BoxWorkspaceDisk: "3Gi", BoxWorkspaceDiskMax: "60Gi", BoxRootDisk: "8Gi", BoxRootDiskMax: "16Gi"}),
+			target: hangar(&targetsv1alpha1.TargetSettings{
+				BoxWorkspaceDisk: "3Gi", BoxWorkspaceDiskMax: "60Gi", BoxRootDisk: "8Gi", BoxRootDiskMax: "16Gi",
+				BoxWorkspaceDiskGrowThreshold: "70%", BoxWorkspaceDiskGrowStep: "1.5x", BoxRootDiskGrowThreshold: "95%", BoxRootDiskGrowStep: "1Gi",
+			}),
 			box:       &envv1alpha1.Resources{Cpu: "4"},
 			resources: &envv1alpha1.Resources{Cpu: "4", Memory: "4Gi", Disk: "3Gi"},
-			growth:    &envv1alpha1.DiskGrowth{WorkspaceMax: "60Gi", Root: "8Gi", RootMax: "16Gi", Threshold: "80%", Step: "2x"},
+			growth: &envv1alpha1.DiskGrowth{
+				WorkspaceMax: "60Gi", Root: "8Gi", RootMax: "16Gi", Threshold: "70%", Step: "1.5x", RootThreshold: "95%", RootStep: "1Gi",
+			},
 		},
 		"hangar, the box's own disk": {
 			target: hangar(nil), box: &envv1alpha1.Resources{Disk: "50Gi"}, resources: &envv1alpha1.Resources{Cpu: "2", Memory: "4Gi", Disk: "50Gi"},
-			growth: &envv1alpha1.DiskGrowth{WorkspaceMax: "30Gi", Root: "2Gi", RootMax: "30Gi", Threshold: "80%", Step: "2x"},
+			growth: defaults,
 		},
 	} {
 		r, g := boxDisks(tc.target, tc.box)

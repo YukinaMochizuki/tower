@@ -91,6 +91,33 @@ func TestTargetsAreChecked(t *testing.T) {
 		"a box disk max under tower's start": func(t *targetsv1alpha1.Target) {
 			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxWorkspaceDiskMax: "1Gi"}
 		},
+		"a grow threshold under hangar's 50%": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxWorkspaceDiskGrowThreshold: "49%"}
+		},
+		"a grow threshold over hangar's 95%": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxRootDiskGrowThreshold: "96%"}
+		},
+		"a grow threshold that is no whole percentage": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxRootDiskGrowThreshold: "85.5%"}
+		},
+		"a grow threshold with no %": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxWorkspaceDiskGrowThreshold: "80"}
+		},
+		"a grow factor of 1x": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxWorkspaceDiskGrowStep: "1x"}
+		},
+		"a grow factor over 16x": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxRootDiskGrowStep: "17x"}
+		},
+		"a grow factor that is a fraction": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxRootDiskGrowStep: "3/2x"}
+		},
+		"a grow step under 1Gi": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxRootDiskGrowStep: "512Mi"}
+		},
+		"a grow step that is neither": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxWorkspaceDiskGrowStep: "lots"}
+		},
 	}
 	for what, mutate := range bad {
 		tg := hangarTarget("new")
@@ -116,6 +143,7 @@ func TestTargetsAreChecked(t *testing.T) {
 	set.Spec.Settings = &targetsv1alpha1.TargetSettings{
 		WarmBudget: "200Gi", IdleStopAfter: durationpb.New(3600e9),
 		BoxWorkspaceDisk: "4Gi", BoxWorkspaceDiskMax: "4Gi", BoxRootDisk: "10Gi", BoxRootDiskMax: "50Gi",
+		BoxWorkspaceDiskGrowThreshold: "50%", BoxWorkspaceDiskGrowStep: "16x", BoxRootDiskGrowThreshold: "95%", BoxRootDiskGrowStep: "1Gi",
 		WarmSettle: durationpb.New(time.Hour), WarmOffPeak: &targetsv1alpha1.TimeWindow{Start: "22:00", End: "06:00", TimeZone: "Asia/Taipei"},
 	}
 	if err := applyAs(t, a, registry.Target, set); err != nil {

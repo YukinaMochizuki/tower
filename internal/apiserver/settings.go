@@ -1,7 +1,11 @@
 package apiserver
 
 import (
+	"cmp"
 	"fmt"
+	"math/big"
+	"strconv"
+	"strings"
 	"time"
 	_ "time/tzdata" // warm_off_peak's time zone, which the host need not have
 
@@ -61,10 +65,15 @@ const (
 	DefaultBoxWorkspaceDiskMax = "30Gi"
 	DefaultBoxRootDisk         = "2Gi"
 	DefaultBoxRootDiskMax      = "30Gi"
-	// DiskGrowThreshold is how full a disk is when it grows, and
-	// DiskGrowStep how much it grows by.
-	DiskGrowThreshold = "80%"
-	DiskGrowStep      = "2x"
+	// DefaultBoxWorkspaceDiskGrowThreshold is how full a box's /workspace
+	// disk is when it grows, and DefaultBoxWorkspaceDiskGrowStep how much
+	// it grows by; the Root ones the same for its root disk. The root
+	// starts at its image's base, mostly full, so it grows later and by
+	// less: a factor would double the image's share of the quota.
+	DefaultBoxWorkspaceDiskGrowThreshold = "80%"
+	DefaultBoxWorkspaceDiskGrowStep      = "4Gi"
+	DefaultBoxRootDiskGrowThreshold      = "90%"
+	DefaultBoxRootDiskGrowStep           = "2Gi"
 )
 
 // defaultResources are an environment's, by kind, for each field left
@@ -106,6 +115,8 @@ type settings struct {
 	// The start and max of a box's /workspace and root disks, as
 	// quantities.
 	workspaceDisk, workspaceDiskMax, rootDisk, rootDiskMax string
+	// How full each disk is when it grows, and by how much.
+	workspaceGrowThreshold, workspaceGrowStep, rootGrowThreshold, rootGrowStep string
 }
 
 func settingsOf(t *targetsv1alpha1.Target) settings {
@@ -115,6 +126,8 @@ func settingsOf(t *targetsv1alpha1.Target) settings {
 		warmMaxAge: DefaultWarmMaxAge, warmMaxCommitsBehind: DefaultWarmMaxCommitsBehind, warmMinHold: DefaultWarmMinHold,
 		warmSettle: DefaultWarmSettle, workspaceDisk: DefaultBoxWorkspaceDisk, workspaceDiskMax: DefaultBoxWorkspaceDiskMax,
 		rootDisk: DefaultBoxRootDisk, rootDiskMax: DefaultBoxRootDiskMax,
+		workspaceGrowThreshold: DefaultBoxWorkspaceDiskGrowThreshold, workspaceGrowStep: DefaultBoxWorkspaceDiskGrowStep,
+		rootGrowThreshold: DefaultBoxRootDiskGrowThreshold, rootGrowStep: DefaultBoxRootDiskGrowStep,
 	}
 	for _, q := range []struct {
 		to  *string
@@ -125,6 +138,20 @@ func settingsOf(t *targetsv1alpha1.Target) settings {
 	} {
 		if _, err := quantity.Bytes(q.set); err == nil && q.set != "" {
 			*q.to = q.set
+		}
+	}
+	for _, g := range []struct {
+		to    *string
+		set   string
+		valid func(string) error
+	}{
+		{&s.workspaceGrowThreshold, set.GetBoxWorkspaceDiskGrowThreshold(), validGrowThreshold},
+		{&s.workspaceGrowStep, set.GetBoxWorkspaceDiskGrowStep(), validGrowStep},
+		{&s.rootGrowThreshold, set.GetBoxRootDiskGrowThreshold(), validGrowThreshold},
+		{&s.rootGrowStep, set.GetBoxRootDiskGrowStep(), validGrowStep},
+	} {
+		if g.set != "" && g.valid(g.set) == nil {
+			*g.to = g.set
 		}
 	}
 	if d := set.GetIdleStopAfter(); d != nil && d.AsDuration() > 0 {
@@ -214,8 +241,85 @@ func boxDisks(t *targetsv1alpha1.Target, r *envv1alpha1.Resources) (*envv1alpha1
 	}
 	return withDefaults(kind, r), &envv1alpha1.DiskGrowth{
 		WorkspaceMax: set.workspaceDiskMax, Root: set.rootDisk, RootMax: set.rootDiskMax,
-		Threshold: DiskGrowThreshold, Step: DiskGrowStep,
+		Threshold: set.workspaceGrowThreshold, Step: set.workspaceGrowStep,
+		RootThreshold: set.rootGrowThreshold, RootStep: set.rootGrowStep,
 	}
+}
+
+// The bounds of a disk's growth hangar accepts (its ParseDiskGrow).
+const (
+	minGrowThreshold = 50
+	maxGrowThreshold = 95
+	maxGrowFactor    = 16
+	minGrowStep      = 1 << 30
+)
+
+// validGrowThreshold says why t is no threshold hangar accepts: a whole
+// percentage from 50% to 95%.
+func validGrowThreshold(t string) error {
+	n, err := strconv.ParseUint(strings.TrimSuffix(t, "%"), 10, 8)
+	if !strings.HasSuffix(t, "%") || err != nil || n < minGrowThreshold || n > maxGrowThreshold {
+		return fmt.Errorf("%q is not a whole percentage from %d%% to %d%%", t, minGrowThreshold, maxGrowThreshold)
+	}
+	return nil
+}
+
+// validGrowStep says why s is no step hangar accepts: a factor over 1x
+// and at most 16x, or a quantity of at least 1Gi.
+func validGrowStep(s string) error {
+	if f, isFactor := strings.CutSuffix(s, "x"); isFactor {
+		r, ok := new(big.Rat).SetString(f)
+		if !ok || strings.ContainsAny(f, "/eE") || r.Cmp(big.NewRat(1, 1)) <= 0 || r.Cmp(big.NewRat(maxGrowFactor, 1)) > 0 {
+			return fmt.Errorf("%q is not a factor over 1x and at most %dx", s, maxGrowFactor)
+		}
+		return nil
+	}
+	b, err := quantity.Bytes(s)
+	if err != nil {
+		return fmt.Errorf("%q is neither a factor such as 2x nor a quantity: %w", s, err)
+	}
+	if b < minGrowStep {
+		return fmt.Errorf("%s is less than 1Gi", s)
+	}
+	return nil
+}
+
+// growSteps is how many times a disk of start bytes grows by step, as
+// hangar grows one, before it reaches maxSize: each step in whole Gi
+// rounded up, maxSize in whole Gi rounded down. An empty step is hangar's
+// 2x; one hangar would refuse, none.
+func growSteps(start, maxSize uint64, step string) int {
+	step = cmp.Or(step, "2x")
+	if validGrowStep(step) != nil {
+		return 0
+	}
+	var factor *big.Rat
+	var add uint64
+	if f, isFactor := strings.CutSuffix(step, "x"); isFactor {
+		factor, _ = new(big.Rat).SetString(f)
+	} else {
+		add, _ = quantity.Bytes(step)
+	}
+	const gi = 1 << 30
+	limit := maxSize / gi * gi
+	n := 0
+	for size := start; size < limit; n++ {
+		if factor != nil {
+			v := new(big.Rat).Mul(new(big.Rat).SetInt(new(big.Int).SetUint64(size)), factor)
+			q, m := new(big.Int).QuoRem(v.Num(), v.Denom(), new(big.Int))
+			if m.Sign() != 0 {
+				q.Add(q, big.NewInt(1))
+			}
+			if !q.IsUint64() {
+				return n + 1
+			}
+			size = q.Uint64()
+		} else {
+			size += add
+		}
+		size = (size + gi - 1) / gi * gi
+	}
+	return n
 }
 
 // builderDisks are boxDisks for a warm golden's builder on target t:
