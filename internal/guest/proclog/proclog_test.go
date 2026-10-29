@@ -200,3 +200,38 @@ func TestOddSegmentsEndTheRead(t *testing.T) {
 		}
 	})
 }
+
+// TestAnExitsUsageIsReadBack: what a measured process used, and its
+// directory, read back as written; an unmeasured one has no usage.
+func TestAnExitsUsageIsReadBack(t *testing.T) {
+	root := t.TempDir()
+	peak, killed, cpu := int64(3<<30), true, 81*time.Second
+	for _, tc := range []struct {
+		id   string
+		exit proclog.Exit
+	}{
+		{"p0000000000000001", proclog.Exit{Code: 137, Signal: 9, Usage: &proclog.Usage{MemoryPeak: &peak, OOMKilled: &killed, CPUUsage: &cpu, Wall: time.Minute}}},
+		{"p0000000000000002", proclog.Exit{Code: 0}},
+	} {
+		dir := filepath.Join(root, tc.id)
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := proclog.WriteMeta(dir, proclog.Meta{ID: tc.id, Command: []string{"go", "test"}, Dir: "/workspace"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := proclog.WriteExit(dir, tc.exit); err != nil {
+			t.Fatal(err)
+		}
+		in, err := proclog.Read(root, tc.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if in.Dir != "/workspace" || in.Exit == nil || in.Exit.Code != tc.exit.Code || (in.Exit.Usage == nil) != (tc.exit.Usage == nil) {
+			t.Fatalf("read %+v", in)
+		}
+		if u := in.Exit.Usage; u != nil && (*u.MemoryPeak != peak || !*u.OOMKilled || *u.CPUUsage != cpu || u.CPUWait != nil || u.Wall != time.Minute) {
+			t.Errorf("read usage %+v", u)
+		}
+	}
+}

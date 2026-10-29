@@ -38,7 +38,7 @@ func startSupervised(h Header) (string, error) {
 			return "", err
 		}
 	}
-	meta := proclog.Meta{ID: id, Name: h.Name, Command: h.Command, Started: time.Now().UTC(), LogCap: h.LogCap}
+	meta := proclog.Meta{ID: id, Name: h.Name, Command: h.Command, Dir: h.Dir, Started: time.Now().UTC(), LogCap: h.LogCap}
 	if err := proclog.WriteMeta(dir, meta); err != nil {
 		return "", err
 	}
@@ -62,7 +62,7 @@ func startSupervised(h Header) (string, error) {
 	}
 	_ = specR.Close()
 	_ = readyW.Close()
-	spec, _ := json.Marshal(Header{Command: h.Command, Env: h.Env, Dir: h.Dir, Keep: h.Keep})
+	spec, _ := json.Marshal(Header{Command: h.Command, Env: h.Env, Dir: h.Dir, Keep: h.Keep, Measure: h.Measure, MemoryMax: h.MemoryMax})
 	_, werr := specW.Write(spec)
 	_ = specW.Close()
 	msg, rerr := io.ReadAll(readyR)
@@ -128,14 +128,10 @@ func supervise(args []string) int {
 		return fail(err)
 	}
 	defer func() { _ = log.Close() }()
-	cmd := exec.Command(h.Command[0], h.Command[1:]...)
-	cmd.Env, cmd.Dir = environ(h.Env), h.Dir
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	devnull, err := os.Open(os.DevNull)
 	if err != nil {
 		return fail(err)
 	}
-	cmd.Stdin = devnull
 	outR, outW, err := os.Pipe()
 	if err != nil {
 		return fail(err)
@@ -144,9 +140,21 @@ func supervise(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
-	cmd.Stdout, cmd.Stderr = outW, errW
-	if err := cmd.Start(); err != nil {
+	newCmd := func() *exec.Cmd {
+		cmd := exec.Command(h.Command[0], h.Command[1:]...)
+		cmd.Env, cmd.Dir = environ(h.Env), h.Dir
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = devnull, outW, errW
+		return cmd
+	}
+	cmd, group, err := startMeasured(newCmd, h, filepath.Base(dir))
+	if err != nil {
 		return fail(err)
+	}
+	started := time.Now()
+	if group != nil {
+		// Removed once its exit is written, below.
+		defer group.remove()
 	}
 	_ = outW.Close()
 	_ = errW.Close()
@@ -181,6 +189,7 @@ func supervise(args []string) int {
 	go copyStream(outR, false)
 	go copyStream(errR, true)
 	werr := cmd.Wait()
+	wall := time.Since(started)
 	// What it wrote is read to the end; a child it left holding its
 	// output open is not waited for long.
 	copied := make(chan struct{})
@@ -197,7 +206,11 @@ func supervise(args []string) int {
 		return 1
 	}
 	code, sig := exitOf(cmd.ProcessState)
-	if err := proclog.WriteExit(dir, proclog.Exit{Code: code, Signal: sig}); err != nil {
+	exit := proclog.Exit{Code: code, Signal: sig}
+	if group != nil {
+		exit.Usage = group.usage(wall)
+	}
+	if err := proclog.WriteExit(dir, exit); err != nil {
 		return 1
 	}
 	// The finished ones beyond what is kept go as it ends, the oldest

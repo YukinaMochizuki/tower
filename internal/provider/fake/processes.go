@@ -17,9 +17,9 @@ import (
 // stops; a test writes to a process and ends it with WriteProcess and
 // EndProcess.
 type process struct {
-	id, name string
-	command  []string
-	started  time.Time
+	id, name, dir string
+	command       []string
+	started       time.Time
 	// log holds the output from heldFrom up to next, oldest first.
 	log            []provider.OutputChunk
 	heldFrom, next int64
@@ -113,7 +113,7 @@ func (f *Fake) StartProcess(_ context.Context, req provider.ProcessRequest) (str
 	}
 	local.processN++
 	p := &process{
-		id: "p" + strconv.Itoa(local.processN), name: req.Name, command: slices.Clone(req.Command),
+		id: "p" + strconv.Itoa(local.processN), name: req.Name, dir: req.Dir, command: slices.Clone(req.Command),
 		started: f.clock.Now(), changed: make(chan struct{}),
 	}
 	local.processes = append(local.processes, p)
@@ -224,7 +224,7 @@ func (f *Fake) ListProcesses(_ context.Context, in provider.Instance) ([]provide
 	}
 	out := make([]provider.Process, 0, len(local.processes))
 	for _, p := range local.processes {
-		pr := provider.Process{ID: p.id, Name: p.name, Command: slices.Clone(p.command), Started: p.started}
+		pr := provider.Process{ID: p.id, Name: p.name, Command: slices.Clone(p.command), Dir: p.dir, Started: p.started}
 		if p.exit != nil {
 			e := *p.exit
 			pr.Exit = &e
@@ -256,6 +256,22 @@ func (f *Fake) EndProcess(in provider.Instance, id string, code int) error {
 	p, err := f.findProcess(in, id)
 	if err == nil {
 		p.end(&provider.ProcessExit{Code: code})
+		f.pruneProcesses(f.instances[in])
+	}
+	f.mu.Unlock()
+	if err == nil {
+		f.enqueue(in)
+	}
+	return err
+}
+
+// EndProcessWith ends a running process as exit says, its usage
+// included, as one a provider measures does.
+func (f *Fake) EndProcessWith(in provider.Instance, id string, exit provider.ProcessExit) error {
+	f.mu.Lock()
+	p, err := f.findProcess(in, id)
+	if err == nil {
+		p.end(&exit)
 		f.pruneProcesses(f.instances[in])
 	}
 	f.mu.Unlock()

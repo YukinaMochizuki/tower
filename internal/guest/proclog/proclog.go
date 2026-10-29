@@ -49,20 +49,36 @@ const (
 	segPrefix = "log-"
 )
 
-// Meta is what a process is: never its environment.
+// Meta is what a process is: never its environment. Dir is its working
+// directory as it was asked for, empty for the guest's default.
 type Meta struct {
 	ID      string    `json:"id"`
 	Name    string    `json:"name,omitempty"`
 	Command []string  `json:"command"`
+	Dir     string    `json:"dir,omitempty"`
 	Started time.Time `json:"started"`
 	LogCap  int64     `json:"logCap"`
 }
 
 // Exit is how a process ended: Code, 128 plus the signal's number for one
-// a signal ended, and Signal, 0 if it exited.
+// a signal ended, and Signal, 0 if it exited. Usage is what it used, nil
+// for a process not measured.
 type Exit struct {
-	Code   int `json:"code"`
-	Signal int `json:"signal"`
+	Code   int    `json:"code"`
+	Signal int    `json:"signal"`
+	Usage  *Usage `json:"usage,omitempty"`
+}
+
+// Usage is what a process measured in a cgroup of its own used, its
+// children included: its peak memory, whether an OOM killed it, the CPU
+// time it used and the time it waited for a CPU (cpu.pressure's "some"),
+// and how long it ran. A field its guest's kernel does not offer is nil.
+type Usage struct {
+	MemoryPeak *int64         `json:"memoryPeak,omitempty"`
+	OOMKilled  *bool          `json:"oomKilled,omitempty"`
+	CPUUsage   *time.Duration `json:"cpuUsage,omitempty"`
+	CPUWait    *time.Duration `json:"cpuWait,omitempty"`
+	Wall       time.Duration  `json:"wall"`
 }
 
 // Killed is the exit of a process whose supervisor died with it.

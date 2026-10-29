@@ -194,6 +194,20 @@ const (
 	DefaultFinishedProcesses = 100
 )
 
+// ProcessMemoryReserve is the memory of an instance a measured process's
+// cgroup leaves to the rest of it, so the process's own limit is reached
+// before the instance's and an OOM kills that process alone. Idle boxes
+// were measured at 230-660M on hangar in 2026-10, services included; this
+// is above that.
+const ProcessMemoryReserve = 768 << 20
+
+// ProcessMemoryMax is the memory a measured process of an instance of
+// memory bytes is held to: all but ProcessMemoryReserve, and at least
+// half, so a small instance's process is not starved by the reserve.
+func ProcessMemoryMax(memory int64) int64 {
+	return max(memory-ProcessMemoryReserve, memory/2)
+}
+
 // ProcessRequest is a process started in an instance.
 type ProcessRequest struct {
 	Instance Instance
@@ -222,6 +236,20 @@ const (
 type ProcessExit struct {
 	Code   int
 	Signal Signal
+	// Usage is nil for a process its provider does not measure.
+	Usage *ProcessUsage
+}
+
+// ProcessUsage is what a process used, its children included: its peak
+// memory, whether an OOM killed it, the CPU time it used and the time it
+// waited for a CPU, and how long it ran. A field its instance's kernel
+// does not offer is nil.
+type ProcessUsage struct {
+	MemoryPeak *int64
+	OOMKilled  *bool
+	CPUUsage   *time.Duration
+	CPUWait    *time.Duration
+	Wall       time.Duration
 }
 
 // Killed is the exit of a process ended by sig.
@@ -232,6 +260,9 @@ type Process struct {
 	ID      string
 	Name    string
 	Command []string
+	// Dir is the working directory it was started in, empty for its
+	// instance's default or where its provider does not say.
+	Dir     string
 	Started time.Time
 	// Exit is nil while it runs.
 	Exit *ProcessExit
