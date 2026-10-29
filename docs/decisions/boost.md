@@ -87,9 +87,11 @@ What is accepted and built, in the API's terms:
   and alias (`<box>-boost`), the goldens it was made from, when it was
   last used, its processes running, and when the box's setup steps
   started and ended in it: a slow devcontainer setup is why a boost is
-  slow to start. It is made of its box's image and warm golden, with the
-  box's disk, env, checkouts, secret files, setup steps and privileged
-  secrets; its cpu and memory are its own.
+  slow to start. It is made of its box's image and its box's warm golden
+  while that is still ready (else the newest ready one), with the box's
+  disk, env, checkouts, secret files, setup steps and privileged
+  secrets; its cpu and memory are its own. Its status is made again from
+  its Instance at each reconcile.
 - **`StartProcessRequest.boost`**: unset runs a process in the box, as
   before; `on` asks for the target's `boost_resources`; `resources` asks
   for a size, held to `boost_max` and its vCPUs moved into hangar's
@@ -100,30 +102,48 @@ What is accepted and built, in the API's terms:
   enough; else `pending`, with a ticket, a reason (`QUEUED_BUDGET`,
   `BOOST_STARTING` or `BOOST_BUSY`), a message, its place in the queue and
   about how long. The caller asks again with the ticket, or gives it up
-  (`cancel`). A ticket not asked about for two minutes is dropped; while
-  one waits for its boost to start, the boost is not reclaimed.
+  (`cancel`); asking again keeps the ticket's place. A ticket not asked
+  about for five minutes is dropped; while one waits for its boost to
+  start, the boost is not reclaimed. A boost that cannot fit the Plan
+  even with no boost held is refused at once (`FAILED_PRECONDITION`).
 - **Every process call on the box reaches its boost.** A process started
-  on a boost has an id of tower's, `boost-<uid end>-<id there>`, so no id
-  is used twice across boosts; tower keeps, per box, which instance runs
-  it. ListProcesses lists the box's and its boost's together, each with
-  `ran_on`. A boost's processes keep its box in use. Before a boost goes,
-  its processes' exits are read and kept, and their usage recorded with
-  `ranOn.kind = boost` (`process-usage.md`); an attach after answers the
-  exit, the output gone.
+  on a boost has an id of tower's, `boost-<instance uid end>-<id there>`,
+  so no id is used twice, a boost's instance made again included; tower
+  keeps, per box, which instance runs it and its command's coarse key
+  alone (`process-usage.md`). ListProcesses lists the box's and its
+  boost's together, each with `ran_on`. A boost's processes keep its box
+  in use. However a boost goes (idle, its box stopped or deleted, FAILED),
+  a finalizer holds it until its processes' exits are read and kept and
+  their usage recorded with `ranOn.kind = boost`; an attach after
+  answers the exit, the output gone. A process whose exit could not be
+  read, as one that still ran when its box was stopped or whose instance
+  vanished, is reported ended, its exit `lost`.
 - **Settings** on the Target: `boost_resources` (default 8 vCPU, 8Gi),
-  `boost_max` (8 vCPU, 16Gi), `boost_budget` (16 vCPU, 16Gi) and
-  `boost_idle` (10 minutes). A boost fits when the target's boosts with
-  it stay within `boost_budget`, or the target holds none (so a budget
-  below one boost lets one at a time), and when it fits the Plan's quota
-  left as the target reports it (`Capacity.memory_free`, and `cpu_free`,
-  which the hangar provider reports from the project's limits and usage).
+  `boost_max` (8 vCPU, 16Gi), `boost_budget` (16 vCPU, 16Gi),
+  `boost_idle` (10 minutes) and `boost_start_timeout` (15 minutes: four
+  devcontainer setup steps at their 3-minute bound, and 3 minutes for the
+  instance's start and the checkouts). A boost fits when the target's
+  boosts with it stay within `boost_budget`, or the target holds none
+  (so a budget below one boost lets one at a time), and when it fits the
+  Plan's quota left as the target reports it (`Capacity.memory_free`,
+  and `cpu_free`, which the hangar provider reports from the project's
+  limits and usage), less the boosts whose instance hangar does not
+  count yet, not being RUNNING.
 - **The queue is in the apiserver's memory**, per target, admitted in
   order and stopping at the first that does not fit, so a large boost is
   not passed forever. An apiserver restarted loses it: a ticket it no
   longer knows is queued again at the back. The boosts themselves are in
   the store and survive it.
-- A boost is deleted once nothing ran on it for `boost_idle`, or when its
-  box is stopped at workstream's request.
+- **A boost does not hold room it does not use.** One not READY within
+  `boost_start_timeout`, whose instance failed, whose box failed, or
+  whose box's image golden is gone, is FAILED with the reason: its
+  instance is deleted at once and its room freed; the box's next boosted
+  start replaces it, and it is deleted after `boost_idle`. A READY boost
+  is deleted once nothing ran on it for `boost_idle` and no start waits
+  for it, or at once when its box is stopped at workstream's request,
+  whatever runs on it.
+- `test/boostcheck` checks the above on a real tower and hangar target
+  (`docs/runbook/testbed.md`).
 
 ## Consequences
 
