@@ -220,6 +220,11 @@ message StartProcessRequest {
   // With pending, gives the ticket up instead: nothing starts, and its
   // place goes to the next.
   bool cancel = 9;
+  // A boosted process's artifacts: paths relative to /workspace, copied
+  // back to the same paths in the box once it ends, up to 1GiB together
+  // in the order given; what was not copied, and why, is in its exit
+  // (ProcessExit.boost). Only a boosted start takes them.
+  repeated string artifacts = 10;
 }
 
 // BoostIntent is the boost a process asks for.
@@ -242,6 +247,63 @@ message StartProcessResponse {
   PendingStart pending = 2;
   // Where it runs, once started.
   RanOn ran_on = 3;
+  // A boosted start's sync of the box's work tree to its boost, once
+  // started: its sync fields alone are set.
+  BoostRun boost = 4;
+}
+
+// BoostRun is what a boosted process's run did beside the process: the
+// sync of the box's work tree to the boost before it started, and, once
+// it ended, what it changed there and its artifacts copied back. See
+// docs/decisions/boost.md.
+message BoostRun {
+  // How long the sync took, and what it sent: files written, paths
+  // deleted, and their bytes. A whole tree is sent (sync_full) when the
+  // boost's last tree is not known or not there.
+  google.protobuf.Duration sync = 1;
+  int64 sync_bytes = 2;
+  int32 sync_files = 3;
+  int32 sync_deleted = 4;
+  bool sync_full = 5;
+  // Another process of the box ran on the boost as it synced: what that
+  // one wrote was left in place, so it is in this one's tree, and its
+  // changed files may list it.
+  bool base_shared = 6;
+  // Submodules (and nested repositories) whose checkouts were not
+  // synced: the boost keeps its own.
+  repeated string submodules_not_synced = 7;
+  // Once it ended: the files it changed on the boost relative to the
+  // tree synced, which are not copied back.
+  ChangedFiles changed = 8;
+  // Once it ended: each artifact, copied back or not.
+  repeated ArtifactResult artifacts = 9;
+  // Why its changed files or artifacts could not be read, if so.
+  string error = 10;
+}
+
+// ChangedFiles are the files a boosted process changed: at most 200,
+// with how many there were.
+message ChangedFiles {
+  repeated ChangedFile files = 1;
+  int32 total = 2;
+  bool truncated = 3;
+}
+
+message ChangedFile {
+  string path = 1;
+  // A added (new, and not ignored), M modified, D deleted, T its type
+  // changed (a file, a symlink).
+  string status = 2;
+}
+
+// ArtifactResult is one artifact a boosted process named.
+message ArtifactResult {
+  string path = 1;
+  int64 bytes = 2;
+  bool copied = 3;
+  // Why it was not copied: not there, outside /workspace, past the cap,
+  // or the copy failed.
+  string error = 4;
 }
 
 // PendingStart is a boosted start that has not started yet, as tower
@@ -276,6 +338,9 @@ enum PendingReason {
   // another is made when asked again once it is gone. No wait is
   // estimated.
   PENDING_REASON_BOOST_GOING = 4;
+  // The box's work tree is being synced to its ready boost; the process
+  // starts when asked again once it is done.
+  PENDING_REASON_SYNCING = 5;
 }
 
 // RanOn is where a process runs or ran.
@@ -377,6 +442,8 @@ message ProcessExit {
   // is 255, so a reader that does not look at lost takes it as failed,
   // and the rest are unset.
   bool lost = 8;
+  // A boosted process's sync, and what it changed and copied back.
+  BoostRun boost = 9;
 }
 
 message SignalProcessRequest {

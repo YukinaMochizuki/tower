@@ -818,13 +818,14 @@ func removeIn(dir, p string) error {
 		}
 		return nil
 	}
-	for d := filepath.Dir(full); d != filepath.Clean(dir) && strings.HasPrefix(d, filepath.Clean(dir)+string(filepath.Separator)); d = filepath.Dir(d) {
-		if os.Remove(d) != nil {
-			break
-		}
+	for d := filepath.Dir(full); d != filepath.Clean(dir) && strings.HasPrefix(d, filepath.Clean(dir)+string(filepath.Separator)) && removedEmpty(d); d = filepath.Dir(d) {
 	}
 	return nil
 }
+
+// removedEmpty removes the directory d if it is empty, saying whether it
+// did.
+func removedEmpty(d string) bool { return os.Remove(d) == nil }
 
 func splitNUL(b []byte) []string {
 	if len(b) == 0 {
@@ -887,6 +888,9 @@ func boostJob(args []string, stdout, stderr io.Writer, main bool) (int, syscall.
 	dir := fl.String("dir", "/workspace", "")
 	tree := fl.String("tree", "", "")
 	report := fl.String("report", "", "")
+	// The command's working directory, which it otherwise inherits; for
+	// a caller that runs this in-process, such as the fake provider.
+	cwd := fl.String("cwd", "", "")
 	var artifacts stringList
 	fl.Var(&artifacts, "artifact", "")
 	if err := fl.Parse(args); err != nil {
@@ -909,7 +913,11 @@ func boostJob(args []string, stdout, stderr io.Writer, main bool) (int, syscall.
 		}()
 	}
 	cmd := exec.Command(command[0], command[1:]...)
+	cmd.Dir = *cwd
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, stderr
+	if !main {
+		cmd.Stdin = nil
+	}
 	code, sig := 0, syscall.Signal(0)
 	if err := cmd.Run(); err != nil {
 		var ee *exec.ExitError

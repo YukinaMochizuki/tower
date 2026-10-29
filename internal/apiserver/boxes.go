@@ -649,8 +649,9 @@ func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *en
 
 // materializeInstance checks the box's repositories out in ref, an
 // instance of the box's on target, its own or its boost, and runs its
-// devcontainer's setup steps there; timed marks the instance with when
-// they started and ended, as a boost's status says them.
+// devcontainer's setup steps there; timed, as for a boost, marks the
+// instance with the commit checked out and when the steps started and
+// ended, as a boost's status says them.
 func (s *Server) materializeInstance(ctx context.Context, p provider.Provider, key controller.Key, box *envv1alpha1.Box, ref provider.Instance, target string, timed bool) error {
 	checkouts := box.GetSpec().GetCheckouts()
 	var first string
@@ -692,6 +693,12 @@ func (s *Server) materializeInstance(ctx context.Context, p provider.Provider, k
 			return nil
 		}
 		return s.annotateInstance(ctx, key.Project, ref.Name, k, s.clock.Now().UTC().Format(time.RFC3339Nano))
+	}
+	if timed {
+		// A boost's: the base its first sync sends what changed since.
+		if err := s.annotateInstance(ctx, key.Project, ref.Name, checkoutCommitAnnotation, first); err != nil {
+			return err
+		}
 	}
 	if err := mark(setupStartedAnnotation); err != nil {
 		return err

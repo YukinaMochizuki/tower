@@ -72,6 +72,14 @@ type boostProcess struct {
 	Exit *provider.ProcessExit `json:"exit,omitempty"`
 	// Gone says its instance is gone: with no Exit, it ended unseen.
 	Gone bool `json:"gone,omitempty"`
+	// RunID names its report on the boost (reportPath); Artifacts are the
+	// paths it named; Sync is the sync before it started.
+	RunID     string     `json:"runId,omitempty"`
+	Artifacts []string   `json:"artifacts,omitempty"`
+	Sync      *syncStats `json:"sync,omitempty"`
+	// Run is what it changed and copied back, once Settled.
+	Run     *runResult `json:"run,omitempty"`
+	Settled bool       `json:"settled,omitempty"`
 }
 
 func boxProcessesKey(box controller.Key) store.Key {
@@ -157,6 +165,8 @@ type listedProcess struct {
 	// lost says it ended unseen: its instance went before its exit was
 	// read.
 	lost bool
+	// run is a boost process's sync, and what it changed and copied back.
+	run *envv1alpha1.BoostRun
 }
 
 // running says the process runs.
@@ -168,10 +178,17 @@ const lostExitCode = 255
 
 // exit is how the API says the process ended; nil while it runs.
 func (p listedProcess) exit() *envv1alpha1.ProcessExit {
-	if p.lost {
-		return &envv1alpha1.ProcessExit{Code: lostExitCode, Lost: true}
+	var x *envv1alpha1.ProcessExit
+	switch {
+	case p.lost:
+		x = &envv1alpha1.ProcessExit{Code: lostExitCode, Lost: true}
+	case p.Exit != nil:
+		x = processExit(p.Exit)
+	default:
+		return nil
 	}
-	return processExit(p.Exit)
+	x.Boost = p.run
+	return x
 }
 
 // proto is a as the API says it; nil for none, as a machine's process.
@@ -243,32 +260,46 @@ func (s *Server) boxProcessesOf(ctx context.Context, e *environment) ([]listedPr
 		}
 	}
 	exits := map[string]*provider.ProcessExit{}
+	var settle []int
 	for _, bp := range rec.Boost {
 		at := ranOn{Kind: ranOnBoost, CPU: bp.CPU, Memory: bp.Memory}
 		onIt := ok && !bp.Gone && bp.InstanceUID == in.GetMetadata().GetUid()
 		if p, found := live[bp.ProviderID]; onIt && found {
 			p.ID = bp.ID
-			out = append(out, listedProcess{Process: p, at: at})
 			if p.Exit != nil && bp.Exit == nil {
 				exits[bp.ID] = p.Exit
 			}
+			if p.Exit != nil && !bp.Settled {
+				settle = append(settle, len(out))
+			}
+			out = append(out, listedProcess{Process: p, at: at, run: boostRunOf(bp)})
 			continue
 		}
 		if onIt && bp.Exit == nil && !listed {
 			// Its instance did not answer: running, as far as is known.
-			out = append(out, listedProcess{Process: provider.Process{ID: bp.ID, Name: bp.Name, Command: []string{bp.Coarse}, Dir: bp.Dir, Started: bp.Started}, at: at, kept: true})
+			out = append(out, listedProcess{Process: provider.Process{ID: bp.ID, Name: bp.Name, Command: []string{bp.Coarse}, Dir: bp.Dir, Started: bp.Started}, at: at, kept: true, run: boostRunOf(bp)})
 			continue
 		}
 		// Its instance gone, or the instance no longer keeps it: as kept,
 		// its exit or lost.
 		out = append(out, listedProcess{Process: provider.Process{
 			ID: bp.ID, Name: bp.Name, Command: []string{bp.Coarse}, Dir: bp.Dir, Started: bp.Started, Exit: bp.Exit,
-		}, at: at, kept: true, lost: bp.Exit == nil})
+		}, at: at, kept: true, lost: bp.Exit == nil, run: boostRunOf(bp)})
 	}
 	if len(exits) > 0 {
 		if err := changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool { return r.keepExits(exits) }); err != nil {
 			s.log.Error("keeping a boost's processes' exits failed", "environment", e.String(), "error", err)
 		}
+	}
+	// What the ended ones changed and copied back, before they are said
+	// to have ended.
+	for _, i := range settle {
+		bp, err := s.settleBoostProcess(ctx, e.p, boxKey, provider.Instance{Project: e.key.Project, Name: in.GetMetadata().GetName()}, out[i].ID)
+		if err != nil {
+			s.log.Error("settling a boost process failed", "environment", e.String(), "process", out[i].ID, "error", err)
+			continue
+		}
+		out[i].run = boostRunOf(bp)
 	}
 	return out, nil
 }
@@ -337,6 +368,12 @@ func (s *Server) keepBoostExits(ctx context.Context, boxKey controller.Key, b *e
 	}
 	if err := changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool { return r.keepExits(exits) }); err != nil {
 		return false, err
+	}
+	// Their reports and artifacts, before the boost goes.
+	for _, l := range listed {
+		if _, err := s.settleBoostProcess(ctx, p, boxKey, provider.Instance{Project: boxKey.Project, Name: in.GetMetadata().GetName()}, l.ID); err != nil {
+			s.log.Error("settling a boost process failed", "box", boxKey.String(), "process", l.ID, "error", err)
+		}
 	}
 	box, ok, err := getTyped[*envv1alpha1.Box](ctx, s, registry.Box, resource.Key{Project: boxKey.Project, Name: boxKey.Name})
 	if err != nil {
@@ -465,13 +502,7 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 			_ = s.retireBoost(boxKey, b, boostRetire{why: "a boosted start replaces it", force: true})
 			return pending(envv1alpha1.PendingReason_PENDING_REASON_BOOST_STARTING, "its failed boost is replaced: "+readyMsg, 0, boostStartEstimate), nil
 		case have.covers(size) && b.GetStatus().GetPhase() == envv1alpha1.BoostPhase_BOOST_PHASE_READY:
-			if tk != nil {
-				delete(tq.tickets, tk.id)
-			}
-			tq.starting[boxKey]++
-			tq.mu.Unlock()
-			locked = false
-			return h.startOnBoost(ctx, c, e, m, command, b, tq, boxKey)
+			return h.syncAndStart(ctx, c, e, m, command, b, tq, boxKey, ticket(true), &locked, pending)
 		case have.covers(size):
 			ticket(true)
 			wait := max(boostStartEstimate-s.clock.Since(b.GetMetadata().GetCreateTime().AsTime()), 5*time.Second)
@@ -510,11 +541,53 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 	return pending(envv1alpha1.PendingReason_PENDING_REASON_QUEUED_BUDGET, msg, position, s.estimateWait(e.target, tq, v, order, tk)), nil
 }
 
+// syncAndStart syncs the box's work tree to its READY boost b, as a job
+// for tk, then starts the process; a sync not done within boostSyncWait
+// answers pending SYNCING, and the start asked again with tk starts from
+// it once done. Held tq.mu, which it lets go (*locked).
+func (h environmentService) syncAndStart(ctx context.Context, c authz.Caller, e *environment, m *envv1alpha1.StartProcessRequest, command []string,
+	b *envv1alpha1.Boost, tq *targetBoosts, boxKey controller.Key, tk *boostTicket, locked *bool,
+	pending func(envv1alpha1.PendingReason, string, int, time.Duration) *envv1alpha1.StartProcessResponse,
+) (*envv1alpha1.StartProcessResponse, error) {
+	s := h.s
+	in, ok, err := getTyped[*envv1alpha1.Instance](ctx, s, registry.Instance, resource.Key{Project: e.key.Project, Name: boostInstanceName(e.key.Name)})
+	if err != nil {
+		return nil, apiError(err)
+	}
+	if !ok || !owns(registry.Boost, b, in) {
+		return pending(envv1alpha1.PendingReason_PENDING_REASON_BOOST_STARTING, "its boost's instance is being made again", 0, boostStartEstimate), nil
+	}
+	if tk.sync != nil && tk.sync.instance != in.GetMetadata().GetUid() {
+		tk.sync = nil
+	}
+	if tk.sync == nil {
+		// Another process of the box on the boost, running or starting:
+		// what it wrote stays.
+		shared := b.GetStatus().GetProcessesRunning() > 0 || tq.starting[boxKey] > 0
+		tk.sync = s.startSync(e, b, in, shared, tq, boxKey)
+	}
+	run := tk.sync
+	tq.mu.Unlock()
+	*locked = false
+	if !waitSync(ctx, run, s.syncWaitFor()) {
+		return pending(envv1alpha1.PendingReason_PENDING_REASON_SYNCING, "the box's work tree is being synced to its boost", 0, s.syncWaitFor()), nil
+	}
+	tq.mu.Lock()
+	delete(tq.tickets, tk.id)
+	if run.err != nil {
+		tq.mu.Unlock()
+		return nil, syncError(e, run.err)
+	}
+	tq.starting[boxKey]++
+	tq.mu.Unlock()
+	return h.startOnBoost(ctx, c, e, m, command, b, tq, boxKey, run.stats)
+}
+
 // startOnBoost starts the process on the box's READY boost b, keeping
 // where it runs in boxProcesses; if that cannot be kept, the process is
 // killed, as no call could reach it. tq counts it as starting, which ends
 // here.
-func (h environmentService) startOnBoost(ctx context.Context, c authz.Caller, e *environment, m *envv1alpha1.StartProcessRequest, command []string, b *envv1alpha1.Boost, tq *targetBoosts, boxKey controller.Key) (*envv1alpha1.StartProcessResponse, error) {
+func (h environmentService) startOnBoost(ctx context.Context, c authz.Caller, e *environment, m *envv1alpha1.StartProcessRequest, command []string, b *envv1alpha1.Boost, tq *targetBoosts, boxKey controller.Key, synced *syncStats) (*envv1alpha1.StartProcessResponse, error) {
 	s := h.s
 	defer func() {
 		tq.mu.Lock()
@@ -537,8 +610,15 @@ func (h environmentService) startOnBoost(ctx context.Context, c authz.Caller, e 
 	}
 	size := boostSizeOf(b.GetSpec().GetResources())
 	ref := provider.Instance{Project: e.key.Project, Name: in.GetMetadata().GetName()}
+	// Under boost-job, which says what it changed relative to the tree
+	// synced and measures its artifacts once it ends.
+	runID, tree := randomID(), ""
+	if synced != nil {
+		tree = synced.Tree
+	}
+	wrapped := boostJobCommand(tree, reportPath(runID), m.GetArtifacts(), e.asRunAs(command, m.GetDir()))
 	pid, err := e.p.StartProcess(ctx, provider.ProcessRequest{
-		Instance: ref, Command: e.asRunAs(command, m.GetDir()), Env: e.commandEnv(m.GetEnv()), Dir: m.GetDir(), Name: m.GetName(),
+		Instance: ref, Command: wrapped, Env: e.commandEnv(m.GetEnv()), Dir: m.GetDir(), Name: m.GetName(),
 		MemoryMax: processMemoryMax(int64(min(size.memory, 1<<62))),
 	})
 	id := ""
@@ -557,16 +637,17 @@ func (h environmentService) startOnBoost(ctx context.Context, c authz.Caller, e 
 	if cs := e.box.GetSpec().GetCheckouts(); len(cs) > 0 {
 		repository = cs[0].GetRepository()
 	}
+	entry := boostProcess{
+		ID: id, BoostUID: b.GetMetadata().GetUid(), Instance: ref.Name, InstanceUID: in.GetMetadata().GetUid(), ProviderID: pid,
+		CPU: at.CPU, Memory: at.Memory, Name: m.GetName(), Coarse: coarseCommand(commandText(e.givenCommand(command))), Dir: m.GetDir(),
+		Started: s.clock.Now(), RunID: runID, Artifacts: m.GetArtifacts(), Sync: synced,
+	}
 	err = changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool {
 		if uid := e.box.GetMetadata().GetUid(); r.BoxUID != uid {
 			*r = boxProcesses{BoxUID: uid}
 		}
 		r.Repository = repository
-		r.add(boostProcess{
-			ID: id, BoostUID: b.GetMetadata().GetUid(), Instance: ref.Name, InstanceUID: in.GetMetadata().GetUid(), ProviderID: pid,
-			CPU: at.CPU, Memory: at.Memory, Name: m.GetName(), Coarse: coarseCommand(commandText(e.givenCommand(command))), Dir: m.GetDir(),
-			Started: s.clock.Now(),
-		})
+		r.add(entry)
 		return true
 	})
 	if err != nil {
@@ -575,7 +656,7 @@ func (h environmentService) startOnBoost(ctx context.Context, c authz.Caller, e 
 		}
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("keeping where %s's process runs failed, and it was killed: %w", e, err))
 	}
-	return &envv1alpha1.StartProcessResponse{Process: id, RanOn: at.proto()}, nil
+	return &envv1alpha1.StartProcessResponse{Process: id, RanOn: at.proto(), Boost: boostRunOf(entry)}, nil
 }
 
 // boostProcessOf is the box's process of id run on its boost; NotFound

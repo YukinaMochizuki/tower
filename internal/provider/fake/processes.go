@@ -1,8 +1,10 @@
 package fake
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"io"
 	"maps"
 	"slices"
 	"strconv"
@@ -122,7 +124,33 @@ func (f *Fake) StartProcess(_ context.Context, req provider.ProcessRequest) (str
 	cmd := command{files: maps.Clone(local.files), failing: slices.Clone(f.failCommands), onExec: f.onExec}
 	f.mu.Unlock()
 	f.enqueue(req.Instance)
+	f.mu.Lock()
+	args, guestRun := f.ws.guestArgs(req.Instance, req.Command)
+	if !guestRun {
+		// Without real workspaces, boost-job's command runs as if alone.
+		req.Command = withoutBoostJob(req.Command)
+	}
+	f.mu.Unlock()
 	if len(req.Command) > 0 && req.Command[0] == "sleep" {
+		return p.id, nil
+	}
+	f.mu.Lock()
+	var guest func([]string, io.Writer, io.Writer) int
+	if guestRun {
+		guest = f.ws.guest
+		// The command runs where it is asked to, the instance's /workspace
+		// unless given another.
+		dir := f.ws.path(req.Instance, cmp.Or(req.Dir, "/workspace"))
+		args = append([]string{args[0], "--cwd", dir}, args[1:]...)
+	}
+	f.mu.Unlock()
+	if guestRun {
+		code := guest(args, processWriter{f, p, provider.Stdout}, processWriter{f, p, provider.Stderr})
+		f.mu.Lock()
+		p.end(&provider.ProcessExit{Code: code})
+		f.pruneProcesses(local)
+		f.mu.Unlock()
+		f.enqueue(req.Instance)
 		return p.id, nil
 	}
 	code := cmd.run(provider.ExecRequest{

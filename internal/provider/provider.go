@@ -47,6 +47,12 @@ var (
 // writes a box's secret files.
 const SecretsDir = "/run/tower/secrets"
 
+// GuestBinary is tower-guest in a container instance, which tower runs
+// its own subcommands in a guest through Exec as (a boost's sync,
+// docs/decisions/boost.md): where hangar's provider and hostd's Docker
+// driver put it.
+const GuestBinary = "/.tower/tower-guest"
+
 // Instance names an Instance object of the target, by its project and
 // name.
 type Instance struct {

@@ -3,6 +3,7 @@ package apiserver
 import (
 	"context"
 	"fmt"
+	"time"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
@@ -23,6 +24,12 @@ func (s *Server) SetBeforeIdleStop(fn func(project, box string)) {
 func (s *Server) SetBeforeBoostRetire(fn func(project, box string)) {
 	hook := func(k controller.Key) { fn(k.Project, k.Name) }
 	s.beforeBoostRetire.Store(&hook)
+}
+
+// SetBoostSync sets how long a boosted start waits for its sync, a
+// negative wait none, and the most artifacts copy back, for tests.
+func (s *Server) SetBoostSync(wait time.Duration, artifactsMax int64) {
+	s.syncWait, s.artifactsMax = wait, artifactsMax
 }
 
 // InUse reports whether a call into the box is under way.

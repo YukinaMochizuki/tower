@@ -160,7 +160,13 @@ type Server struct {
 	boosts boostQueues
 	// boostBackoffs hold back boosts' jobs that failed (boosts.go).
 	boostBackoffs boostBackoffs
-	jobs          jobs
+	// boostSettling settles each ended boost process once (boostsync.go).
+	boostSettling settling
+	// syncWait and artifactsMax are boostSyncWait and boostArtifactsMax
+	// unless a test sets them.
+	syncWait     time.Duration
+	artifactsMax int64
+	jobs         jobs
 	// jobErrs are the jobs' last failures by target, for last_error.
 	jobErrs jobErrors
 	// teardowns are the last teardown passes of Targets being deleted.
