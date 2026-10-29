@@ -419,11 +419,28 @@ func (s *Server) keepWarm(ctx context.Context, t *targetsv1alpha1.Target, set se
 	waiting := func(err error) error {
 		return fmt.Errorf("warm goldens of %s: %w: %w", target, controller.ErrWaiting, err)
 	}
+	// A head the mirror lacks, its mirror behind the repository's status or
+	// lost and made again, waits for a fetch asked for then, whose end
+	// reconciles again; nothing is built of it or dropped meanwhile. One
+	// still missing after is retried, and asks for no other fetch.
+	missing := func(err error) error {
+		if !s.fetchedSince(key, askWarmMissing) {
+			return nil
+		}
+		return waiting(err)
+	}
 	p, err := s.providerFor(target)
 	if err != nil {
 		return waiting(err)
 	}
 	mirror := mirrorName(c.project, c.name())
+	warmOfHead := func() (devcontainer.Warm, error) {
+		w, err := s.warmAt(ctx, p, mirror, head)
+		if err == nil {
+			s.forgetFetch(key, askWarmMissing)
+		}
+		return w, err
+	}
 	ready := c.newestReady()
 	stale := ready == nil
 	// A rebuild for age alone, of the same commit, is a new golden all the
@@ -431,7 +448,10 @@ func (s *Server) keepWarm(ctx context.Context, t *targetsv1alpha1.Target, set se
 	// reconcile reads the same.
 	epoch := ""
 	if ready != nil {
-		w, err := s.warmAt(ctx, p, mirror, head)
+		w, err := warmOfHead()
+		if errors.Is(err, devcontainer.ErrCommitMissing) {
+			return missing(err)
+		}
 		if err != nil {
 			return waiting(err)
 		}
@@ -462,6 +482,9 @@ func (s *Server) keepWarm(ctx context.Context, t *targetsv1alpha1.Target, set se
 			return err
 		}
 		parent, _, _, err := s.boxImageGolden(ctx, p, c.project, target, &envv1alpha1.BoxSpec{Checkouts: []*envv1alpha1.Checkout{{Repository: c.name()}}}, false)
+		if errors.Is(err, devcontainer.ErrCommitMissing) && !s.fetchedSince(key, askWarmMissing) {
+			return nil
+		}
 		if errors.Is(err, devcontainer.ErrUnresolvable) {
 			// Its boxes fail, saying why; it has no warm golden.
 			return nil
@@ -469,7 +492,10 @@ func (s *Server) keepWarm(ctx context.Context, t *targetsv1alpha1.Target, set se
 		if err != nil || parent == "" {
 			return err
 		}
-		w, err := s.warmAt(ctx, p, mirror, head)
+		w, err := warmOfHead()
+		if errors.Is(err, devcontainer.ErrCommitMissing) {
+			return missing(err)
+		}
 		if err != nil {
 			return err
 		}

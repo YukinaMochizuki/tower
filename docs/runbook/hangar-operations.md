@@ -287,9 +287,11 @@ container's tailnet state, so it joins again with `hangar-tailnet`'s key,
 which must then be valid. The tailnet keeps the old node: remove it from
 the admin console. The target is back when its facts show the system
 container Ready and on the tailnet. Its repositories still say Fetched,
-of the heads the old mirrors had: until each is fetched again, at most
-ten minutes later, a box of it fails `DevcontainerUnresolvable` ("the
-repository has no <commit>"), and is to be made again after.
+of the heads the old mirrors had: a box of one opened before its mirror
+is fetched again asks for a fetch and waits for it, PENDING with
+`WaitingForFetch` ("the repository has no <commit>; waiting for its
+mirror to be fetched"), then comes up. It fails `DevcontainerUnresolvable`
+only if the fetch does not bring the commit either.
 
 ## When something is wrong
 

@@ -338,6 +338,29 @@ func TestABoxsSetupAsksNoRegistry(t *testing.T) {
 	}
 }
 
+// TestACommitTheMirrorLacksIsMissing: a commit the mirror does not hold,
+// or a mirror not there, is ErrCommitMissing, an ErrUnresolvable too,
+// whose reason names the commit; a request with an image to fall back to
+// does not fall back for it, nor does a warm checkout's read.
+func TestACommitTheMirrorLacksIsMissing(t *testing.T) {
+	r, ctx := devcontainer.Real{}, t.Context()
+	f, req := repo(t, map[string]string{".devcontainer.json": `{"image": "node:22"}`})
+	f.SetImage("ubuntu:24.04", provider.ImageConfig{Digest: "sha256:dd"})
+	req.Commit, req.FallbackImage = "c9", "ubuntu:24.04"
+	_, err := r.Image(ctx, f, req)
+	if !errors.Is(err, devcontainer.ErrCommitMissing) || !errors.Is(err, devcontainer.ErrUnresolvable) || devcontainer.Reason(err) != "the repository has no c9" {
+		t.Errorf("a commit the mirror lacks: %v", err)
+	}
+	f.LoseMirrors()
+	req.Commit = "c1"
+	if _, err := r.Image(ctx, f, req); !errors.Is(err, devcontainer.ErrCommitMissing) {
+		t.Errorf("a mirror not there: %v", err)
+	}
+	if _, err := r.Warm(ctx, f, req.Mirror, "c1"); !errors.Is(err, devcontainer.ErrCommitMissing) {
+		t.Errorf("a warm checkout of a mirror not there: %v", err)
+	}
+}
+
 func TestWhatCannotBeResolved(t *testing.T) {
 	r, ctx := devcontainer.Real{}, t.Context()
 	for what, tc := range map[string]struct {

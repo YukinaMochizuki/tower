@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -103,9 +104,16 @@ func (s *Server) fetchMirror(ctx context.Context, key controller.Key, repo *envv
 	s.startJob(target, job, s.repositoryCtrl, key, func(ctx context.Context) error {
 		n := s.fetches.started(key)
 		defer func() {
-			s.fetches.finished(key, n)
+			boxes := s.fetches.finished(key, n)
 			if s.warmCtrl != nil {
 				s.warmCtrl.Enqueue(controller.Key{Name: target})
+			}
+			// Its head was written before it counted as finished: a box that
+			// waits on it is brought back after both.
+			if s.boxCtrl != nil {
+				for _, b := range boxes {
+					s.boxCtrl.Enqueue(b)
+				}
 			}
 		}()
 		token := ""
@@ -200,14 +208,29 @@ type fetchSeq struct {
 	// last is the number of the last fetch started, done of the last one
 	// finished, however it ended.
 	last, done map[controller.Key]int
-	// asked is, per repository whose warm golden waits on a fetch to be
-	// built, last when it asked.
-	asked map[controller.Key]int
+	// asked is, per repository and what waits on a fetch of it, last when
+	// it asked.
+	asked map[fetchAsk]int
 }
+
+// fetchAsk is what waits on a fetch of repo: a warm golden of it to be
+// built (askWarm), its head missing from the mirror for warm goldens
+// (askWarmMissing), or a box, by its name, whose devcontainer's commit is
+// missing.
+type fetchAsk struct {
+	repo controller.Key
+	by   string
+}
+
+const (
+	askWarm        = "warm"
+	askWarmMissing = "warm-missing"
+	askBox         = "box/"
+)
 
 func (f *fetchSeq) init() {
 	if f.last == nil {
-		f.last, f.done, f.asked = map[controller.Key]int{}, map[controller.Key]int{}, map[controller.Key]int{}
+		f.last, f.done, f.asked = map[controller.Key]int{}, map[controller.Key]int{}, map[fetchAsk]int{}
 	}
 }
 
@@ -219,24 +242,33 @@ func (f *fetchSeq) started(key controller.Key) int {
 	return f.last[key]
 }
 
-func (f *fetchSeq) finished(key controller.Key, n int) {
+// finished records fetch n of key as ended, returning the boxes that wait
+// on a fetch of it.
+func (f *fetchSeq) finished(key controller.Key, n int) []controller.Key {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.init()
 	f.done[key] = max(f.done[key], n)
+	var boxes []controller.Key
+	for a := range f.asked {
+		if name, ok := strings.CutPrefix(a.by, askBox); ok && a.repo == key {
+			boxes = append(boxes, controller.Key{Project: key.Project, Name: name})
+		}
+	}
+	return boxes
 }
 
-// fetchedToBuild reports whether the repository's mirror was fetched since
-// a warm golden of it was first wanted, asking for a fetch the first time,
-// so the golden is built from the branch as it is, not as the last
-// periodic fetch saw it. A fetch that failed counts: the golden is built
-// from what the mirror has.
-func (s *Server) fetchedToBuild(key controller.Key) bool {
+// fetchedSince reports whether the repository's mirror was fetched, by a
+// fetch started after by first asked, asking for one the first time. A
+// fetch that failed counts.
+func (s *Server) fetchedSince(key controller.Key, by string) bool {
 	f := &s.fetches
 	f.mu.Lock()
 	f.init()
-	at, asked := f.asked[key]
+	a := fetchAsk{repo: key, by: by}
+	at, asked := f.asked[a]
 	if !asked {
-		f.asked[key] = f.last[key]
+		f.asked[a] = f.last[key]
 	}
 	fetched := asked && f.done[key] > at
 	f.mu.Unlock()
@@ -246,13 +278,34 @@ func (s *Server) fetchedToBuild(key controller.Key) bool {
 	return fetched
 }
 
-// builtFromFetch forgets fetchedToBuild's ask once no warm golden of the
-// repository waits to be built.
-func (s *Server) builtFromFetch(key controller.Key) {
+// forgetFetch forgets fetchedSince's ask by by: the next starts over.
+func (s *Server) forgetFetch(key controller.Key, by string) {
 	s.fetches.mu.Lock()
 	defer s.fetches.mu.Unlock()
-	delete(s.fetches.asked, key)
+	delete(s.fetches.asked, fetchAsk{repo: key, by: by})
 }
+
+// forgetBoxFetches forgets every ask of the box.
+func (s *Server) forgetBoxFetches(box controller.Key) {
+	s.fetches.mu.Lock()
+	defer s.fetches.mu.Unlock()
+	for a := range s.fetches.asked {
+		if a.repo.Project == box.Project && a.by == askBox+box.Name {
+			delete(s.fetches.asked, a)
+		}
+	}
+}
+
+// fetchedToBuild reports whether the repository's mirror was fetched since
+// a warm golden of it was first wanted, asking for a fetch the first time,
+// so the golden is built from the branch as it is, not as the last
+// periodic fetch saw it. A fetch that failed counts: the golden is built
+// from what the mirror has.
+func (s *Server) fetchedToBuild(key controller.Key) bool { return s.fetchedSince(key, askWarm) }
+
+// builtFromFetch forgets fetchedToBuild's ask once no warm golden of the
+// repository waits to be built.
+func (s *Server) builtFromFetch(key controller.Key) { s.forgetFetch(key, askWarm) }
 
 // holdsWarm reports whether the repository holds a ready warm golden.
 func (s *Server) holdsWarm(ctx context.Context, key controller.Key) (bool, error) {

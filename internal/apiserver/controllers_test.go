@@ -1045,14 +1045,15 @@ func TestAWarmGoldenIsRebuiltOnceItsInputsSettle(t *testing.T) {
 	w.waitWarm("api", "c1")
 	built := func() []string { return w.goldensEverMadeFor("api") }
 	w.fake.SetRemote(url, "main", lockfile("b"), "c1", "c2")
-	w.advance(10 * time.Minute) // the mirror is fetched again: the inputs differ from here
-	w.advance(10 * time.Minute)
+	w.advanceFetching(10 * time.Minute) // the mirror is fetched again: the inputs differ from here
+	// Fetched again, before the remote moves on.
+	w.advanceFetching(10 * time.Minute)
 	if got := built(); len(got) != 1 {
 		t.Fatalf("a warm golden was rebuilt 10 minutes into its inputs' settle: %v", got)
 	}
 	w.fake.SetRemote(url, "main", lockfile("c"), "c1", "c2", "c3")
-	w.advance(10 * time.Minute) // fetched: they changed again
-	w.advance(20 * time.Minute)
+	w.advanceFetching(10 * time.Minute) // fetched: they changed again
+	w.advanceFetching(20 * time.Minute)
 	if got := built(); len(got) != 1 {
 		t.Fatalf("a warm golden was rebuilt 40 minutes after its inputs first changed, 20 after they last did: %v", got)
 	}
@@ -1143,6 +1144,41 @@ func (w *world) mirrorHead(repo string) string {
 		}
 	}
 	return ""
+}
+
+// TestAWarmGoldenWaitsForAFetchOfAHeadItsMirrorLacks: with its mirror
+// lost and the repository's status keeping its head, a warm golden's
+// reconcile asks for a fetch and builds, drops and fails nothing
+// meanwhile; once the fetch lands, the warm golden it had stays.
+func TestAWarmGoldenWaitsForAFetchOfAHeadItsMirrorLacks(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, worldOption{settings: &targetsv1alpha1.TargetSettings{IdleStopAfter: durationpb.New(1000 * time.Hour)}})
+	w.fake.SetRemote("https://git.example.com/api.git", "main", lockfile("a"), "c1")
+	w.readyBox("dev")
+	w.advance(5 * time.Minute)
+	warm := w.waitWarm("api", "c1")
+	w.waitSettled()
+
+	w.fake.LoseMirrors()
+	release := w.fake.HoldFetches()
+	defer release()
+	fetches := w.fake.Fetches()
+	// A restart forgets the pre-build inputs read of c1: they are read from
+	// the mirror again.
+	w.restart()
+	testutil.Eventually(t, "a fetch asked for", func() bool { return w.fake.Fetches() > fetches })
+	if got := w.warmOf()["api"]; len(got) != 1 || got[0] != warm {
+		t.Errorf("warm goldens while the fetch is held: %v, want %s alone", got, warm)
+	}
+
+	release()
+	w.waitSettled()
+	if got := w.goldensEverMadeFor("api"); len(got) != 1 {
+		t.Errorf("warm goldens ever made: %v, want the first alone", got)
+	}
+	if got := w.warmOf()["api"]; len(got) != 1 || got[0] != warm {
+		t.Errorf("warm goldens after the fetch: %v, want %s alone", got, warm)
+	}
 }
 
 // TestANeverUsedRepositoryGetsNoWarmGolden: with room in the budget, a

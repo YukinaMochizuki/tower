@@ -229,6 +229,19 @@ func (w *world) advance(d time.Duration) {
 	w.waitSettled()
 }
 
+// advanceFetching is advance over a time that makes a fetch due: it waits
+// for the fetch to start, then settles again. The fetch follows a resync
+// ticking on the clock, which the controller may take up only after
+// waitSettled has seen everything quiet.
+func (w *world) advanceFetching(d time.Duration) {
+	w.t.Helper()
+	w.waitSettled()
+	before := w.fake.Fetches()
+	w.clock.Advance(d)
+	testutil.Eventually(w.t, "the fetch the time passed makes due", func() bool { return w.fake.Fetches() > before })
+	w.waitSettled()
+}
+
 func idleAfter(d time.Duration) worldOption {
 	return worldOption{settings: &targetsv1alpha1.TargetSettings{IdleStopAfter: durationpb.New(d)}}
 }

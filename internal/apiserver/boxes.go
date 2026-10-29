@@ -79,8 +79,12 @@ func (b boxState) not(phase envv1alpha1.BoxPhase, reason, msg string) {
 
 func (s *Server) reconcileBox(ctx context.Context, key controller.Key) error {
 	box, ok, err := getTyped[*envv1alpha1.Box](ctx, s, registry.Box, resource.Key{Project: key.Project, Name: key.Name})
-	if err != nil || !ok || box.GetMetadata().GetDeleteTime() != nil {
+	if err != nil {
 		return err
+	}
+	if !ok || box.GetMetadata().GetDeleteTime() != nil {
+		s.forgetBoxFetches(key)
+		return nil
 	}
 	st := proto.Clone(box.GetStatus()).(*envv1alpha1.BoxStatus)
 	if st == nil {
@@ -155,6 +159,19 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 	// Its image.
 	if st.ImageGolden == "" {
 		name, reason, why, err := s.boxImageGolden(ctx, p, key.Project, st.Target, spec, fellBack(st))
+		if errors.Is(err, devcontainer.ErrCommitMissing) && !s.fetchedSince(boxRepository(key, spec), askBox+key.Name) {
+			// The mirror is behind what its repository's status says, or was
+			// lost and made again: resolved again once a fetch asked for now
+			// has ended, which brings the box back. One that still lacks the
+			// commit then fails, below, and asks for no other.
+			msg := unresolvableMessage(err) + "; waiting for its mirror to be fetched"
+			bs.cond(BoxImageBuilt, false, "WaitingForFetch", msg)
+			bs.not(envv1alpha1.BoxPhase_BOX_PHASE_PENDING, "WaitingForFetch", msg)
+			return nil
+		}
+		if err == nil || (errors.Is(err, devcontainer.ErrUnresolvable) && !errors.Is(err, devcontainer.ErrCommitMissing)) {
+			s.forgetBoxFetches(key)
+		}
 		if errors.Is(err, devcontainer.ErrUnresolvable) {
 			// Resolved again at its next reconcile, as the repository may
 			// have changed.
@@ -381,6 +398,12 @@ func (s *Server) boxImageGolden(ctx context.Context, p provider.Provider, projec
 	return name, "", img.FellBack, nil
 }
 
+// boxRepository is the repository a box's devcontainer is read from: its
+// first checkout's.
+func boxRepository(key controller.Key, spec *envv1alpha1.BoxSpec) controller.Key {
+	return controller.Key{Project: key.Project, Name: spec.GetCheckouts()[0].GetRepository()}
+}
+
 // followDevcontainerGolden keeps a box that fell back from its
 // devcontainer's image, which did not build, saying where that image is,
 // and asks for it while it is not built: its golden is built again when
@@ -407,7 +430,13 @@ func (s *Server) followDevcontainerGolden(ctx context.Context, key controller.Ke
 			return fmt.Errorf("box %s: %w: %w", key, controller.ErrWaiting, err)
 		}
 		made, _, why, err := s.boxImageGolden(ctx, p, key.Project, st.Target, box.GetSpec(), false)
+		if err == nil {
+			s.forgetBoxFetches(key)
+		}
 		switch {
+		case errors.Is(err, devcontainer.ErrCommitMissing) && !s.fetchedSince(boxRepository(key, box.GetSpec()), askBox+key.Name):
+			// Its mirror lacks the commit: asked again once it is fetched.
+			return nil
 		case errors.Is(err, devcontainer.ErrUnresolvable):
 			// The repository changed since: no image of its devcontainer to
 			// wait for. A box made now says why.

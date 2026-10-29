@@ -27,6 +27,13 @@ import (
 // message says why. It is no use asking again.
 var ErrUnresolvable = errors.New("devcontainer: unresolvable")
 
+// ErrCommitMissing is a commit the mirror read does not hold. The mirror
+// may be behind the commit tower recorded, or lost and made again since,
+// so a fetch may bring it; a caller that waits for none takes it as the
+// ErrUnresolvable it also is. A request with a fallback image never falls
+// back for it.
+var ErrCommitMissing = fmt.Errorf("devcontainer: the mirror lacks the commit: %w", ErrUnresolvable)
+
 // Request is what an image is resolved from.
 type Request struct {
 	Target string
@@ -155,6 +162,8 @@ type Resolver interface {
 	Build(ctx context.Context, p provider.Provider, req Request, img Image, repository string) (string, error)
 	// Setup is what a box of the image runs once it is checked out.
 	Setup(ctx context.Context, p provider.Provider, req Request) ([]Step, error)
+	// Warm is what a warm checkout at commit depends on; a commit the
+	// mirror lacks is ErrCommitMissing.
 	Warm(ctx context.Context, p provider.Provider, mirror, commit string) (Warm, error)
 }
 
@@ -228,7 +237,7 @@ const (
 )
 
 func (f Fake) Warm(ctx context.Context, p provider.Provider, mirror, commit string) (Warm, error) {
-	read, err := p.ReadMirror(ctx, provider.MirrorReadRequest{
+	read, err := readMirror(ctx, p, provider.MirrorReadRequest{
 		MirrorSource: provider.MirrorSource{Mirror: mirror, Ref: commit}, Paths: []string{FakeToolchainFile, FakeLockfile},
 	})
 	if err != nil {

@@ -117,6 +117,11 @@ func (re Real) resolve(ctx context.Context, p provider.Provider, req Request, fo
 		return d, nil
 	case req.FallbackImage == "":
 		return resolved{}, err
+	case errors.Is(err, ErrCommitMissing):
+		// Not the devcontainer's doing: the box waits for the commit, or
+		// fails without it, rather than be made of an image it did not ask
+		// for.
+		return resolved{}, err
 	case errors.Is(err, errNoDevcontainer):
 		// What workstream's setup "auto" does: the image it falls back
 		// to, which sets nothing up.
@@ -137,6 +142,7 @@ var errNoDevcontainer = fmt.Errorf("no devcontainer: %w", ErrUnresolvable)
 // Reason is an ErrUnresolvable's reason, for people.
 func Reason(err error) string {
 	msg := strings.TrimSuffix(err.Error(), ": "+errNoDevcontainer.Error())
+	msg = strings.TrimSuffix(msg, ": "+ErrCommitMissing.Error())
 	return strings.TrimSuffix(msg, ": "+ErrUnresolvable.Error())
 }
 
@@ -153,10 +159,7 @@ func (r resolved) fallBack(ctx context.Context, p provider.Provider, ref string,
 // devcontainer resolves the checkout's devcontainer onto r.
 func (Real) devcontainer(ctx context.Context, p provider.Provider, req Request, forSetup bool, r resolved) (resolved, error) {
 	src := provider.MirrorSource{Mirror: req.Mirror, Ref: req.Commit}
-	read, err := p.ReadMirror(ctx, provider.MirrorReadRequest{MirrorSource: src, Paths: append(slices.Clone(configCandidates), miseFiles...), Content: true})
-	if errors.Is(err, provider.ErrNotFound) && req.Commit != "" {
-		return resolved{}, unresolvable("the repository has no %s", req.Commit)
-	}
+	read, err := readMirror(ctx, p, provider.MirrorReadRequest{MirrorSource: src, Paths: append(slices.Clone(configCandidates), miseFiles...), Content: true})
 	if err != nil {
 		return resolved{}, err
 	}
@@ -233,6 +236,16 @@ func (Real) devcontainer(ctx context.Context, p provider.Provider, req Request, 
 	}
 	r.img.DevcontainerHash = hex.EncodeToString(h.Sum(nil))
 	return r, nil
+}
+
+// readMirror is p.ReadMirror, saying of a commit the mirror lacks, or of a
+// mirror not there, ErrCommitMissing.
+func readMirror(ctx context.Context, p provider.Provider, req provider.MirrorReadRequest) (provider.MirrorRead, error) {
+	read, err := p.ReadMirror(ctx, req)
+	if errors.Is(err, provider.ErrNotFound) && req.Ref != "" {
+		return provider.MirrorRead{}, fmt.Errorf("the repository has no %s: %w", req.Ref, ErrCommitMissing)
+	}
+	return read, err
 }
 
 // explicit makes ref, an image named rather than a devcontainer's, the
@@ -356,12 +369,12 @@ func (re Real) Setup(ctx context.Context, p provider.Provider, req Request) ([]S
 // build (docs/decisions/devcontainers.md).
 func (Real) Warm(ctx context.Context, p provider.Provider, mirror, commit string) (Warm, error) {
 	src := provider.MirrorSource{Mirror: mirror, Ref: commit}
-	read, err := p.ReadMirror(ctx, provider.MirrorReadRequest{MirrorSource: src, Paths: append(append(slices.Clone(miseFiles), lockfiles...), "go.mod")})
+	read, err := readMirror(ctx, p, provider.MirrorReadRequest{MirrorSource: src, Paths: append(append(slices.Clone(miseFiles), lockfiles...), "go.mod")})
 	if err != nil {
 		return Warm{}, err
 	}
 	// What the pre-build's last step is read from, by content.
-	cmds, err := p.ReadMirror(ctx, provider.MirrorReadRequest{MirrorSource: src, Paths: append(slices.Clone(configCandidates), makefiles...), Content: true})
+	cmds, err := readMirror(ctx, p, provider.MirrorReadRequest{MirrorSource: src, Paths: append(slices.Clone(configCandidates), makefiles...), Content: true})
 	if err != nil {
 		return Warm{}, err
 	}
