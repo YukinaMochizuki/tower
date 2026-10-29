@@ -22,5 +22,5 @@ the change.
 | `secrets.md` | Every product secret is tower's, sealed at rest; a secret reaches only the environment that uses it; privileged boxes run through tower |
 | `authentication.md` | Service tokens with one fixed role each (admin, workstream, hostd); root on the host through a unix socket; tailnet only |
 | `deployment.md` | tower and the registry run on a dedicated machine on the tailnet |
-| `process-usage.md` | Each process in a box on a hangar target runs in a cgroup of its own under the cgroup2 root, held below the box's memory and measured; tower keeps the last runs of each command under an exact and an advisory coarse key |
+| `process-usage.md` | Each process in a box on a hangar target runs in a cgroup of its own under `/tower`, which holds them together below the box's memory, so an OOM kills one of them whole; tower keeps the last runs of each command under a hashed exact key and an advisory coarse key, never its text |
 | `testing-strategy.md` | hangar's test layers and rules; fakes behind every outside dependency, kept honest by conformance suites |
