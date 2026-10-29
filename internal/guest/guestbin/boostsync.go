@@ -41,6 +41,9 @@ const (
 	ExitTreeMismatch = 4
 	// ExitTooLarge: boost-pack's delta is past its cap.
 	ExitTooLarge = 5
+	// ExitHeadMissing: boost-apply lacks HEAD's commit, or what its
+	// bundle needs: the box is to send HEAD's whole history.
+	ExitHeadMissing = 6
 )
 
 // BoostDir is where the boost subcommands keep what they make, in a
@@ -75,9 +78,17 @@ type Manifest struct {
 	// that changed since the base, or all of them for a whole tree: their
 	// checkouts are not sent, only the commit the tree names.
 	Gitlinks []Gitlink `json:"gitlinks,omitempty"`
-	// Bundle says head.bundle holds the commits of HEAD the box's remote
-	// refs do not reach.
+	// Bundle says head.bundle holds the commits of HEAD the box's origin
+	// refs do not reach, or all of them (boost-pack --bundle-all).
 	Bundle bool `json:"bundle"`
+	// Links are every gitlink of the tree, which the tree made on the
+	// boost is checked with, their checkouts never sent.
+	Links []Gitlink `json:"links,omitempty"`
+	// IndexTree is the box's index's tree, what is staged there, sent as
+	// what differs from Tree (index.tar, index.deleted, IndexGitlinks);
+	// "" when the index has none (a merge's conflicts).
+	IndexTree     string    `json:"indexTree,omitempty"`
+	IndexGitlinks []Gitlink `json:"indexGitlinks,omitempty"`
 }
 
 // Gitlink is a submodule of the tree: its path, and the commit the tree
@@ -134,7 +145,7 @@ func boostMain(args []string) int {
 
 func boost(args []string, stdout, stderr io.Writer, main bool) (int, syscall.Signal) {
 	if len(args) == 0 {
-		return failed(stderr, 2, errors.New("a boost subcommand is boost-pack, boost-apply, boost-job or boost-clean")), 0
+		return failed(stderr, 2, errors.New("a boost subcommand is boost-pack, boost-apply, boost-job, boost-measure or boost-clean")), 0
 	}
 	var err error
 	var out any
@@ -145,6 +156,8 @@ func boost(args []string, stdout, stderr io.Writer, main bool) (int, syscall.Sig
 		out, err = boostApply(args[1:])
 	case "boost-clean":
 		out, err = boostClean(args[1:])
+	case "boost-measure":
+		out, err = boostMeasure(args[1:])
 	case "boost-job":
 		return boostJob(args[1:], stdout, stderr, main)
 	default:
@@ -173,11 +186,17 @@ func (e codedError) Error() string { return e.err.Error() }
 func (e codedError) Unwrap() error { return e.err }
 
 // gitRun runs git in dir with env added, stdin from in, and returns its
-// stdout; its stderr is in the error.
+// stdout; its stderr is in the error. Every path it is given is a path,
+// never a pattern (GIT_LITERAL_PATHSPECS), and dir is a safe directory
+// for this call alone, whoever owns it.
 func gitRun(dir string, env []string, in io.Reader, args ...string) ([]byte, error) {
-	cmd := exec.Command("git", args...)
+	safe := dir
+	if abs, err := filepath.Abs(dir); err == nil {
+		safe = abs
+	}
+	cmd := exec.Command("git", append([]string{"-c", "safe.directory=" + safe}, args...)...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), append([]string{"GIT_TERMINAL_PROMPT=0", "LC_ALL=C"}, env...)...)
+	cmd.Env = append(os.Environ(), append([]string{"GIT_TERMINAL_PROMPT=0", "LC_ALL=C", "GIT_LITERAL_PATHSPECS=1"}, env...)...)
 	cmd.Stdin = in
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
@@ -249,11 +268,84 @@ func snapshot(dir, index, seed string) (string, error) {
 }
 
 // boxSnapshot is snapshot in a box, whose own index is copied each time,
-// so its stat cache is the user's own, up to date.
-func boxSnapshot(dir, gitDir, boostDir string) (string, error) {
+// so its stat cache is the user's own, up to date. indexTree is the
+// index's own tree, what is staged, "" when it has none (a merge's
+// conflicts).
+func boxSnapshot(dir, gitDir, boostDir string) (tree, indexTree string, err error) {
 	index := filepath.Join(boostDir, "box-"+strconv.FormatInt(time.Now().UnixNano(), 36)+".index")
 	defer func() { _ = os.Remove(index) }()
-	return snapshot(dir, index, filepath.Join(gitDir, "index"))
+	if b, err := os.ReadFile(filepath.Join(gitDir, "index")); err == nil {
+		if err := os.WriteFile(index, b, 0o644); err != nil {
+			return "", "", err
+		}
+		indexTree, _ = gitLine(dir, []string{"GIT_INDEX_FILE=" + index}, "write-tree")
+	}
+	tree, err = snapshot(dir, index, "")
+	return tree, indexTree, err
+}
+
+// linksOf are the gitlinks of es.
+func linksOf(es []entry) []Gitlink {
+	var out []Gitlink
+	for _, e := range es {
+		if e.mode == gitlinkMode {
+			out = append(out, Gitlink{Path: e.path, Commit: e.blob})
+		}
+	}
+	return out
+}
+
+// withLinks is the tree of index with its gitlinks those of links alone,
+// and nothing under them: a submodule's checkout, or a nested
+// repository's, is never sent, so the boost holds its own, or none. The
+// index is copied, not changed.
+func withLinks(dir, index string, links []Gitlink, hashLen int) (string, error) {
+	tmp := index + ".links"
+	defer func() { _ = os.Remove(tmp) }()
+	b, err := os.ReadFile(index)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return "", err
+	}
+	env := []string{"GIT_INDEX_FILE=" + tmp}
+	out, err := gitRun(dir, env, nil, "ls-files", "-s", "-z")
+	if err != nil {
+		return "", err
+	}
+	keep := map[string]bool{}
+	for _, l := range links {
+		keep[l.Path] = true
+	}
+	under := func(p string) bool {
+		for d := path.Dir(p); d != "." && d != "/"; d = path.Dir(d) {
+			if keep[d] {
+				return true
+			}
+		}
+		return false
+	}
+	removed := "0 " + strings.Repeat("0", hashLen) + "\t"
+	var info strings.Builder
+	for _, rec := range splitNUL(out) {
+		meta, p, ok := strings.Cut(rec, "\t")
+		if !ok {
+			continue
+		}
+		if (strings.HasPrefix(meta, gitlinkMode+" ") && !keep[p]) || under(p) {
+			info.WriteString(removed + p + "\x00")
+		}
+	}
+	for _, l := range links {
+		info.WriteString(gitlinkMode + " " + l.Commit + "\t" + l.Path + "\x00")
+	}
+	if info.Len() > 0 {
+		if _, err := gitRun(dir, env, strings.NewReader(info.String()), "update-index", "-z", "--index-info"); err != nil {
+			return "", err
+		}
+	}
+	return gitLine(dir, env, "write-tree")
 }
 
 // entry is one path of a tree diff or listing.
@@ -305,13 +397,16 @@ const gitlinkMode = "160000"
 
 // boostPack: --dir, the checkout; --base, the tree or commit to send what
 // changed since, "" for the whole tree, or one the box lacks; --out, the
-// staging directory; --max, the most delta.tar may hold, in bytes.
+// staging directory; --max, the most delta.tar may hold, in bytes;
+// --bundle-all, HEAD's whole history bundled, for a boost that lacks
+// what the box's origin refs reach.
 func boostPack(args []string) (*Manifest, error) {
 	fl := flag.NewFlagSet("boost-pack", flag.ContinueOnError)
 	dir := fl.String("dir", "/workspace", "")
 	base := fl.String("base", "", "")
 	out := fl.String("out", "", "")
 	limit := fl.Int64("max", 2<<30, "")
+	bundleAll := fl.Bool("bundle-all", false, "")
 	if err := fl.Parse(args); err != nil {
 		return nil, err
 	}
@@ -322,13 +417,18 @@ func boostPack(args []string) (*Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	tree, err := boxSnapshot(*dir, gitDir, boostDir)
+	tree, indexTree, err := boxSnapshot(*dir, gitDir, boostDir)
 	if err != nil {
 		return nil, err
 	}
 	m := &Manifest{Tree: tree}
 	m.Head, _ = gitLine(*dir, nil, "rev-parse", "--verify", "-q", "HEAD")
 	m.Branch, _ = gitLine(*dir, nil, "symbolic-ref", "-q", "--short", "HEAD")
+	all, err := listTree(*dir, tree)
+	if err != nil {
+		return nil, err
+	}
+	m.Links = linksOf(all)
 	var es []entry
 	if *base != "" && gitHas(*dir, *base+"^{tree}") {
 		if m.Base, err = gitLine(*dir, nil, "rev-parse", *base+"^{tree}"); err != nil {
@@ -336,8 +436,7 @@ func boostPack(args []string) (*Manifest, error) {
 		}
 		es, err = diffTrees(*dir, m.Base, tree)
 	} else {
-		m.Full = true
-		es, err = listTree(*dir, tree)
+		m.Full, es = true, all
 	}
 	if err != nil {
 		return nil, err
@@ -345,23 +444,19 @@ func boostPack(args []string) (*Manifest, error) {
 	if err := os.MkdirAll(*out, 0o755); err != nil {
 		return nil, err
 	}
-	var send []entry
-	var deleted []string
-	for _, e := range es {
-		switch {
-		case e.mode == gitlinkMode && e.status == "D":
-			m.Gitlinks = append(m.Gitlinks, Gitlink{Path: e.path})
-		case e.mode == gitlinkMode:
-			m.Gitlinks = append(m.Gitlinks, Gitlink{Path: e.path, Commit: e.blob})
-		case e.status == "D" && e.oldMode == gitlinkMode:
-			m.Gitlinks = append(m.Gitlinks, Gitlink{Path: e.path})
-		case e.status == "D":
-			deleted = append(deleted, e.path)
-		default:
-			send = append(send, e)
+	send, deleted := splitDelta(es, &m.Gitlinks)
+	// What is staged, where it differs from the work tree.
+	var staged []entry
+	var stagedDeleted []string
+	if indexTree != "" {
+		diff, err := diffTrees(*dir, tree, indexTree)
+		if err != nil {
+			return nil, err
 		}
+		staged, stagedDeleted = splitDelta(diff, &m.IndexGitlinks)
+		m.IndexTree = indexTree
 	}
-	sizes, err := blobSizes(*dir, send)
+	sizes, err := blobSizes(*dir, append(slices.Clone(send), staged...))
 	if err != nil {
 		return nil, err
 	}
@@ -371,13 +466,19 @@ func boostPack(args []string) (*Manifest, error) {
 	}
 	if total > *limit {
 		return nil, codedError{ExitTooLarge, fmt.Errorf("what changed holds %d bytes, past the %d a sync sends; the largest: %s",
-			total, *limit, largest(send, sizes, 5))}
+			total, *limit, largest(append(slices.Clone(send), staged...), sizes, 5))}
 	}
-	if err := writeDelta(*dir, filepath.Join(*out, "delta.tar"), send); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(filepath.Join(*out, "deleted"), []byte(strings.Join(deleted, "\x00")), 0o644); err != nil {
-		return nil, err
+	for _, f := range []struct {
+		name    string
+		es      []entry
+		deleted []string
+	}{{"delta", send, deleted}, {"index", staged, stagedDeleted}} {
+		if err := writeDelta(*dir, filepath.Join(*out, f.name+".tar"), f.es); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(*out, f.name+".deleted"), []byte(strings.Join(f.deleted, "\x00")), 0o644); err != nil {
+			return nil, err
+		}
 	}
 	m.Files, m.Bytes, m.Deleted = len(send), total, len(deleted)
 	if m.Full {
@@ -390,14 +491,18 @@ func boostPack(args []string) (*Manifest, error) {
 		}
 	}
 	if m.Head != "" {
-		// The commits of HEAD no remote ref reaches: local ones, which the
-		// boost's mirror lacks.
-		n, err := gitLine(*dir, nil, "rev-list", "--count", "HEAD", "--not", "--remotes")
+		// The commits of HEAD no origin ref reaches: local ones, which the
+		// boost's mirror lacks; or, asked for, all of them.
+		not := []string{"--not", "--remotes=origin"}
+		if *bundleAll {
+			not = nil
+		}
+		n, err := gitLine(*dir, nil, append([]string{"rev-list", "--count", "HEAD"}, not...)...)
 		if err != nil {
 			return nil, err
 		}
 		if n != "0" {
-			if _, err := gitRun(*dir, nil, nil, "bundle", "create", "-q", filepath.Join(*out, "head.bundle"), "HEAD", "--not", "--remotes"); err != nil {
+			if _, err := gitRun(*dir, nil, nil, append([]string{"bundle", "create", "-q", filepath.Join(*out, "head.bundle"), "HEAD"}, not...)...); err != nil {
 				return nil, err
 			}
 			m.Bundle = true
@@ -408,6 +513,27 @@ func boostPack(args []string) (*Manifest, error) {
 		return nil, err
 	}
 	return m, os.WriteFile(filepath.Join(*out, "manifest.json"), b, 0o644)
+}
+
+// splitDelta splits es into the blobs to send and the paths deleted,
+// adding the gitlinks that changed, whose checkouts are not sent, to
+// links.
+func splitDelta(es []entry, links *[]Gitlink) (send []entry, deleted []string) {
+	for _, e := range es {
+		switch {
+		case e.mode == gitlinkMode && e.status == "D":
+			*links = append(*links, Gitlink{Path: e.path})
+		case e.mode == gitlinkMode:
+			*links = append(*links, Gitlink{Path: e.path, Commit: e.blob})
+		case e.status == "D" && e.oldMode == gitlinkMode:
+			*links = append(*links, Gitlink{Path: e.path})
+		case e.status == "D":
+			deleted = append(deleted, e.path)
+		default:
+			send = append(send, e)
+		}
+	}
+	return send, deleted
 }
 
 // blobSizes is the size of each entry's blob, in order.
@@ -548,13 +674,17 @@ type Applied struct {
 	// runs on it.
 	Restored int  `json:"restored"`
 	Shared   bool `json:"shared"`
+	// Staged says the box's index, what is staged there, is the boost's.
+	Staged bool `json:"staged"`
 }
 
 // boostApply: --dir, the boost's checkout; --staging, what boost-pack
 // made, copied here; --shared, a job still runs on the boost, so what it
-// wrote is left as it is and the tree is not checked. Without --shared,
-// what the boost's own jobs changed since the base is put back first, and
-// the tree made must be the one sent.
+// wrote is left as it is and the work tree is not checked. Without
+// --shared, what the boost's own jobs changed since the base is put back
+// first, and the tree made must be the one sent, but for submodules'
+// checkouts, never sent. HEAD is the box's commit, on its branch, and the
+// index the box's.
 func boostApply(args []string) (*Applied, error) {
 	fl := flag.NewFlagSet("boost-apply", flag.ContinueOnError)
 	dir := fl.String("dir", "/workspace", "")
@@ -582,6 +712,15 @@ func boostApply(args []string) (*Applied, error) {
 	if !m.Full && !gitHas(*dir, m.Base+"^{tree}") {
 		return nil, codedError{ExitBaseMissing, fmt.Errorf("the base tree %s is not here", m.Base)}
 	}
+	// HEAD's commits first: a boost that lacks them is sent all of them.
+	if m.Bundle {
+		if _, err := gitRun(*dir, nil, nil, "fetch", "-q", filepath.Join(*staging, "head.bundle"), "HEAD"); err != nil {
+			return nil, codedError{ExitHeadMissing, err}
+		}
+	}
+	if m.Head != "" && !gitHas(*dir, m.Head+"^{commit}") {
+		return nil, codedError{ExitHeadMissing, fmt.Errorf("HEAD's commit %s is not here", m.Head)}
+	}
 	index := filepath.Join(boostDir, "snapshot.index")
 	a := &Applied{Tree: m.Tree, Shared: *shared}
 	if !*shared {
@@ -590,7 +729,7 @@ func boostApply(args []string) (*Applied, error) {
 		}
 	}
 	// The delta: deletions first, so a directory a file replaces is empty.
-	del, err := os.ReadFile(filepath.Join(*staging, "deleted"))
+	del, err := os.ReadFile(filepath.Join(*staging, "delta.deleted"))
 	if err != nil {
 		return nil, err
 	}
@@ -599,24 +738,37 @@ func boostApply(args []string) (*Applied, error) {
 			return nil, err
 		}
 	}
-	f, err := os.Open(filepath.Join(*staging, "delta.tar"))
-	if err != nil {
+	if err := extractDelta(*dir, filepath.Join(*staging, "delta.tar")); err != nil {
 		return nil, err
 	}
-	err = tarx.Extract(f, *dir)
-	_ = f.Close()
-	if err != nil {
-		return nil, err
-	}
-	if m.Bundle {
-		if _, err := gitRun(*dir, nil, nil, "fetch", "-q", filepath.Join(*staging, "head.bundle"), "HEAD"); err != nil {
+	if *shared {
+		// What a running job wrote stays, so the work tree is not the
+		// tree sent: the tree is made from the base and what was sent,
+		// which stores it here for the next send, and checks the send.
+		base := m.Base
+		if m.Full {
+			base = ""
+		}
+		got, err := treeFrom(*dir, base, filepath.Join(*staging, "delta"), m.Gitlinks, len(m.Tree))
+		if err != nil {
 			return nil, err
+		}
+		if got != m.Tree {
+			return nil, codedError{ExitTreeMismatch, fmt.Errorf("the tree sent makes %s, not the %s it should", got, m.Tree)}
+		}
+	} else {
+		if _, err := snapshot(*dir, index, ""); err != nil {
+			return nil, err
+		}
+		got, err := withLinks(*dir, index, m.Links, len(m.Tree))
+		if err != nil {
+			return nil, err
+		}
+		if got != m.Tree {
+			return nil, codedError{ExitTreeMismatch, fmt.Errorf("the tree made is %s, not the %s sent", got, m.Tree)}
 		}
 	}
 	if m.Head != "" {
-		if !gitHas(*dir, m.Head+"^{commit}") {
-			return nil, fmt.Errorf("HEAD's commit %s is not here", m.Head)
-		}
 		if m.Branch != "" {
 			if _, err := gitRun(*dir, nil, nil, "update-ref", "refs/heads/"+m.Branch, m.Head); err != nil {
 				return nil, err
@@ -627,36 +779,75 @@ func boostApply(args []string) (*Applied, error) {
 		} else if _, err := gitRun(*dir, nil, nil, "update-ref", "--no-deref", "HEAD", m.Head); err != nil {
 			return nil, err
 		}
-		if _, err := gitRun(*dir, nil, nil, "read-tree", m.Head); err != nil {
+	}
+	// The index: the box's, made from the tree sent and what is staged
+	// apart from it; else HEAD's.
+	indexTree := m.Head
+	if m.IndexTree != "" {
+		got, err := treeFrom(*dir, m.Tree, filepath.Join(*staging, "index"), m.IndexGitlinks, len(m.Tree))
+		if err == nil && got == m.IndexTree {
+			indexTree, a.Staged = got, true
+		}
+	}
+	if indexTree != "" {
+		if _, err := gitRun(*dir, nil, nil, "read-tree", indexTree); err != nil {
 			return nil, err
 		}
-	}
-	if *shared {
-		// What a running job wrote stays, so the work tree is not the
-		// tree sent: the tree is made from the base and what was sent,
-		// which stores it here for the next send, and checks the send.
-		got, err := buildTree(*dir, &m, *staging)
-		if err != nil {
-			return nil, err
-		}
-		if got != m.Tree {
-			return nil, codedError{ExitTreeMismatch, fmt.Errorf("the tree sent makes %s, not the %s it should", got, m.Tree)}
-		}
-		return a, nil
-	}
-	got, err := snapshot(*dir, index, "")
-	if err != nil {
-		return nil, err
-	}
-	if got != m.Tree {
-		return nil, codedError{ExitTreeMismatch, fmt.Errorf("the tree made is %s, not the %s sent", got, m.Tree)}
 	}
 	return a, nil
 }
 
-// buildTree makes the tree sent from the base and the staging
-// directory's delta, in an index of its own, writing its objects here.
-func buildTree(dir string, m *Manifest, staging string) (string, error) {
+// extractDelta extracts a delta tar into dir. A path it writes a file or
+// a symlink to that is a directory here is removed first, with what it
+// holds, ignored files too: the box's tree has a file there.
+func extractDelta(dir, file string) error {
+	f, err := os.Open(file)
+	if err != nil {
+		return err
+	}
+	tr := tar.NewReader(f)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			_ = f.Close()
+			return err
+		}
+		if hdr.Typeflag != tar.TypeDir {
+			if err := clearDir(dir, hdr.Name); err != nil {
+				_ = f.Close()
+				return err
+			}
+		}
+	}
+	_ = f.Close()
+	if f, err = os.Open(file); err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	return tarx.Extract(f, dir)
+}
+
+// clearDir removes the directory at p of dir, with all it holds, if one
+// is there and is not a symlink.
+func clearDir(dir, p string) error {
+	p = path.Clean(p)
+	if p == "." || p == ".." || strings.HasPrefix(p, "../") || path.IsAbs(p) {
+		return fmt.Errorf("%q is outside %s", p, dir)
+	}
+	full := filepath.Join(dir, filepath.FromSlash(p))
+	if info, err := os.Lstat(full); err == nil && info.IsDir() {
+		return os.RemoveAll(full)
+	}
+	return nil
+}
+
+// treeFrom makes a tree from base ("" for none) and a delta, stage.tar
+// and stage.deleted, and the gitlinks that changed, in an index of its
+// own, writing its objects here.
+func treeFrom(dir, base, stage string, links []Gitlink, hashLen int) (string, error) {
 	f, err := os.CreateTemp("", "tower-boost-index-*")
 	if err != nil {
 		return "", err
@@ -666,32 +857,32 @@ func buildTree(dir string, m *Manifest, staging string) (string, error) {
 	_ = os.Remove(index)
 	defer func() { _ = os.Remove(index) }()
 	env := []string{"GIT_INDEX_FILE=" + index}
-	if m.Full {
+	if base == "" {
 		_, err = gitRun(dir, env, nil, "read-tree", "--empty")
 	} else {
-		_, err = gitRun(dir, env, nil, "read-tree", m.Base)
+		_, err = gitRun(dir, env, nil, "read-tree", base)
 	}
 	if err != nil {
 		return "", err
 	}
-	del, err := os.ReadFile(filepath.Join(staging, "deleted"))
+	del, err := os.ReadFile(stage + ".deleted")
 	if err != nil {
 		return "", err
 	}
 	// Mode 0 removes a path; the id's length is the repository's hash's.
-	removed := "0 " + strings.Repeat("0", len(m.Tree)) + "\t"
+	removed := "0 " + strings.Repeat("0", hashLen) + "\t"
 	var info strings.Builder
 	for _, p := range splitNUL(del) {
 		info.WriteString(removed + p + "\x00")
 	}
-	for _, g := range m.Gitlinks {
+	for _, g := range links {
 		if g.Commit == "" {
 			info.WriteString(removed + g.Path + "\x00")
 		} else {
 			info.WriteString(gitlinkMode + " " + g.Commit + "\t" + g.Path + "\x00")
 		}
 	}
-	tf, err := os.Open(filepath.Join(staging, "delta.tar"))
+	tf, err := os.Open(stage + ".tar")
 	if err != nil {
 		return "", err
 	}
@@ -718,8 +909,10 @@ func buildTree(dir string, m *Manifest, staging string) (string, error) {
 		}
 		info.WriteString(mode + " " + blob + "\t" + hdr.Name + "\x00")
 	}
-	if _, err := gitRun(dir, env, strings.NewReader(info.String()), "update-index", "-z", "--index-info"); err != nil {
-		return "", err
+	if info.Len() > 0 {
+		if _, err := gitRun(dir, env, strings.NewReader(info.String()), "update-index", "-z", "--index-info"); err != nil {
+			return "", err
+		}
 	}
 	return gitLine(dir, env, "write-tree")
 }
@@ -748,7 +941,7 @@ func restore(dir, index string, m *Manifest, staging string) (int, error) {
 		for _, p := range splitNUL(paths) {
 			keep[p] = true
 		}
-		for _, g := range m.Gitlinks {
+		for _, g := range m.Links {
 			keep[g.Path] = true
 		}
 		es, err := listTree(dir, now)
@@ -773,7 +966,8 @@ func restore(dir, index string, m *Manifest, staging string) (int, error) {
 	var back []string
 	n := 0
 	for _, e := range es {
-		if e.mode == gitlinkMode {
+		if e.mode == gitlinkMode || e.oldMode == gitlinkMode {
+			// A submodule's checkout is the boost's own.
 			continue
 		}
 		n++
@@ -784,7 +978,11 @@ func restore(dir, index string, m *Manifest, staging string) (int, error) {
 			continue
 		}
 		// Changed, deleted, or of another type: the base's, after what
-		// is there goes, as a file may stand where a directory was.
+		// is there goes, a directory where the base has a file with all it
+		// holds, ignored files too.
+		if err := clearDir(dir, e.path); err != nil {
+			return n, err
+		}
 		if err := removeIn(dir, e.path); err != nil {
 			return n, err
 		}
@@ -868,6 +1066,23 @@ func boostClean(args []string) (*Cleaned, error) {
 		}
 	}
 	return c, nil
+}
+
+// boostMeasure: --dir, the boost's checkout; --artifact, each path to
+// measure, as boost-job does, right before tower copies it back.
+func boostMeasure(args []string) ([]Artifact, error) {
+	fl := flag.NewFlagSet("boost-measure", flag.ContinueOnError)
+	dir := fl.String("dir", "/workspace", "")
+	var artifacts stringList
+	fl.Var(&artifacts, "artifact", "")
+	if err := fl.Parse(args); err != nil {
+		return nil, err
+	}
+	out := []Artifact{}
+	for _, a := range artifacts {
+		out = append(out, measure(*dir, a))
+	}
+	return out, nil
 }
 
 type stringList []string
@@ -965,7 +1180,16 @@ func changedSince(dir, tree string, r *Report) error {
 	if err != nil {
 		return err
 	}
-	now, err := snapshot(dir, filepath.Join(boostDir, "snapshot.index"), "")
+	index := filepath.Join(boostDir, "snapshot.index")
+	if _, err := snapshot(dir, index, ""); err != nil {
+		return err
+	}
+	// Submodules' checkouts are the boost's own: as the tree sent has them.
+	all, err := listTree(dir, tree)
+	if err != nil {
+		return err
+	}
+	now, err := withLinks(dir, index, linksOf(all), len(tree))
 	if err != nil {
 		return err
 	}
