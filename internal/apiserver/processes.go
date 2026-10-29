@@ -5,8 +5,10 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
@@ -36,7 +38,18 @@ func processExit(e *provider.ProcessExit) *envv1alpha1.ProcessExit {
 			out.Signal = k
 		}
 	}
+	if u := e.Usage; u != nil {
+		out.MemoryPeakBytes, out.OomKilled = u.MemoryPeak, u.OOMKilled
+		out.CpuUsage, out.CpuWait, out.Wall = durationOf(u.CPUUsage), durationOf(u.CPUWait), durationpb.New(u.Wall)
+	}
 	return out
+}
+
+func durationOf(d *time.Duration) *durationpb.Duration {
+	if d == nil {
+		return nil
+	}
+	return durationpb.New(*d)
 }
 
 func (h environmentService) StartProcess(ctx context.Context, req *connect.Request[envv1alpha1.StartProcessRequest]) (*connect.Response[envv1alpha1.StartProcessResponse], error) {
@@ -97,6 +110,7 @@ func (h environmentService) AttachProcess(ctx context.Context, req *connect.Requ
 	if err != nil {
 		return providerError(e, err)
 	}
+	h.s.exitRead(ctx, e, m.GetProcess(), at.Exit)
 	return stream.Send(&envv1alpha1.AttachProcessResponse{Response: &envv1alpha1.AttachProcessResponse_End{End: &envv1alpha1.ProcessEnd{
 		HeldFrom: at.HeldFrom, NextOffset: at.Next, Exit: processExit(at.Exit),
 	}}})
@@ -139,6 +153,7 @@ func (h environmentService) ListProcesses(ctx context.Context, req *connect.Requ
 	if err != nil {
 		return nil, providerError(e, err)
 	}
+	h.s.exitsListed(ctx, e, ps)
 	res := &envv1alpha1.ListProcessesResponse{}
 	for _, p := range ps {
 		cmd := strings.Join(e.givenCommand(p.Command), " ")

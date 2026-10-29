@@ -1717,7 +1717,26 @@ type ProcessExit struct {
 	// Its exit code; 128 plus the signal's number when a signal ended it.
 	Code int32 `protobuf:"varint,1,opt,name=code,proto3" json:"code,omitempty"`
 	// The signal that ended it, unset if it exited.
-	Signal        Signal `protobuf:"varint,2,opt,name=signal,proto3,enum=tower.environments.v1alpha1.Signal" json:"signal,omitempty"`
+	Signal Signal `protobuf:"varint,2,opt,name=signal,proto3,enum=tower.environments.v1alpha1.Signal" json:"signal,omitempty"`
+	// What it used, its children included, from a cgroup of its own. Set for
+	// a process of a box on a hangar target; unset elsewhere (a machine, a
+	// hostd target), for a process whose box could make no cgroup, and for
+	// one whose guest stopped under it. Each is also unset where the box's
+	// kernel does not offer it.
+	//
+	// Its peak memory, in bytes (memory.peak).
+	MemoryPeakBytes *int64 `protobuf:"varint,3,opt,name=memory_peak_bytes,json=memoryPeakBytes,proto3,oneof" json:"memory_peak_bytes,omitempty"`
+	// Whether it ran out of memory and was killed for it, its children with
+	// it, while the box's other processes ran on. It is held to the box's
+	// memory less a reserve tower keeps for the rest of the box.
+	OomKilled *bool `protobuf:"varint,4,opt,name=oom_killed,json=oomKilled,proto3,oneof" json:"oom_killed,omitempty"`
+	// The CPU time it used (cpu.stat's usage_usec).
+	CpuUsage *durationpb.Duration `protobuf:"bytes,5,opt,name=cpu_usage,json=cpuUsage,proto3" json:"cpu_usage,omitempty"`
+	// The time it was runnable but waited for a CPU (cpu.pressure's "some"
+	// total): how much a larger box would have sped it up.
+	CpuWait *durationpb.Duration `protobuf:"bytes,6,opt,name=cpu_wait,json=cpuWait,proto3" json:"cpu_wait,omitempty"`
+	// How long it ran.
+	Wall          *durationpb.Duration `protobuf:"bytes,7,opt,name=wall,proto3" json:"wall,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1764,6 +1783,41 @@ func (x *ProcessExit) GetSignal() Signal {
 		return x.Signal
 	}
 	return Signal_SIGNAL_UNSPECIFIED
+}
+
+func (x *ProcessExit) GetMemoryPeakBytes() int64 {
+	if x != nil && x.MemoryPeakBytes != nil {
+		return *x.MemoryPeakBytes
+	}
+	return 0
+}
+
+func (x *ProcessExit) GetOomKilled() bool {
+	if x != nil && x.OomKilled != nil {
+		return *x.OomKilled
+	}
+	return false
+}
+
+func (x *ProcessExit) GetCpuUsage() *durationpb.Duration {
+	if x != nil {
+		return x.CpuUsage
+	}
+	return nil
+}
+
+func (x *ProcessExit) GetCpuWait() *durationpb.Duration {
+	if x != nil {
+		return x.CpuWait
+	}
+	return nil
+}
+
+func (x *ProcessExit) GetWall() *durationpb.Duration {
+	if x != nil {
+		return x.Wall
+	}
+	return nil
 }
 
 type SignalProcessRequest struct {
@@ -2213,10 +2267,18 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\theld_from\x18\x01 \x01(\x03R\bheldFrom\x12\x1f\n" +
 	"\vnext_offset\x18\x02 \x01(\x03R\n" +
 	"nextOffset\x12<\n" +
-	"\x04exit\x18\x03 \x01(\v2(.tower.environments.v1alpha1.ProcessExitR\x04exit\"^\n" +
+	"\x04exit\x18\x03 \x01(\v2(.tower.environments.v1alpha1.ProcessExitR\x04exit\"\xf5\x02\n" +
 	"\vProcessExit\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\x05R\x04code\x12;\n" +
-	"\x06signal\x18\x02 \x01(\x0e2#.tower.environments.v1alpha1.SignalR\x06signal\"\xb9\x01\n" +
+	"\x06signal\x18\x02 \x01(\x0e2#.tower.environments.v1alpha1.SignalR\x06signal\x12/\n" +
+	"\x11memory_peak_bytes\x18\x03 \x01(\x03H\x00R\x0fmemoryPeakBytes\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"oom_killed\x18\x04 \x01(\bH\x01R\toomKilled\x88\x01\x01\x126\n" +
+	"\tcpu_usage\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\bcpuUsage\x124\n" +
+	"\bcpu_wait\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\acpuWait\x12-\n" +
+	"\x04wall\x18\a \x01(\v2\x19.google.protobuf.DurationR\x04wallB\x14\n" +
+	"\x12_memory_peak_bytesB\r\n" +
+	"\v_oom_killed\"\xb9\x01\n" +
 	"\x14SignalProcessRequest\x12J\n" +
 	"\venvironment\x18\x01 \x01(\v2(.tower.environments.v1alpha1.EnvironmentR\venvironment\x12\x18\n" +
 	"\aprocess\x18\x02 \x01(\tR\aprocess\x12;\n" +
@@ -2340,40 +2402,43 @@ var file_tower_environments_v1alpha1_environment_service_proto_depIdxs = []int32
 	0,  // 20: tower.environments.v1alpha1.ProcessOutput.stream:type_name -> tower.environments.v1alpha1.OutputStream
 	26, // 21: tower.environments.v1alpha1.ProcessEnd.exit:type_name -> tower.environments.v1alpha1.ProcessExit
 	1,  // 22: tower.environments.v1alpha1.ProcessExit.signal:type_name -> tower.environments.v1alpha1.Signal
-	2,  // 23: tower.environments.v1alpha1.SignalProcessRequest.environment:type_name -> tower.environments.v1alpha1.Environment
-	1,  // 24: tower.environments.v1alpha1.SignalProcessRequest.signal:type_name -> tower.environments.v1alpha1.Signal
-	2,  // 25: tower.environments.v1alpha1.ListProcessesRequest.environment:type_name -> tower.environments.v1alpha1.Environment
-	31, // 26: tower.environments.v1alpha1.ListProcessesResponse.processes:type_name -> tower.environments.v1alpha1.ProcessInfo
-	36, // 27: tower.environments.v1alpha1.ProcessInfo.start_time:type_name -> google.protobuf.Timestamp
-	26, // 28: tower.environments.v1alpha1.ProcessInfo.exit:type_name -> tower.environments.v1alpha1.ProcessExit
-	36, // 29: tower.environments.v1alpha1.IssueTicketResponse.expire_time:type_name -> google.protobuf.Timestamp
-	3,  // 30: tower.environments.v1alpha1.EnvironmentService.Exec:input_type -> tower.environments.v1alpha1.ExecRequest
-	7,  // 31: tower.environments.v1alpha1.EnvironmentService.ReadFile:input_type -> tower.environments.v1alpha1.ReadFileRequest
-	10, // 32: tower.environments.v1alpha1.EnvironmentService.WriteFile:input_type -> tower.environments.v1alpha1.WriteFileRequest
-	12, // 33: tower.environments.v1alpha1.EnvironmentService.CopyFile:input_type -> tower.environments.v1alpha1.CopyFileRequest
-	14, // 34: tower.environments.v1alpha1.EnvironmentService.FetchOrigin:input_type -> tower.environments.v1alpha1.FetchOriginRequest
-	17, // 35: tower.environments.v1alpha1.EnvironmentService.Push:input_type -> tower.environments.v1alpha1.PushRequest
-	19, // 36: tower.environments.v1alpha1.EnvironmentService.IssueTicket:input_type -> tower.environments.v1alpha1.IssueTicketRequest
-	20, // 37: tower.environments.v1alpha1.EnvironmentService.StartProcess:input_type -> tower.environments.v1alpha1.StartProcessRequest
-	22, // 38: tower.environments.v1alpha1.EnvironmentService.AttachProcess:input_type -> tower.environments.v1alpha1.AttachProcessRequest
-	27, // 39: tower.environments.v1alpha1.EnvironmentService.SignalProcess:input_type -> tower.environments.v1alpha1.SignalProcessRequest
-	29, // 40: tower.environments.v1alpha1.EnvironmentService.ListProcesses:input_type -> tower.environments.v1alpha1.ListProcessesRequest
-	5,  // 41: tower.environments.v1alpha1.EnvironmentService.Exec:output_type -> tower.environments.v1alpha1.ExecResponse
-	8,  // 42: tower.environments.v1alpha1.EnvironmentService.ReadFile:output_type -> tower.environments.v1alpha1.ReadFileResponse
-	11, // 43: tower.environments.v1alpha1.EnvironmentService.WriteFile:output_type -> tower.environments.v1alpha1.WriteFileResponse
-	13, // 44: tower.environments.v1alpha1.EnvironmentService.CopyFile:output_type -> tower.environments.v1alpha1.CopyFileResponse
-	15, // 45: tower.environments.v1alpha1.EnvironmentService.FetchOrigin:output_type -> tower.environments.v1alpha1.FetchOriginResponse
-	18, // 46: tower.environments.v1alpha1.EnvironmentService.Push:output_type -> tower.environments.v1alpha1.PushResponse
-	32, // 47: tower.environments.v1alpha1.EnvironmentService.IssueTicket:output_type -> tower.environments.v1alpha1.IssueTicketResponse
-	21, // 48: tower.environments.v1alpha1.EnvironmentService.StartProcess:output_type -> tower.environments.v1alpha1.StartProcessResponse
-	23, // 49: tower.environments.v1alpha1.EnvironmentService.AttachProcess:output_type -> tower.environments.v1alpha1.AttachProcessResponse
-	28, // 50: tower.environments.v1alpha1.EnvironmentService.SignalProcess:output_type -> tower.environments.v1alpha1.SignalProcessResponse
-	30, // 51: tower.environments.v1alpha1.EnvironmentService.ListProcesses:output_type -> tower.environments.v1alpha1.ListProcessesResponse
-	41, // [41:52] is the sub-list for method output_type
-	30, // [30:41] is the sub-list for method input_type
-	30, // [30:30] is the sub-list for extension type_name
-	30, // [30:30] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	35, // 23: tower.environments.v1alpha1.ProcessExit.cpu_usage:type_name -> google.protobuf.Duration
+	35, // 24: tower.environments.v1alpha1.ProcessExit.cpu_wait:type_name -> google.protobuf.Duration
+	35, // 25: tower.environments.v1alpha1.ProcessExit.wall:type_name -> google.protobuf.Duration
+	2,  // 26: tower.environments.v1alpha1.SignalProcessRequest.environment:type_name -> tower.environments.v1alpha1.Environment
+	1,  // 27: tower.environments.v1alpha1.SignalProcessRequest.signal:type_name -> tower.environments.v1alpha1.Signal
+	2,  // 28: tower.environments.v1alpha1.ListProcessesRequest.environment:type_name -> tower.environments.v1alpha1.Environment
+	31, // 29: tower.environments.v1alpha1.ListProcessesResponse.processes:type_name -> tower.environments.v1alpha1.ProcessInfo
+	36, // 30: tower.environments.v1alpha1.ProcessInfo.start_time:type_name -> google.protobuf.Timestamp
+	26, // 31: tower.environments.v1alpha1.ProcessInfo.exit:type_name -> tower.environments.v1alpha1.ProcessExit
+	36, // 32: tower.environments.v1alpha1.IssueTicketResponse.expire_time:type_name -> google.protobuf.Timestamp
+	3,  // 33: tower.environments.v1alpha1.EnvironmentService.Exec:input_type -> tower.environments.v1alpha1.ExecRequest
+	7,  // 34: tower.environments.v1alpha1.EnvironmentService.ReadFile:input_type -> tower.environments.v1alpha1.ReadFileRequest
+	10, // 35: tower.environments.v1alpha1.EnvironmentService.WriteFile:input_type -> tower.environments.v1alpha1.WriteFileRequest
+	12, // 36: tower.environments.v1alpha1.EnvironmentService.CopyFile:input_type -> tower.environments.v1alpha1.CopyFileRequest
+	14, // 37: tower.environments.v1alpha1.EnvironmentService.FetchOrigin:input_type -> tower.environments.v1alpha1.FetchOriginRequest
+	17, // 38: tower.environments.v1alpha1.EnvironmentService.Push:input_type -> tower.environments.v1alpha1.PushRequest
+	19, // 39: tower.environments.v1alpha1.EnvironmentService.IssueTicket:input_type -> tower.environments.v1alpha1.IssueTicketRequest
+	20, // 40: tower.environments.v1alpha1.EnvironmentService.StartProcess:input_type -> tower.environments.v1alpha1.StartProcessRequest
+	22, // 41: tower.environments.v1alpha1.EnvironmentService.AttachProcess:input_type -> tower.environments.v1alpha1.AttachProcessRequest
+	27, // 42: tower.environments.v1alpha1.EnvironmentService.SignalProcess:input_type -> tower.environments.v1alpha1.SignalProcessRequest
+	29, // 43: tower.environments.v1alpha1.EnvironmentService.ListProcesses:input_type -> tower.environments.v1alpha1.ListProcessesRequest
+	5,  // 44: tower.environments.v1alpha1.EnvironmentService.Exec:output_type -> tower.environments.v1alpha1.ExecResponse
+	8,  // 45: tower.environments.v1alpha1.EnvironmentService.ReadFile:output_type -> tower.environments.v1alpha1.ReadFileResponse
+	11, // 46: tower.environments.v1alpha1.EnvironmentService.WriteFile:output_type -> tower.environments.v1alpha1.WriteFileResponse
+	13, // 47: tower.environments.v1alpha1.EnvironmentService.CopyFile:output_type -> tower.environments.v1alpha1.CopyFileResponse
+	15, // 48: tower.environments.v1alpha1.EnvironmentService.FetchOrigin:output_type -> tower.environments.v1alpha1.FetchOriginResponse
+	18, // 49: tower.environments.v1alpha1.EnvironmentService.Push:output_type -> tower.environments.v1alpha1.PushResponse
+	32, // 50: tower.environments.v1alpha1.EnvironmentService.IssueTicket:output_type -> tower.environments.v1alpha1.IssueTicketResponse
+	21, // 51: tower.environments.v1alpha1.EnvironmentService.StartProcess:output_type -> tower.environments.v1alpha1.StartProcessResponse
+	23, // 52: tower.environments.v1alpha1.EnvironmentService.AttachProcess:output_type -> tower.environments.v1alpha1.AttachProcessResponse
+	28, // 53: tower.environments.v1alpha1.EnvironmentService.SignalProcess:output_type -> tower.environments.v1alpha1.SignalProcessResponse
+	30, // 54: tower.environments.v1alpha1.EnvironmentService.ListProcesses:output_type -> tower.environments.v1alpha1.ListProcessesResponse
+	44, // [44:55] is the sub-list for method output_type
+	33, // [33:44] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_tower_environments_v1alpha1_environment_service_proto_init() }
@@ -2406,6 +2471,7 @@ func file_tower_environments_v1alpha1_environment_service_proto_init() {
 		(*AttachProcessResponse_Output)(nil),
 		(*AttachProcessResponse_End)(nil),
 	}
+	file_tower_environments_v1alpha1_environment_service_proto_msgTypes[24].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
