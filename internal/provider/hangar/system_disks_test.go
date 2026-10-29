@@ -57,3 +57,58 @@ func TestTheSystemContainersDisksStartSmallAndGrow(t *testing.T) {
 		t.Errorf("the system container was applied %d times again, as it was made", applies)
 	}
 }
+
+// TestASystemContainerMadeBeforeKeepsItsRoot: a system container made
+// before tower gave it a root size has hangar's default root, which hangar
+// refuses to shrink: a check leaves it so, applying nothing, and one made
+// with a larger root than tower's keeps that.
+func TestASystemContainerMadeBeforeKeepsItsRoot(t *testing.T) {
+	for what, tc := range map[string]struct {
+		had      *hangarcompute.Resources
+		wantDisk string
+		wantGrow *hangarcompute.DiskGrow
+	}{
+		"no root size":  {had: &hangarcompute.Resources{Cpu: "2", Memory: "4Gi"}},
+		"a larger root": {had: &hangarcompute.Resources{Cpu: "2", Memory: "4Gi", Disk: "16Gi", DiskGrow: &hangarcompute.DiskGrow{Max: "10Gi", Threshold: "80%", Step: "2x"}}, wantDisk: "16Gi", wantGrow: &hangarcompute.DiskGrow{Max: "16Gi", Threshold: "80%", Step: "2x"}},
+	} {
+		t.Run(what, func(t *testing.T) {
+			f := fake.New(towerGuest, t.TempDir(), clockwork.NewRealClock())
+			f.System = towerSystem
+			t.Cleanup(f.Close)
+			a := &flakyAPI{Fake: f}
+			target := hangar.New(hangar.Config{Target: "t1", API: a, SystemImage: "registry.tower.internal/tower/system@sha256:01"})
+			ctx := t.Context()
+			if err := target.EnsureSystem(ctx); err != nil {
+				t.Fatal(err)
+			}
+			sys := systemName(f)
+			ct, err := f.Containers().Get(ctx, sys)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ct.Spec.Resources = tc.had
+			if _, err := f.Containers().Apply(ctx, ct); err != nil {
+				t.Fatal(err)
+			}
+			a.mu.Lock()
+			a.ctApplies = 0
+			a.mu.Unlock()
+			if err := target.EnsureSystem(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if ct, err = f.Containers().Get(ctx, sys); err != nil {
+				t.Fatal(err)
+			}
+			r := ct.GetSpec().GetResources()
+			if r.GetDisk() != tc.wantDisk || !proto.Equal(r.GetDiskGrow(), tc.wantGrow) {
+				t.Errorf("its root after a check: disk %q, grow %v; want %q, %v", r.GetDisk(), r.GetDiskGrow(), tc.wantDisk, tc.wantGrow)
+			}
+			a.mu.Lock()
+			applies := a.ctApplies
+			a.mu.Unlock()
+			if what == "no root size" && applies != 0 {
+				t.Errorf("the system container was applied %d times, its root as it was made", applies)
+			}
+		})
+	}
+}

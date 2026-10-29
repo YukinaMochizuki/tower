@@ -209,6 +209,7 @@ func (t *Target) makeSystem(ctx context.Context) (*hangarcompute.Container, erro
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
+	keepRoot(want.Resources, ct)
 	if ct == nil || !proto.Equal(ct.GetSpec(), want) {
 		if ct.GetMetadata().GetDeleteTime() != nil {
 			return nil, errors.New("the system container is being deleted")
@@ -218,6 +219,23 @@ func (t *Target) makeSystem(ctx context.Context) (*hangarcompute.Container, erro
 		}
 	}
 	return ct, nil
+}
+
+// keepRoot keeps the root of a system container made before, which hangar
+// refuses to shrink: one made without a root size has hangar's default,
+// larger than systemRoot, and keeps it, not growing until it is made
+// again; one made with a larger root keeps that.
+func keepRoot(r *hangarcompute.Resources, ct *hangarcompute.Container) {
+	if ct == nil {
+		return
+	}
+	had := ct.GetSpec().GetResources().GetDisk()
+	if had == "" {
+		r.Disk, r.DiskGrow = "", nil
+		return
+	}
+	r.Disk = atLeast(r.GetDisk(), had)
+	r.DiskGrow.Max = atLeast(r.GetDiskGrow().GetMax(), r.Disk)
 }
 
 // checkSystem checks that tower-system answers in the system container
