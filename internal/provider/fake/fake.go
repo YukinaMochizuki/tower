@@ -104,8 +104,11 @@ type Fake struct {
 	mirrorBuildErr error
 	// resolveErr fails every ResolveImage, as a registry that errors does.
 	resolveErr error
-	// holdBuilds, while set, holds every build until it is closed.
-	holdBuilds   chan struct{}
+	// holdBuilds, while set, holds every build until it is closed;
+	// holdFetches every fetch.
+	holdBuilds, holdFetches chan struct{}
+	// fetches counts the fetches started.
+	fetches      int
 	captureErr   error
 	checkoutErr  error
 	checkouts    map[provider.Instance]int
@@ -508,6 +511,31 @@ func (f *Fake) HoldBuilds() (release func()) {
 		})
 	}
 }
+
+// HoldFetches holds every fetch, started and counted, until release is
+// called; a fetch whose caller gives up ends with its context.
+func (f *Fake) HoldFetches() (release func()) {
+	ch := make(chan struct{})
+	f.mu.Lock()
+	f.holdFetches = ch
+	f.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			f.mu.Lock()
+			f.holdFetches = nil
+			f.mu.Unlock()
+			close(ch)
+		})
+	}
+}
+
+// LoseMirrors drops every mirror, as a disk made again does: the
+// repositories' status in tower keeps the heads they had.
+func (f *Fake) LoseMirrors() { f.mu.Lock(); f.mirrors = map[string]*repo{}; f.mu.Unlock() }
+
+// Fetches is how many fetches have started.
+func (f *Fake) Fetches() int { f.mu.Lock(); defer f.mu.Unlock(); return f.fetches }
 
 // FailCaptures makes every capture fail with err, or succeed again with
 // nil.
@@ -1181,7 +1209,18 @@ func (f *Fake) DeleteArtifact(_ context.Context, name string) error {
 	return nil
 }
 
-func (f *Fake) Fetch(_ context.Context, req provider.FetchRequest) (string, error) {
+func (f *Fake) Fetch(ctx context.Context, req provider.FetchRequest) (string, error) {
+	f.mu.Lock()
+	f.fetches++
+	hold := f.holdFetches
+	f.mu.Unlock()
+	if hold != nil {
+		select {
+		case <-hold:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.answering(); err != nil {

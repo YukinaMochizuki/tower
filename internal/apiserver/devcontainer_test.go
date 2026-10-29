@@ -323,3 +323,86 @@ func TestACacheTheImagePlacesIsLeftAlone(t *testing.T) {
 		t.Errorf("the box's environment %v, want GOMODCACHE in its caches", env)
 	}
 }
+
+// goRemote makes api's remote a repository of commits whose devcontainer
+// is an image the fake's registry holds.
+func goRemote(w *world, commits ...string) {
+	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{
+		".devcontainer/devcontainer.json": `{"image": "mcr.microsoft.com/devcontainers/go:1"}`,
+	}, commits...)
+	w.fake.SetImage("mcr.microsoft.com/devcontainers/go:1", provider.ImageConfig{Digest: "sha256:aa"})
+}
+
+// fetchedAPI makes repository api and waits until its mirror is fetched.
+// No box of it is opened, so no warm golden asks for a fetch of it.
+func fetchedAPI(w *world) {
+	w.t.Helper()
+	w.mustApply(registry.Repository, repository("api"))
+	testutil.Eventually(w.t, "the repository fetched", func() (bool, string) {
+		r, _ := w.getRepo("api")
+		return len(r.GetStatus().GetMirrors()) == 1, r.GetStatus().String()
+	})
+	w.waitSettled()
+}
+
+// TestABoxWaitsForAFetchOfACommitItsMirrorLacks: a box of a repository
+// whose mirror lacks the head its status records, as after the mirror's
+// disk is made again, is not failed: it waits, saying why, a fetch is asked
+// for, and it is READY once the fetch lands.
+func TestABoxWaitsForAFetchOfACommitItsMirrorLacks(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, realResolver())
+	goRemote(w, "c1")
+	fetchedAPI(w)
+
+	w.fake.LoseMirrors()
+	release := w.fake.HoldFetches()
+	defer release()
+	fetches := w.fake.Fetches()
+	phases := w.phases("dev")
+	w.mustApply(registry.Box, box("dev", "api"))
+	var waiting *metav1.Condition
+	testutil.Eventually(t, "the box waiting for a fetch it asked for", func() (bool, string) {
+		b := w.box("dev")
+		waiting = condition(b.GetStatus().GetConditions(), apiserver.BoxReady)
+		return b.GetStatus().GetPhase() == envv1alpha1.BoxPhase_BOX_PHASE_PENDING && waiting.GetReason() == "WaitingForFetch" &&
+			w.fake.Fetches() > fetches, b.GetStatus().String()
+	})
+	if want := "the repository has no c1; waiting for its mirror to be fetched"; waiting.GetMessage() != want {
+		t.Errorf("Ready says %q, want %q", waiting.GetMessage(), want)
+	}
+
+	release()
+	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_READY)
+	if got := phases(); slices.Contains(got, envv1alpha1.BoxPhase_BOX_PHASE_FAILED) {
+		t.Errorf("the box went through %v", got)
+	}
+}
+
+// TestABoxOfACommitAFetchDoesNotBringFails: a box of a commit its mirror
+// lacks, and that a fetch started after it asked does not bring, fails
+// DevcontainerUnresolvable as one did without waiting, and asks for no
+// other fetch.
+func TestABoxOfACommitAFetchDoesNotBringFails(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, realResolver())
+	goRemote(w, "c1")
+	fetchedAPI(w)
+
+	fetches := w.fake.Fetches()
+	b := box("gone", "api")
+	b.Spec.Checkouts[0].Ref = "c9"
+	w.mustApply(registry.Box, b)
+	failed := w.waitBox("gone", envv1alpha1.BoxPhase_BOX_PHASE_FAILED)
+	if c := condition(failed.GetStatus().GetConditions(), apiserver.BoxReady); c.GetReason() != "DevcontainerUnresolvable" || c.GetMessage() != "the repository has no c9" {
+		t.Errorf("Ready %v", c)
+	}
+	w.waitSettled()
+	w.advance(controllerMaxWait)
+	if n := w.fake.Fetches() - fetches; n != 1 {
+		t.Errorf("%d fetches, want the one the box waited for", n)
+	}
+	if b := w.box("gone"); b.GetStatus().GetPhase() != envv1alpha1.BoxPhase_BOX_PHASE_FAILED {
+		t.Errorf("the box after: %v", b.GetStatus())
+	}
+}
