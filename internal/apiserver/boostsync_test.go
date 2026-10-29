@@ -393,8 +393,11 @@ func TestASyncOvertakenIsMadeAgain(t *testing.T) {
 	}
 	before := packs()
 	a, b := boostOn("dev", "sleep"), boostOn("dev", "sleep")
-	a.Pending = w.start(a).GetPending().GetTicket() // its sync holds the lock, held at the gate
-	b.Pending = w.start(b).GetPending().GetTicket() // its sync waits for the lock
+	a.Pending = w.start(a).GetPending().GetTicket()
+	// a's sync holds the lock, held at the gate, before b's is made: b's
+	// waits for the lock.
+	testutil.Eventually(t, "a's sync holding the box's sync lock", func() bool { return packs() == before+1 })
+	b.Pending = w.start(b).GetPending().GetTicket()
 	close(gate)
 	w.waitSettled() // a's sync, then b's: b's is the boost's tree
 	w.startBoosted(a)
