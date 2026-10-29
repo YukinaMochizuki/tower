@@ -205,8 +205,9 @@ spec:
 `tower get target hangar-main` says whether hangar answers, the project's
 room by its quota, and whether the system container answers and is on
 the tailnet. The project's Plan must allow a network per workstream and
-one more, and the disk of every box plus the system container's 20Gi
-(and its 10Gi root disk, hangar's default).
+one more, and the disk of every box plus the system container's (a 4Gi
+disk and a 2Gi root at first, growing up to 50Gi and 10Gi;
+`hangar-operations.md`).
 
 **Checkouts and pushes over hangar's endpoint service.** On a hangar with
 EndpointService and NetworkEndpoint (hangar#224, or later), a box takes

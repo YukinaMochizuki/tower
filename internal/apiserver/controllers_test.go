@@ -984,17 +984,28 @@ func TestAStaleWarmGoldenIsRebuilt(t *testing.T) {
 // the clock's now, keeping its other settings.
 func (w *world) setOffPeak(from, to time.Duration) {
 	w.t.Helper()
-	o, err := w.get(registry.Target, "", "t1")
-	if err != nil {
-		w.t.Fatal(err)
-	}
-	tg := o.(*targetsv1alpha1.Target)
-	if tg.Spec.Settings == nil {
-		tg.Spec.Settings = &targetsv1alpha1.TargetSettings{}
-	}
 	now := w.clock.Now().UTC()
-	tg.Spec.Settings.WarmOffPeak = &targetsv1alpha1.TimeWindow{Start: now.Add(from).Format("15:04"), End: now.Add(to).Format("15:04")}
-	w.mustApply(registry.Target, tg)
+	// The target's reports write it meanwhile: an apply of what was read
+	// before one is aborted, and read again.
+	for {
+		o, err := w.get(registry.Target, "", "t1")
+		if err != nil {
+			w.t.Fatal(err)
+		}
+		tg := o.(*targetsv1alpha1.Target)
+		if tg.Spec.Settings == nil {
+			tg.Spec.Settings = &targetsv1alpha1.TargetSettings{}
+		}
+		tg.Spec.Settings.WarmOffPeak = &targetsv1alpha1.TimeWindow{Start: now.Add(from).Format("15:04"), End: now.Add(to).Format("15:04")}
+		_, err = w.asSystem().generic.Apply(w.t.Context(), registry.Target, tg)
+		if connect.CodeOf(err) == connect.CodeAborted {
+			continue
+		}
+		if err != nil {
+			w.t.Fatalf("applying Target: %v", err)
+		}
+		return
+	}
 }
 
 // waitWarm waits for the repository's one ready warm golden to be of

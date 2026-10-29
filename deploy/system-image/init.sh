@@ -20,6 +20,11 @@ config=/run/buildkitd.toml
 if [ "${TOWER_REGISTRY_PLAIN_HTTP:-}" = 1 ] && [ -n "${TOWER_REGISTRY:-}" ]; then
 	printf '[registry."%s"]\n  http = true\n  insecure = true\n' "$TOWER_REGISTRY" >"$config"
 fi
+# The cache's bounds are fixed rather than BuildKit's default shares of the
+# disk: the disk grows as it fills (internal/provider/hangar/system.go), and
+# a share of a small disk, or a free-space floor, would prune the cache
+# before the disk had grown.
+printf '[worker.oci]\n  gc = true\n  reservedSpace = "2GB"\n  maxUsedSpace = "20GB"\n' >>"$config"
 
 # tailscaled's proxy, which the image's environment names
 # (deploy/system-image/build.sh), so that tower-system's calls, which

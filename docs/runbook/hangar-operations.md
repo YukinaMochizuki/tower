@@ -238,7 +238,7 @@ but the quota is not). So the Plan is sized from what tower declares:
 | a box | 2Gi for `/workspace` and 2Gi for its container root at first (the root at its image's size when that is larger), each growing as it fills up to 30Gi; or as the Target's settings say |
 | a warm golden's builder | as a box, but `/workspace` starts a quarter over what the repository's last warm golden held, or as a box's (2Gi) for the first |
 | a VM | 20Gi, or its Image's size if larger |
-| a target's system container | 20Gi, plus a 10Gi root |
+| a target's system container | 4Gi, growing as it fills up to 50Gi (BuildKit keeps its cache under 20GB), plus a root from 2Gi (or its image's size, if larger) up to 10Gi; one made before this tower release keeps its disks until it is made again (below) |
 | a golden | the size of what it captured, as a CustomImage |
 
 A box's disks grow by themselves (hangar's disk auto-grow): the
