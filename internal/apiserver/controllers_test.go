@@ -1045,14 +1045,15 @@ func TestAWarmGoldenIsRebuiltOnceItsInputsSettle(t *testing.T) {
 	w.waitWarm("api", "c1")
 	built := func() []string { return w.goldensEverMadeFor("api") }
 	w.fake.SetRemote(url, "main", lockfile("b"), "c1", "c2")
-	w.advance(10 * time.Minute) // the mirror is fetched again: the inputs differ from here
-	w.advance(10 * time.Minute)
+	w.advanceFetching(10 * time.Minute) // the mirror is fetched again: the inputs differ from here
+	// Fetched again, before the remote moves on.
+	w.advanceFetching(10 * time.Minute)
 	if got := built(); len(got) != 1 {
 		t.Fatalf("a warm golden was rebuilt 10 minutes into its inputs' settle: %v", got)
 	}
 	w.fake.SetRemote(url, "main", lockfile("c"), "c1", "c2", "c3")
-	w.advance(10 * time.Minute) // fetched: they changed again
-	w.advance(20 * time.Minute)
+	w.advanceFetching(10 * time.Minute) // fetched: they changed again
+	w.advanceFetching(20 * time.Minute)
 	if got := built(); len(got) != 1 {
 		t.Fatalf("a warm golden was rebuilt 40 minutes after its inputs first changed, 20 after they last did: %v", got)
 	}
