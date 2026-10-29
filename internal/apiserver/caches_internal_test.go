@@ -132,7 +132,7 @@ func TestAWarmBuildersWorkspaceStartsAtTheLastGoldensSize(t *testing.T) {
 	hangar := &targetsv1alpha1.Target{Spec: &targetsv1alpha1.TargetSpec{Provider: &targetsv1alpha1.TargetSpec_Hangar{Hangar: &targetsv1alpha1.HangarTarget{}}}}
 	for last, want := range map[uint64]string{0: "2Gi", 1 << 30: "2Gi", 7 << 30: "9Gi", 8 << 30: "10Gi", 100 << 30: "30Gi"} {
 		r, g := builderDisks(hangar, last)
-		if r.GetDisk() != want || g.GetWorkspaceMax() != "30Gi" || g.GetRoot() != "2Gi" {
+		if r.GetDisk() != want || r.GetMemory() != "4Gi" || g.GetWorkspaceMax() != "30Gi" || g.GetRoot() != "2Gi" {
 			t.Errorf("after a golden of %d bytes: %v, %v; want /workspace at %s", last, r, g, want)
 		}
 	}
@@ -195,7 +195,7 @@ func TestABoxsDisksGrowOnAHangarTarget(t *testing.T) {
 			target: hostd, box: &envv1alpha1.Resources{Disk: "8Gi"}, resources: &envv1alpha1.Resources{Cpu: "2", Memory: "4Gi", Disk: "8Gi"},
 		},
 		"hangar, tower's defaults": {
-			target: hangar(nil), resources: &envv1alpha1.Resources{Cpu: "2", Memory: "4Gi", Disk: "2Gi"},
+			target: hangar(nil), resources: &envv1alpha1.Resources{Cpu: "2", Memory: "2Gi", Disk: "2Gi"},
 			growth: defaults,
 		},
 		"hangar, the target's settings": {
@@ -204,13 +204,13 @@ func TestABoxsDisksGrowOnAHangarTarget(t *testing.T) {
 				BoxWorkspaceDiskGrowThreshold: "70%", BoxWorkspaceDiskGrowStep: "1.5x", BoxRootDiskGrowThreshold: "95%", BoxRootDiskGrowStep: "1Gi",
 			}),
 			box:       &envv1alpha1.Resources{Cpu: "4"},
-			resources: &envv1alpha1.Resources{Cpu: "4", Memory: "4Gi", Disk: "3Gi"},
+			resources: &envv1alpha1.Resources{Cpu: "4", Memory: "2Gi", Disk: "3Gi"},
 			growth: &envv1alpha1.DiskGrowth{
 				WorkspaceMax: "60Gi", Root: "8Gi", RootMax: "16Gi", Threshold: "70%", Step: "1.5x", RootThreshold: "95%", RootStep: "1Gi",
 			},
 		},
 		"hangar, the box's own disk": {
-			target: hangar(nil), box: &envv1alpha1.Resources{Disk: "50Gi"}, resources: &envv1alpha1.Resources{Cpu: "2", Memory: "4Gi", Disk: "50Gi"},
+			target: hangar(nil), box: &envv1alpha1.Resources{Disk: "50Gi"}, resources: &envv1alpha1.Resources{Cpu: "2", Memory: "2Gi", Disk: "50Gi"},
 			growth: defaults,
 		},
 	} {

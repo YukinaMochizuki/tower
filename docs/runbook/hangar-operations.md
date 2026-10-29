@@ -259,8 +259,19 @@ grown disk at its grown size, so size the Plan for boxes at their max. A
 box made before this tower release keeps the disks it was made with, and
 how they grow, until it is made again.
 
-A stopped box keeps its disks, so it counts. Disk is what runs out
-first. The other limits a Plan sets, per target: a network per workstream
+A stopped box keeps its disks, so it counts.
+
+A running box holds 2 vCPUs and 2Gi of memory from the quota, as it
+idles (a warm golden's builder, 2 vCPUs and 4Gi while it builds; the
+system container, 2 vCPUs and 4Gi). hangar reserves memory in full and
+shares CPU, a machine's share under load following its memory, so a
+Plan's `cpu` is how many vCPUs the machines may name at once rather than
+CPUs held: with a box at 2 vCPUs, `cpu` runs out before `memory` does
+(2026-10-29 on hangar-ardge: 24 of 24 vCPUs, 48Gi of 64Gi). Allow at
+least 2 vCPUs per box you mean to run at once, plus the system
+container's and the machines'.
+
+The other limits a Plan sets, per target: a network per workstream
 plus the system container's; a network endpoint per workstream network;
 `machine_calls` above the most execs, port forwards and VM connections
 open at once (deploy.md, "hangar's machine calls"); `custom_images` for
