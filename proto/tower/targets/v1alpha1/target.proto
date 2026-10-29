@@ -142,6 +142,11 @@ message TargetSettings {
   // A boost nothing has run on for this long is deleted, freeing its cpu,
   // memory and disk; unset, 10 minutes.
   google.protobuf.Duration boost_idle = 19;
+  // How long a boost may take from being made to READY; past it, it is
+  // FAILED and its room freed. Unset, 15 minutes: a devcontainer's four
+  // setup steps at their 3-minute bound each, and 3 minutes for the
+  // instance's start and the box's checkouts.
+  google.protobuf.Duration boost_start_timeout = 20;
 }
 
 // BoostSize is an amount of cpu and memory, as quantities such as "8" and

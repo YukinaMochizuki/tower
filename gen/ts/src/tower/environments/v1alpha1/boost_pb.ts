@@ -504,7 +504,9 @@ export enum BoostPhase {
   UNSPECIFIED = 0,
 
   /**
-   * Waiting for its box, or its instance is being made.
+   * Waiting for its box, or its instance is being made. A boost not READY
+   * within its target's boost_start_timeout of being made is FAILED, and
+   * so is one whose box failed.
    *
    * @generated from enum value: BOOST_PHASE_PENDING = 1;
    */
@@ -526,8 +528,9 @@ export enum BoostPhase {
   READY = 3,
 
   /**
-   * It cannot be made; the Ready condition says why. It is deleted as an
-   * idle one is.
+   * It cannot be made, or did not start in time; the Ready condition says
+   * why. Its instance is deleted and its room freed at once; the box's
+   * next boosted start replaces it, and it is deleted as an idle one is.
    *
    * @generated from enum value: BOOST_PHASE_FAILED = 4;
    */

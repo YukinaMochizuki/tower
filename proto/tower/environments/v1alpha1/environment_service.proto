@@ -212,8 +212,10 @@ message StartProcessRequest {
   // Unset runs it in the box. A box on a hangar target alone has one.
   BoostIntent boost = 7;
   // The ticket of a start answered pending, asked about again with the
-  // same request: it is answered pending again, or started. A ticket not
-  // asked about for two minutes is dropped.
+  // same request: it is answered pending again, or started. Asking again
+  // changes nothing of the ticket's place. A ticket not asked about for
+  // five minutes is dropped. A boost that cannot fit the target's Plan
+  // even with no boost held is refused at once (FAILED_PRECONDITION).
   string pending = 8;
   // With pending, gives the ticket up instead: nothing starts, and its
   // place goes to the next.
@@ -264,7 +266,8 @@ enum PendingReason {
   // workstream by workstream in turn.
   PENDING_REASON_QUEUED_BUDGET = 1;
   // The box's boost is being made: its instance started, the box's
-  // checkouts and setup steps run in it.
+  // checkouts and setup steps run in it; or a failed or smaller boost of
+  // the box's is being replaced.
   PENDING_REASON_BOOST_STARTING = 2;
   // The box's boost is smaller than asked and runs a process: it is made
   // again larger once its processes end.
@@ -365,6 +368,10 @@ message ProcessExit {
   google.protobuf.Duration cpu_wait = 6;
   // How long it ran.
   google.protobuf.Duration wall = 7;
+  // Its end was not seen: it ran on a boost that went, deleted or its
+  // instance vanished, before its exit was read. It has ended; code and
+  // the rest are unset.
+  bool lost = 8;
 }
 
 message SignalProcessRequest {

@@ -285,6 +285,15 @@
           "$ref": "#/$defs/tower.targets.v1alpha1.BoostSize",
           "description": "A boost's size when a process asks for one without a size (\"on\"), as cpu and memory; unset, 8 vCPU and 8Gi. A boost is a short-lived larger instance of a box's that heavy jobs run on, on a hangar target alone (docs/decisions/boost.md). Each size is within hangar's shapes: 512Mi to 8Gi of memory per vCPU."
         },
+        "boostStartTimeout": {
+          "description": "How long a boost may take from being made to READY; past it, it is FAILED and its room freed. Unset, 15 minutes: a devcontainer's four setup steps at their 3-minute bound each, and 3 minutes for the instance's start and the box's checkouts.",
+          "examples": [
+            "30s",
+            "1.5s"
+          ],
+          "pattern": "^-?[0-9]+(\\.[0-9]{1,9})?s$",
+          "type": "string"
+        },
         "boxRootDisk": {
           "description": "The same for a box's container root disk, at least 2Gi; unset, 2Gi and 30Gi. hangar starts a root disk at its image's base when that is larger.",
           "type": "string"

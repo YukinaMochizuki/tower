@@ -4,12 +4,15 @@ import (
 	"testing"
 	"time"
 
+	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
+	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/controller"
 )
 
 // TestTheBoostQueueTakesWorkstreamsInTurn: first come first served within
 // a workstream, workstreams in turn, the one admitted last going last;
-// a ticket not asked about for two minutes is dropped.
+// a ticket not asked about for five minutes is dropped.
 func TestTheBoostQueueTakesWorkstreamsInTurn(t *testing.T) {
 	t0 := time.Date(2026, 10, 29, 0, 0, 0, 0, time.UTC)
 	tk := func(id, ws string, at int) *boostTicket {
@@ -43,9 +46,9 @@ func TestTheBoostQueueTakesWorkstreamsInTurn(t *testing.T) {
 		t.Errorf("with a1 admitted: %v", got)
 	}
 	q.tickets["b1"].seen = t0.Add(10 * time.Minute)
-	q.prune(t0.Add(3*time.Minute + 30*time.Second))
+	q.prune(t0.Add(5*time.Minute + 30*time.Second))
 	if got := ids(); !equal(got, []string{"b1"}) {
-		t.Errorf("after two minutes unasked, the queue holds %v, want b1 alone", got)
+		t.Errorf("after five minutes unasked, the queue holds %v, want b1 alone", got)
 	}
 }
 
@@ -91,5 +94,51 @@ func TestBoostSizes(t *testing.T) {
 	r = boostRoom{budget: boostSize{16000, 16 * gi}, quota: boostSize{0, 4 * gi}, hasMemory: true}
 	if r.fits(big) || !r.fits(boostSize{2000, 4 * gi}) {
 		t.Error("the Plan's memory left does not cap a boost")
+	}
+}
+
+// TestTheRoomOfATarget: a boost holds budget unless FAILED; it counts
+// against the Plan's quota left until its instance runs, which the
+// target's report counts from then on; and with no boost held, the
+// quota left is the report's plus what its running boosts hold.
+func TestTheRoomOfATarget(t *testing.T) {
+	const gi = 1 << 30
+	tg := &targetsv1alpha1.Target{
+		Spec: &targetsv1alpha1.TargetSpec{Settings: &targetsv1alpha1.TargetSettings{
+			BoostBudget: &targetsv1alpha1.BoostSize{Cpu: "32", Memory: "32Gi"},
+		}},
+		Status: &targetsv1alpha1.TargetStatus{Capacity: &targetsv1alpha1.Capacity{MemoryFree: "20Gi", CpuFree: "20"}},
+	}
+	boost := func(uid string, phase envv1alpha1.BoostPhase) *envv1alpha1.Boost {
+		return &envv1alpha1.Boost{
+			Metadata: &metav1.ObjectMeta{Uid: uid},
+			Spec:     &envv1alpha1.BoostSpec{Resources: &envv1alpha1.Resources{Cpu: "4", Memory: "4Gi"}},
+			Status:   &envv1alpha1.BoostStatus{Phase: phase},
+		}
+	}
+	v := boostsNow{
+		boosts: []*envv1alpha1.Boost{
+			boost("running", envv1alpha1.BoostPhase_BOOST_PHASE_READY),
+			boost("starting", envv1alpha1.BoostPhase_BOOST_PHASE_STARTING),
+			boost("failed", envv1alpha1.BoostPhase_BOOST_PHASE_FAILED),
+		},
+		counted: map[string]bool{"running": true, "failed": true},
+	}
+	r := roomOf(tg, v)
+	if r.held != (boostSize{8000, 8 * gi}) {
+		t.Errorf("held %v, want the running and starting boosts, 8 vCPU and 8Gi", r.held)
+	}
+	if !r.hasCPU || !r.hasMemory || r.quota != (boostSize{16000, 16 * gi}) {
+		t.Errorf("quota left %v, want the report's less the starting boost, 16 vCPU and 16Gi", r.quota)
+	}
+	if !r.fits(boostSize{16000, 16 * gi}) || r.fits(boostSize{16000, 17 * gi}) {
+		t.Error("the quota left does not bound a boost")
+	}
+	e := emptyRoomOf(tg, v)
+	if e.held != (boostSize{}) || e.quota != (boostSize{28000, 28 * gi}) {
+		t.Errorf("with no boost held: %v held, %v left; want none, and the report's plus the counted boosts, 28 vCPU and 28Gi", e.held, e.quota)
+	}
+	if r := roomOf(&targetsv1alpha1.Target{}, v); r.hasCPU || r.hasMemory || !r.fits(boostSize{8000, 8 * gi}) {
+		t.Error("a target that reports no quota bounds a boost by it")
 	}
 }

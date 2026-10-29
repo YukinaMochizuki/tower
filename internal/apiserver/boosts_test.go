@@ -1,7 +1,10 @@
 package apiserver_test
 
 import (
+	"context"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,10 +13,12 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/client"
 	"github.com/YukinaMochizuki/tower/internal/provider"
+	"github.com/YukinaMochizuki/tower/internal/store"
 	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
@@ -317,16 +322,374 @@ func TestASmallerBoostIsReplaced(t *testing.T) {
 }
 
 // TestAStoppedBoxLosesItsBoost: stopping a box at workstream's request
-// deletes its boost.
+// deletes its boost whatever runs on it; the exit of what had ended is
+// kept, and what still ran is reported ended, its exit lost.
 func TestAStoppedBoxLosesItsBoost(t *testing.T) {
 	t.Parallel()
 	w := boostWorld(t, nil)
 	w.readyBox("dev")
-	w.startBoosted(boostOn("dev", "true"))
-	b := proto.Clone(w.box("dev")).(*envv1alpha1.Box)
-	b.Spec.RunState = envv1alpha1.RunState_RUN_STATE_STOPPED
-	w.mustApply(registry.Box, b)
+	ended := w.startBoosted(boostOn("dev", "true")).GetProcess()
+	running := w.start(boostOn("dev", "sleep")).GetProcess()
+	testutil.Eventually(t, "the boost's process running", func() bool {
+		b, _ := w.boost("dev")
+		return b.GetStatus().GetProcessesRunning() == 1
+	})
+	w.setRunState("dev", envv1alpha1.RunState_RUN_STATE_STOPPED)
 	testutil.Eventually(t, "the stopped box's boost gone", func() bool { _, ok := w.boost("dev"); return !ok })
+	w.setRunState("dev", envv1alpha1.RunState_RUN_STATE_RUNNING)
+	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_READY)
+	got := w.listed("dev")
+	if p := got[ended]; p.GetRunning() || p.GetExit().GetCode() != 0 || p.GetExit().GetLost() || p.GetCommand() != "true" {
+		t.Errorf("the ended process, after its boost went: %v", p)
+	}
+	if p := got[running]; p.GetRunning() || !p.GetExit().GetLost() {
+		t.Errorf("the process that still ran, after its boost went: %v, want ended, its exit lost", p)
+	}
+	_, end, err := attachProcess(t.Context(), w.as(workstream).envs, &envv1alpha1.AttachProcessRequest{Environment: boxEnv("dev"), Process: running, Follow: true})
+	if err != nil || !end.GetExit().GetLost() {
+		t.Errorf("following a process whose boost went: %v, %v; want its end, lost", end, err)
+	}
+}
+
+// setRunState sets the box's run_state, as workstream does, again on a
+// conflict with tower writing its status.
+func (w *world) setRunState(box string, rs envv1alpha1.RunState) {
+	w.t.Helper()
+	testutil.Eventually(w.t, "the box's run_state set", func() (bool, string) {
+		b := proto.Clone(w.box(box)).(*envv1alpha1.Box)
+		b.Spec.RunState = rs
+		_, err := w.asSystem().generic.Apply(w.t.Context(), registry.Box, b)
+		return err == nil, fmt.Sprint(err)
+	})
+}
+
+// listed is the box's processes through ListProcesses, by id.
+func (w *world) listed(box string) map[string]*envv1alpha1.ProcessInfo {
+	w.t.Helper()
+	list := must[envv1alpha1.ListProcessesResponse](w.t)(w.as(workstream).envs.ListProcesses(w.t.Context(), connect.NewRequest(&envv1alpha1.ListProcessesRequest{Environment: boxEnv(box)})))
+	out := map[string]*envv1alpha1.ProcessInfo{}
+	for _, p := range list.GetProcesses() {
+		out[p.GetProcess()] = p
+	}
+	return out
+}
+
+// TestADeletedBoxsBoostKeepsItsUsage: deleting a box deletes its boost
+// and its instance, and the usage of the boost's processes not read yet
+// is recorded first, as run on a boost.
+func TestADeletedBoxsBoostKeepsItsUsage(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	w.readyBox("dev")
+	id := w.startBoosted(boostOn("dev", "sleep")).GetProcess()
+	b, _ := w.boost("dev")
+	bref := provider.Instance{Project: "web", Name: b.GetStatus().GetInstance()}
+	ps, _ := w.fake.ListProcesses(t.Context(), bref)
+	peak := int64(5 << 30)
+	if err := w.fake.EndProcessWith(bref, ps[0].ID, provider.ProcessExit{Usage: &provider.ProcessUsage{MemoryPeak: &peak, Wall: time.Minute}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.asSystem().generic.Delete(t.Context(), registry.Box, client.Key{Project: "web", Name: "dev"}); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Eventually(t, "the boost and its instance gone with the box", func() bool {
+		_, ok := w.boost("dev")
+		_, inOK := w.instance(bref.Name)
+		return !ok && !inOK
+	})
+	uses, _ := w.commandUses()
+	for _, u := range uses {
+		for _, run := range u.Runs {
+			if run.Process == id && run.RanOn.Kind == "boost" && run.MemoryPeak != nil && *run.MemoryPeak == peak && u.Repository == "api" {
+				return
+			}
+		}
+	}
+	t.Errorf("the deleted box's boost process is not recorded: %+v", uses)
+}
+
+// TestABoostThatDoesNotStartFails: a boost not READY within the target's
+// boost_start_timeout is FAILED, saying why; its instance goes and its
+// room is free at once, so another box's boost is made under a budget
+// for one; and the box's next boosted start replaces it.
+func TestABoostThatDoesNotStartFails(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, &targetsv1alpha1.TargetSettings{
+		BoostBudget:       &targetsv1alpha1.BoostSize{Cpu: "4", Memory: "4Gi"},
+		BoostStartTimeout: durationpb.New(5 * time.Minute),
+	})
+	w.readyBox("a")
+	w.readyBox("b", func(b *envv1alpha1.Box) { b.Spec.Workstream = "ws2" })
+	w.fake.FailCheckouts(fmt.Errorf("the mirror does not answer: %w", provider.ErrUnavailable))
+	first := w.start(boostOn("a", "true"))
+	w.waitBoost("a", envv1alpha1.BoostPhase_BOOST_PHASE_STARTING)
+	queued := w.start(boostOn("b", "true")).GetPending()
+	if queued.GetReason() != envv1alpha1.PendingReason_PENDING_REASON_QUEUED_BUDGET {
+		t.Fatalf("a second boost beside a starting one: %v", queued)
+	}
+	w.advance(4 * time.Minute)
+	if b, _ := w.boost("a"); b.GetStatus().GetPhase() != envv1alpha1.BoostPhase_BOOST_PHASE_STARTING {
+		t.Fatalf("a boost starting for 4 minutes of 5 is %v", b.GetStatus().GetPhase())
+	}
+	w.advance(2 * time.Minute)
+	failed := w.waitBoost("a", envv1alpha1.BoostPhase_BOOST_PHASE_FAILED)
+	if c := condition(failed.GetStatus().GetConditions(), "Ready"); c.GetReason() != "StartTimedOut" || !strings.Contains(c.GetMessage(), "5m0s") {
+		t.Errorf("the timed out boost says %v", c)
+	}
+	testutil.Eventually(t, "the failed boost's instance gone", func() bool { _, ok := w.instance(failed.GetStatus().GetInstance()); return !ok })
+
+	w.fake.FailCheckouts(nil)
+	again := boostOn("b", "true")
+	again.Pending = queued.GetTicket()
+	if res := w.startBoosted(again); res.GetRanOn().GetKind() != envv1alpha1.RanOnKind_RAN_ON_KIND_BOOST {
+		t.Errorf("the queued boost, once the failed one let its room go: %v", res)
+	}
+	// a's next start replaces its failed boost, once b's is gone.
+	w.advance(11 * time.Minute)
+	testutil.Eventually(t, "b's boost gone", func() bool { _, ok := w.boost("b"); return !ok })
+	replace := boostOn("a", "true")
+	replace.Pending = first.GetPending().GetTicket()
+	res := w.startBoosted(replace)
+	if nb, _ := w.boost("a"); nb.GetMetadata().GetUid() == failed.GetMetadata().GetUid() || res.GetProcess() == "" {
+		t.Errorf("a's boost after its failure: %v, start %v", nb, res)
+	}
+}
+
+// TestAFailedBoostFreesItsRoom: a boost whose instance fails to boot is
+// FAILED at once, holding no room; one whose box failed fails too.
+func TestAFailedBoostFreesItsRoom(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, &targetsv1alpha1.TargetSettings{BoostBudget: &targetsv1alpha1.BoostSize{Cpu: "4", Memory: "4Gi"}})
+	w.readyBox("a")
+	w.readyBox("b")
+	w.fake.FailBoot("boost-a", "no room on the node")
+	w.start(boostOn("a", "true"))
+	failed := w.waitBoost("a", envv1alpha1.BoostPhase_BOOST_PHASE_FAILED)
+	if c := condition(failed.GetStatus().GetConditions(), "Ready"); c.GetReason() != "InstanceFailed" || !strings.Contains(c.GetMessage(), "no room on the node") {
+		t.Errorf("the boost whose instance did not boot says %v", c)
+	}
+	if res := w.startBoosted(boostOn("b", "true")); res.GetProcess() == "" {
+		t.Errorf("a boost beside a FAILED one under a budget for one: %v", res)
+	}
+
+	// A boost of a box that failed.
+	w.fake.FailBuilds(fmt.Errorf("npm ci exited 1: %w", provider.ErrFailed))
+	bb := box("bad")
+	bb.Spec.Image = "example.com/bad:1"
+	w.mustApply(registry.Box, bb)
+	bad := w.waitBox("bad", envv1alpha1.BoxPhase_BOX_PHASE_FAILED)
+	w.mustApply(registry.Boost, &envv1alpha1.Boost{
+		Metadata: &metav1.ObjectMeta{Project: "web", Name: "bad", OwnerReferences: []*metav1.OwnerReference{{
+			ApiVersion: registry.Box.APIVersion(), Kind: "Box", Name: "bad", Uid: bad.GetMetadata().GetUid(), Controller: true,
+		}}},
+		Spec: &envv1alpha1.BoostSpec{Box: "bad", Target: "t1", Resources: &envv1alpha1.Resources{Cpu: "2", Memory: "2Gi"}},
+	})
+	if c := condition(w.waitBoost("bad", envv1alpha1.BoostPhase_BOOST_PHASE_FAILED).GetStatus().GetConditions(), "Ready"); c.GetReason() != "BoxFailed" {
+		t.Errorf("the boost of a failed box says %v", c)
+	}
+}
+
+// TestABoostKeepsWhatItWasMadeOf: its status names its instance, alias
+// and goldens from the instance there is, whatever its status lost.
+func TestABoostKeepsWhatItWasMadeOf(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	box := w.readyBox("dev")
+	w.startBoosted(boostOn("dev", "true"))
+	b, _ := w.boost("dev")
+	lost := proto.Clone(b).(*envv1alpha1.Boost)
+	lost.Status.Instance, lost.Status.Alias, lost.Status.ImageGolden, lost.Status.WarmGolden = "", "", "", ""
+	if _, err := w.asSystem().generic.UpdateStatus(t.Context(), registry.Boost, client.Key{Project: "web", Name: "dev"}, lost.GetStatus(), nil); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Eventually(t, "the boost's status made again from its instance", func() (bool, string) {
+		got, _ := w.boost("dev")
+		st := got.GetStatus()
+		return st.GetInstance() == b.GetStatus().GetInstance() && st.GetAlias() == "dev-boost" &&
+			st.GetImageGolden() == box.GetStatus().GetImageGolden() && st.GetWarmGolden() == box.GetStatus().GetWarmGolden(), st.String()
+	})
+}
+
+// TestARetireRacingAStartLeavesTheBoost: a process started on an idle
+// boost between its exits being read and its deletion being decided
+// keeps it; the start is not lost to a boost deleted under it.
+func TestARetireRacingAStartLeavesTheBoost(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, &targetsv1alpha1.TargetSettings{BoostIdle: durationpb.New(time.Minute)})
+	w.readyBox("dev")
+	w.startBoosted(boostOn("dev", "true"))
+	b, _ := w.boost("dev")
+	var once sync.Once
+	started := make(chan *envv1alpha1.StartProcessResponse, 1)
+	w.srv.SetBeforeBoostRetire(func(_, box string) {
+		once.Do(func() {
+			res, err := w.as(workstream).envs.StartProcess(context.Background(), connect.NewRequest(boostOn(box, "sleep")))
+			if err != nil {
+				t.Error(err)
+				started <- nil
+				return
+			}
+			// Until the boost says the process runs, so nothing writes it
+			// while its deletion is decided.
+			for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+				if o, err := w.get(registry.Boost, "web", box); err == nil && o.(*envv1alpha1.Boost).GetStatus().GetProcessesRunning() == 1 {
+					break
+				}
+			}
+			started <- res.Msg
+		})
+	})
+	w.advance(2 * time.Minute)
+	res := <-started
+	if res.GetProcess() == "" {
+		t.Fatalf("the start racing the retire: %v", res)
+	}
+	w.waitSettled()
+	nb, ok := w.boost("dev")
+	if !ok || nb.GetMetadata().GetUid() != b.GetMetadata().GetUid() || nb.GetMetadata().GetDeleteTime() != nil {
+		t.Fatalf("the boost a process just started on was deleted: %v", nb)
+	}
+	if p := w.listed("dev")[res.GetProcess()]; !p.GetRunning() {
+		t.Errorf("the process started during the retire: %v", p)
+	}
+}
+
+// TestAStartWaitingForItsBoostKeepsIt: a ready boost a pending start has
+// not asked for again yet is not reclaimed for idleness while its ticket
+// lives, so the start, asked again, runs on it.
+func TestAStartWaitingForItsBoostKeepsIt(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, &targetsv1alpha1.TargetSettings{BoostIdle: durationpb.New(time.Minute)})
+	w.readyBox("dev")
+	first := w.start(boostOn("dev", "true"))
+	b := w.waitBoost("dev", envv1alpha1.BoostPhase_BOOST_PHASE_READY)
+	w.advance(3 * time.Minute)
+	req := boostOn("dev", "true")
+	req.Pending = first.GetPending().GetTicket()
+	res := w.start(req)
+	nb, _ := w.boost("dev")
+	if res.GetProcess() == "" || nb.GetMetadata().GetUid() != b.GetMetadata().GetUid() {
+		t.Errorf("asked again 3 minutes after its boost was READY, with boost_idle 1 minute: %v; the boost %v", res, nb.GetMetadata())
+	}
+}
+
+// TestAKeptExitIsNotCountedAgain: a process kept from a boost gone is
+// never recorded as a run from its record, which holds no command text:
+// its usage was recorded before the boost went, or is lost.
+func TestAKeptExitIsNotCountedAgain(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	box := w.readyBox("dev")
+	rec := fmt.Sprintf(`{"boxUid":%q,"repository":"api","boost":[{"id":"boost-0123456789ab-p7","boostUid":"gone","instance":"boost-dev",
+		"instanceUid":"gone","providerId":"p7","cpu":"8","memory":"8192Mi","coarse":"go test","started":"2026-10-29T00:00:00Z",
+		"exit":{"Code":0,"Signal":0,"Usage":{"MemoryPeak":1024,"Wall":60000000000}},"gone":true}]}`, box.GetMetadata().GetUid())
+	if _, err := w.store.Create(t.Context(), store.Key{Kind: "BoxProcesses", Project: "web", Name: "dev"}, []byte(rec)); err != nil {
+		t.Fatal(err)
+	}
+	if p := w.listed("dev")["boost-0123456789ab-p7"]; p.GetExit().GetMemoryPeakBytes() != 1024 || p.GetCommand() != "go test" {
+		t.Fatalf("the kept process listed: %v", p)
+	}
+	uses, all := w.commandUses()
+	if len(uses) != 0 {
+		t.Errorf("a kept exit was recorded as a run: %s", all)
+	}
+}
+
+// TestTwoStartsRaceForTheLastRoom: two boosted starts at once, with room
+// in the budget for one of them, make one boost; the other is queued.
+func TestTwoStartsRaceForTheLastRoom(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, &targetsv1alpha1.TargetSettings{BoostBudget: &targetsv1alpha1.BoostSize{Cpu: "12", Memory: "12Gi"}})
+	for _, name := range []string{"c", "a", "b"} {
+		w.readyBox(name)
+	}
+	w.startBoosted(boostOf(boostOn("c", "true"), "4", "4Gi"))
+	var wg sync.WaitGroup
+	res := make([]*envv1alpha1.StartProcessResponse, 2)
+	for i, name := range []string{"a", "b"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r, err := w.as(workstream).envs.StartProcess(t.Context(), connect.NewRequest(boostOf(boostOn(name, "true"), "8", "8Gi")))
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			res[i] = r.Msg
+		}()
+	}
+	wg.Wait()
+	reasons := map[envv1alpha1.PendingReason]int{}
+	for _, r := range res {
+		reasons[r.GetPending().GetReason()]++
+	}
+	_, a := w.boost("a")
+	_, b := w.boost("b")
+	if reasons[envv1alpha1.PendingReason_PENDING_REASON_BOOST_STARTING] != 1 || reasons[envv1alpha1.PendingReason_PENDING_REASON_QUEUED_BUDGET] != 1 || a == b {
+		t.Errorf("two starts for the last room answered %v and %v; boosts made: a %v, b %v", res[0], res[1], a, b)
+	}
+}
+
+// TestTheQueueTakesWorkstreamsInTurn: queued starts are admitted first
+// come first served within a workstream and workstream by workstream in
+// turn, the workstream admitted last going last; and an apiserver
+// restarted, which loses the queue, queues a ticket it no longer knows
+// again with a new one.
+func TestTheQueueTakesWorkstreamsInTurn(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, &targetsv1alpha1.TargetSettings{BoostBudget: &targetsv1alpha1.BoostSize{Cpu: "1", Memory: "1Gi"}})
+	in := func(ws string) func(*envv1alpha1.Box) { return func(b *envv1alpha1.Box) { b.Spec.Workstream = ws } }
+	w.readyBox("h", in("ws3"))
+	w.readyBox("a1", in("ws1"))
+	w.readyBox("a2", in("ws1"))
+	w.readyBox("b1", in("ws2"))
+	w.startBoosted(boostOn("h", "true"))
+	tickets := map[string]string{}
+	for _, name := range []string{"a1", "a2", "b1"} {
+		tickets[name] = w.start(boostOn(name, "true")).GetPending().GetTicket()
+	}
+	position := func(name string) int32 {
+		req := boostOn(name, "true")
+		req.Pending = tickets[name]
+		p := w.start(req).GetPending()
+		tickets[name] = p.GetTicket()
+		return p.GetPosition()
+	}
+	if got := []int32{position("a1"), position("b1"), position("a2")}; got[0] != 1 || got[1] != 2 || got[2] != 3 {
+		t.Errorf("positions of a1, b1 and a2: %v, want 1, 2, 3: ws1 and ws2 in turn", got)
+	}
+
+	w.restart()
+	req := boostOn("a2", "true")
+	req.Pending = tickets["a2"]
+	p := w.start(req).GetPending()
+	if p.GetReason() != envv1alpha1.PendingReason_PENDING_REASON_QUEUED_BUDGET || p.GetTicket() == tickets["a2"] || p.GetPosition() != 1 {
+		t.Errorf("a ticket asked again after a restart: %v, want queued anew, first, with a new ticket", p)
+	}
+	if _, ok := w.boost("h"); !ok {
+		t.Error("a boost did not survive a restart")
+	}
+}
+
+// TestABoostThatNeverFitsIsRefused: a boost larger than the Plan has left
+// even with no boost held is refused at once, not queued.
+func TestABoostThatNeverFitsIsRefused(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, &targetsv1alpha1.TargetSettings{BoostMax: &targetsv1alpha1.BoostSize{Cpu: "16", Memory: "64Gi"}})
+	w.readyBox("dev")
+	o, err := w.get(registry.Target, "", "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := proto.Clone(o.(*targetsv1alpha1.Target).GetStatus()).(*targetsv1alpha1.TargetStatus)
+	st.Capacity = &targetsv1alpha1.Capacity{MemoryFree: "48Gi", CpuFree: "16"}
+	if _, err := w.asSystem().generic.UpdateStatus(t.Context(), registry.Target, client.Key{Name: "t1"}, st, nil); err != nil {
+		t.Fatal(err)
+	}
+	_, err = w.as(workstream).envs.StartProcess(t.Context(), connect.NewRequest(boostOf(boostOn("dev", "true"), "16", "64Gi")))
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "even with no boost") {
+		t.Errorf("a boost past the Plan's quota: %v, want FailedPrecondition", err)
+	}
 }
 
 // TestBoostsAreRefused: a boost is a hangar box's; workstream reads one

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math/big"
 
+	"google.golang.org/protobuf/types/known/durationpb"
+
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
@@ -150,9 +152,10 @@ func readBoostSetting(set *targetsv1alpha1.BoostSize, def boostSize) (boostSize,
 	return parseBoostSize(set.GetCpu(), set.GetMemory(), def)
 }
 
-// boostSettings are the boost settings validated as a whole: each a shape
-// hangar makes but the budget, the default within the max, and the max
-// within the budget.
+// boostSettingsError says why the target's boost settings do not hold
+// together, nil if they do: each size but the budget is a shape hangar
+// makes, the default is within the max, and the durations are not
+// negative. The budget may be below one boost: one is let in at a time.
 func boostSettingsError(set *targetsv1alpha1.TargetSettings) error {
 	vals := map[string]boostSize{}
 	for _, f := range []struct {
@@ -178,8 +181,10 @@ func boostSettingsError(set *targetsv1alpha1.TargetSettings) error {
 	if !vals["boost_max"].covers(vals["boost_resources"]) {
 		return fmt.Errorf("boost_resources (%s) is more than boost_max (%s)", vals["boost_resources"], vals["boost_max"])
 	}
-	if d := set.GetBoostIdle(); d != nil && (!d.IsValid() || d.AsDuration() < 0) {
-		return fmt.Errorf("boost_idle must be a duration of zero or more")
+	for name, d := range map[string]*durationpb.Duration{"boost_idle": set.GetBoostIdle(), "boost_start_timeout": set.GetBoostStartTimeout()} {
+		if d != nil && (!d.IsValid() || d.AsDuration() < 0) {
+			return fmt.Errorf("%s must be a duration of zero or more", name)
+		}
 	}
 	return nil
 }

@@ -33,7 +33,8 @@ const (
 	// workstream by workstream in turn.
 	PendingReason_PENDING_REASON_QUEUED_BUDGET PendingReason = 1
 	// The box's boost is being made: its instance started, the box's
-	// checkouts and setup steps run in it.
+	// checkouts and setup steps run in it; or a failed or smaller boost of
+	// the box's is being replaced.
 	PendingReason_PENDING_REASON_BOOST_STARTING PendingReason = 2
 	// The box's boost is smaller than asked and runs a process: it is made
 	// again larger once its processes end.
@@ -1390,8 +1391,10 @@ type StartProcessRequest struct {
 	// Unset runs it in the box. A box on a hangar target alone has one.
 	Boost *BoostIntent `protobuf:"bytes,7,opt,name=boost,proto3" json:"boost,omitempty"`
 	// The ticket of a start answered pending, asked about again with the
-	// same request: it is answered pending again, or started. A ticket not
-	// asked about for two minutes is dropped.
+	// same request: it is answered pending again, or started. Asking again
+	// changes nothing of the ticket's place. A ticket not asked about for
+	// five minutes is dropped. A boost that cannot fit the target's Plan
+	// even with no boost held is refused at once (FAILED_PRECONDITION).
 	Pending string `protobuf:"bytes,8,opt,name=pending,proto3" json:"pending,omitempty"`
 	// With pending, gives the ticket up instead: nothing starts, and its
 	// place goes to the next.
@@ -2119,7 +2122,11 @@ type ProcessExit struct {
 	// total): how much a larger box would have sped it up.
 	CpuWait *durationpb.Duration `protobuf:"bytes,6,opt,name=cpu_wait,json=cpuWait,proto3" json:"cpu_wait,omitempty"`
 	// How long it ran.
-	Wall          *durationpb.Duration `protobuf:"bytes,7,opt,name=wall,proto3" json:"wall,omitempty"`
+	Wall *durationpb.Duration `protobuf:"bytes,7,opt,name=wall,proto3" json:"wall,omitempty"`
+	// Its end was not seen: it ran on a boost that went, deleted or its
+	// instance vanished, before its exit was read. It has ended; code and
+	// the rest are unset.
+	Lost          bool `protobuf:"varint,8,opt,name=lost,proto3" json:"lost,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2201,6 +2208,13 @@ func (x *ProcessExit) GetWall() *durationpb.Duration {
 		return x.Wall
 	}
 	return nil
+}
+
+func (x *ProcessExit) GetLost() bool {
+	if x != nil {
+		return x.Lost
+	}
+	return false
 }
 
 type SignalProcessRequest struct {
@@ -2679,7 +2693,7 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\theld_from\x18\x01 \x01(\x03R\bheldFrom\x12\x1f\n" +
 	"\vnext_offset\x18\x02 \x01(\x03R\n" +
 	"nextOffset\x12<\n" +
-	"\x04exit\x18\x03 \x01(\v2(.tower.environments.v1alpha1.ProcessExitR\x04exit\"\xf5\x02\n" +
+	"\x04exit\x18\x03 \x01(\v2(.tower.environments.v1alpha1.ProcessExitR\x04exit\"\x89\x03\n" +
 	"\vProcessExit\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\x05R\x04code\x12;\n" +
 	"\x06signal\x18\x02 \x01(\x0e2#.tower.environments.v1alpha1.SignalR\x06signal\x12/\n" +
@@ -2688,7 +2702,8 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"oom_killed\x18\x04 \x01(\bH\x01R\toomKilled\x88\x01\x01\x126\n" +
 	"\tcpu_usage\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\bcpuUsage\x124\n" +
 	"\bcpu_wait\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\acpuWait\x12-\n" +
-	"\x04wall\x18\a \x01(\v2\x19.google.protobuf.DurationR\x04wallB\x14\n" +
+	"\x04wall\x18\a \x01(\v2\x19.google.protobuf.DurationR\x04wall\x12\x12\n" +
+	"\x04lost\x18\b \x01(\bR\x04lostB\x14\n" +
 	"\x12_memory_peak_bytesB\r\n" +
 	"\v_oom_killed\"\xb9\x01\n" +
 	"\x14SignalProcessRequest\x12J\n" +

@@ -28,15 +28,18 @@ type BoostPhase int32
 
 const (
 	BoostPhase_BOOST_PHASE_UNSPECIFIED BoostPhase = 0
-	// Waiting for its box, or its instance is being made.
+	// Waiting for its box, or its instance is being made. A boost not READY
+	// within its target's boost_start_timeout of being made is FAILED, and
+	// so is one whose box failed.
 	BoostPhase_BOOST_PHASE_PENDING BoostPhase = 1
 	// Its instance is starting, or the box's checkouts, secret files and
 	// setup steps are being made in it.
 	BoostPhase_BOOST_PHASE_STARTING BoostPhase = 2
 	// Processes run on it.
 	BoostPhase_BOOST_PHASE_READY BoostPhase = 3
-	// It cannot be made; the Ready condition says why. It is deleted as an
-	// idle one is.
+	// It cannot be made, or did not start in time; the Ready condition says
+	// why. Its instance is deleted and its room freed at once; the box's
+	// next boosted start replaces it, and it is deleted as an idle one is.
 	BoostPhase_BOOST_PHASE_FAILED BoostPhase = 4
 )
 

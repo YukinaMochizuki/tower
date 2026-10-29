@@ -77,6 +77,11 @@ const (
 	// DefaultBoostIdle is how long a boost nothing runs on is kept; the
 	// boost sizes' defaults are in boostsize.go.
 	DefaultBoostIdle = 10 * time.Minute
+	// DefaultBoostStartTimeout is how long a boost may take to be READY: a
+	// devcontainer's four setup steps (onCreate, updateContent, postCreate,
+	// postStart) at setupStepTimeout each, and 3 minutes for its instance's
+	// start and the box's checkouts.
+	DefaultBoostStartTimeout = 4*setupStepTimeout + 3*time.Minute
 )
 
 // DefaultHangarBoxMemory is a box's memory on a hangar target, where a
@@ -129,7 +134,7 @@ type settings struct {
 	// A boost's default size, the largest one, what all of the target's
 	// may hold, and how long one nothing runs on is kept.
 	boostResources, boostMax, boostBudget boostSize
-	boostIdle                             time.Duration
+	boostIdle, boostStartTimeout          time.Duration
 }
 
 func settingsOf(t *targetsv1alpha1.Target) settings {
@@ -142,7 +147,7 @@ func settingsOf(t *targetsv1alpha1.Target) settings {
 		workspaceGrowThreshold: DefaultBoxWorkspaceDiskGrowThreshold, workspaceGrowStep: DefaultBoxWorkspaceDiskGrowStep,
 		rootGrowThreshold: DefaultBoxRootDiskGrowThreshold, rootGrowStep: DefaultBoxRootDiskGrowStep,
 		boostResources: defaultBoostResources, boostMax: defaultBoostMax, boostBudget: defaultBoostBudget,
-		boostIdle: DefaultBoostIdle,
+		boostIdle: DefaultBoostIdle, boostStartTimeout: DefaultBoostStartTimeout,
 	}
 	// Read as a whole, as validateTarget checks them: one setting that
 	// does not hold with the others leaves all of them tower's.
@@ -152,6 +157,9 @@ func settingsOf(t *targetsv1alpha1.Target) settings {
 		s.boostBudget, _ = readBoostSetting(set.GetBoostBudget(), defaultBoostBudget)
 		if d := set.GetBoostIdle(); d != nil && d.AsDuration() > 0 {
 			s.boostIdle = d.AsDuration()
+		}
+		if d := set.GetBoostStartTimeout(); d != nil && d.AsDuration() > 0 {
+			s.boostStartTimeout = d.AsDuration()
 		}
 	}
 	for _, q := range []struct {

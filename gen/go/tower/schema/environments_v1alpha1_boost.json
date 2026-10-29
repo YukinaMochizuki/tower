@@ -55,7 +55,7 @@
           ]
         },
         "phase": {
-          "description": "BoostPhase is where a boost is in its life.\n\n- BOOST_PHASE_PENDING: Waiting for its box, or its instance is being made.\n- BOOST_PHASE_STARTING: Its instance is starting, or the box's checkouts, secret files and setup steps are being made in it.\n- BOOST_PHASE_READY: Processes run on it.\n- BOOST_PHASE_FAILED: It cannot be made; the Ready condition says why. It is deleted as an idle one is.",
+          "description": "BoostPhase is where a boost is in its life.\n\n- BOOST_PHASE_PENDING: Waiting for its box, or its instance is being made. A boost not READY within its target's boost_start_timeout of being made is FAILED, and so is one whose box failed.\n- BOOST_PHASE_STARTING: Its instance is starting, or the box's checkouts, secret files and setup steps are being made in it.\n- BOOST_PHASE_READY: Processes run on it.\n- BOOST_PHASE_FAILED: It cannot be made, or did not start in time; the Ready condition says why. Its instance is deleted and its room freed at once; the box's next boosted start replaces it, and it is deleted as an idle one is.",
           "enum": [
             "BOOST_PHASE_PENDING",
             "BOOST_PHASE_STARTING",

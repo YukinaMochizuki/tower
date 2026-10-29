@@ -153,17 +153,16 @@ func (h environmentService) AttachProcess(ctx context.Context, req *connect.Requ
 		if err != nil {
 			return err
 		}
-		_, live, err := h.s.liveBoost(ctx, e, bp)
+		live, err := h.s.liveInstanceOf(ctx, e.key.Project, bp)
 		if err != nil {
 			return apiError(err)
 		}
 		if !live {
-			// Its boost is deleted, its output with it: its exit, as kept.
-			if bp.Exit == nil {
-				return failedPrecondition("process %q ran on %s's boost, deleted since before its exit was read", pid, e)
-			}
+			// Its boost's instance is gone, its output with it: its exit as
+			// kept, or lost.
+			p := listedProcess{Process: provider.Process{Exit: bp.Exit}, lost: bp.Exit == nil}
 			return stream.Send(&envv1alpha1.AttachProcessResponse{Response: &envv1alpha1.AttachProcessResponse_End{End: &envv1alpha1.ProcessEnd{
-				HeldFrom: m.GetOffset(), NextOffset: m.GetOffset(), Exit: processExit(bp.Exit),
+				HeldFrom: m.GetOffset(), NextOffset: m.GetOffset(), Exit: p.exit(),
 			}}})
 		}
 		ref, pid = provider.Instance{Project: e.key.Project, Name: bp.Instance}, bp.ProviderID
@@ -210,7 +209,7 @@ func (h environmentService) SignalProcess(ctx context.Context, req *connect.Requ
 		if err != nil {
 			return nil, err
 		}
-		_, live, err := h.s.liveBoost(ctx, e, bp)
+		live, err := h.s.liveInstanceOf(ctx, e.key.Project, bp)
 		if err != nil {
 			return nil, apiError(err)
 		}
@@ -249,7 +248,7 @@ func (h environmentService) ListProcesses(ctx context.Context, req *connect.Requ
 			cmd = p.Command[0]
 		}
 		res.Processes = append(res.Processes, &envv1alpha1.ProcessInfo{
-			Process: p.ID, Name: p.Name, Command: cmd, StartTime: timestamppb.New(p.Started), Running: p.Exit == nil, Exit: processExit(p.Exit),
+			Process: p.ID, Name: p.Name, Command: cmd, StartTime: timestamppb.New(p.Started), Running: p.running(), Exit: p.exit(),
 			RanOn: p.at.proto(),
 		})
 	}

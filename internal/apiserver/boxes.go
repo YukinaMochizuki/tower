@@ -500,9 +500,11 @@ func fellBack(st *envv1alpha1.BoxStatus) bool {
 // makeBoxInstance makes the box's instance (boxInstanceSpec).
 func (s *Server) makeBoxInstance(ctx context.Context, key controller.Key, box *envv1alpha1.Box, p provider.Provider, target *targetsv1alpha1.Target, img *envv1alpha1.Golden, name string, bs *boxState) error {
 	st, spec := bs.st, box.GetSpec()
-	is, warm, err := s.boxInstanceSpec(ctx, key, box, p, target, img, spec.GetResources())
+	is, warm, err := s.boxInstanceSpec(ctx, key, box, p, target, img, spec.GetResources(), "")
+	if errors.Is(err, errImageEnv) {
+		bs.cond(BoxReady, false, "ImageUnresolved", "reading its image's environment, retried: "+strings.TrimPrefix(err.Error(), errImageEnv.Error()+": "))
+	}
 	if err != nil {
-		bs.cond(BoxReady, false, "ImageUnresolved", "reading its image's environment, retried: "+err.Error())
 		return err
 	}
 	is.Alias, is.RunState = key.Name, envv1alpha1.RunState_RUN_STATE_RUNNING
@@ -522,17 +524,31 @@ func (s *Server) makeBoxInstance(ctx context.Context, key controller.Key, box *e
 	return nil
 }
 
+// errImageEnv is an error reading the environment of a box's image.
+var errImageEnv = errors.New("reading its image's environment")
+
 // boxInstanceSpec is the spec of an instance of the box's, of resources,
 // the box's own or its boost's: from its image img, with its disk cloned
-// from its first repository's warm golden when one is ready, its disks as
-// its target grows them (boxDisks), its caches in /workspace (boxEnv), on
-// its workstream's network. The caller names it there (alias) and says
-// whether it runs. It returns the warm golden, "" for none, and records
-// the goldens' use.
-func (s *Server) boxInstanceSpec(ctx context.Context, key controller.Key, box *envv1alpha1.Box, p provider.Provider, target *targetsv1alpha1.Target, img *envv1alpha1.Golden, resources *envv1alpha1.Resources) (*envv1alpha1.InstanceSpec, string, error) {
+// from its first repository's warm golden, its disks as its target grows
+// them (boxDisks), its caches in /workspace (boxEnv), on its workstream's
+// network. The warm golden is warm when it is still ready (a boost's is
+// its box's), else the newest ready one (readyWarm), else none. The
+// caller names it there (alias) and says whether it runs. It returns the
+// warm golden, "" for none, and records the goldens' use; an error
+// reading the image's environment is errImageEnv.
+func (s *Server) boxInstanceSpec(ctx context.Context, key controller.Key, box *envv1alpha1.Box, p provider.Provider, target *targetsv1alpha1.Target, img *envv1alpha1.Golden, resources *envv1alpha1.Resources, warm string) (*envv1alpha1.InstanceSpec, string, error) {
 	spec, tname := box.GetSpec(), target.GetMetadata().GetName()
-	warm := ""
-	if cs := spec.GetCheckouts(); len(cs) > 0 {
+	if warm != "" {
+		g, ok, err := s.liveGolden(ctx, key.Project, warm)
+		if err != nil {
+			return nil, "", err
+		}
+		if !ok || goldenPhase(g) != envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY || dropped(g) ||
+			g.GetSpec().GetTarget() != tname || g.GetSpec().GetParent() != img.GetMetadata().GetName() {
+			warm = ""
+		}
+	}
+	if cs := spec.GetCheckouts(); len(cs) > 0 && warm == "" {
 		var err error
 		if warm, err = s.readyWarm(ctx, key.Project, cs[0].GetRepository(), tname, img.GetMetadata().GetName()); err != nil {
 			return nil, "", err
@@ -555,7 +571,7 @@ func (s *Server) boxInstanceSpec(ctx context.Context, key controller.Key, box *e
 	}
 	env, err := imageBoxEnv(ctx, p, img.GetStatus().GetArtifact(), build.Env)
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("%w: %w", errImageEnv, err)
 	}
 	res, growth := boxDisks(target, resources)
 	return &envv1alpha1.InstanceSpec{
@@ -620,7 +636,7 @@ func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *en
 		if done, err := s.instanceMarked(ctx, key.Project, ref.Name, materializedAnnotation); err != nil || done {
 			return err
 		}
-		if err := s.materializeInstance(ctx, p, key, box, ref, target); err != nil {
+		if err := s.materializeInstance(ctx, p, key, box, ref, target, false); err != nil {
 			return err
 		}
 		if err := s.annotateInstance(ctx, key.Project, ref.Name, materializedAnnotation, "true"); err != nil {
@@ -633,9 +649,9 @@ func (s *Server) materializeBox(ctx context.Context, key controller.Key, box *en
 
 // materializeInstance checks the box's repositories out in ref, an
 // instance of the box's on target, its own or its boost, and runs its
-// devcontainer's setup steps there, marking the instance with when they
-// started and ended.
-func (s *Server) materializeInstance(ctx context.Context, p provider.Provider, key controller.Key, box *envv1alpha1.Box, ref provider.Instance, target string) error {
+// devcontainer's setup steps there; timed marks the instance with when
+// they started and ended, as a boost's status says them.
+func (s *Server) materializeInstance(ctx context.Context, p provider.Provider, key controller.Key, box *envv1alpha1.Box, ref provider.Instance, target string, timed bool) error {
 	checkouts := box.GetSpec().GetCheckouts()
 	var first string
 	for i, c := range checkouts {
@@ -671,13 +687,19 @@ func (s *Server) materializeInstance(ctx context.Context, p provider.Provider, k
 	if len(checkouts) == 0 {
 		return nil
 	}
-	if err := s.annotateInstance(ctx, key.Project, ref.Name, setupStartedAnnotation, s.clock.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	mark := func(k string) error {
+		if !timed {
+			return nil
+		}
+		return s.annotateInstance(ctx, key.Project, ref.Name, k, s.clock.Now().UTC().Format(time.RFC3339Nano))
+	}
+	if err := mark(setupStartedAnnotation); err != nil {
 		return err
 	}
 	if err := s.setUpBox(ctx, p, key, box, ref, mirrorName(key.Project, checkouts[0].GetRepository()), first); err != nil {
 		return err
 	}
-	return s.annotateInstance(ctx, key.Project, ref.Name, setupEndedAnnotation, s.clock.Now().UTC().Format(time.RFC3339Nano))
+	return mark(setupEndedAnnotation)
 }
 
 // boxStep is one of the box's instance steps, in its instance's run.

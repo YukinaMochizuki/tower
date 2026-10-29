@@ -427,9 +427,14 @@ type TargetSettings struct {
 	BoostBudget *BoostSize `protobuf:"bytes,18,opt,name=boost_budget,json=boostBudget,proto3" json:"boost_budget,omitempty"`
 	// A boost nothing has run on for this long is deleted, freeing its cpu,
 	// memory and disk; unset, 10 minutes.
-	BoostIdle     *durationpb.Duration `protobuf:"bytes,19,opt,name=boost_idle,json=boostIdle,proto3" json:"boost_idle,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	BoostIdle *durationpb.Duration `protobuf:"bytes,19,opt,name=boost_idle,json=boostIdle,proto3" json:"boost_idle,omitempty"`
+	// How long a boost may take from being made to READY; past it, it is
+	// FAILED and its room freed. Unset, 15 minutes: a devcontainer's four
+	// setup steps at their 3-minute bound each, and 3 minutes for the
+	// instance's start and the box's checkouts.
+	BoostStartTimeout *durationpb.Duration `protobuf:"bytes,20,opt,name=boost_start_timeout,json=boostStartTimeout,proto3" json:"boost_start_timeout,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *TargetSettings) Reset() {
@@ -591,6 +596,13 @@ func (x *TargetSettings) GetBoostBudget() *BoostSize {
 func (x *TargetSettings) GetBoostIdle() *durationpb.Duration {
 	if x != nil {
 		return x.BoostIdle
+	}
+	return nil
+}
+
+func (x *TargetSettings) GetBoostStartTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.BoostStartTimeout
 	}
 	return nil
 }
@@ -1797,7 +1809,7 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\x0fBaseImagesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\r\n" +
-	"\vHostdTarget\"\xe6\b\n" +
+	"\vHostdTarget\"\xb1\t\n" +
 	"\x0eTargetSettings\x12A\n" +
 	"\x0fidle_stop_after\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\ridleStopAfter\x12\x1f\n" +
 	"\vwarm_budget\x18\x02 \x01(\tR\n" +
@@ -1823,7 +1835,8 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\tboost_max\x18\x11 \x01(\v2!.tower.targets.v1alpha1.BoostSizeR\bboostMax\x12D\n" +
 	"\fboost_budget\x18\x12 \x01(\v2!.tower.targets.v1alpha1.BoostSizeR\vboostBudget\x128\n" +
 	"\n" +
-	"boost_idle\x18\x13 \x01(\v2\x19.google.protobuf.DurationR\tboostIdle\"5\n" +
+	"boost_idle\x18\x13 \x01(\v2\x19.google.protobuf.DurationR\tboostIdle\x12I\n" +
+	"\x13boost_start_timeout\x18\x14 \x01(\v2\x19.google.protobuf.DurationR\x11boostStartTimeout\"5\n" +
 	"\tBoostSize\x12\x10\n" +
 	"\x03cpu\x18\x01 \x01(\tR\x03cpu\x12\x16\n" +
 	"\x06memory\x18\x02 \x01(\tR\x06memory\"Q\n" +
@@ -1985,39 +1998,40 @@ var file_tower_targets_v1alpha1_target_proto_depIdxs = []int32{
 	5,  // 13: tower.targets.v1alpha1.TargetSettings.boost_max:type_name -> tower.targets.v1alpha1.BoostSize
 	5,  // 14: tower.targets.v1alpha1.TargetSettings.boost_budget:type_name -> tower.targets.v1alpha1.BoostSize
 	27, // 15: tower.targets.v1alpha1.TargetSettings.boost_idle:type_name -> google.protobuf.Duration
-	28, // 16: tower.targets.v1alpha1.TargetStatus.conditions:type_name -> tower.meta.v1.Condition
-	29, // 17: tower.targets.v1alpha1.TargetStatus.last_report_time:type_name -> google.protobuf.Timestamp
-	8,  // 18: tower.targets.v1alpha1.TargetStatus.capacity:type_name -> tower.targets.v1alpha1.Capacity
-	9,  // 19: tower.targets.v1alpha1.TargetStatus.usage:type_name -> tower.targets.v1alpha1.Usage
-	10, // 20: tower.targets.v1alpha1.TargetStatus.counts:type_name -> tower.targets.v1alpha1.Counts
-	11, // 21: tower.targets.v1alpha1.TargetStatus.facts:type_name -> tower.targets.v1alpha1.Fact
-	25, // 22: tower.targets.v1alpha1.Counts.instances:type_name -> tower.targets.v1alpha1.Counts.InstancesEntry
-	0,  // 23: tower.targets.v1alpha1.GetTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
-	0,  // 24: tower.targets.v1alpha1.ListTargetsResponse.items:type_name -> tower.targets.v1alpha1.Target
-	30, // 25: tower.targets.v1alpha1.WatchTargetsResponse.type:type_name -> tower.meta.v1.EventType
-	0,  // 26: tower.targets.v1alpha1.WatchTargetsResponse.target:type_name -> tower.targets.v1alpha1.Target
-	0,  // 27: tower.targets.v1alpha1.ApplyTargetRequest.target:type_name -> tower.targets.v1alpha1.Target
-	0,  // 28: tower.targets.v1alpha1.ApplyTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
-	0,  // 29: tower.targets.v1alpha1.DeleteTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
-	7,  // 30: tower.targets.v1alpha1.UpdateTargetStatusRequest.status:type_name -> tower.targets.v1alpha1.TargetStatus
-	0,  // 31: tower.targets.v1alpha1.UpdateTargetStatusResponse.target:type_name -> tower.targets.v1alpha1.Target
-	12, // 32: tower.targets.v1alpha1.TargetService.GetTarget:input_type -> tower.targets.v1alpha1.GetTargetRequest
-	14, // 33: tower.targets.v1alpha1.TargetService.ListTargets:input_type -> tower.targets.v1alpha1.ListTargetsRequest
-	16, // 34: tower.targets.v1alpha1.TargetService.WatchTargets:input_type -> tower.targets.v1alpha1.WatchTargetsRequest
-	18, // 35: tower.targets.v1alpha1.TargetService.ApplyTarget:input_type -> tower.targets.v1alpha1.ApplyTargetRequest
-	20, // 36: tower.targets.v1alpha1.TargetService.DeleteTarget:input_type -> tower.targets.v1alpha1.DeleteTargetRequest
-	22, // 37: tower.targets.v1alpha1.TargetService.UpdateTargetStatus:input_type -> tower.targets.v1alpha1.UpdateTargetStatusRequest
-	13, // 38: tower.targets.v1alpha1.TargetService.GetTarget:output_type -> tower.targets.v1alpha1.GetTargetResponse
-	15, // 39: tower.targets.v1alpha1.TargetService.ListTargets:output_type -> tower.targets.v1alpha1.ListTargetsResponse
-	17, // 40: tower.targets.v1alpha1.TargetService.WatchTargets:output_type -> tower.targets.v1alpha1.WatchTargetsResponse
-	19, // 41: tower.targets.v1alpha1.TargetService.ApplyTarget:output_type -> tower.targets.v1alpha1.ApplyTargetResponse
-	21, // 42: tower.targets.v1alpha1.TargetService.DeleteTarget:output_type -> tower.targets.v1alpha1.DeleteTargetResponse
-	23, // 43: tower.targets.v1alpha1.TargetService.UpdateTargetStatus:output_type -> tower.targets.v1alpha1.UpdateTargetStatusResponse
-	38, // [38:44] is the sub-list for method output_type
-	32, // [32:38] is the sub-list for method input_type
-	32, // [32:32] is the sub-list for extension type_name
-	32, // [32:32] is the sub-list for extension extendee
-	0,  // [0:32] is the sub-list for field type_name
+	27, // 16: tower.targets.v1alpha1.TargetSettings.boost_start_timeout:type_name -> google.protobuf.Duration
+	28, // 17: tower.targets.v1alpha1.TargetStatus.conditions:type_name -> tower.meta.v1.Condition
+	29, // 18: tower.targets.v1alpha1.TargetStatus.last_report_time:type_name -> google.protobuf.Timestamp
+	8,  // 19: tower.targets.v1alpha1.TargetStatus.capacity:type_name -> tower.targets.v1alpha1.Capacity
+	9,  // 20: tower.targets.v1alpha1.TargetStatus.usage:type_name -> tower.targets.v1alpha1.Usage
+	10, // 21: tower.targets.v1alpha1.TargetStatus.counts:type_name -> tower.targets.v1alpha1.Counts
+	11, // 22: tower.targets.v1alpha1.TargetStatus.facts:type_name -> tower.targets.v1alpha1.Fact
+	25, // 23: tower.targets.v1alpha1.Counts.instances:type_name -> tower.targets.v1alpha1.Counts.InstancesEntry
+	0,  // 24: tower.targets.v1alpha1.GetTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
+	0,  // 25: tower.targets.v1alpha1.ListTargetsResponse.items:type_name -> tower.targets.v1alpha1.Target
+	30, // 26: tower.targets.v1alpha1.WatchTargetsResponse.type:type_name -> tower.meta.v1.EventType
+	0,  // 27: tower.targets.v1alpha1.WatchTargetsResponse.target:type_name -> tower.targets.v1alpha1.Target
+	0,  // 28: tower.targets.v1alpha1.ApplyTargetRequest.target:type_name -> tower.targets.v1alpha1.Target
+	0,  // 29: tower.targets.v1alpha1.ApplyTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
+	0,  // 30: tower.targets.v1alpha1.DeleteTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
+	7,  // 31: tower.targets.v1alpha1.UpdateTargetStatusRequest.status:type_name -> tower.targets.v1alpha1.TargetStatus
+	0,  // 32: tower.targets.v1alpha1.UpdateTargetStatusResponse.target:type_name -> tower.targets.v1alpha1.Target
+	12, // 33: tower.targets.v1alpha1.TargetService.GetTarget:input_type -> tower.targets.v1alpha1.GetTargetRequest
+	14, // 34: tower.targets.v1alpha1.TargetService.ListTargets:input_type -> tower.targets.v1alpha1.ListTargetsRequest
+	16, // 35: tower.targets.v1alpha1.TargetService.WatchTargets:input_type -> tower.targets.v1alpha1.WatchTargetsRequest
+	18, // 36: tower.targets.v1alpha1.TargetService.ApplyTarget:input_type -> tower.targets.v1alpha1.ApplyTargetRequest
+	20, // 37: tower.targets.v1alpha1.TargetService.DeleteTarget:input_type -> tower.targets.v1alpha1.DeleteTargetRequest
+	22, // 38: tower.targets.v1alpha1.TargetService.UpdateTargetStatus:input_type -> tower.targets.v1alpha1.UpdateTargetStatusRequest
+	13, // 39: tower.targets.v1alpha1.TargetService.GetTarget:output_type -> tower.targets.v1alpha1.GetTargetResponse
+	15, // 40: tower.targets.v1alpha1.TargetService.ListTargets:output_type -> tower.targets.v1alpha1.ListTargetsResponse
+	17, // 41: tower.targets.v1alpha1.TargetService.WatchTargets:output_type -> tower.targets.v1alpha1.WatchTargetsResponse
+	19, // 42: tower.targets.v1alpha1.TargetService.ApplyTarget:output_type -> tower.targets.v1alpha1.ApplyTargetResponse
+	21, // 43: tower.targets.v1alpha1.TargetService.DeleteTarget:output_type -> tower.targets.v1alpha1.DeleteTargetResponse
+	23, // 44: tower.targets.v1alpha1.TargetService.UpdateTargetStatus:output_type -> tower.targets.v1alpha1.UpdateTargetStatusResponse
+	39, // [39:45] is the sub-list for method output_type
+	33, // [33:39] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_tower_targets_v1alpha1_target_proto_init() }

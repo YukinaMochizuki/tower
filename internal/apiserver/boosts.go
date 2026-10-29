@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,9 +37,15 @@ const (
 )
 
 const (
+	// boostExitsFinalizer holds a boost being deleted until the exits of
+	// its processes are kept (finishBoost), whoever deleted it.
+	boostExitsFinalizer = registry.Domain + "/boost-exits"
+	// boostImageGoldenAnnotation names, on a boost's instance, the image
+	// golden it was made of.
+	boostImageGoldenAnnotation = registry.Domain + "/image-golden"
 	// boostTicketTTL is how long a pending start's ticket is kept unless
 	// asked about again: a caller gone away holds no place.
-	boostTicketTTL = 2 * time.Minute
+	boostTicketTTL = 5 * time.Minute
 	// boostResync is how often every boost is looked at again, which is
 	// how soon after boost_idle an idle one goes.
 	boostResync = 30 * time.Second
@@ -58,8 +66,10 @@ type boostTicket struct {
 	box        controller.Key
 	workstream string
 	size       boostSize
-	// arrived orders the queue; seen is when it was last asked about.
+	// arrived orders the queue, arrival numbering it in the order made;
+	// seen is when it was last asked about.
 	arrived, seen time.Time
+	arrival       uint64
 	// admitted says its box's boost is made for it: it waits for the
 	// boost, no longer for room.
 	admitted bool
@@ -83,10 +93,14 @@ type targetBoosts struct {
 	tickets map[string]*boostTicket
 	// last is the workstream admitted last, whose turn comes last.
 	last string
+	// arrivals numbers the tickets in the order made.
+	arrivals uint64
 	// starting counts each box's processes being started on its boost.
 	starting map[controller.Key]int
-	// used is when a process last started on each box's boost.
-	used map[controller.Key]time.Time
+	// used is when a process last started on each box's boost, and starts
+	// counts them: a retire sees a start since it read the boost's exits.
+	used   map[controller.Key]time.Time
+	starts map[controller.Key]uint64
 }
 
 func (q *boostQueues) of(target string) *targetBoosts {
@@ -97,7 +111,7 @@ func (q *boostQueues) of(target string) *targetBoosts {
 	}
 	t, ok := q.targets[target]
 	if !ok {
-		t = &targetBoosts{tickets: map[string]*boostTicket{}, starting: map[controller.Key]int{}, used: map[controller.Key]time.Time{}}
+		t = &targetBoosts{tickets: map[string]*boostTicket{}, starting: map[controller.Key]int{}, used: map[controller.Key]time.Time{}, starts: map[controller.Key]uint64{}}
 		q.targets[target] = t
 	}
 	return t
@@ -136,7 +150,7 @@ func (t *targetBoosts) order() []*boostTicket {
 			byWS[tk.workstream] = append(byWS[tk.workstream], tk)
 		}
 	}
-	first := func(a, b *boostTicket) int { return cmp.Or(a.arrived.Compare(b.arrived), cmp.Compare(a.id, b.id)) }
+	first := func(a, b *boostTicket) int { return cmp.Or(a.arrived.Compare(b.arrived), cmp.Compare(a.arrival, b.arrival)) }
 	var wss []string
 	for ws, tks := range byWS {
 		slices.SortFunc(tks, first)
@@ -193,8 +207,9 @@ func boostAsk(in *envv1alpha1.BoostIntent, set settings) (boostSize, error) {
 // what its Plan has left, which counts the boosts running already.
 type boostRoom struct {
 	budget, held boostSize
-	// quota is what the Plan has left of each, less the boosts made since
-	// the target last reported; hasCPU and hasMemory say it is known.
+	// quota is what the Plan has left of each, as the target reports it,
+	// less the boosts it does not count yet; hasCPU and hasMemory say it is
+	// known.
 	quota             boostSize
 	hasCPU, hasMemory bool
 }
@@ -220,17 +235,43 @@ func (r *boostRoom) give(size boostSize) {
 	r.held, r.quota = r.held.minus(size), r.quota.plus(size)
 }
 
-// targetBoostsOf lists the boosts on target.
-func (s *Server) targetBoostsOf(ctx context.Context, target string) ([]*envv1alpha1.Boost, error) {
-	all, err := listTyped[*envv1alpha1.Boost](ctx, s, registry.Boost, "")
-	if err != nil {
-		return nil, err
-	}
-	return slices.DeleteFunc(all, func(b *envv1alpha1.Boost) bool { return b.GetSpec().GetTarget() != target }), nil
+// boostsNow are the boosts on a target as admission reads them, and
+// which of them its Plan's report counts, their instance RUNNING.
+type boostsNow struct {
+	boosts  []*envv1alpha1.Boost
+	counted map[string]bool
 }
 
-// roomOf is what t has for boosts beside boosts.
-func roomOf(t *targetsv1alpha1.Target, boosts []*envv1alpha1.Boost) boostRoom {
+// holds says b holds room: a FAILED boost's instance is let go, and its
+// room with it.
+func holds(b *envv1alpha1.Boost) bool {
+	return b.GetStatus().GetPhase() != envv1alpha1.BoostPhase_BOOST_PHASE_FAILED
+}
+
+// boostsOnTargetNow lists the boosts on target, and which its Plan's
+// report counts: hangar counts a machine's cpu and memory once it runs.
+func (s *Server) boostsOnTargetNow(ctx context.Context, target string) (boostsNow, error) {
+	all, err := listTyped[*envv1alpha1.Boost](ctx, s, registry.Boost, "")
+	if err != nil {
+		return boostsNow{}, err
+	}
+	v := boostsNow{counted: map[string]bool{}}
+	for _, b := range all {
+		if b.GetSpec().GetTarget() != target {
+			continue
+		}
+		v.boosts = append(v.boosts, b)
+		in, ok, err := getTyped[*envv1alpha1.Instance](ctx, s, registry.Instance, resource.Key{Project: b.GetMetadata().GetProject(), Name: boostInstanceName(b.GetMetadata().GetName())})
+		if err != nil {
+			return boostsNow{}, err
+		}
+		v.counted[b.GetMetadata().GetUid()] = ok && owns(registry.Boost, b, in) && in.GetStatus().GetPhase() == envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING
+	}
+	return v, nil
+}
+
+// quotaOf is the Plan's quota left as t reports it.
+func quotaOf(t *targetsv1alpha1.Target) boostRoom {
 	r := boostRoom{budget: settingsOf(t).boostBudget}
 	capacity := t.GetStatus().GetCapacity()
 	if v := capacity.GetCpuFree(); v != "" {
@@ -243,13 +284,34 @@ func roomOf(t *targetsv1alpha1.Target, boosts []*envv1alpha1.Boost) boostRoom {
 			r.quota.memory, r.hasMemory = b, true
 		}
 	}
-	reported := t.GetStatus().GetLastReportTime().AsTime()
-	for _, b := range boosts {
+	return r
+}
+
+// roomOf is what t has for boosts beside v's: each that holds room counts
+// against the budget, and against the quota unless the report counts it
+// already.
+func roomOf(t *targetsv1alpha1.Target, v boostsNow) boostRoom {
+	r := quotaOf(t)
+	for _, b := range v.boosts {
+		if !holds(b) {
+			continue
+		}
 		size := boostSizeOf(b.GetSpec().GetResources())
 		r.held = r.held.plus(size)
-		// Made since the report, which does not count it yet.
-		if b.GetMetadata().GetCreateTime().AsTime().After(reported) {
+		if !v.counted[b.GetMetadata().GetUid()] {
 			r.quota = r.quota.minus(size)
+		}
+	}
+	return r
+}
+
+// emptyRoomOf is what t would have with none of v's boosts: what a boost
+// that does not fit even then waits for in vain.
+func emptyRoomOf(t *targetsv1alpha1.Target, v boostsNow) boostRoom {
+	r := quotaOf(t)
+	for _, b := range v.boosts {
+		if v.counted[b.GetMetadata().GetUid()] {
+			r.quota = r.quota.plus(boostSizeOf(b.GetSpec().GetResources()))
 		}
 	}
 	return r
@@ -257,7 +319,8 @@ func roomOf(t *targetsv1alpha1.Target, boosts []*envv1alpha1.Boost) boostRoom {
 
 // admitBoosts makes the boosts of the target's queued tickets that fit,
 // in their order, and stops at the first that does not: one large boost
-// is not passed by smaller ones forever. Held tq.mu.
+// is not passed by smaller ones forever. A workstream's turn is spent
+// only on a boost made. Held tq.mu.
 func (s *Server) admitBoosts(ctx context.Context, t *targetsv1alpha1.Target, tq *targetBoosts) error {
 	now := s.clock.Now()
 	tq.prune(now)
@@ -266,67 +329,78 @@ func (s *Server) admitBoosts(ctx context.Context, t *targetsv1alpha1.Target, tq 
 		return nil
 	}
 	target := t.GetMetadata().GetName()
-	boosts, err := s.targetBoostsOf(ctx, target)
+	v, err := s.boostsOnTargetNow(ctx, target)
 	if err != nil {
 		return err
 	}
-	room := roomOf(t, boosts)
+	room := roomOf(t, v)
 	for _, tk := range order {
-		if slices.ContainsFunc(boosts, func(b *envv1alpha1.Boost) bool {
+		if slices.ContainsFunc(v.boosts, func(b *envv1alpha1.Boost) bool {
 			return b.GetMetadata().GetProject() == tk.box.Project && b.GetMetadata().GetName() == tk.box.Name
 		}) {
-			// Its box's boost, too small, is going: admitted once gone.
+			// Its box's boost, too small or failed, is going: admitted once
+			// gone.
 			continue
 		}
 		if !room.fits(tk.size) {
 			return nil
 		}
-		made, err := s.makeBoost(ctx, target, tk)
+		made, gone, err := s.makeBoost(ctx, target, tk)
 		if err != nil {
 			return err
 		}
-		if made {
+		switch {
+		case gone:
+			delete(tq.tickets, tk.id)
+		case made:
 			room.take(tk.size)
+			tk.admitted, tq.last = true, tk.workstream
+		default:
+			// Made since it was listed, by another start of its box.
+			tk.admitted = true
 		}
-		tk.admitted, tq.last = true, tk.workstream
 	}
 	return nil
 }
 
-// makeBoost makes the Boost of tk's box, reporting false if its box is
-// gone.
-func (s *Server) makeBoost(ctx context.Context, target string, tk *boostTicket) (bool, error) {
+// makeBoost makes the Boost of tk's box: made, or gone when its box is.
+func (s *Server) makeBoost(ctx context.Context, target string, tk *boostTicket) (made, gone bool, err error) {
 	box, ok, err := getTyped[*envv1alpha1.Box](ctx, s, registry.Box, resource.Key{Project: tk.box.Project, Name: tk.box.Name})
-	if err != nil || !ok || box.GetMetadata().GetDeleteTime() != nil {
-		return false, err
+	if err != nil {
+		return false, false, err
+	}
+	if !ok || box.GetMetadata().GetDeleteTime() != nil {
+		return false, true, nil
 	}
 	_, err = s.backend(registry.Boost).Create(s.system(ctx), &envv1alpha1.Boost{
 		Metadata: &metav1.ObjectMeta{Project: tk.box.Project, Name: tk.box.Name, OwnerReferences: []*metav1.OwnerReference{ownedBy(registry.Box, box)}},
 		Spec:     &envv1alpha1.BoostSpec{Box: tk.box.Name, Resources: tk.size.resources(), Target: target},
 	})
 	if connect.CodeOf(err) == connect.CodeAlreadyExists {
-		return false, nil
+		return false, false, nil
 	}
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	s.log.Info("making a boost", "project", tk.box.Project, "box", tk.box.Name, "target", target, "size", tk.size.String(), "workstream", tk.workstream)
-	return true, nil
+	return true, false, nil
 }
 
 // estimateWait is about how long until tk's boost is made, as far as
 // what holds the target's room now says: each boost going boost_idle
 // after its last use (a running one at least that long from now), the
-// tickets before tk taking their room first. ok is false when it does
-// not fit even once every boost is gone. Held tq.mu.
-func (s *Server) estimateWait(t *targetsv1alpha1.Target, tq *targetBoosts, boosts []*envv1alpha1.Boost, order []*boostTicket, tk *boostTicket) (time.Duration, bool) {
+// tickets before tk taking their room first. Held tq.mu.
+func (s *Server) estimateWait(t *targetsv1alpha1.Target, tq *targetBoosts, v boostsNow, order []*boostTicket, tk *boostTicket) time.Duration {
 	now, idle := s.clock.Now(), settingsOf(t).boostIdle
 	type freeing struct {
 		at   time.Time
 		size boostSize
 	}
 	var frees []freeing
-	for _, b := range boosts {
+	for _, b := range v.boosts {
+		if !holds(b) {
+			continue
+		}
 		at := now
 		if lu := b.GetStatus().GetLastUseTime(); lu != nil && lu.AsTime().After(at) {
 			at = lu.AsTime()
@@ -338,12 +412,9 @@ func (s *Server) estimateWait(t *targetsv1alpha1.Target, tq *targetBoosts, boost
 		frees = append(frees, freeing{at: at.Add(idle), size: boostSizeOf(b.GetSpec().GetResources())})
 	}
 	slices.SortFunc(frees, func(a, b freeing) int { return a.at.Compare(b.at) })
-	room, when := roomOf(t, boosts), now
+	room, when := roomOf(t, v), now
 	for _, o := range order {
-		for !room.fits(o.size) {
-			if len(frees) == 0 {
-				return 0, false
-			}
+		for !room.fits(o.size) && len(frees) > 0 {
 			room.give(frees[0].size)
 			when = maxTime(when, frees[0].at)
 			frees = frees[1:]
@@ -353,18 +424,21 @@ func (s *Server) estimateWait(t *targetsv1alpha1.Target, tq *targetBoosts, boost
 			break
 		}
 	}
-	return when.Sub(now) + boostStartEstimate, true
+	return when.Sub(now) + boostStartEstimate
 }
 
 // boostsOnTarget maps a Target to the boosts on it, whose settings it
 // holds.
 func (s *Server) boostsOnTarget(ctx context.Context, o store.Object) []controller.Key {
-	boosts, err := s.targetBoostsOf(ctx, o.Name)
+	all, err := listTyped[*envv1alpha1.Boost](ctx, s, registry.Boost, "")
 	if err != nil {
 		return nil
 	}
-	keys := make([]controller.Key, 0, len(boosts))
-	for _, b := range boosts {
+	var keys []controller.Key
+	for _, b := range all {
+		if b.GetSpec().GetTarget() != o.Name {
+			continue
+		}
 		keys = append(keys, controller.Key{Project: b.GetMetadata().GetProject(), Name: b.GetMetadata().GetName()})
 	}
 	return keys
@@ -437,14 +511,28 @@ func (b boostState) not(phase envv1alpha1.BoostPhase, reason, msg string) {
 	b.cond(BoostReady, false, reason, msg)
 }
 
+// boostRetire is why a boost is to go, if it is: why, and whether it
+// goes whatever runs on it (its box stopped), its processes then lost.
+type boostRetire struct {
+	why   string
+	force bool
+}
+
 // reconcileBoost brings a boost along: its instance made as its box's is,
-// the box's secret files, checkouts and setup steps in it, then READY;
-// and it is deleted once nothing has run on it for boost_idle, or once
-// its box is stopped at workstream's request.
+// the box's secret files, checkouts and setup steps in it, then READY.
+// One not READY within boost_start_timeout, or whose box failed, is
+// FAILED, its instance deleted and its room freed. It is deleted once
+// nothing has run on it for boost_idle, or once its box is stopped at
+// workstream's request; and, deleted, its processes' exits are kept
+// before it goes (finishBoost).
 func (s *Server) reconcileBoost(ctx context.Context, key controller.Key) error {
 	b, ok, err := getTyped[*envv1alpha1.Boost](ctx, s, registry.Boost, resource.Key{Project: key.Project, Name: key.Name})
-	if err != nil || !ok || b.GetMetadata().GetDeleteTime() != nil {
+	if err != nil || !ok {
 		return err
+	}
+	if b.GetMetadata().GetDeleteTime() != nil {
+		s.finishBoost(key, b)
+		return nil
 	}
 	box, ok, err := getTyped[*envv1alpha1.Box](ctx, s, registry.Box, resource.Key{Project: key.Project, Name: b.GetSpec().GetBox()})
 	if err != nil || !ok || box.GetMetadata().GetDeleteTime() != nil || !owns(registry.Box, box, b) {
@@ -467,7 +555,7 @@ func (s *Server) reconcileBoost(ctx context.Context, key controller.Key) error {
 	if err := s.updateStatus(ctx, registry.Boost, b, st); err != nil {
 		return err
 	}
-	if retire != "" {
+	if retire.why != "" {
 		s.retireBoost(key, b, retire)
 	}
 	return waitErr
@@ -476,45 +564,102 @@ func (s *Server) reconcileBoost(ctx context.Context, key controller.Key) error {
 // boostSteps brings the boost along as far as it can go now, saying in
 // bs where it is; retire, when set, is why it is to go, and its error is
 // one to retry.
-func (s *Server) boostSteps(ctx context.Context, key controller.Key, b *envv1alpha1.Boost, box *envv1alpha1.Box, bs *boostState) (retire string, err error) {
+func (s *Server) boostSteps(ctx context.Context, key controller.Key, b *envv1alpha1.Boost, box *envv1alpha1.Box, bs *boostState) (boostRetire, error) {
 	st := bs.st
 	boxKey := controller.Key{Project: key.Project, Name: b.GetSpec().GetBox()}
 	if box.GetSpec().GetRunState() == envv1alpha1.RunState_RUN_STATE_STOPPED {
-		return "its box is stopped at workstream's request", nil
+		return boostRetire{why: "its box is stopped at workstream's request", force: true}, nil
+	}
+	fail := func(reason, msg string) {
+		if st.Phase != envv1alpha1.BoostPhase_BOOST_PHASE_FAILED {
+			s.log.Warn("a boost failed", "project", key.Project, "box", boxKey.Name, "reason", reason, "message", msg)
+			// boost_idle, after which it goes, counts from its failure.
+			st.LastUseTime = timestamppb.New(s.clock.Now())
+		}
+		st.ProcessesRunning = 0
+		bs.not(envv1alpha1.BoostPhase_BOOST_PHASE_FAILED, reason, msg)
 	}
 	target, live, err := s.liveTarget(ctx, b.GetSpec().GetTarget())
 	if err != nil {
-		return "", err
+		return boostRetire{}, err
 	}
 	if !live {
-		bs.not(envv1alpha1.BoostPhase_BOOST_PHASE_FAILED, "TargetGone", fmt.Sprintf("its target %q is gone", b.GetSpec().GetTarget()))
-		return "", nil
+		fail("TargetGone", fmt.Sprintf("its target %q is gone", b.GetSpec().GetTarget()))
+		return boostRetire{}, nil
 	}
 	set := settingsOf(target)
-	p, err := s.providerFor(target.GetMetadata().GetName())
-	if err != nil {
-		bs.cond(BoostReady, false, "TargetUnavailable", err.Error())
-		return "", fmt.Errorf("boost %s: %w: %w", key, controller.ErrWaiting, err)
-	}
 	name := boostInstanceName(key.Name)
 	in, ok, err := getTyped[*envv1alpha1.Instance](ctx, s, registry.Instance, resource.Key{Project: key.Project, Name: name})
 	if err != nil {
-		return "", err
+		return boostRetire{}, err
 	}
-	if ok && !owns(registry.Boost, b, in) {
+	mine := ok && owns(registry.Boost, b, in)
+
+	// FAILED is final: its instance goes at once, freeing its room, and it
+	// stays to say why until boost_idle passes or a boosted start of its
+	// box replaces it.
+	if st.Phase == envv1alpha1.BoostPhase_BOOST_PHASE_FAILED {
+		if mine {
+			s.dropBoostInstance(key, b, in)
+			return boostRetire{}, nil
+		}
+		return boostRetire{why: s.boostIdle(st, false, set.boostIdle)}, nil
+	}
+
+	// What it was made of, from the instance there is, whatever its status
+	// said before.
+	if mine {
+		st.Instance, st.Alias, st.WarmGolden = name, in.GetSpec().GetAlias(), in.GetSpec().GetDiskGolden()
+		st.ImageGolden = in.GetMetadata().GetAnnotations()[boostImageGoldenAnnotation]
+	}
+
+	// One not READY yet fails with its box, or past its start timeout,
+	// counted from when it last was not READY.
+	if st.Phase != envv1alpha1.BoostPhase_BOOST_PHASE_READY {
+		ready := conditions.Find(box.GetStatus().GetConditions(), BoxReady)
+		switch box.GetStatus().GetPhase() {
+		case envv1alpha1.BoxPhase_BOX_PHASE_FAILED:
+			fail("BoxFailed", "its box failed: "+ready.GetMessage())
+			return boostRetire{}, nil
+		case envv1alpha1.BoxPhase_BOX_PHASE_UNPLACED:
+			fail("BoxUnplaced", "its box's project has no Placement")
+			return boostRetire{}, nil
+		}
+		since := b.GetMetadata().GetCreateTime().AsTime()
+		if c := conditions.Find(st.GetConditions(), BoostReady); c.GetStatus() == metav1.ConditionStatus_CONDITION_STATUS_FALSE && c.GetLastTransitionTime() != nil {
+			since = c.GetLastTransitionTime().AsTime()
+		}
+		if s.clock.Since(since) >= set.boostStartTimeout {
+			msg := conditions.Find(st.GetConditions(), BoostReady).GetMessage()
+			fail("StartTimedOut", fmt.Sprintf("not READY within the target's boost_start_timeout (%s); it was: %s", set.boostStartTimeout, msg))
+			return boostRetire{}, nil
+		}
+	}
+
+	p, err := s.providerFor(target.GetMetadata().GetName())
+	if err != nil {
+		bs.cond(BoostReady, false, "TargetUnavailable", err.Error())
+		return boostRetire{}, fmt.Errorf("boost %s: %w: %w", key, controller.ErrWaiting, err)
+	}
+	if ok && !mine {
 		// An earlier boost's, which goes with it.
 		bs.not(envv1alpha1.BoostPhase_BOOST_PHASE_PENDING, "Pending", "the box's earlier boost's instance is still going")
-		return "", nil
+		return boostRetire{}, nil
 	}
 	if ok && in.GetStatus().GetPhase() == envv1alpha1.InstancePhase_INSTANCE_PHASE_GONE {
-		if _, err := s.backend(registry.Instance).Delete(s.system(ctx), resource.Key{Project: key.Project, Name: name}, nil); err != nil && !isNotFound(err) {
-			return "", err
+		// Its processes went with it, their exits unread.
+		if err := changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool { return r.instanceGone(in.GetMetadata().GetUid()) }); err != nil {
+			return boostRetire{}, err
 		}
+		if _, err := s.backend(registry.Instance).Delete(s.system(ctx), resource.Key{Project: key.Project, Name: name}, nil); err != nil && !isNotFound(err) {
+			return boostRetire{}, err
+		}
+		st.ProcessesRunning = 0
 		bs.not(envv1alpha1.BoostPhase_BOOST_PHASE_STARTING, "InstanceGone", "its instance vanished from the target; it is made again")
-		return "", nil
+		return boostRetire{}, nil
 	}
 	if !ok {
-		return "", s.makeBoostInstance(ctx, key, b, box, p, target, bs)
+		return boostRetire{}, s.makeBoostInstance(ctx, key, b, box, p, target, bs, fail)
 	}
 
 	// Its use: a process running on it, or one started through tower.
@@ -538,21 +683,20 @@ func (s *Server) boostSteps(ctx context.Context, key controller.Key, b *envv1alp
 		st.SetupEndTime = parseTimestamp(t)
 	}
 
-	if retire := s.boostIdle(st, busy, set.boostIdle); retire != "" {
-		return retire, nil
+	if why := s.boostIdle(st, busy, set.boostIdle); why != "" {
+		return boostRetire{why: why}, nil
 	}
 	switch in.GetStatus().GetPhase() {
 	case envv1alpha1.InstancePhase_INSTANCE_PHASE_FAILED:
-		msg := conditions.Find(in.GetStatus().GetConditions(), "Ready").GetMessage()
-		bs.not(envv1alpha1.BoostPhase_BOOST_PHASE_FAILED, "InstanceFailed", msg)
-		return "", nil
+		fail("InstanceFailed", conditions.Find(in.GetStatus().GetConditions(), "Ready").GetMessage())
+		return boostRetire{}, nil
 	case envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING:
 	default:
 		bs.not(envv1alpha1.BoostPhase_BOOST_PHASE_STARTING, "Starting", "its instance is starting")
-		return "", nil
+		return boostRetire{}, nil
 	}
 	if files := box.GetSpec().GetSecretFiles(); len(files) > 0 && in.GetMetadata().GetAnnotations()[secretFilesAnnotation] != runOf(in) {
-		return "", s.boostJob(ctx, key, b, in, bs, "secretfiles", "its secret files are being written", func(ctx context.Context, ref provider.Instance) error {
+		return boostRetire{}, s.boostJob(ctx, key, b, in, bs, fail, "secretfiles", "its secret files are being written", func(ctx context.Context, ref provider.Instance) error {
 			if err := s.writeSecretFilesIn(ctx, p, key.Project, ref, files); err != nil {
 				return err
 			}
@@ -565,11 +709,11 @@ func (s *Server) boostSteps(ctx context.Context, key controller.Key, b *envv1alp
 			msg = "the box's setup steps run, since " + st.GetSetupStartTime().AsTime().UTC().Format(time.RFC3339)
 		}
 		bs.cond(BoostMaterialized, false, "CheckingOut", "")
-		return "", s.boostJob(ctx, key, b, in, bs, "materialize", msg, func(ctx context.Context, ref provider.Instance) error {
+		return boostRetire{}, s.boostJob(ctx, key, b, in, bs, fail, "materialize", msg, func(ctx context.Context, ref provider.Instance) error {
 			if done, err := s.instanceMarked(ctx, key.Project, ref.Name, materializedAnnotation); err != nil || done {
 				return err
 			}
-			if err := s.materializeInstance(ctx, p, boxKey, box, ref, b.GetSpec().GetTarget()); err != nil {
+			if err := s.materializeInstance(ctx, p, boxKey, box, ref, b.GetSpec().GetTarget(), true); err != nil {
 				return err
 			}
 			return s.annotateInstance(ctx, key.Project, ref.Name, materializedAnnotation, "true")
@@ -583,12 +727,12 @@ func (s *Server) boostSteps(ctx context.Context, key controller.Key, b *envv1alp
 	}
 	st.Phase = envv1alpha1.BoostPhase_BOOST_PHASE_READY
 	bs.cond(BoostReady, true, "Ready", "")
-	return "", nil
+	return boostRetire{}, nil
 }
 
 // boostIdle says why a boost is to go for idleness, "" if it is not: a
 // READY or FAILED one nothing runs on, no start waits for, and nothing
-// ran on for idle.
+// ran on, nor did it change phase, for idle.
 func (s *Server) boostIdle(st *envv1alpha1.BoostStatus, busy bool, idle time.Duration) string {
 	if busy || st.GetProcessesRunning() > 0 {
 		return ""
@@ -615,11 +759,13 @@ func parseTimestamp(v string) *timestamppb.Timestamp {
 }
 
 // makeBoostInstance makes the boost's instance as its box's is made
-// (boxInstanceSpec), of the boost's size, once its box is READY.
-func (s *Server) makeBoostInstance(ctx context.Context, key controller.Key, b *envv1alpha1.Boost, box *envv1alpha1.Box, p provider.Provider, target *targetsv1alpha1.Target, bs *boostState) error {
+// (boxInstanceSpec), of the boost's size, from its box's warm golden
+// while it is ready, once its box is READY or stopped. One whose box's
+// image golden is gone fails.
+func (s *Server) makeBoostInstance(ctx context.Context, key controller.Key, b *envv1alpha1.Boost, box *envv1alpha1.Box, p provider.Provider, target *targetsv1alpha1.Target, bs *boostState, fail func(reason, msg string)) error {
 	st := bs.st
 	if box.GetStatus().GetPhase() != envv1alpha1.BoxPhase_BOX_PHASE_READY && box.GetStatus().GetPhase() != envv1alpha1.BoxPhase_BOX_PHASE_STOPPED {
-		bs.not(envv1alpha1.BoostPhase_BOOST_PHASE_PENDING, "WaitingForBox", "its box is not ready")
+		bs.not(envv1alpha1.BoostPhase_BOOST_PHASE_PENDING, "WaitingForBox", "its box is not ready: it is "+strings.TrimPrefix(box.GetStatus().GetPhase().String(), "BOX_PHASE_"))
 		return nil
 	}
 	img, ok, err := s.liveGolden(ctx, key.Project, box.GetStatus().GetImageGolden())
@@ -627,23 +773,28 @@ func (s *Server) makeBoostInstance(ctx context.Context, key controller.Key, b *e
 		return err
 	}
 	if !ok || goldenPhase(img) != envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY {
-		bs.not(envv1alpha1.BoostPhase_BOOST_PHASE_PENDING, "WaitingForBox", "its box's image golden is not ready")
+		fail("ImageGoldenGone", fmt.Sprintf("its box's image golden %q is not there, or not ready", box.GetStatus().GetImageGolden()))
 		return nil
 	}
 	boxKey := controller.Key{Project: key.Project, Name: box.GetMetadata().GetName()}
 	// Its box's disk, its own cpu and memory.
 	res := proto.Clone(b.GetSpec().GetResources()).(*envv1alpha1.Resources)
 	res.Disk = box.GetSpec().GetResources().GetDisk()
-	is, warm, err := s.boxInstanceSpec(ctx, boxKey, box, p, target, img, res)
+	is, warm, err := s.boxInstanceSpec(ctx, boxKey, box, p, target, img, res, box.GetStatus().GetWarmGolden())
+	if errors.Is(err, errImageEnv) {
+		bs.cond(BoostReady, false, "ImageUnresolved", "retried: "+err.Error())
+	}
 	if err != nil {
-		bs.cond(BoostReady, false, "ImageUnresolved", "reading its image's environment, retried: "+err.Error())
 		return err
 	}
 	name, alias := boostInstanceName(key.Name), boostAlias(box.GetMetadata().GetName())
 	is.Alias, is.RunState = alias, envv1alpha1.RunState_RUN_STATE_RUNNING
 	_, err = s.backend(registry.Instance).Create(s.system(ctx), &envv1alpha1.Instance{
-		Metadata: &metav1.ObjectMeta{Project: key.Project, Name: name, OwnerReferences: []*metav1.OwnerReference{ownedBy(registry.Boost, b)}},
-		Spec:     is,
+		Metadata: &metav1.ObjectMeta{
+			Project: key.Project, Name: name, OwnerReferences: []*metav1.OwnerReference{ownedBy(registry.Boost, b)},
+			Annotations: map[string]string{boostImageGoldenAnnotation: img.GetMetadata().GetName()},
+		},
+		Spec: is,
 	})
 	if err != nil && connect.CodeOf(err) != connect.CodeAlreadyExists {
 		return err
@@ -655,8 +806,8 @@ func (s *Server) makeBoostInstance(ctx context.Context, key controller.Key, b *e
 }
 
 // boostJob runs one of the boost's instance steps as a job, as a box's
-// are, saying msg while it runs.
-func (s *Server) boostJob(ctx context.Context, key controller.Key, b *envv1alpha1.Boost, in *envv1alpha1.Instance, bs *boostState, step, msg string, fn func(context.Context, provider.Instance) error) error {
+// are, saying msg while it runs; one that failed fails the boost.
+func (s *Server) boostJob(ctx context.Context, key controller.Key, b *envv1alpha1.Boost, in *envv1alpha1.Instance, bs *boostState, fail func(reason, msg string), step, msg string, fn func(context.Context, provider.Instance) error) error {
 	job := "boost-" + step + "/" + key.String()
 	ref := newStepRef("boost", key.Project, key.Name, step, in.GetMetadata().GetUid()+"/"+runOf(in), b.GetMetadata().GetGeneration())
 	g, err := s.stepGate(ctx, job, ref)
@@ -664,10 +815,12 @@ func (s *Server) boostJob(ctx context.Context, key controller.Key, b *envv1alpha
 	case err != nil:
 		return err
 	case g.Waiting != nil:
-		bs.not(envv1alpha1.BoostPhase_BOOST_PHASE_STARTING, "Starting", g.Waiting.Error())
+		// Said as while it runs: a message that changed at each try would
+		// queue the boost again at once, and try again without waiting.
+		bs.not(envv1alpha1.BoostPhase_BOOST_PHASE_STARTING, "Starting", msg)
 		return fmt.Errorf("boost %s: %w: %w", key, controller.ErrWaiting, g.Waiting)
 	case g.Failed != "":
-		bs.not(envv1alpha1.BoostPhase_BOOST_PHASE_FAILED, "StepFailed", step+": "+g.Failed)
+		fail("StepFailed", step+": "+g.Failed)
 		return nil
 	}
 	bs.not(envv1alpha1.BoostPhase_BOOST_PHASE_STARTING, "Starting", msg)
@@ -684,48 +837,107 @@ func (s *Server) boostJob(ctx context.Context, key controller.Key, b *envv1alpha
 	return nil
 }
 
-// retireBoost deletes a boost, in a job: its processes' exits are read
-// and kept first (keepBoostExits), and it goes only if nothing started on
-// it meanwhile. The queue of its target is then admitted again, as its
-// room is free.
-func (s *Server) retireBoost(key controller.Key, b *envv1alpha1.Boost, why string) {
+// dropBoostInstance deletes a FAILED boost's instance, in a job, its
+// processes' exits kept first as far as they can be read, so its room is
+// free for the target's queue.
+func (s *Server) dropBoostInstance(key controller.Key, b *envv1alpha1.Boost, in *envv1alpha1.Instance) {
+	target := b.GetSpec().GetTarget()
+	boxKey := controller.Key{Project: key.Project, Name: b.GetSpec().GetBox()}
+	s.startJob(target, "boost-drop/"+key.String(), s.boostCtrl, key, func(ctx context.Context) error {
+		if _, err := s.keepBoostExits(ctx, boxKey, b, true); err != nil {
+			return err
+		}
+		if err := changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool { return r.instanceGone(in.GetMetadata().GetUid()) }); err != nil {
+			return err
+		}
+		rv := in.GetMetadata().GetResourceVersion()
+		if _, err := s.backend(registry.Instance).Delete(s.system(ctx), resource.Key{Project: key.Project, Name: in.GetMetadata().GetName()}, &rv); err != nil && !isNotFound(err) && connect.CodeOf(err) != connect.CodeAborted {
+			return err
+		}
+		return s.admitTarget(ctx, target)
+	})
+}
+
+// admitTarget admits the target's queue again, as room was freed.
+func (s *Server) admitTarget(ctx context.Context, target string) error {
+	t, live, err := s.liveTarget(ctx, target)
+	if err != nil || !live {
+		return err
+	}
+	tq := s.boosts.of(target)
+	tq.mu.Lock()
+	defer tq.mu.Unlock()
+	return s.admitBoosts(ctx, t, tq)
+}
+
+// retireBoost deletes a boost, in a job. Unless forced, its processes'
+// exits are read and kept first (keepBoostExits), and it goes only if
+// nothing runs on it, no start waits for it, and nothing started on it
+// since they were read. Deleted, it goes once finishBoost has kept what
+// is left of its processes.
+func (s *Server) retireBoost(key controller.Key, b *envv1alpha1.Boost, r boostRetire) {
 	target, uid := b.GetSpec().GetTarget(), b.GetMetadata().GetUid()
 	boxKey := controller.Key{Project: key.Project, Name: b.GetSpec().GetBox()}
 	s.startJob(target, "boost-retire/"+key.String(), s.boostCtrl, key, func(ctx context.Context) error {
-		read := s.clock.Now()
-		running, err := s.keepBoostExits(ctx, boxKey, b)
-		if err != nil {
-			return err
-		}
-		if running {
-			return nil
-		}
 		tq := s.boosts.of(target)
 		tq.mu.Lock()
+		read := tq.starts[boxKey]
+		tq.mu.Unlock()
+		if !r.force {
+			running, err := s.keepBoostExits(ctx, boxKey, b, false)
+			if err != nil {
+				return err
+			}
+			if running {
+				return nil
+			}
+			if hook := s.beforeBoostRetire.Load(); hook != nil {
+				(*hook)(boxKey)
+			}
+		}
+		tq.mu.Lock()
 		defer tq.mu.Unlock()
-		if tq.busy(boxKey, s.clock.Now()) || tq.used[boxKey].After(read) {
+		if !r.force && (tq.busy(boxKey, s.clock.Now()) || tq.starts[boxKey] != read) {
 			return nil
 		}
 		cur, ok, err := getTyped[*envv1alpha1.Boost](ctx, s, registry.Boost, resource.Key{Project: key.Project, Name: key.Name})
-		if err != nil || !ok || cur.GetMetadata().GetUid() != uid {
+		if err != nil || !ok || cur.GetMetadata().GetUid() != uid || cur.GetMetadata().GetDeleteTime() != nil {
 			return err
 		}
 		rv := cur.GetMetadata().GetResourceVersion()
 		if _, err := s.backend(registry.Boost).Delete(s.system(ctx), resource.Key{Project: key.Project, Name: key.Name}, &rv); err != nil && !isNotFound(err) {
 			return err
 		}
-		delete(tq.used, boxKey)
-		s.log.Info("deleted a boost", "project", key.Project, "box", boxKey.Name, "target", target, "why", why)
-		if err := changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool { return r.boostGone(uid) }); err != nil {
-			s.log.Error("marking a deleted boost's processes failed", "project", key.Project, "box", boxKey.Name, "error", err)
+		s.log.Info("deleting a boost", "project", key.Project, "box", boxKey.Name, "target", target, "why", r.why)
+		return nil
+	})
+}
+
+// finishBoost lets a boost being deleted go, in a job: the exits of its
+// processes are read and kept as far as they can be, their usage
+// recorded, those not read marked lost; then its finalizer goes, its
+// instance after it, and the target's queue is admitted again.
+func (s *Server) finishBoost(key controller.Key, b *envv1alpha1.Boost) {
+	target, uid := b.GetSpec().GetTarget(), b.GetMetadata().GetUid()
+	boxKey := controller.Key{Project: key.Project, Name: b.GetSpec().GetBox()}
+	s.startJob(target, "boost-finish/"+key.String(), s.boostCtrl, key, func(ctx context.Context) error {
+		if _, err := s.keepBoostExits(ctx, boxKey, b, true); err != nil {
+			return err
 		}
+		if err := changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool { return r.boostGone(uid) }); err != nil {
+			return err
+		}
+		err := s.removeFinalizerOf(ctx, registry.Boost, resource.Key{Project: key.Project, Name: key.Name}, uid, boostExitsFinalizer)
+		if err != nil && !errors.Is(err, errOtherUID) {
+			return err
+		}
+		tq := s.boosts.of(target)
+		tq.mu.Lock()
+		delete(tq.used, boxKey)
+		tq.mu.Unlock()
 		if s.boxCtrl != nil {
 			s.boxCtrl.Enqueue(boxKey)
 		}
-		t, live, err := s.liveTarget(ctx, target)
-		if err != nil || !live {
-			return err
-		}
-		return s.admitBoosts(ctx, t, tq)
+		return s.admitTarget(ctx, target)
 	})
 }

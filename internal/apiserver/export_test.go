@@ -18,6 +18,13 @@ func (s *Server) SetBeforeIdleStop(fn func(project, box string)) {
 	s.beforeIdleStop.Store(&hook)
 }
 
+// SetBeforeBoostRetire runs fn between an idle boost's exits being read
+// and its deletion being decided, for tests of what happens between.
+func (s *Server) SetBeforeBoostRetire(fn func(project, box string)) {
+	hook := func(k controller.Key) { fn(k.Project, k.Name) }
+	s.beforeBoostRetire.Store(&hook)
+}
+
 // InUse reports whether a call into the box is under way.
 func (s *Server) InUse(project, box string) bool {
 	_, _, busy := s.useOf(controller.Key{Project: project, Name: box})

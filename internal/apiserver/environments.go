@@ -54,11 +54,13 @@ func environmentHooks(r registry.Resource) (kindHooks, bool) {
 		}, true
 	case registry.Boost.Kind:
 		// Only tower writes it (authz's systemKinds); its box owns it too,
-		// named by the boost controller as it makes it.
+		// named by the boost controller as it makes it. Deleted, it stays
+		// until the boost controller has kept its processes' exits.
 		return kindHooks{
-			owner:    ownedByProject,
-			validate: validateBoost,
-			targetOf: func(obj proto.Message) string { return obj.(*envv1alpha1.Boost).GetSpec().GetTarget() },
+			owner:      ownedByProject,
+			validate:   validateBoost,
+			finalizers: []string{boostExitsFinalizer},
+			targetOf:   func(obj proto.Message) string { return obj.(*envv1alpha1.Boost).GetSpec().GetTarget() },
 		}, true
 	case registry.Instance.Kind:
 		return kindHooks{
