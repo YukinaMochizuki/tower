@@ -50,6 +50,7 @@ import (
 	hangarstorage "github.com/YukinaMochizuki/hangar/gen/go/hangar/storage/v1alpha1"
 	hangartenancy "github.com/YukinaMochizuki/hangar/gen/go/hangar/tenancy/v1alpha1"
 
+	"github.com/YukinaMochizuki/tower/internal/guest"
 	"github.com/YukinaMochizuki/tower/internal/guest/guestbin"
 	"github.com/YukinaMochizuki/tower/internal/guest/proclog"
 	"github.com/YukinaMochizuki/tower/internal/provider/hangar"
@@ -102,9 +103,13 @@ type Fake struct {
 	failPull    map[string]bool
 	// installs counts tower-guest written in, in every container.
 	installs int
-	// execsAs are the commands tower-guest shim ran, with the user each
-	// was run as.
+	// execsAs are the operations tower-guest shim ran, with the user each
+	// was run as; noRoot fails every shim run as root.
 	execsAs []ExecAs
+	noRoot  bool
+	// user, if set, is who a shim run as the container's user says it
+	// runs as.
+	user *guest.Identity
 	// built are the images the fake built, by reference, with the user
 	// each runs as.
 	built map[string]string
@@ -208,19 +213,41 @@ func (f *Fake) ReleaseDeletes() {
 	f.sgs.releaseLocked()
 }
 
-// ExecAs is a command tower-guest shim ran, and the user hangar's exec ran
-// the shim as: "" the container's, "0" root, as a VM's always is.
+// ExecAs is an operation tower-guest shim ran: its op, its command and
+// who a started one runs as, if any, and the user hangar's exec ran the
+// shim as: "" the container's, "0" root, as a VM's always is.
 type ExecAs struct {
+	Op      string
 	Command []string
+	As      *guest.Identity
 	User    string
 }
 
-// ExecsAs are the commands tower-guest shim ran, in order.
+// ExecsAs are the operations tower-guest shim ran, in order.
 func (f *Fake) ExecsAs() []ExecAs {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.execsAs)
 }
+
+// NoRoot makes every shim run as root fail, as in a container whose
+// runtime gives no root to an exec.
+func (f *Fake) NoRoot() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.noRoot = true
+}
+
+// ContainerUser makes a shim run as a container's user say it runs as id.
+func (f *Fake) ContainerUser(id guest.Identity) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.user = &id
+}
+
+// fakeRoot is who a shim run as root says it runs as: the fake runs it as
+// the test's user all the same.
+var fakeRoot = guest.Identity{UID: 0, GID: 0, Groups: []uint32{0}, Home: "/root"}
 
 // Installs is how many times tower-guest was written into a container.
 func (f *Fake) Installs() int {
@@ -552,6 +579,13 @@ func (f *Fake) Exec(ctx context.Context, req hangar.ExecRequest) (hangar.ExecExi
 			_, _ = fmt.Fprintf(stderr, "exec: %s: no such file\n", guestPath)
 			return hangar.ExecExit{Code: 127}, nil
 		}
+		f.mu.Lock()
+		noRoot := f.noRoot
+		f.mu.Unlock()
+		if noRoot && req.Start.GetUser() == "0" {
+			_, _ = fmt.Fprintln(stderr, "exec: unable to run as user 0")
+			return hangar.ExecExit{Code: 126}, nil
+		}
 		return f.shim(ctx, f.root(uid), req.Start.GetUser(), stdin, stdout, stderr)
 	case len(cmd) == 3 && cmd[0] == "/bin/sh" && cmd[1] == "-c":
 		return f.installer(uid, cmd[2], stdin, stdout)
@@ -593,7 +627,10 @@ func (f *Fake) installer(uid, line string, stdin io.Reader, stdout io.Writer) (h
 // shim runs tower-guest shim on the host, the absolute paths of its header
 // and its command's arguments taken under root, its command's working
 // directory root unless it names one. user is who hangar's exec ran it as,
-// which ExecsAs records; it runs as the test's user all the same.
+// which ExecsAs records; it runs as the test's user all the same, but for
+// saying who it runs as (root as root, fakeRoot, and ContainerUser's as
+// the user), and a command it starts runs as the test's user too, not as
+// its start names.
 func (f *Fake) shim(ctx context.Context, root, user string, stdin io.Reader, stdout, stderr io.Writer) (hangar.ExecExit, error) {
 	in := bufio.NewReader(stdin)
 	typ, data, err := guestbin.ReadFrame(in)
@@ -615,11 +652,22 @@ func (f *Fake) shim(ctx context.Context, root, user string, stdin io.Reader, std
 		f.credentials = append(f.credentials, h.Token)
 		f.mu.Unlock()
 	}
-	if h.Op == guestbin.OpExec {
-		f.mu.Lock()
-		f.execsAs = append(f.execsAs, ExecAs{Command: slices.Clone(h.Command), User: user})
-		f.mu.Unlock()
+	f.mu.Lock()
+	f.execsAs = append(f.execsAs, ExecAs{Op: h.Op, Command: slices.Clone(h.Command), As: h.As, User: user})
+	f.mu.Unlock()
+	f.mu.Lock()
+	says := f.user
+	f.mu.Unlock()
+	if user == "0" {
+		says = &fakeRoot
 	}
+	if h.Op == guestbin.OpIdentity && says != nil {
+		if err := json.NewEncoder(stdout).Encode(says); err != nil {
+			return hangar.ExecExit{}, err
+		}
+		return hangar.ExecExit{}, nil
+	}
+	h.As = nil
 	h.Path, h.Root = under(h.Path), under(h.Root)
 	h.Dir = under(h.Dir)
 	if h.Dir == "" {

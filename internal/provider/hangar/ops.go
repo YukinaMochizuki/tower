@@ -157,17 +157,92 @@ func (t *Target) ops(ctx context.Context, container, uid string) (guestops.Ops, 
 		return guestops.Ops{}, fmt.Errorf("this tower has no tower-guest to run in hangar's machines: %w", provider.ErrFailed)
 	}
 	r := runner{api: t.api, container: container}
+	if err := t.install(ctx, r, uid); err != nil {
+		return guestops.Ops{}, err
+	}
+	return t.containerOps(ctx, r, uid)
+}
+
+// install writes tower-guest into a container unless this tower's is in
+// it already.
+func (t *Target) install(ctx context.Context, r runner, uid string) error {
+	if t.procs.installed(uid, t.guest.hash) {
+		return nil
+	}
+	unlock := t.procs.lock(uid)
+	defer unlock()
 	if !t.procs.installed(uid, t.guest.hash) {
-		unlock := t.procs.lock(uid)
+		if err := t.installGuest(ctx, r); err != nil {
+			return fmt.Errorf("container %s: writing tower-guest in: %w", r.container, providerError(err))
+		}
+		t.procs.setInstalled(uid, t.guest.hash)
+	}
+	return nil
+}
+
+// containerOps are the operations in a container whose tower-guest is
+// this tower's, r running as its user. Its process operations run as root
+// where they can, so its processes are measured, each started as that
+// user (guestbin's runas.go); who that user is, and whether root can run,
+// is learned once per container and kept.
+func (t *Target) containerOps(ctx context.Context, r runner, uid string) (guestops.Ops, error) {
+	o := guestops.Ops{R: r, ProcRoot: procRoot}
+	w, ok := t.procs.whoRuns(uid)
+	if !ok {
+		unlock := t.procs.lockWho(uid)
 		defer unlock()
-		if !t.procs.installed(uid, t.guest.hash) {
-			if err := t.installGuest(ctx, r); err != nil {
-				return guestops.Ops{}, fmt.Errorf("container %s: writing tower-guest in: %w", r.container, providerError(err))
+		if w, ok = t.procs.whoRuns(uid); !ok {
+			var err error
+			if w, err = learnWho(ctx, r); err != nil {
+				return guestops.Ops{}, fmt.Errorf("container %s: reading who runs in it: %w", r.container, err)
 			}
-			t.procs.setInstalled(uid, t.guest.hash)
+			t.procs.setWhoRuns(uid, w)
 		}
 	}
-	return guestops.Ops{R: r, ProcRoot: procRoot}, nil
+	if w.root {
+		root := r
+		root.user = "0"
+		o.ProcR, o.As = root, w.as
+	}
+	return o, nil
+}
+
+// whoRuns is who a container's processes run as: whether its process
+// operations' shim runs as root, and the user a command started then
+// drops to, nil for root.
+type whoRuns struct {
+	root bool
+	as   *guest.Identity
+}
+
+// learnWho reads who r, the container's user, runs as, and whether a
+// shim runs as root there. One that cannot leaves its processes as the
+// user runs them, unmeasured; only a target that did not answer is an
+// error.
+func learnWho(ctx context.Context, r runner) (whoRuns, error) {
+	id, err := guestops.Identity(ctx, r)
+	if err != nil {
+		return whoRuns{}, guestError(err)
+	}
+	root := r
+	root.user = "0"
+	rid, err := guestops.Identity(ctx, root)
+	switch {
+	case ctx.Err() != nil:
+		return whoRuns{}, ctx.Err()
+	case errors.Is(err, provider.ErrUnavailable):
+		return whoRuns{}, err
+	}
+	// A root shim that did not run, or ran as another: no failure, its
+	// processes run as before.
+	if rooted := err == nil && rid.UID == 0; !rooted {
+		return whoRuns{}, nil
+	}
+	w := whoRuns{root: true}
+	if id.UID != 0 {
+		w.as = &id
+	}
+	return w, nil
 }
 
 // errNoGuest is a container this tower's tower-guest is not in yet.
@@ -192,7 +267,7 @@ func (t *Target) opsIfInstalled(ctx context.Context, container, uid string) (gue
 		}
 		t.procs.setInstalled(uid, t.guest.hash)
 	}
-	return guestops.Ops{R: r, ProcRoot: procRoot}, nil
+	return t.containerOps(ctx, r, uid)
 }
 
 // guestHashLine says the sha256 of the tower-guest in a container: of the
@@ -399,20 +474,31 @@ type processCache struct {
 	mu    sync.Mutex
 	guest map[string]string
 	last  map[string][]provider.Process
-	// installing serializes writing tower-guest into each container.
+	// who is who each one's processes run as, kept while this tower runs:
+	// a container's user is its image's.
+	who map[string]whoRuns
+	// installing serializes writing tower-guest into each container, and
+	// learning reading who runs in it.
 	installing map[string]*sync.Mutex
+	learning   map[string]*sync.Mutex
 }
 
 // lock takes a container's install lock, returning its release.
-func (c *processCache) lock(uid string) func() {
+func (c *processCache) lock(uid string) func() { return c.lockIn(&c.installing, uid) }
+
+// lockWho takes the lock of learning who runs in a container, returning
+// its release: apart from its install lock, which an install holds long.
+func (c *processCache) lockWho(uid string) func() { return c.lockIn(&c.learning, uid) }
+
+func (c *processCache) lockIn(locks *map[string]*sync.Mutex, uid string) func() {
 	c.mu.Lock()
-	if c.installing == nil {
-		c.installing = map[string]*sync.Mutex{}
+	if *locks == nil {
+		*locks = map[string]*sync.Mutex{}
 	}
-	m := c.installing[uid]
+	m := (*locks)[uid]
 	if m == nil {
 		m = &sync.Mutex{}
-		c.installing[uid] = m
+		(*locks)[uid] = m
 	}
 	c.mu.Unlock()
 	m.Lock()
@@ -432,6 +518,22 @@ func (c *processCache) setInstalled(uid, hash string) {
 		c.guest = map[string]string{}
 	}
 	c.guest[uid] = hash
+}
+
+func (c *processCache) whoRuns(uid string) (whoRuns, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	w, ok := c.who[uid]
+	return w, ok
+}
+
+func (c *processCache) setWhoRuns(uid string, w whoRuns) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.who == nil {
+		c.who = map[string]whoRuns{}
+	}
+	c.who[uid] = w
 }
 
 // listed keeps a container's processes as listed.
@@ -472,4 +574,6 @@ func (c *processCache) forget(uid string) {
 	delete(c.guest, uid)
 	delete(c.last, uid)
 	delete(c.installing, uid)
+	delete(c.learning, uid)
+	delete(c.who, uid)
 }

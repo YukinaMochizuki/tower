@@ -61,6 +61,29 @@ picks, its services and its agent included.
   neither the measure nor a boost: its processes report no usage, and no
   rusage stands in for it. VMs (machines) are left out until a cgroup made
   beside systemd's own is decided on.
+- **The supervisor is root; the command runs as the container's user.**
+  Only root makes a cgroup under `/tower`, and a devcontainer's image
+  usually runs as a user of its own (`remoteUser`), as hangar's exec does
+  every command of the container: a supervisor run as that user measured
+  nothing, and said nothing of it. The hangar provider reads, once per
+  container, who a shim run as the container's user is (its uid, gid,
+  supplementary groups and HOME, as hangar's runtime gives them), and
+  whether a shim runs as root there. Where one does, every process
+  operation (start, signal, list, log) runs its shim as root, alike, so
+  each reads and signals what another made, and a start drops the command
+  to that user (`SysProcAttr.Credential`, its groups set, no capability
+  kept): the same uid, gid, groups and HOME, unless the start sets HOME,
+  and the rest of the environment, which hangar's exec gives root and the
+  user alike (USER, LOGNAME and SHELL as the image sets them, which is
+  unset unless it does). The user cannot move it out of its cgroup, which
+  is root's. What the command makes is the user's, and so is every file of
+  the process's directory under `/.tower/processes`, given to the user as
+  root makes it: an earlier tower, whose shim runs as the user, lists,
+  reads and prunes them still. Every other operation (exec, files,
+  copies, a boost's pack and apply) runs as the user, as before. A
+  container whose image runs as root drops to no one; one where no shim
+  runs as root runs its processes as before, as the user, unmeasured.
+  (`internal/guest/guestbin/runas.go`, `internal/provider/hangar/ops.go`.)
 - **Measuring never stops a process.** A guest where no cgroup can be made
   (not root, a read-only or v1 cgroupfs, a kernel without
   `CLONE_INTO_CGROUP`) runs the process as it would without one, its usage

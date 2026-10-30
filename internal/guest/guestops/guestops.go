@@ -33,6 +33,13 @@ type Runner interface {
 // Ops are the operations in one guest.
 type Ops struct {
 	R Runner
+	// ProcR, if set, runs the process operations instead of R: a root
+	// shim, which can measure what it starts, beside an R that runs as
+	// the guest's user. As, if set, is that user, whom a started command
+	// runs as (guestbin's runas.go). Every process operation runs alike,
+	// so each reads and signals what another made.
+	ProcR Runner
+	As    *guest.Identity
 	// ProcRoot is where the guest keeps its processes, in the guest.
 	ProcRoot string
 	// HostProcRoot, if set, is the same directory as the host sees it, a
@@ -44,6 +51,34 @@ type Ops struct {
 // call runs one operation: its header, then what in gives as data frames
 // and the end frame. Its stderr is returned with the exit code.
 func (o Ops) call(ctx context.Context, h guestbin.Header, in io.Reader, stdout io.Writer) (int, string, error) {
+	return callOn(ctx, o.R, h, in, stdout)
+}
+
+// procCall runs one process operation, on ProcR if set.
+func (o Ops) procCall(ctx context.Context, h guestbin.Header, in io.Reader, stdout io.Writer) (int, string, error) {
+	r := o.ProcR
+	if r == nil {
+		r = o.R
+	}
+	return callOn(ctx, r, h, in, stdout)
+}
+
+// Identity is who r runs tower-guest as in its guest.
+func Identity(ctx context.Context, r Runner) (guest.Identity, error) {
+	var out bytes.Buffer
+	code, msg, err := callOn(ctx, r, guestbin.Header{Op: guestbin.OpIdentity}, nil, &out)
+	if err := result("reading who runs tower-guest", code, msg, err); err != nil {
+		return guest.Identity{}, err
+	}
+	var id guest.Identity
+	if err := json.Unmarshal(out.Bytes(), &id); err != nil {
+		return guest.Identity{}, fmt.Errorf("reading who runs tower-guest: %w", err)
+	}
+	return id, nil
+}
+
+// callOn runs one operation on r.
+func callOn(ctx context.Context, r Runner, h guestbin.Header, in io.Reader, stdout io.Writer) (int, string, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	pr, pw := io.Pipe()
@@ -70,7 +105,7 @@ func (o Ops) call(ctx context.Context, h guestbin.Header, in io.Reader, stdout i
 	if stdout == nil {
 		stdout = io.Discard
 	}
-	code, err := o.R.RunShim(ctx, pr, stdout, &limited{w: &stderr, n: 64 << 10})
+	code, err := r.RunShim(ctx, pr, stdout, &limited{w: &stderr, n: 64 << 10})
 	_ = pr.Close()
 	return code, strings.TrimSpace(stderr.String()), err
 }
@@ -240,11 +275,11 @@ func (o Ops) StartProcess(ctx context.Context, spec guest.ProcessSpec) (string, 
 		return "", errors.New("a process needs a command")
 	}
 	var out bytes.Buffer
-	h := guestbin.Header{Op: guestbin.OpStart, Root: o.ProcRoot, Name: spec.Name, Command: spec.Command, Env: spec.Env, Dir: spec.Dir, LogCap: spec.LogCap, Keep: spec.Keep, Measure: spec.Measure, MemoryMax: spec.MemoryMax}
+	h := guestbin.Header{Op: guestbin.OpStart, Root: o.ProcRoot, Name: spec.Name, Command: spec.Command, Env: spec.Env, Dir: spec.Dir, LogCap: spec.LogCap, Keep: spec.Keep, Measure: spec.Measure, MemoryMax: spec.MemoryMax, As: o.As}
 	// Started apart from ctx: a call ended once the process runs ends
 	// nothing of it, and one ended before has the shim kill nothing it
 	// made but what it was told.
-	code, msg, err := o.call(context.WithoutCancel(ctx), h, nil, &out)
+	code, msg, err := o.procCall(context.WithoutCancel(ctx), h, nil, &out)
 	if err := result("starting "+spec.Command[0], code, msg, err); err != nil {
 		return "", err
 	}
@@ -257,7 +292,7 @@ func (o Ops) StartProcess(ctx context.Context, spec guest.ProcessSpec) (string, 
 
 // SignalProcess sends sig to a process's group; one ended is no error.
 func (o Ops) SignalProcess(ctx context.Context, id string, sig int) error {
-	code, msg, err := o.call(ctx, guestbin.Header{Op: guestbin.OpSignal, Root: o.ProcRoot, ID: id, Signal: sig}, nil, nil)
+	code, msg, err := o.procCall(ctx, guestbin.Header{Op: guestbin.OpSignal, Root: o.ProcRoot, ID: id, Signal: sig}, nil, nil)
 	if code == guestbin.ExitNotExist && err == nil {
 		return fmt.Errorf("process %s: %w", id, guest.ErrNoProcess)
 	}
@@ -285,7 +320,7 @@ func (o Ops) ListProcesses(ctx context.Context) ([]guest.ProcessInfo, error) {
 		}
 	} else {
 		var out bytes.Buffer
-		code, msg, err := o.call(ctx, guestbin.Header{Op: guestbin.OpList, Root: o.ProcRoot}, nil, &out)
+		code, msg, err := o.procCall(ctx, guestbin.Header{Op: guestbin.OpList, Root: o.ProcRoot}, nil, &out)
 		if err := result("listing processes", code, msg, err); err != nil {
 			return nil, err
 		}
@@ -342,7 +377,7 @@ func (o Ops) ReadProcessLog(ctx context.Context, id string, from int64, follow b
 		}
 		done <- sc.Err()
 	}()
-	code, msg, err := o.call(ctx, guestbin.Header{Op: guestbin.OpLog, Root: o.ProcRoot, ID: id, From: from, Follow: follow}, nil, pw)
+	code, msg, err := o.procCall(ctx, guestbin.Header{Op: guestbin.OpLog, Root: o.ProcRoot, ID: id, From: from, Follow: follow}, nil, pw)
 	_ = pw.Close()
 	scanErr := <-done
 	if outErr != nil {

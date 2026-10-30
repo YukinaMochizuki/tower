@@ -21,10 +21,19 @@ import (
 // tower-guest supervise, in a session of its own, so it outlives the call
 // and the shim; the command, its environment and directory go to it
 // through a pipe, never a file or a command line. It returns the
-// process's id once the supervisor says the command runs.
+// process's id once the supervisor says the command runs. One whose
+// command drops to a user (h.As) has its directory given to that user.
 func startSupervised(h Header) (string, error) {
+	own := owner(dropTo(h.As))
+	_, err := os.Lstat(h.Root)
+	made := errors.Is(err, os.ErrNotExist)
 	if err := os.MkdirAll(h.Root, 0o700); err != nil {
 		return "", err
+	}
+	if made {
+		if err := own.Own(h.Root); err != nil {
+			return "", err
+		}
 	}
 	var id, dir string
 	for {
@@ -38,8 +47,12 @@ func startSupervised(h Header) (string, error) {
 			return "", err
 		}
 	}
+	if err := own.Own(dir); err != nil {
+		_ = os.Remove(dir)
+		return "", err
+	}
 	meta := proclog.Meta{ID: id, Name: h.Name, Command: h.Command, Dir: workingDir(h.Dir), Started: time.Now().UTC(), LogCap: h.LogCap}
-	if err := proclog.WriteMeta(dir, meta); err != nil {
+	if err := proclog.WriteMeta(dir, meta, own); err != nil {
 		return "", err
 	}
 	specR, specW, err := os.Pipe()
@@ -62,7 +75,7 @@ func startSupervised(h Header) (string, error) {
 	}
 	_ = specR.Close()
 	_ = readyW.Close()
-	spec, _ := json.Marshal(Header{Command: h.Command, Env: h.Env, Dir: h.Dir, Keep: h.Keep, Measure: h.Measure, MemoryMax: h.MemoryMax})
+	spec, _ := json.Marshal(Header{Command: h.Command, Env: h.Env, Dir: h.Dir, Keep: h.Keep, Measure: h.Measure, MemoryMax: h.MemoryMax, As: h.As})
 	_, werr := specW.Write(spec)
 	_ = specW.Close()
 	msg, rerr := io.ReadAll(readyR)
@@ -96,7 +109,8 @@ func workingDir(dir string) string {
 // supervise is tower-guest supervise DIR: it holds the process's lock,
 // runs its command in a process group of its own with what fd 3 says,
 // tells fd 4 it runs, keeps its output in its capped log, and writes how
-// it ended.
+// it ended. A command that drops to a user (runas.go) starts as that
+// user, and the files the supervisor makes are that user's.
 func supervise(args []string) int {
 	if len(args) != 1 {
 		return 2
@@ -129,7 +143,9 @@ func supervise(args []string) int {
 	if err := json.Unmarshal(b, &meta); err != nil {
 		return fail(err)
 	}
-	lock, err := proclog.Lock(dir)
+	as := dropTo(h.As)
+	own := owner(as)
+	lock, err := proclog.Lock(dir, own)
 	if err != nil {
 		return fail(err)
 	}
@@ -137,7 +153,7 @@ func supervise(args []string) int {
 	// A hangup is not this process's end. Caught rather than ignored: an
 	// ignored signal stays ignored in the command it runs.
 	signal.Notify(make(chan os.Signal, 1), syscall.SIGHUP)
-	log, err := proclog.NewWriter(dir, meta.LogCap)
+	log, err := proclog.NewWriter(dir, meta.LogCap, own)
 	if err != nil {
 		return fail(err)
 	}
@@ -156,8 +172,11 @@ func supervise(args []string) int {
 	}
 	newCmd := func() *exec.Cmd {
 		cmd := exec.Command(h.Command[0], h.Command[1:]...)
-		cmd.Env, cmd.Dir = environ(h.Env), h.Dir
+		cmd.Env, cmd.Dir = commandEnv(h.Env, as), h.Dir
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if as != nil {
+			cmd.SysProcAttr.Credential = credential(as)
+		}
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = devnull, outW, errW
 		return cmd
 	}
@@ -173,7 +192,12 @@ func supervise(args []string) int {
 	_ = outW.Close()
 	_ = errW.Close()
 	_ = devnull.Close()
-	if err := os.WriteFile(filepath.Join(dir, proclog.PIDFile), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600); err != nil {
+	pidFile := filepath.Join(dir, proclog.PIDFile)
+	err = os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0o600)
+	if err == nil {
+		err = own.Own(pidFile)
+	}
+	if err != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		return fail(err)
 	}
@@ -224,7 +248,7 @@ func supervise(args []string) int {
 	if group != nil {
 		exit.Usage = group.usage(wall)
 	}
-	if err := proclog.WriteExit(dir, exit); err != nil {
+	if err := proclog.WriteExit(dir, exit, own); err != nil {
 		return 1
 	}
 	// The finished ones beyond what is kept go as it ends, the oldest

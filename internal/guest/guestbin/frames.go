@@ -29,6 +29,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/YukinaMochizuki/tower/internal/guest"
 )
 
 // Frame types on a shim's stdin.
@@ -106,6 +108,9 @@ type Header struct {
 	// held to together, /tower's, none if 0.
 	Measure   bool  `json:"measure,omitempty"`
 	MemoryMax int64 `json:"memoryMax,omitempty"`
+	// Start: who the command runs as, its supervisor running as root
+	// (runas.go); nil runs it as the shim runs.
+	As *guest.Identity `json:"as,omitempty"`
 	// Send and Receive (transfer.go): where the receiver listens, the
 	// token both share, and the top name the sent path takes.
 	Addr  string `json:"addr,omitempty"`
@@ -132,6 +137,8 @@ const (
 	OpReceive = "receive"
 	OpFetch   = "fetch"
 	OpPost    = "post"
+	// OpIdentity says who the shim runs as, a guest.Identity as JSON.
+	OpIdentity = "identity"
 )
 
 // Exit codes a shim says what went wrong with in every operation but

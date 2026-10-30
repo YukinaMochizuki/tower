@@ -24,7 +24,7 @@ const (
 	// mainEnv runs the binary as tower-guest, with its arguments.
 	mainEnv = "TOWER_GUESTBIN_TEST_MAIN"
 	// helperEnv runs the binary as a helper command: helperSleep,
-	// helperAlloc, helperHold or helperWork.
+	// helperAlloc, helperHold, helperWork or helperWho.
 	helperEnv = "TOWER_GUESTBIN_TEST_HELPER"
 	// allocEnv is how many bytes helperAlloc and helperHold touch.
 	allocEnv = "TOWER_GUESTBIN_TEST_ALLOC"
@@ -39,6 +39,7 @@ const (
 	helperAlloc = "alloc"
 	helperHold  = "hold"
 	helperWork  = "work"
+	helperWho   = "who"
 )
 
 func TestMain(m *testing.M) {
@@ -103,6 +104,8 @@ func helper(name string) int {
 		}
 		fmt.Println(x)
 		return 0
+	case helperWho:
+		return who()
 	}
 	return 2
 }

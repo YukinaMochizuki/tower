@@ -35,10 +35,10 @@ func guest(t *testing.T) (root, id, hostFile string) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := proclog.WriteMeta(dir, proclog.Meta{ID: id, Command: []string{"x"}, LogCap: 1 << 20}); err != nil {
+	if err := proclog.WriteMeta(dir, proclog.Meta{ID: id, Command: []string{"x"}, LogCap: 1 << 20}, nil); err != nil {
 		t.Fatal(err)
 	}
-	w, err := proclog.NewWriter(dir, 1<<20)
+	w, err := proclog.NewWriter(dir, 1<<20, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func guest(t *testing.T) (root, id, hostFile string) {
 		t.Fatal(err)
 	}
 	_ = w.Close()
-	if err := proclog.WriteExit(dir, proclog.Exit{Code: 0}); err != nil {
+	if err := proclog.WriteExit(dir, proclog.Exit{Code: 0}, nil); err != nil {
 		t.Fatal(err)
 	}
 	return root, id, hostFile
@@ -190,7 +190,7 @@ func TestOddSegmentsEndTheRead(t *testing.T) {
 		root, id, _ := guest(t)
 		_ = os.Remove(filepath.Join(root, id, "exit.json"))
 		// Its lock held, as a supervisor alive holds it.
-		lock, err := proclog.Lock(filepath.Join(root, id))
+		lock, err := proclog.Lock(filepath.Join(root, id), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -217,10 +217,10 @@ func TestAnExitsUsageIsReadBack(t *testing.T) {
 		if err := os.Mkdir(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := proclog.WriteMeta(dir, proclog.Meta{ID: tc.id, Command: []string{"go", "test"}, Dir: "/workspace"}); err != nil {
+		if err := proclog.WriteMeta(dir, proclog.Meta{ID: tc.id, Command: []string{"go", "test"}, Dir: "/workspace"}, nil); err != nil {
 			t.Fatal(err)
 		}
-		if err := proclog.WriteExit(dir, tc.exit); err != nil {
+		if err := proclog.WriteExit(dir, tc.exit, nil); err != nil {
 			t.Fatal(err)
 		}
 		in, err := proclog.Read(root, tc.id)

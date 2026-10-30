@@ -17,6 +17,11 @@
 //
 // A process without exit.json whose lock is free has lost its supervisor,
 // as when its guest stopped: it reads as killed by SIGKILL.
+//
+// A supervisor that runs as root for a command it runs as a user gives
+// each file it makes to that user (Owner), as a supervisor that ran as
+// the user would have made them: one that runs as the user reads,
+// prunes and locks them as its own.
 package proclog
 
 import (
@@ -120,26 +125,46 @@ func ValidID(id string) bool {
 	return err == nil
 }
 
+// Owner is who a process's files belong to: the user its command runs as,
+// when its supervisor runs as root. A nil Owner leaves them the
+// supervisor's.
+type Owner struct{ UID, GID int }
+
+// Own gives path to o, the path itself if it is a symlink; nothing for a
+// nil o.
+func (o *Owner) Own(path string) error {
+	if o == nil {
+		return nil
+	}
+	return os.Lchown(path, o.UID, o.GID)
+}
+
 // Writer appends a process's output to its log. It is not safe for
 // concurrent use.
 type Writer struct {
 	dir     string
 	cap     int64
+	owner   *Owner
 	seg     *os.File
 	segFrom int64 // the current segment's first offset
 	next    int64
 }
 
 // NewWriter starts the log of the process in dir, capped at logCap bytes
-// (none if 0).
-func NewWriter(dir string, logCap int64) (*Writer, error) {
-	w := &Writer{dir: dir, cap: logCap}
+// (none if 0), each segment given to owner.
+func NewWriter(dir string, logCap int64, owner *Owner) (*Writer, error) {
+	w := &Writer{dir: dir, cap: logCap, owner: owner}
 	return w, w.open(0)
 }
 
 func (w *Writer) open(from int64) error {
-	f, err := os.OpenFile(filepath.Join(w.dir, segName(from)), os.O_WRONLY|os.O_CREATE|os.O_APPEND|os.O_EXCL, 0o600)
+	name := filepath.Join(w.dir, segName(from))
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_APPEND|os.O_EXCL, 0o600)
 	if err != nil {
+		return err
+	}
+	if err := w.owner.Own(name); err != nil {
+		_ = f.Close()
 		return err
 	}
 	if w.seg != nil {
@@ -227,17 +252,17 @@ func segments(dir *os.Root) ([]int64, error) {
 	return out, nil
 }
 
-// WriteMeta writes a process's meta.json.
-func WriteMeta(dir string, m Meta) error {
-	return writeJSON(filepath.Join(dir, MetaFile), m)
+// WriteMeta writes a process's meta.json, given to owner.
+func WriteMeta(dir string, m Meta, owner *Owner) error {
+	return writeJSON(filepath.Join(dir, MetaFile), m, owner)
 }
 
-// WriteExit writes how a process ended, atomically.
-func WriteExit(dir string, e Exit) error {
-	return writeJSON(filepath.Join(dir, ExitFile), e)
+// WriteExit writes how a process ended, atomically, given to owner.
+func WriteExit(dir string, e Exit, owner *Owner) error {
+	return writeJSON(filepath.Join(dir, ExitFile), e, owner)
 }
 
-func writeJSON(path string, v any) error {
+func writeJSON(path string, v any, owner *Owner) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -246,14 +271,26 @@ func writeJSON(path string, v any) error {
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
+	// Given before it is in place: the file is never the supervisor's
+	// under its name.
+	if err := owner.Own(tmp); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
 	return os.Rename(tmp, path)
 }
 
 // Lock takes the lock of a process's directory, which its supervisor holds
-// while it lives, and returns the file holding it.
-func Lock(dir string) (*os.File, error) {
-	f, err := os.OpenFile(filepath.Join(dir, LockFile), os.O_RDWR|os.O_CREATE|syscall.O_CLOEXEC, 0o600)
+// while it lives, and returns the file holding it, given to owner: its
+// reader takes it shared to see whether the supervisor lives.
+func Lock(dir string, owner *Owner) (*os.File, error) {
+	name := filepath.Join(dir, LockFile)
+	f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE|syscall.O_CLOEXEC, 0o600)
 	if err != nil {
+		return nil, err
+	}
+	if err := owner.Own(name); err != nil {
+		_ = f.Close()
 		return nil, err
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
