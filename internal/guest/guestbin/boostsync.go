@@ -248,18 +248,33 @@ func sweep(boostDir string) {
 	}
 }
 
-// snapshot writes dir's work tree as a git tree, tracked files and those
-// untracked that git does not ignore, through an index of its own (index
-// in the boost directory, seeded from seed if it is not there), never the
-// checkout's: its stat cache makes the next snapshot quick.
-func snapshot(dir, index, seed string) (string, error) {
-	if _, err := os.Stat(index); errors.Is(err, fs.ErrNotExist) && seed != "" {
-		if b, err := os.ReadFile(seed); err == nil {
-			if err := os.WriteFile(index, b, 0o644); err != nil {
-				return "", err
-			}
-		}
+// snapshot writes dir's work tree as a git tree, through an index of its
+// own (index, in the boost directory), never the checkout's: the paths of
+// tracked, a tree, whether or not git ignores them, as a checkout's index
+// tracks a file an ignore rule matches; and untracked files git does not
+// ignore. "" tracks none. The index is made tracked's paths with
+// read-tree -m, which keeps the stat cache of each entry whose content is
+// tracked's, so the next snapshot is quick.
+func snapshot(dir, index, tracked string) (string, error) {
+	env := []string{"GIT_INDEX_FILE=" + index}
+	var err error
+	if tracked == "" {
+		_, err = gitRun(dir, env, nil, "read-tree", "--empty")
+	} else if _, err = gitRun(dir, env, nil, "read-tree", "-m", tracked); err != nil {
+		// An index read-tree -m cannot merge from, one a crash cut short:
+		// made again, without its stat cache.
+		_ = os.Remove(index)
+		_, err = gitRun(dir, env, nil, "read-tree", tracked)
 	}
+	if err != nil {
+		return "", err
+	}
+	return addAll(dir, index)
+}
+
+// addAll writes dir's work tree as a git tree through index: the paths
+// it tracks, and untracked files git does not ignore.
+func addAll(dir, index string) (string, error) {
 	env := []string{"GIT_INDEX_FILE=" + index}
 	if _, err := gitRun(dir, env, nil, "add", "-A"); err != nil {
 		return "", err
@@ -267,21 +282,34 @@ func snapshot(dir, index, seed string) (string, error) {
 	return gitLine(dir, env, "write-tree")
 }
 
-// boxSnapshot is snapshot in a box, whose own index is copied each time,
-// so its stat cache is the user's own, up to date. indexTree is the
-// index's own tree, what is staged, "" when it has none (a merge's
-// conflicts).
+// boxSnapshot is snapshot in a box, through a copy of its own index made
+// each time: what it tracks is tracked, ignored or not, and its stat
+// cache is the user's own, up to date. A box without an index (one
+// removed, or a checkout not made yet) tracks HEAD's paths, or none
+// without a HEAD. indexTree is the index's own tree, what is staged, ""
+// when it has none (a merge's conflicts, or no index).
 func boxSnapshot(dir, gitDir, boostDir string) (tree, indexTree string, err error) {
 	index := filepath.Join(boostDir, "box-"+strconv.FormatInt(time.Now().UnixNano(), 36)+".index")
 	defer func() { _ = os.Remove(index) }()
-	if b, err := os.ReadFile(filepath.Join(gitDir, "index")); err == nil {
+	b, err := os.ReadFile(filepath.Join(gitDir, "index"))
+	switch {
+	case err == nil:
 		if err := os.WriteFile(index, b, 0o644); err != nil {
 			return "", "", err
 		}
 		indexTree, _ = gitLine(dir, []string{"GIT_INDEX_FILE=" + index}, "write-tree")
+		tree, err = addAll(dir, index)
+		return tree, indexTree, err
+	case errors.Is(err, fs.ErrNotExist):
+		head := ""
+		if gitHas(dir, "HEAD^{tree}") {
+			head = "HEAD^{tree}"
+		}
+		tree, err = snapshot(dir, index, head)
+		return tree, "", err
+	default:
+		return "", "", err
 	}
-	tree, err = snapshot(dir, index, "")
-	return tree, indexTree, err
 }
 
 // linksOf are the gitlinks of es.
@@ -760,23 +788,26 @@ func boostApply(args []string) (*Applied, error) {
 	if err := extractDelta(*dir, filepath.Join(*staging, "delta.tar")); err != nil {
 		return nil, err
 	}
-	if *shared {
-		// What a running job wrote stays, so the work tree is not the
-		// tree sent: the tree is made from the base and what was sent,
-		// which stores it here for the next send, and checks the send.
-		base := m.Base
-		if m.Full {
-			base = ""
-		}
-		got, err := treeFrom(*dir, base, filepath.Join(*staging, "delta"), m.Gitlinks, len(m.Tree))
-		if err != nil {
-			return nil, err
-		}
-		if got != m.Tree {
-			return nil, codedError{ExitTreeMismatch, fmt.Errorf("the tree sent makes %s, not the %s it should", got, m.Tree)}
-		}
-	} else {
-		if _, err := snapshot(*dir, index, ""); err != nil {
+	// The tree sent, made from the base and what was sent, which stores
+	// it here: for the next send, and as what the work tree tracks. It
+	// checks the send.
+	base := m.Base
+	if m.Full {
+		base = ""
+	}
+	sent, err := treeFrom(*dir, base, filepath.Join(*staging, "delta"), m.Gitlinks, len(m.Tree))
+	if err != nil {
+		return nil, err
+	}
+	if sent != m.Tree {
+		return nil, codedError{ExitTreeMismatch, fmt.Errorf("the tree sent makes %s, not the %s it should", sent, m.Tree)}
+	}
+	// What a running job wrote stays, so with one the work tree is not
+	// the tree sent, and is not checked.
+	if !*shared {
+		// The tree sent's paths are tracked here as in the box, a file
+		// an ignore rule matches too.
+		if _, err := snapshot(*dir, index, m.Tree); err != nil {
 			return nil, err
 		}
 		got, err := withLinks(*dir, index, m.Links, len(m.Tree))
@@ -949,10 +980,15 @@ func hashObject(dir string, r io.Reader) (string, error) {
 
 // restore puts back what changed on the boost since the base: a path
 // changed or deleted is checked out of the base, one added removed. A
-// whole tree (no base) removes every path not in it. Gitignored paths
-// are left as they are.
+// whole tree (no base) removes every path not in it that git does not
+// ignore. Other gitignored paths are left as they are; with a base, one
+// the base tracks is put back as any other.
 func restore(dir, index string, m *Manifest, staging string) (int, error) {
-	now, err := snapshot(dir, index, "")
+	tracked := m.Base
+	if m.Full {
+		tracked = ""
+	}
+	now, err := snapshot(dir, index, tracked)
 	if err != nil {
 		return 0, err
 	}
@@ -1210,7 +1246,9 @@ func changedSince(dir, tree string, r *Report) error {
 		return err
 	}
 	index := filepath.Join(boostDir, "snapshot.index")
-	if _, err := snapshot(dir, index, ""); err != nil {
+	// The synced tree's paths are tracked, a file an ignore rule matches
+	// too: a job's change to one is listed.
+	if _, err := snapshot(dir, index, tree); err != nil {
 		return err
 	}
 	// Submodules' checkouts are the boost's own: as the tree sent has them.
