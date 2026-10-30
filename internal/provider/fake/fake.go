@@ -209,6 +209,8 @@ type Exec struct {
 	Command  []string
 	Env      map[string]string
 	ExitCode int
+	// AsRoot says it was asked to run as root.
+	AsRoot bool
 	// Process says it was started as a process (StartProcess), whose
 	// exit ListProcesses tells, and MemoryMax what it was asked to be held
 	// to.
@@ -702,7 +704,7 @@ func (f *Fake) Exec(ctx context.Context, req provider.ExecRequest) (int, error) 
 		f.mu.Unlock()
 		return 0, err
 	}
-	f.execs = append(f.execs, Exec{Instance: req.Instance, Command: slices.Clone(req.Command), Env: maps.Clone(req.Env), ExitCode: -1})
+	f.execs = append(f.execs, Exec{Instance: req.Instance, Command: slices.Clone(req.Command), Env: maps.Clone(req.Env), ExitCode: -1, AsRoot: req.AsRoot})
 	i := len(f.execs) - 1
 	if onExec := f.onExec; onExec != nil && len(req.Command) > 0 && req.Command[0] == provider.GuestBinary {
 		// A test's hook sees tower-guest's commands first.

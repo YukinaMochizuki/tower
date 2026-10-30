@@ -717,7 +717,8 @@ func (f *Fake) vmExec(ctx context.Context, root, line string, stdin io.Reader, s
 			_, _ = fmt.Fprintf(stderr, "sh: %s: not found\n", vmssh.GuestBinary)
 			return 127
 		}
-		exit, err := f.shim(ctx, root, bufio.NewReader(stdin), stdout, stderr)
+		// A VM's tower-guest runs over its ssh, as root.
+		exit, err := f.shim(ctx, root, "0", bufio.NewReader(stdin), stdout, stderr)
 		if err != nil {
 			_, _ = fmt.Fprintln(stderr, err)
 			return 1

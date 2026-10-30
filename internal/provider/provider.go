@@ -69,7 +69,12 @@ type ExecRequest struct {
 	// how secret values reach an environment.
 	Env map[string]string
 	// Dir is the working directory; empty is the instance's default.
-	Dir    string
+	Dir string
+	// AsRoot runs the command as root, not as the user the instance runs
+	// as (an image's USER, a devcontainer's remoteUser). hangar's provider
+	// runs it so; hostd's refuses it with ErrFailed, as tower asks it of no
+	// hostd instance.
+	AsRoot bool
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer

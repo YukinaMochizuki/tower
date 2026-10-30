@@ -102,6 +102,9 @@ type Fake struct {
 	failPull    map[string]bool
 	// installs counts tower-guest written in, in every container.
 	installs int
+	// execsAs are the commands tower-guest shim ran, with the user each
+	// was run as.
+	execsAs []ExecAs
 	// built are the images the fake built, by reference, with the user
 	// each runs as.
 	built map[string]string
@@ -203,6 +206,20 @@ func (f *Fake) ReleaseDeletes() {
 	f.neps.releaseLocked()
 	f.epsvcs.releaseLocked()
 	f.sgs.releaseLocked()
+}
+
+// ExecAs is a command tower-guest shim ran, and the user hangar's exec ran
+// the shim as: "" the container's, "0" root, as a VM's always is.
+type ExecAs struct {
+	Command []string
+	User    string
+}
+
+// ExecsAs are the commands tower-guest shim ran, in order.
+func (f *Fake) ExecsAs() []ExecAs {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.execsAs)
 }
 
 // Installs is how many times tower-guest was written into a container.
@@ -535,7 +552,7 @@ func (f *Fake) Exec(ctx context.Context, req hangar.ExecRequest) (hangar.ExecExi
 			_, _ = fmt.Fprintf(stderr, "exec: %s: no such file\n", guestPath)
 			return hangar.ExecExit{Code: 127}, nil
 		}
-		return f.shim(ctx, f.root(uid), stdin, stdout, stderr)
+		return f.shim(ctx, f.root(uid), req.Start.GetUser(), stdin, stdout, stderr)
 	case len(cmd) == 3 && cmd[0] == "/bin/sh" && cmd[1] == "-c":
 		return f.installer(uid, cmd[2], stdin, stdout)
 	case len(cmd) == 2 && cmd[0] == systemBinary && cmd[1] == "call":
@@ -575,8 +592,9 @@ func (f *Fake) installer(uid, line string, stdin io.Reader, stdout io.Writer) (h
 
 // shim runs tower-guest shim on the host, the absolute paths of its header
 // and its command's arguments taken under root, its command's working
-// directory root unless it names one.
-func (f *Fake) shim(ctx context.Context, root string, stdin io.Reader, stdout, stderr io.Writer) (hangar.ExecExit, error) {
+// directory root unless it names one. user is who hangar's exec ran it as,
+// which ExecsAs records; it runs as the test's user all the same.
+func (f *Fake) shim(ctx context.Context, root, user string, stdin io.Reader, stdout, stderr io.Writer) (hangar.ExecExit, error) {
 	in := bufio.NewReader(stdin)
 	typ, data, err := guestbin.ReadFrame(in)
 	if err != nil || typ != guestbin.FrameHeader {
@@ -595,6 +613,11 @@ func (f *Fake) shim(ctx context.Context, root string, stdin io.Reader, stdout, s
 	if (h.Op == guestbin.OpFetch || h.Op == guestbin.OpPost) && h.Token != "" {
 		f.mu.Lock()
 		f.credentials = append(f.credentials, h.Token)
+		f.mu.Unlock()
+	}
+	if h.Op == guestbin.OpExec {
+		f.mu.Lock()
+		f.execsAs = append(f.execsAs, ExecAs{Command: slices.Clone(h.Command), User: user})
 		f.mu.Unlock()
 	}
 	h.Path, h.Root = under(h.Path), under(h.Root)
