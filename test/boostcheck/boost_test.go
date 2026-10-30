@@ -26,10 +26,13 @@
 //     (none unless given); and TOWER_GEN_CMD, a boosted job that rewrites
 //     tracked files, such as `make gen` (unless given, one that appends
 //     to TOWER_SYNC_FILE on the boost).
-//   - for the measure's check (docs/decisions/process-usage.md):
-//     TOWER_BOX_NONROOT, a READY box of the project whose image runs as a
-//     user other than root, such as a devcontainer's remoteUser; unset, it
-//     is skipped.
+//
+// The measure's check (docs/decisions/process-usage.md),
+// TestANonRootBoxsProcessIsMeasuredAsItsUser, needs none of the above but
+// TOWER_URL, TOWER_TOKEN_FILE and TOWER_PROJECT, and TOWER_BOX_NONROOT, a
+// READY box of the project whose image runs as a user other than root,
+// such as a devcontainer's remoteUser; it changes no target, and writes
+// one file of its own under the box's /tmp, which it removes.
 //
 // Each check logs what it saw, the boost's output among it.
 package boostcheck
@@ -418,6 +421,27 @@ func TestASecondBoostWaitsForTheBudget(t *testing.T) {
 	t.Logf("%s's boost, %s after it asked: nproc %s", r.boxB, time.Since(asked).Round(time.Second), strings.TrimSpace(out))
 }
 
+// nonRootSetup is the measure's check's run, of the workstream's token
+// alone: no admin token, no boxes A and B, no target settings changed or
+// put back. It returns the box TOWER_BOX_NONROOT names.
+func nonRootSetup(t *testing.T) (*run, string) {
+	need := func(name string) string {
+		v := os.Getenv(name)
+		if v == "" {
+			t.Skipf("%s is not set: see the package's comment", name)
+		}
+		return v
+	}
+	box := need("TOWER_BOX_NONROOT")
+	url, project := need("TOWER_URL"), need("TOWER_PROJECT")
+	b, err := os.ReadFile(need("TOWER_TOKEN_FILE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hc := &http.Client{Transport: bearer{strings.TrimSpace(string(b))}}
+	return &run{t: t, envs: environmentsv1alpha1connect.NewEnvironmentServiceClient(hc, url), project: project}, box
+}
+
 // execOut runs argv in box through tower's exec, as the box's user, and
 // returns its stdout, failing the test unless it exits 0.
 func (r *run) execOut(box string, argv ...string) string {
@@ -455,19 +479,16 @@ func (r *run) execOut(box string, argv ...string) string {
 // exec there does (`id -un`, `id -u`), what it writes is that user's, and
 // its exit reports its usage: tower measured it.
 func TestANonRootBoxsProcessIsMeasuredAsItsUser(t *testing.T) {
-	r := setup(t)
-	box := os.Getenv("TOWER_BOX_NONROOT")
-	if box == "" {
-		t.Skip("TOWER_BOX_NONROOT is not set: see the package's comment")
-	}
+	r, box := nonRootSetup(t)
 	user, uid := r.execOut(box, "id", "-un"), r.execOut(box, "id", "-u")
 	if uid == "0" {
 		t.Fatalf("%s runs as root: TOWER_BOX_NONROOT names a box whose image runs as another user", box)
 	}
-	file := "/workspace/.boostcheck-measured-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	// Under /tmp: the box's own work tree is left as it is.
+	file := "/tmp/.boostcheck-measured-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	t.Cleanup(func() { r.execOut(box, "rm", "-f", file) })
 	res, err := r.envs.StartProcess(context.Background(), connect.NewRequest(&envv1alpha1.StartProcessRequest{
-		Environment: r.env(box), Dir: "/workspace",
+		Environment: r.env(box), Dir: "/tmp",
 		Command: &envv1alpha1.StartProcessRequest_Shell{Shell: "id -un; id -u; echo measured > " + file + " && stat -c %U " + file},
 	}))
 	if err != nil {

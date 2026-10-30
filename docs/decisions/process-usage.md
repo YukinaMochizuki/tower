@@ -82,11 +82,17 @@ picks, its services and its agent included.
   command's process group is the user's (`Setpgid`; the supervisor is in a
   session of its own, outside it), so the user may signal it, and no
   signal sent to the group reaches the supervisor, which writes the exit
-  however the command ended. A process's files are root's, `0755` and
-  `0644` (`proclog.Readable`), so the user reads them, lists them and
-  takes their lock shared, and writes none. Root never reads a file the
-  user may write to decide whom to signal: a pid the user forged is sent
-  with the user's own rights.
+  however the command ended. A process's directory and files are root's,
+  in the user's group, `0750` and `0640` (`proclog.GroupReadable`): the
+  user reads them, lists them and takes their lock shared, and writes
+  none; no other user of the guest reads a process's output or command
+  line, as before, when they were the user's, `0700` and `0600`.
+  `/.tower/processes` is the user's and its group's, `0750`
+  (`processesDirLine`), so no other user lists the processes either.
+  (The user's group is its own in a devcontainer's image; a group it
+  shares with other users would let them read too.) Root never reads a
+  file the user may write to decide whom to signal: a pid the user
+  forged is sent with the user's own rights.
 - **The supervisor writes nothing by its path.** `/.tower/processes` is
   the user's (an earlier tower's shim, run as the user, makes processes
   there), so the user may rename or replace a process's directory under it.
@@ -95,16 +101,24 @@ picks, its services and its agent included.
   that handle, each new (`O_EXCL`, `O_NOFOLLOW`): a renamed directory takes
   the writes with it, and a symlink or a directory put in its place gets
   none. It prunes the finished ones confined to `/.tower/processes`
-  (`os.Root`).
+  (`os.Root`), and one it cannot remove is left, the others removed all
+  the same.
 - **No root, no measure, said.** A container where no shim runs as root,
   or one asked for root runs as another, starts its processes as before,
   as the user, unmeasured. It is logged once per container, said on its
-  Instance (`Measured` false, reason `NoRoot`, with why), and root is tried
-  again five minutes later, at a start, not before.
+  Instance, and root is tried again five minutes later, at a start, not
+  before. The Instance's `RootStart` condition says what is known: true
+  (`Root`) once a root supervisor starts its processes, which measuring
+  them needs (the guest's cgroups must allow it too: an exit's usage says
+  whether one was measured); false (`NoRoot`) with why not.
 - **The rollback limit.** A tower rolled back to one whose shim runs as
   the user (rc.10) lists, reads, locks shared and signals the processes
-  this one started, but cannot prune their root-owned directories: they
-  stay until the instance goes, which is harmless.
+  this one started, but cannot prune them. Its prune stops at the first
+  directory it cannot remove, a root one, so it prunes none at all, its
+  own among them: after a rollback, finished processes' directories and
+  logs build up on the box's root disk until the instance goes, each
+  bounded by its log's cap. Rolled forward again, this tower's prune,
+  which skips what it cannot remove and goes on, removes them.
   (`internal/guest/guestbin/runas.go`, `supervise.go`,
   `internal/guest/proclog`, `internal/provider/hangar/ops.go`.)
 - **Measuring never stops a process.** A guest where no cgroup can be made
