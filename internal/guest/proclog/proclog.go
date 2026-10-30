@@ -18,10 +18,13 @@
 // A process without exit.json whose lock is free has lost its supervisor,
 // as when its guest stopped: it reads as killed by SIGKILL.
 //
-// A supervisor that runs as root for a command it runs as a user gives
-// each file it makes to that user (Owner), as a supervisor that ran as
-// the user would have made them: one that runs as the user reads,
-// prunes and locks them as its own.
+// The supervisor makes a process's directory (Create) and writes every
+// file of it through that directory, opened, never by its path, and never
+// through a symlink: whoever may write the directory above it, a
+// container's user who owns /.tower/processes, may rename or replace the
+// directory, and redirects none of its writes. A root supervisor of a
+// command it runs as a user makes them root's, readable to the user
+// (Readable), who reads, lists and locks them shared, and writes none.
 package proclog
 
 import (
@@ -35,7 +38,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -125,46 +127,115 @@ func ValidID(id string) bool {
 	return err == nil
 }
 
-// Owner is who a process's files belong to: the user its command runs as,
-// when its supervisor runs as root. A nil Owner leaves them the
-// supervisor's.
-type Owner struct{ UID, GID int }
+// Perm is the modes a supervisor makes a process's directory and its files
+// with.
+type Perm struct{ Dir, File fs.FileMode }
 
-// Own gives path to o, the path itself if it is a symlink; nothing for a
-// nil o.
-func (o *Owner) Own(path string) error {
-	if o == nil {
-		return nil
+var (
+	// Private is a supervisor's own: one that runs as its command's user.
+	Private = Perm{Dir: 0o700, File: 0o600}
+	// Readable is a root supervisor's of a command it runs as a user, who
+	// reads them and writes none.
+	Readable = Perm{Dir: 0o755, File: 0o644}
+)
+
+// Create makes a new process's directory under root with p, and returns
+// its id and the directory, opened: every write to it goes through that
+// (Lock, NewWriter, WriteMeta, WritePID, WriteExit). The directory opened
+// is the caller's own and empty, or Create fails: one that replaced it
+// under its name before it was opened is not written to.
+func Create(root string, now time.Time, p Perm) (string, *os.Root, error) {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return "", nil, err
 	}
-	return os.Lchown(path, o.UID, o.GID)
+	defer func() { _ = r.Close() }()
+	var id string
+	for i := int64(0); ; i++ {
+		id = NewID(now.Add(time.Duration(i)))
+		err := r.Mkdir(id, p.Dir)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return "", nil, err
+		}
+	}
+	if afterMkdir != nil {
+		afterMkdir(root, id)
+	}
+	dir, err := r.OpenRoot(id)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := made(dir, p); err != nil {
+		_ = dir.Close()
+		return "", nil, fmt.Errorf("process directory %s: %w", id, err)
+	}
+	return id, dir, nil
+}
+
+// afterMkdir, a test's, runs between Create's making a process's directory
+// and its opening it: when one who may write root may put another there.
+var afterMkdir func(root, id string)
+
+// made checks a directory just made is the caller's and empty, and sets
+// its mode, whatever the umask took of it.
+func made(dir *os.Root, p Perm) error {
+	st, err := dir.Stat(".")
+	if err != nil {
+		return err
+	}
+	s, ok := st.Sys().(*syscall.Stat_t)
+	if !st.IsDir() || !ok || int(s.Uid) != os.Geteuid() {
+		return errors.New("not the directory made")
+	}
+	d, err := dir.Open(".")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = d.Close() }()
+	if names, err := d.Readdirnames(1); len(names) > 0 || (err != nil && !errors.Is(err, io.EOF)) {
+		return cmp.Or(err, errors.New("not the directory made: it holds files"))
+	}
+	return d.Chmod(p.Dir)
+}
+
+// create makes a new file of dir with mode m: never over one there, so
+// never through a symlink either.
+func create(dir *os.Root, name string, flag int, m fs.FileMode) (*os.File, error) {
+	f, err := dir.OpenFile(name, flag|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, m)
+	if err != nil {
+		return nil, err
+	}
+	if err := f.Chmod(m); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
 }
 
 // Writer appends a process's output to its log. It is not safe for
 // concurrent use.
 type Writer struct {
-	dir     string
+	dir     *os.Root
 	cap     int64
-	owner   *Owner
+	mode    fs.FileMode
 	seg     *os.File
 	segFrom int64 // the current segment's first offset
 	next    int64
 }
 
 // NewWriter starts the log of the process in dir, capped at logCap bytes
-// (none if 0), each segment given to owner.
-func NewWriter(dir string, logCap int64, owner *Owner) (*Writer, error) {
-	w := &Writer{dir: dir, cap: logCap, owner: owner}
+// (none if 0), its segments made with p.
+func NewWriter(dir *os.Root, logCap int64, p Perm) (*Writer, error) {
+	w := &Writer{dir: dir, cap: logCap, mode: p.File}
 	return w, w.open(0)
 }
 
 func (w *Writer) open(from int64) error {
-	name := filepath.Join(w.dir, segName(from))
-	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_APPEND|os.O_EXCL, 0o600)
+	f, err := create(w.dir, segName(from), os.O_WRONLY|os.O_APPEND, w.mode)
 	if err != nil {
-		return err
-	}
-	if err := w.owner.Own(name); err != nil {
-		_ = f.Close()
 		return err
 	}
 	if w.seg != nil {
@@ -205,12 +276,7 @@ func (w *Writer) Write(stderr bool, p []byte) error {
 
 // prune removes the segments wholly older than the last cap bytes.
 func (w *Writer) prune() {
-	dir, err := os.OpenRoot(w.dir)
-	if err != nil {
-		return
-	}
-	segs, err := segments(dir)
-	_ = dir.Close()
+	segs, err := segments(w.dir)
 	if err != nil {
 		return
 	}
@@ -220,7 +286,7 @@ func (w *Writer) prune() {
 			end = segs[i+1]
 		}
 		if end <= w.next-w.cap {
-			_ = os.Remove(filepath.Join(w.dir, segName(s)))
+			_ = w.dir.Remove(segName(s))
 		}
 	}
 }
@@ -252,45 +318,52 @@ func segments(dir *os.Root) ([]int64, error) {
 	return out, nil
 }
 
-// WriteMeta writes a process's meta.json, given to owner.
-func WriteMeta(dir string, m Meta, owner *Owner) error {
-	return writeJSON(filepath.Join(dir, MetaFile), m, owner)
+// WriteMeta writes a process's meta.json with p.
+func WriteMeta(dir *os.Root, m Meta, p Perm) error {
+	return writeJSON(dir, MetaFile, m, p)
 }
 
-// WriteExit writes how a process ended, atomically, given to owner.
-func WriteExit(dir string, e Exit, owner *Owner) error {
-	return writeJSON(filepath.Join(dir, ExitFile), e, owner)
+// WriteExit writes how a process ended, atomically, with p.
+func WriteExit(dir *os.Root, e Exit, p Perm) error {
+	return writeJSON(dir, ExitFile, e, p)
 }
 
-func writeJSON(path string, v any, owner *Owner) error {
+// WritePID writes the process's pid with p.
+func WritePID(dir *os.Root, pid int, p Perm) error {
+	f, err := create(dir, PIDFile, os.O_WRONLY, p.File)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(strconv.Itoa(pid))
+	return errors.Join(err, f.Close())
+}
+
+func writeJSON(dir *os.Root, name string, v any, p Perm) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	tmp := name + ".tmp"
+	// One left by a write cut short.
+	_ = dir.Remove(tmp)
+	f, err := create(dir, tmp, os.O_WRONLY, p.File)
+	if err != nil {
 		return err
 	}
-	// Given before it is in place: the file is never the supervisor's
-	// under its name.
-	if err := owner.Own(tmp); err != nil {
-		_ = os.Remove(tmp)
+	_, err = f.Write(b)
+	if err = errors.Join(err, f.Close()); err != nil {
+		_ = dir.Remove(tmp)
 		return err
 	}
-	return os.Rename(tmp, path)
+	return dir.Rename(tmp, name)
 }
 
 // Lock takes the lock of a process's directory, which its supervisor holds
-// while it lives, and returns the file holding it, given to owner: its
-// reader takes it shared to see whether the supervisor lives.
-func Lock(dir string, owner *Owner) (*os.File, error) {
-	name := filepath.Join(dir, LockFile)
-	f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE|syscall.O_CLOEXEC, 0o600)
+// while it lives, and returns the file holding it, made with p: its reader
+// takes it shared to see whether the supervisor lives.
+func Lock(dir *os.Root, p Perm) (*os.File, error) {
+	f, err := create(dir, LockFile, os.O_RDWR, p.File)
 	if err != nil {
-		return nil, err
-	}
-	if err := owner.Own(name); err != nil {
-		_ = f.Close()
 		return nil, err
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {

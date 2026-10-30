@@ -8,18 +8,18 @@ import (
 	"syscall"
 
 	"github.com/YukinaMochizuki/tower/internal/guest"
-	"github.com/YukinaMochizuki/tower/internal/guest/proclog"
 )
 
 // A provider whose shim runs as the container's user cannot measure what
 // it starts: only root makes a cgroup under /tower. The hangar provider
-// asks who that user is once (OpIdentity, run as the user), then runs its
-// process operations' shim as root, and a start's As has the supervisor
-// drop to that user as it starts the command: its uid, gid and groups,
-// and its HOME; nothing else of the environment differs between the two
+// asks who that user is (OpIdentity, run as the user), then runs a start's
+// shim as root, its As having the supervisor drop to that user as it
+// starts the command: its uid, gid and groups, and its HOME; nothing else
+// of the environment differs between the two
 // (docs/decisions/process-usage.md). The supervisor stays root to measure
-// the command, and gives the files it makes to the user (proclog.Owner),
-// so a shim that runs as the user, an earlier tower's, reads them still.
+// the command; the files it makes are root's, which the user reads and
+// writes none of (proclog.Readable). Every other operation, signal, list
+// and log among them, runs as the user.
 
 // self is who this process runs as.
 func self() guest.Identity {
@@ -67,15 +67,6 @@ func sameGroups(a, b []uint32) bool {
 // SECBIT_KEEP_CAPS, which nothing here sets.
 func credential(as *guest.Identity) *syscall.Credential {
 	return &syscall.Credential{Uid: as.UID, Gid: as.GID, Groups: slices.Clone(as.Groups)}
-}
-
-// owner is who a process's files go to: the user it drops to, none if it
-// drops to none.
-func owner(as *guest.Identity) *proclog.Owner {
-	if as == nil {
-		return nil
-	}
-	return &proclog.Owner{UID: int(as.UID), GID: int(as.GID)}
 }
 
 // commandEnv is a command's environment: the shim's, its HOME the one as
