@@ -93,3 +93,7 @@ func (s *Server) SettleBoostProcess(ctx context.Context, target, project, box, i
 
 // ErrWriteBackLater is errWriteBackLater, for tests.
 var ErrWriteBackLater = errWriteBackLater
+
+// SetDeferWriteBack defers the write-back of each boost process defer
+// says, as for a box not ready, until it says otherwise.
+func (s *Server) SetDeferWriteBack(deferred func(id string) bool) { s.deferWriteBack.Store(&deferred) }

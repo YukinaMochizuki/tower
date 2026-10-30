@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -931,4 +932,58 @@ func TestAStartedTicketSurvivesARestart(t *testing.T) {
 	testutil.Eventually(t, "the given-up process ended", func() bool {
 		return !w.listed("dev")[started.GetProcess()].GetRunning()
 	})
+}
+
+// TestADeferredWriteBackKeepsItsWrites: a process whose write-back is
+// deferred is listed as running, not ended without it; a sync meanwhile
+// is shared, so what it wrote stays on the boost; once the write-back can
+// run, it comes back.
+func TestADeferredWriteBackKeepsItsWrites(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	w.srv.SetNoSettleJob()
+	first := w.startBoosted(boostOn("dev", "sh", "-c", "echo a > a.out"))
+	var deferring atomic.Bool
+	deferring.Store(true)
+	w.srv.SetDeferWriteBack(func(id string) bool { return id == first.GetProcess() && deferring.Load() })
+	if p := w.listed("dev")[first.GetProcess()]; !p.GetRunning() || p.GetExit() != nil {
+		t.Errorf("a process whose write-back is deferred is listed %v, want running", p)
+	}
+	res, out, _ := w.run(`cat a.out`)
+	if !res.GetBoost().GetBaseShared() || out != "a\n" {
+		t.Errorf("a sync beside a deferred write-back: %v, saw %q; want shared, a.out kept", res.GetBoost(), out)
+	}
+	deferring.Store(false)
+	_, end, err := attachProcess(t.Context(), w.as(workstream).envs, &envv1alpha1.AttachProcessRequest{Environment: boxEnv("dev"), Process: first.GetProcess(), Follow: true})
+	if err != nil || moved(end.GetExit())["a.out"] != "A" || w.read(w.box, "a.out") != "a\n" {
+		t.Errorf("once it can be written back: %v, %v; a.out in the box %q", end.GetExit().GetBoost(), err, w.read(w.box, "a.out"))
+	}
+	if p := w.listed("dev")[first.GetProcess()]; p.GetRunning() || moved(p.GetExit())["a.out"] != "A" {
+		t.Errorf("listed once written back: %v", p)
+	}
+}
+
+// TestABaselineIsABoostTargetsAlone: a box takes its baseline on a target
+// that makes boosts (hangar), and not on one that does not (hostd).
+func TestABaselineIsABoostTargetsAlone(t *testing.T) {
+	t.Parallel()
+	baselines := func(w *world) int {
+		n := 0
+		for _, x := range w.fake.Execs() {
+			if len(x.Command) > 1 && x.Command[0] == provider.GuestBinary && x.Command[1] == "boost-baseline" {
+				n++
+			}
+		}
+		return n
+	}
+	hangar := boostWorld(t, nil)
+	hangar.readyBox("dev")
+	if n := baselines(hangar); n != 1 {
+		t.Errorf("a hangar box took %d baselines, want 1", n)
+	}
+	hostd := newWorld(t)
+	hostd.readyBox("dev")
+	if n := baselines(hostd); n != 0 {
+		t.Errorf("a hostd box took %d baselines, want none", n)
+	}
 }

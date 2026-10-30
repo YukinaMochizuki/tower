@@ -318,7 +318,12 @@ func (s *Server) boxProcessesOf(ctx context.Context, e *environment) ([]listedPr
 	for _, i := range settle {
 		bp, err := s.settleBoostProcess(ctx, e.p, boxKey, provider.Instance{Project: e.key.Project, Name: in.GetMetadata().GetName()}, out[i].ID)
 		if err != nil {
-			s.log.Error("settling a boost process failed", "environment", e.String(), "process", out[i].ID, "error", err)
+			// Not said to have ended before its changes are written back, as
+			// reading its exit waits: running, until it is settled.
+			if !errors.Is(err, errWriteBackLater) {
+				s.log.Error("settling a boost process failed", "environment", e.String(), "process", out[i].ID, "error", err)
+			}
+			out[i].Exit = nil
 			continue
 		}
 		out[i].run = boostRunOf(bp)
@@ -471,7 +476,14 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 	if id := m.GetPending(); id != "" {
 		// Asked again once started, as by a caller that lost the answer:
 		// that start, never a second one.
-		if res, ok, err := s.startedAnswer(ctx, c, e, tq, boxKey, id, m.GetCancel(), now); err != nil || ok {
+		res, ok, term, err := s.startedAnswer(ctx, e, tq, boxKey, id, m.GetCancel(), now)
+		if term != "" {
+			// Signalled once tq is let go: no provider call under its lock.
+			tq.mu.Unlock()
+			locked = false
+			s.termBoostProcess(ctx, c, e, boxKey, term)
+		}
+		if err != nil || ok {
 			return res, err
 		}
 	}
@@ -704,10 +716,10 @@ func (h environmentService) syncAndStart(ctx context.Context, c authz.Caller, e 
 
 // startedAnswer answers a ticket that started its process, asked about
 // again within boostTicketTTL of its start: from tq while this apiserver
-// knows it, else from the box's processes, as after a restart. A cancel
-// sends that process TERM, once started. ok says the ticket started one.
-// Held tq.mu.
-func (s *Server) startedAnswer(ctx context.Context, c authz.Caller, e *environment, tq *targetBoosts, boxKey controller.Key, id string, cancel bool, now time.Time) (*envv1alpha1.StartProcessResponse, bool, error) {
+// knows it, else from the box's processes, as after a restart. ok says
+// the ticket started one; term, the process a cancel is to send TERM,
+// which the caller does once it lets tq go. Held tq.mu.
+func (s *Server) startedAnswer(ctx context.Context, e *environment, tq *targetBoosts, boxKey controller.Key, id string, cancel bool, now time.Time) (res *envv1alpha1.StartProcessResponse, ok bool, term string, err error) {
 	if st, ok := tq.started[id]; ok && st.box == boxKey {
 		if st.res == nil {
 			msg := "its process is being started; ask again"
@@ -716,34 +728,34 @@ func (s *Server) startedAnswer(ctx context.Context, c authz.Caller, e *environme
 				msg = "its process is being started; it is sent TERM once it is"
 			}
 			return &envv1alpha1.StartProcessResponse{Pending: &envv1alpha1.PendingStart{Ticket: id,
-				Reason: envv1alpha1.PendingReason_PENDING_REASON_SYNCING, Message: msg}}, true, nil
+				Reason: envv1alpha1.PendingReason_PENDING_REASON_SYNCING, Message: msg}}, true, "", nil
 		}
 		if cancel {
-			s.termBoostProcess(ctx, c, e, boxKey, st.res.GetProcess())
+			term = st.res.GetProcess()
 		}
-		return proto.Clone(st.res).(*envv1alpha1.StartProcessResponse), true, nil
+		return proto.Clone(st.res).(*envv1alpha1.StartProcessResponse), true, term, nil
 	}
 	if _, ok := tq.tickets[id]; ok {
-		return nil, false, nil
+		return nil, false, "", nil
 	}
 	var rec boxProcesses
 	if _, err := s.getRecord(ctx, boxProcessesKey(boxKey), &rec); err != nil {
-		return nil, false, apiError(err)
+		return nil, false, "", apiError(err)
 	}
 	if rec.BoxUID != e.box.GetMetadata().GetUid() {
-		return nil, false, nil
+		return nil, false, "", nil
 	}
 	for _, bp := range rec.Boost {
 		if bp.TicketID != id || now.Sub(bp.Started) > boostTicketTTL {
 			continue
 		}
 		if cancel {
-			s.termBoostProcess(ctx, c, e, boxKey, bp.ID)
+			term = bp.ID
 		}
 		at := ranOn{Kind: ranOnBoost, CPU: bp.CPU, Memory: bp.Memory}
-		return &envv1alpha1.StartProcessResponse{Process: bp.ID, RanOn: at.proto(), Boost: boostRunOf(bp)}, true, nil
+		return &envv1alpha1.StartProcessResponse{Process: bp.ID, RanOn: at.proto(), Boost: boostRunOf(bp)}, true, term, nil
 	}
-	return nil, false, nil
+	return nil, false, "", nil
 }
 
 // termBoostProcess sends the box's boost process id TERM, as a cancel of

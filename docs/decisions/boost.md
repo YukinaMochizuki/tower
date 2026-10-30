@@ -181,16 +181,21 @@ What is accepted and built, in the API's terms:
   same once moved; and a file the box touched since it last synced to
   that boost, which its inode or ctime tell (any write moves the
   ctime, which nothing can set back), is sent whatever its records say.
-  To a boost it never synced to (a new one), every file the box touched
-  since its **baseline** is sent: the box's manifest, with inodes and
-  ctimes, taken once its repositories are checked out from its warm
-  golden and before its setup steps run (`boost-baseline`), which is
-  what a boost made of the same golden holds but for its own setup's
-  writes. The baseline is not moved by a sync: a new boost is made of
-  the golden, not of the box's last state, so what the box touched
-  since the golden is sent to each new boost, equal or not. A box made
-  before tower took baselines has none, and sends every file to each
-  new boost, up to the cap. What can still slip, and only for an
+  To a boost it never synced to (a new one), every ignored file the box
+  touched since its **baseline** is sent: the box's manifest, with
+  inodes and ctimes, taken on a target that makes boosts (hangar) once
+  its repositories are checked out from its warm golden and before its
+  setup steps run (`boost-baseline`), which is what a boost made of the
+  same golden holds but for its own setup's writes. A file of the box's
+  git tree (tracked, or untracked and not ignored) is not sent for
+  being touched: the boost checks its content against that tree, and
+  one that differs is sent again, as below. The baseline is not moved
+  by a sync: a new boost is made of the golden, not of the box's last
+  state, so the ignored files the box touched since the golden are sent
+  to each new boost, equal or not (comparing their hashes first, where
+  their records match, is a follow-up). A box made before tower took
+  baselines has none, and sends every ignored file to each new boost,
+  up to the cap. What can still slip, and only for an
   ignored file (a tracked one is checked against the box's tree, as
   below): one the boost's own setup steps rewrote to the size and mtime
   of the box's untouched copy with other content (as `npm ci` with
@@ -277,7 +282,11 @@ What is accepted and built, in the API's terms:
   boost once and the box once, and copies the boost's manifest to the
   box; a boosted job walks the boost twice, before and after its
   command, in its usage; its write-back reads only the paths it changed
-  in the box. Directories are not skipped by their mtime: a file
+  in the box. What a sync sends is what differs, and, to a new boost,
+  the ignored files the box touched since its golden (an `npm install`
+  in the box: its `node_modules`, up to the cap), once per boost; the
+  box's git tree is checked on the boost instead, its trees alone
+  sent. Directories are not skipped by their mtime: a file
   rewritten in place does not move its directory's.
 - **Once a boosted process ends, what it changed is written back** to
   the box, at its settle, before its exit is answered: at the first
@@ -294,7 +303,10 @@ What is accepted and built, in the API's terms:
   inode or ctime too, or one under a directory the box removed or made
   a file or a link, stays the box's and is listed in `conflicts`; a
   directory the job removed goes only if the box put nothing in it
-  since. Nothing is written through a link. A path the box already has
+  since. Nothing is written through a link. The box is checked path by
+  path right before each is written: a box edit in the instant between
+  that check and the write's rename (a few system calls) is lost to the
+  job's. A path the box already has
   as the job left it, as when another job at once wrote it and was
   written back first, is neither moved nor a conflict, so `moved` lists
   what this job's write-back wrote. Files keep the boost's mtimes, so
@@ -304,7 +316,8 @@ What is accepted and built, in the API's terms:
   whether the job moved git's HEAD or changed its index.
 - **A write-back is never dropped while its box can take it.** A box
   starting, or made again, leaves its boost's ended processes unsettled
-  (reading their exit waits for the box), keeps its boost from going
+  (reading their exit waits for the box; listed, they run until
+  settled), keeps its boost from going
   idle, and makes a sync beside them shared, so nothing they wrote is
   undone; they are written back once it is ready. A box stopped, at
   workstream's request or for idleness, has its boost's ended processes

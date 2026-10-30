@@ -201,7 +201,8 @@ func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.B
 	if !shared {
 		// What the ended ones changed is written back before the sync undoes
 		// it on the boost; if that fails, their writes stay.
-		if err := s.settleInstance(ctx, boxKey, b, in, e.p); err != nil {
+		err := s.settleInstance(ctx, boxKey, b, in, e.p)
+		if err != nil && !errors.Is(err, errWriteBackLater) {
 			s.log.Warn("settling a boost's ended processes before a sync failed; what they wrote stays", "environment", e.String(), "error", err)
 			shared = true
 		} else if open, err := s.unsettled(ctx, boxKey, in); err != nil || open > 0 {
@@ -569,6 +570,9 @@ func (s *Server) settleBoostProcess(ctx context.Context, p provider.Provider, bo
 // path the box changed since stays the box's. A box not running gets
 // nothing; what fails is said in the result.
 func (s *Server) writeBack(ctx context.Context, p provider.Provider, boxKey controller.Key, boostRef provider.Instance, bp boostProcess, r guestbin.Report) (*writeBack, error) {
+	if hook := s.deferWriteBack.Load(); hook != nil && (*hook)(bp.ID) {
+		return nil, fmt.Errorf("process %s: deferred: %w", bp.ID, errWriteBackLater)
+	}
 	wb := &writeBack{HeadMoved: r.HeadMoved, IndexChanged: r.IndexChanged}
 	started := s.clock.Now()
 	defer func() { wb.Took = s.clock.Since(started) }()

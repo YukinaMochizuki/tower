@@ -163,6 +163,9 @@ type Server struct {
 	boostBackoffs boostBackoffs
 	// boostSettling settles each ended boost process once (boostsync.go).
 	boostSettling settling
+	// deferWriteBack, set by a test, defers the write-back of the
+	// processes it says, as for a box not ready.
+	deferWriteBack atomic.Pointer[func(id string) bool]
 	// stopWrittenBack is, by box, the boost instance whose ended
 	// processes were written back before the box stopped.
 	stopWrittenBack sync.Map

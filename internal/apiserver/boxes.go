@@ -707,7 +707,7 @@ func (s *Server) materializeInstance(ctx context.Context, p provider.Provider, k
 			if err := s.mustRun(ctx, p, ref, nil, dir, excludeCaches...); err != nil {
 				return err
 			}
-			if !timed {
+			if !timed && s.targetHasBoosts(ctx, target) {
 				// The box's baseline: its files as its warm golden and its
 				// checkout made them, before its setup steps write, which a
 				// boost made of the same golden holds too. A sync to a boost
@@ -1032,4 +1032,11 @@ func (s *Server) idle(key controller.Key, box *envv1alpha1.Box, in *envv1alpha1.
 		last = maxTime(last, c.GetLastTransitionTime().AsTime())
 	}
 	return !last.IsZero() && s.clock.Since(last) >= settingsOf(target).idleStopAfter, epoch
+}
+
+// targetHasBoosts says the target makes boosts: a hangar target's. One not
+// read is taken to.
+func (s *Server) targetHasBoosts(ctx context.Context, target string) bool {
+	t, ok, err := getTyped[*targetsv1alpha1.Target](ctx, s, registry.Target, resource.Key{Name: target})
+	return err != nil || !ok || t.GetSpec().GetHangar() != nil
 }
