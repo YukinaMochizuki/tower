@@ -123,6 +123,8 @@ type Fake struct {
 	diskFree     *uint64
 	captureSize  func(provider.Instance) uint64
 	onExec       func(provider.ExecRequest) (code int, handled bool)
+	// guestInBackground: GuestProcessesInBackground.
+	guestInBackground bool
 	// The process limits: a log's cap and the finished processes kept.
 	processLogCap     int64
 	finishedProcesses int
@@ -722,9 +724,14 @@ func (f *Fake) Exec(ctx context.Context, req provider.ExecRequest) (int, error) 
 		}
 	}
 	if answer, ok := plainGuest(f.ws, req.Command); ok {
-		if i := slices.Index(req.Command, "--out"); req.Command[1] == "boost-pack" && i > 0 && i+1 < len(req.Command) {
-			// What it packed, for Copy to copy.
-			local.files[path.Join(path.Clean(req.Command[i+1]), "manifest.json")] = []byte(answer)
+		if i := slices.Index(req.Command, "--out"); i > 0 && i+1 < len(req.Command) {
+			// What it wrote, for Copy to copy.
+			switch req.Command[1] {
+			case "boost-pack":
+				local.files[path.Join(path.Clean(req.Command[i+1]), "manifest.json")] = []byte(answer)
+			case "boost-manifest":
+				local.files[path.Clean(req.Command[i+1])] = []byte{}
+			}
 		}
 		f.execs[i].ExitCode = 0
 		f.mu.Unlock()

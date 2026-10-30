@@ -218,13 +218,15 @@ message StartProcessRequest {
   // even with no boost held is refused at once (FAILED_PRECONDITION).
   string pending = 8;
   // With pending, gives the ticket up instead: nothing starts, and its
-  // place goes to the next.
+  // place goes to the next. A ticket that started its process, asked
+  // about again until it would have been dropped, is answered that
+  // process, never a second start, so a caller that lost the answer
+  // asks again safely.
   bool cancel = 9;
-  // A boosted process's artifacts: paths relative to /workspace, copied
-  // back to the same paths in the box once it ends, up to 1GiB together
-  // in the order given; what was not copied, and why, is in its exit
-  // (ProcessExit.boost). Only a boosted start takes them.
-  repeated string artifacts = 10;
+  // Was artifacts, paths copied back once a boosted process ended: what a
+  // boosted process writes in /workspace now comes back whole.
+  reserved 10;
+  reserved "artifacts";
 }
 
 // BoostIntent is the boost a process asks for.
@@ -253,57 +255,80 @@ message StartProcessResponse {
 }
 
 // BoostRun is what a boosted process's run did beside the process: the
-// sync of the box's work tree to the boost before it started, and, once
-// it ended, what it changed there and its artifacts copied back. See
+// sync of the box's /workspace to the boost before it started, and, once
+// it ended, what of its changes was written back to the box. To the
+// caller there is one box: once a boosted process ended, the box's
+// /workspace is as if it had run there, but for what is said here
+// (conflicts, over the cap) and git's own state. See
 // docs/decisions/boost.md.
 message BoostRun {
   // How long the sync took, and what it sent: files written, paths
-  // deleted, and their bytes. A whole tree is sent (sync_full) when the
-  // boost's last tree is not known or not there.
+  // deleted, and their bytes. sync_full: the boost's last sync is not
+  // known, so all that differs was sent.
   google.protobuf.Duration sync = 1;
   int64 sync_bytes = 2;
   int32 sync_files = 3;
   int32 sync_deleted = 4;
   bool sync_full = 5;
-  // Another process of the box ran on the boost as it synced: what that
-  // one wrote was left in place, so it is in this one's tree, and its
-  // changed files may list it.
+  // Another process of the box ran on the boost as it synced: only what
+  // the box changed since its last sync was sent, and what that one wrote
+  // was left in place.
   bool base_shared = 6;
-  // Submodules (and nested repositories) whose checkouts were not
-  // synced: the boost keeps its own.
+  // Submodules (and nested repositories) whose git state is the boost's
+  // own: their files are synced as any, their .git never.
   repeated string submodules_not_synced = 7;
-  // Once it ended: the files it changed on the boost relative to the
-  // tree synced, which are not copied back.
-  ChangedFiles changed = 8;
-  // Once it ended: each artifact, copied back or not.
-  repeated ArtifactResult artifacts = 9;
-  // Why its changed files or artifacts could not be read, if so.
+  // Was changed and artifacts: what a process changed comes back whole,
+  // said in back.
+  reserved 8, 9;
+  reserved "changed", "artifacts";
+  // Why its changes could not be read or written back, if so.
   string error = 10;
+  // Files the sync did not send, past what one sync sends (2GiB): the
+  // process ran with the boost's.
+  repeated OverCap sync_over_cap = 11;
+  // Once it ended: what of its changes was written back to the box.
+  WriteBack back = 12;
 }
 
-// ChangedFiles are the files a boosted process changed: at most 200,
-// with how many there were.
-message ChangedFiles {
-  repeated ChangedFile files = 1;
-  int32 total = 2;
-  bool truncated = 3;
+// WriteBack is what a boosted process changed in /workspace on its boost,
+// written back to the box once it ended, before its exit was answered:
+// every path it added, changed or deleted, ignored files too, with modes
+// and links; never .git or /.ws-cache, nor a path through a link.
+message WriteBack {
+  google.protobuf.Duration took = 1;
+  // Files written, paths deleted, and the files' bytes.
+  int32 files = 2;
+  int32 deleted = 3;
+  int64 bytes = 4;
+  // The paths moved, the first 200, with how many there were.
+  repeated MovedFile moved = 5;
+  int32 total = 6;
+  // Paths the box changed after the process's sync began, or whose
+  // directory it did: the box's stay, the process's are not written.
+  repeated string conflicts = 7;
+  // Files not brought back, past what one process brings back (2GiB).
+  repeated OverCap over_cap = 8;
+  // The process moved git's HEAD (a commit), or changed its index (git
+  // add): neither comes back, the one exception to "as if it had run in
+  // the box"; its files do.
+  bool head_moved = 9;
+  bool index_changed = 10;
+  // Why nothing, or not all, came back: the box was not running, the
+  // process started before this tower, or the write-back failed.
+  string error = 11;
 }
 
-message ChangedFile {
+// MovedFile is a path written back: A added, M changed, D deleted.
+message MovedFile {
   string path = 1;
-  // A added (new, and not ignored), M modified, D deleted, T its type
-  // changed (a file, a symlink).
   string status = 2;
+  int64 bytes = 3;
 }
 
-// ArtifactResult is one artifact a boosted process named.
-message ArtifactResult {
+// OverCap is a file past a move's cap, not moved.
+message OverCap {
   string path = 1;
   int64 bytes = 2;
-  bool copied = 3;
-  // Why it was not copied: not there, outside /workspace, past the cap,
-  // or the copy failed.
-  string error = 4;
 }
 
 // PendingStart is a boosted start that has not started yet, as tower

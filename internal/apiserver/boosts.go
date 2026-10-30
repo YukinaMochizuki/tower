@@ -110,6 +110,17 @@ type targetBoosts struct {
 	lastSync map[controller.Key]string
 	// syncWaiting counts each box's syncs waiting for its sync lock.
 	syncWaiting map[controller.Key]int
+	// started are the tickets that started their process, until
+	// boostTicketTTL after: asked about again, each is answered its
+	// start, never a second one.
+	started map[string]*startedTicket
+}
+
+// startedTicket is a ticket's start: under way while res is nil.
+type startedTicket struct {
+	box controller.Key
+	at  time.Time
+	res *envv1alpha1.StartProcessResponse
 }
 
 // syncLock is a box's sync lock: a semaphore of one, so a start can give
@@ -166,17 +177,23 @@ func (q *boostQueues) of(target string) *targetBoosts {
 	t, ok := q.targets[target]
 	if !ok {
 		t = &targetBoosts{tickets: map[string]*boostTicket{}, starting: map[controller.Key]int{}, used: map[controller.Key]time.Time{}, starts: map[controller.Key]uint64{},
-			lastSync: map[controller.Key]string{}, syncWaiting: map[controller.Key]int{}}
+			lastSync: map[controller.Key]string{}, syncWaiting: map[controller.Key]int{}, started: map[string]*startedTicket{}}
 		q.targets[target] = t
 	}
 	return t
 }
 
-// prune drops the tickets not asked about for boostTicketTTL. Held mu.
+// prune drops the tickets not asked about for boostTicketTTL, and the
+// starts of tickets made longer ago. Held mu.
 func (t *targetBoosts) prune(now time.Time) {
 	for id, tk := range t.tickets {
 		if now.Sub(tk.seen) > boostTicketTTL {
 			delete(t.tickets, id)
+		}
+	}
+	for id, st := range t.started {
+		if st.res != nil && now.Sub(st.at) > boostTicketTTL {
+			delete(t.started, id)
 		}
 	}
 }

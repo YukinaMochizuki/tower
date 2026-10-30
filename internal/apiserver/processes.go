@@ -102,12 +102,6 @@ func (h environmentService) StartProcess(ctx context.Context, req *connect.Reque
 	if m.GetPending() != "" && m.GetBoost() == nil && !m.GetCancel() {
 		return nil, invalid("pending asks again for a boosted start: give its boost as first asked")
 	}
-	if len(m.GetArtifacts()) > 0 && m.GetBoost() == nil {
-		return nil, invalid("artifacts are a boosted process's: they are copied back from its boost")
-	}
-	if err := checkArtifacts(m.GetArtifacts()); err != nil {
-		return nil, err
-	}
 	e, err := h.open(ctx, m.GetEnvironment())
 	if err != nil {
 		return nil, err

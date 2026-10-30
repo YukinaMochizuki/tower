@@ -27,10 +27,11 @@ func (s *Server) SetBeforeBoostRetire(fn func(project, box string)) {
 }
 
 // SetBoostSync sets how long a boosted start waits for its sync, a
-// negative wait none, and the most artifacts copy back, for tests.
-func (s *Server) SetBoostSync(wait time.Duration, artifactsMax int64) {
+// negative wait none, and the most one process's changes bring back,
+// for tests.
+func (s *Server) SetBoostSync(wait time.Duration, backMax int64) {
 	s.syncWait.Store(int64(wait))
-	s.artifactsMax = artifactsMax
+	s.backMax = backMax
 }
 
 // SetNoSettleJob keeps the boost controller from settling ended

@@ -162,11 +162,11 @@ type Server struct {
 	boostBackoffs boostBackoffs
 	// boostSettling settles each ended boost process once (boostsync.go).
 	boostSettling settling
-	// syncWait and artifactsMax are boostSyncWait and boostArtifactsMax
+	// syncWait and backMax are boostSyncWait and boostBackMax
 	// unless a test sets them.
-	syncWait     atomic.Int64
-	artifactsMax int64
-	jobs         jobs
+	syncWait atomic.Int64
+	backMax  int64
+	jobs     jobs
 	// jobErrs are the jobs' last failures by target, for last_error.
 	jobErrs jobErrors
 	// teardowns are the last teardown passes of Targets being deleted.

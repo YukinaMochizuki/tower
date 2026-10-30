@@ -2,6 +2,7 @@ package apiserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
@@ -72,12 +74,14 @@ type boostProcess struct {
 	Exit *provider.ProcessExit `json:"exit,omitempty"`
 	// Gone says its instance is gone: with no Exit, it ended unseen.
 	Gone bool `json:"gone,omitempty"`
-	// RunID names its report on the boost (reportPath); Artifacts are the
-	// paths it named; Sync is the sync before it started.
-	RunID     string     `json:"runId,omitempty"`
-	Artifacts []string   `json:"artifacts,omitempty"`
-	Sync      *syncStats `json:"sync,omitempty"`
-	// Run is what it changed and copied back, once Settled.
+	// RunID names its report on the boost (reportPath); Sync is the sync
+	// before it started, SyncID the box's manifest as that sync sent it,
+	// which its write-back compares the box with; none for one started
+	// before tower wrote boosted processes' changes back.
+	RunID  string     `json:"runId,omitempty"`
+	SyncID string     `json:"syncId,omitempty"`
+	Sync   *syncStats `json:"sync,omitempty"`
+	// Run is what of its changes was written back, once Settled.
 	Run     *runResult `json:"run,omitempty"`
 	Settled bool       `json:"settled,omitempty"`
 }
@@ -122,16 +126,16 @@ func (r *boxProcesses) add(p boostProcess) {
 	r.trimChanged()
 }
 
-// changedKept is how many of the last processes keep their changed
-// files' list; older ones keep its count alone.
+// changedKept is how many of the last processes keep the list of paths
+// written back; older ones keep its count alone.
 const changedKept = 10
 
-// trimChanged drops the changed files' lists of all but the last
+// trimChanged drops the lists of paths written back of all but the last
 // changedKept processes, keeping their counts.
 func (r *boxProcesses) trimChanged() {
 	for i := 0; i < len(r.Boost)-changedKept; i++ {
-		if run := r.Boost[i].Run; run != nil && run.Changed != nil {
-			r.Boost[i].Run.Changed = nil
+		if run := r.Boost[i].Run; run != nil && run.Back != nil && run.Back.Moved != nil {
+			r.Boost[i].Run.Back.Moved = nil
 		}
 	}
 }
@@ -442,6 +446,15 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 	now := s.clock.Now()
 	tq.prune(now)
 	var tk *boostTicket
+	if st, ok := tq.started[m.GetPending()]; ok && m.GetPending() != "" && st.box == boxKey {
+		// Asked again once started, as by a caller that lost the answer:
+		// that start, never a second one; nothing to give up.
+		if st.res == nil {
+			return &envv1alpha1.StartProcessResponse{Pending: &envv1alpha1.PendingStart{Ticket: m.GetPending(),
+				Reason: envv1alpha1.PendingReason_PENDING_REASON_SYNCING, Message: "its process is being started; ask again"}}, nil
+		}
+		return proto.Clone(st.res).(*envv1alpha1.StartProcessResponse), nil
+	}
 	if id := m.GetPending(); id != "" {
 		if t, ok := tq.tickets[id]; ok && t.box == boxKey {
 			tk = t
@@ -617,6 +630,13 @@ func (h environmentService) syncAndStart(ctx context.Context, c authz.Caller, e 
 		}
 		tq.mu.Lock()
 		*locked = true
+		if errors.Is(run.err, errSharedNoBase) {
+			// Asked again once the running one ends, it syncs whole.
+			tk.sync = nil
+			lock.unlock()
+			return pending(envv1alpha1.PendingReason_PENDING_REASON_SYNCING,
+				"another boosted process of the box runs, and the box's last sync is not known: it is synced once that one ends", 0, s.syncWaitFor()), nil
+		}
 		if run.err != nil {
 			delete(tq.tickets, tk.id)
 			lock.unlock()
@@ -634,6 +654,10 @@ func (h environmentService) syncAndStart(ctx context.Context, c authz.Caller, e 
 			return pending(envv1alpha1.PendingReason_PENDING_REASON_SYNCING, "another start of the box synced since; it is synced again when asked", 0, s.syncWaitFor()), nil
 		}
 		delete(tq.tickets, tk.id)
+		// The ticket is started: asked about again, it is answered its
+		// start, never a second one.
+		st := &startedTicket{box: boxKey, at: s.clock.Now()}
+		tq.started[tk.id] = st
 		tq.starting[boxKey]++
 		tq.mu.Unlock()
 		*locked = false
@@ -641,7 +665,15 @@ func (h environmentService) syncAndStart(ctx context.Context, c authz.Caller, e 
 		if hook := s.beforeBoostStart.Load(); hook != nil {
 			(*hook)(boxKey)
 		}
-		return h.startOnBoost(ctx, c, e, m, command, b, tq, boxKey, run.stats)
+		res, err := h.startOnBoost(ctx, c, e, m, command, b, tq, boxKey, run.stats)
+		tq.mu.Lock()
+		if err != nil {
+			delete(tq.started, tk.id)
+		} else {
+			st.res, st.at = proto.Clone(res).(*envv1alpha1.StartProcessResponse), s.clock.Now()
+		}
+		tq.mu.Unlock()
+		return res, err
 	}
 }
 
@@ -672,13 +704,12 @@ func (h environmentService) startOnBoost(ctx context.Context, c authz.Caller, e 
 	}
 	size := boostSizeOf(b.GetSpec().GetResources())
 	ref := provider.Instance{Project: e.key.Project, Name: in.GetMetadata().GetName()}
-	// Under boost-job, which says what it changed relative to the tree
-	// synced and measures its artifacts once it ends.
-	runID, tree := randomID(), ""
+	// Under boost-job, which says what it changed once it ends.
+	runID, syncID := randomID(), ""
 	if synced != nil {
-		tree = synced.Tree
+		syncID = synced.Sent
 	}
-	wrapped := boostJobCommand(tree, reportPath(runID), m.GetArtifacts(), e.asRunAs(command, m.GetDir()))
+	wrapped := boostJobCommand(reportPath(runID), e.asRunAs(command, m.GetDir()))
 	pid, err := e.p.StartProcess(ctx, provider.ProcessRequest{
 		Instance: ref, Command: wrapped, Env: e.commandEnv(m.GetEnv()), Dir: m.GetDir(), Name: m.GetName(),
 		MemoryMax: processMemoryMax(int64(min(size.memory, 1<<62))),
@@ -702,7 +733,7 @@ func (h environmentService) startOnBoost(ctx context.Context, c authz.Caller, e 
 	entry := boostProcess{
 		ID: id, BoostUID: b.GetMetadata().GetUid(), Instance: ref.Name, InstanceUID: in.GetMetadata().GetUid(), ProviderID: pid,
 		CPU: at.CPU, Memory: at.Memory, Name: m.GetName(), Coarse: coarseCommand(commandText(e.givenCommand(command))), Dir: m.GetDir(),
-		Started: s.clock.Now(), RunID: runID, Artifacts: m.GetArtifacts(), Sync: synced,
+		Started: s.clock.Now(), RunID: runID, SyncID: syncID, Sync: synced,
 	}
 	err = changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool {
 		if uid := e.box.GetMetadata().GetUid(); r.BoxUID != uid {

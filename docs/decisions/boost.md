@@ -1,10 +1,10 @@
 # Heavy jobs run on a boost, not in a larger box
 
-Status: accepted in part, 2026-10-29. The boost itself (its kind, its
-life, the pending answer, the settings and the queue) and its sync (the
-box's work tree sent before each job, what a job changed, artifacts),
-under "Built" below, are accepted and built; routing by the records is
-a draft for review, not yet built.
+Status: accepted in part, 2026-10-29; one box, 2026-10-30. The boost
+itself (its kind, its life, the pending answer, the settings and the
+queue) and its sync (the box's files sent before each job, what a job
+changed written back once it ends), under "Built" below, are accepted
+and built; routing by the records is a draft for review, not yet built.
 
 ## Context
 
@@ -45,19 +45,23 @@ resize a machine's CPUs or memory while it runs (it grows disks only).
   on it for the target's `boost_idle` (default 10 minutes), freeing its
   cpu, memory and disk. A run of heavy commands thus shares one warm
   boost without the agent holding a lease it could forget.
-- **The box is the source of truth; the boost follows it.** Before each
-  job, the box's work tree is written as a git tree with a temporary
-  index (tracked and untracked files, gitignored ones left out), and only
-  what changed since the tree last sent goes to the boost, through
-  `Provider.Copy`, so the bytes stay on the target (`traffic.md`). The
-  first send is against the warm golden's commit, or a whole tar when the
-  box lacks that commit. Gitignored files never travel: build output,
-  `.ws-cache` and installed dependencies are the boost's own.
-- **Nothing comes back unless asked.** A job's output and exit come back
-  as any process's (`EnvironmentService`), so workstream's job tools work
-  unchanged. Tracked files the job changed on the boost are listed in its
-  result and not copied back. Paths a job names as its artifacts are
-  copied back to the box when it ends.
+- **To an agent there is one box** (decided with the human,
+  2026-10-30). A boost only means a job runs on a larger machine: when a
+  boosted job ends, the box's `/workspace` is what it would be had the
+  job run in the box. Before each job the boost's `/workspace` is made
+  the box's, and once it ends what it changed is written back to the
+  box: every file, ignored ones too (build output, `node_modules`,
+  `bin/`), never `.git` (git's own state keeps its own sync) or the top
+  `/.ws-cache` (each instance's caches). The bytes go through
+  `Provider.Copy`, staying on the target (`traffic.md`). What does not
+  come back: the job's processes and ports, `.ws-cache`, a file past the
+  cap, a path the box changed while the job ran (the box wins), and
+  git's state: a commit or `git add` the job made on the boost is said
+  in its exit, not brought back, the one exception to "as if it ran in
+  the box" (a later change may bring commits back).
+- **A job's output and exit come back as any process's**
+  (`EnvironmentService`), so workstream's job tools work unchanged; its
+  exit also says what came back (`BoostRun.back`).
 - **tower routes each job, from what it measured.** Every process on a
   hangar box runs in a cgroup of its own and reports its peak memory, an
   OOM kill, its CPU time and wait, and its wall time; tower keeps the last
@@ -159,63 +163,64 @@ What is accepted and built, in the API's terms:
   on it. A boost's job that fails or must try again later (a step
   waiting on the target, a retire that found it busy) is held back by a
   backoff from 100ms doubling to a minute, counted across its restarts.
-- **Before each boosted process, the box's work tree is synced.**
+- **Before each boosted process, the boost is made the box's.**
   tower-guest's subcommands, run through Exec as argv, never a shell
   line; every path they give git is a path, never a pattern
   (`GIT_LITERAL_PATHSPECS`), and each git call takes the checkout as a
-  safe directory for itself alone. `boost-pack` in the box writes the
-  work tree as a tree through a copy of the box's index
-  (`GIT_INDEX_FILE`; the box's own is never touched), tracked files, one
-  an ignore rule matches too, and untracked ones git does not ignore (a
-  box without an index tracks HEAD's paths), and packs what changed
-  since a base, read from the object store, with modes and symlinks,
-  the paths deleted, what is staged where it differs from the work tree, and a
-  bundle of HEAD's commits no `origin` ref reaches. tower copies the
-  pack to the boost (`Provider.Copy`), fetches the mirror there
-  (`UpdateOrigin`), and `boost-apply` puts back what the boost's own
-  jobs changed since the base, applies the pack, and checks the tree
-  made is the one sent. Each tree the boost makes of its work tree, to
-  put back, to check, or for a job's report, goes through an index of
-  its own, first given the paths of the tree it is measured against
-  (`read-tree -m`, which keeps its stat cache): the base, the tree sent
-  (made there from the base and the pack), the tree synced. So a file
-  the box tracks that an ignore rule matches is tracked on the boost
-  too, and one ignored and untracked in the box never travels. A whole
-  tree that still makes another fails the start (`INTERNAL`), saying
-  so; then sets HEAD to the box's commit on its
-  branch and the index to the box's, so `git status` and `git diff` say
-  there what they say in the box. The base is the tree last sent to
-  that boost's instance (a `BoostSync` record per box), else the commit
-  the boost was checked out at, else none: the whole tree. A base the
-  boost lacks, or a tree that does not match, sends the whole tree once
-  more in the same start; a bundle whose commits the boost lacks the
-  parents of sends HEAD's whole history once more. A sync past 2GiB,
-  what changed and the bundle of commits together, is refused
-  (`FAILED_PRECONDITION`), naming its largest paths or the bundle. The
-  sync removes and replaces paths in the boost's checkout through an
-  `os.Root` of it, so a symlink there never leads it outside. Each
-  staging directory is removed after the sync, in the box and on the
-  boost, and what a crash leaves is swept after a day.
-- **Submodules' checkouts are never sent** (`submodules_not_synced`):
-  a committed submodule, or an untracked nested repository `git add -A`
-  takes as one, is a gitlink of the tree sent, and the tree made on the
-  boost is checked with the tree's gitlinks in place of whatever the
-  boost holds there. The boost keeps its own checkout of each, or none.
-- **A path that is a directory on the boost and a file in the box** is
-  the box's file: the directory goes with what it holds, ignored files
-  too.
-- **A sync beside another process of the box on the boost** leaves what
-  that one wrote and does not check the work tree; the next process's
-  exit says so (`base_shared`). Whether one runs is read from the
-  boost's processes when the sync applies, under the box's sync lock,
-  which a start holds as it starts its process: no start is between a
-  sync's look and its apply. A start being started counts as a process
-  that runs too, whether or not it holds the lock. A start whose sync
-  another start's sync overtook, or that ended more than 40 seconds ago
-  (the 10-second wait and 30 seconds for the caller to ask again), syncs
+  safe directory for itself alone. Each side walks its `/workspace`
+  into a manifest: a record a path, of its type, mode, size, mtime (in
+  nanoseconds) and a link's target, and, for that side alone, its inode
+  and ctime. `boost-manifest` walks the boost's; tower copies it to the
+  box, where `boost-pack` walks the box's and packs what differs:
+  added, changed (type, mode, size or mtime), deleted, a link's target,
+  read from the files as they are, with their modes and mtimes. Two
+  records the same are the same file: a box and its boost are both made
+  of the box's warm golden, so its files are the same from the start,
+  and a file moved keeps its mtime, so is the same once moved. A file
+  the box rewrote to the same size and mtime since its last sync, which
+  its inode or ctime tell, is sent anyway. The box also sends git's
+  state as before: its work tree's tree (as trees alone), what is
+  staged apart from it, and a bundle of HEAD's commits no `origin` ref
+  reaches. tower copies the pack to the boost (`Provider.Copy`),
+  fetches the mirror there (`UpdateOrigin`), and `boost-apply` deletes,
+  then writes each file whole beside its path and renames it on, with
+  its mode and mtime, and links verbatim, wherever they point (a venv's
+  `bin/python -> /usr/bin/python3` stays one); all through an
+  `os.Root` of the checkout, and a directory in a path's way that is a
+  link in the boost is replaced, so nothing is ever written or deleted
+  through a link. Then it checks its work tree, as git sees it, against
+  the box's tree: a tracked file whose content differs though its
+  records are the same is sent again once, by path; if it still
+  differs, the start fails (`INTERNAL`), saying so. Then HEAD is the
+  box's commit on its branch, and the index the box's, so `git status`
+  and `git diff` say there what they say in the box. A sync sends up to
+  2GiB: a file past it is not sent, is listed in the exit
+  (`sync_over_cap`), and the job runs; git's state past it (staged
+  content, commits) is refused (`FAILED_PRECONDITION`). The box keeps
+  each sync's manifest as sent (`sent-<id>`) while a process synced by
+  it is not settled, and its last (in the `BoostSync` record); each
+  staging directory is removed after use, and what a crash leaves is
+  swept after a day. This replaces 2/4's restore: what only the boost
+  changed, a job's leftovers, is undone by the boost being made the
+  box's.
+- **Submodules and nested repositories** move as any files; their
+  `.git` never does (`submodules_not_synced`), and the boost's check
+  takes the tree's gitlinks for whatever the boost holds there.
+- **A sync beside another process of the box on the boost**
+  (`base_shared`) sends only what the box changed since its last sync,
+  compared with that sync's manifest, so nothing that one writes is
+  deleted or reverted; the work tree is not checked. Without a last
+  sync tower knows, the start answers `PENDING_REASON_SYNCING` until the
+  running process ends. Whether one runs is read from the boost's
+  processes when the sync applies, under the box's sync lock, which a
+  start holds as it starts its process: no start is between a sync's
+  look and its apply. A start being started counts as a process that
+  runs too, whether or not it holds the lock. A start whose sync another
+  start's sync overtook, or that ended more than 40 seconds ago (the
+  10-second wait and 30 seconds for the caller to ask again), syncs
   again before it starts. A sync that is not shared first settles the
-  box's ended processes on the boost, so their artifacts are copied back
-  before it puts back what they wrote; if that settling fails, the sync
+  box's ended processes on the boost, so what they wrote reaches the
+  box before the sync undoes it there; if that settling fails, the sync
   is shared and what they wrote stays.
 - **A sync answers within 10 seconds or pends.** It runs as a job,
   holding the box in use; a start whose sync is not done in 10 seconds
@@ -228,25 +233,44 @@ What is accepted and built, in the API's terms:
   idleness is woken first, as by any data-plane call. The sync's time,
   files, deletions and bytes are in the start's answer and the
   process's exit (`BoostRun`).
+- **A ticket that started its process answers that process.** Asked
+  again within the ticket's 5 minutes after its start, as by a caller
+  that lost the answer (a restart, a dropped connection), a ticket is
+  answered the same process and `ran_on`, never a second start; while
+  its start is under way, `PENDING_REASON_SYNCING`. The record is the
+  apiserver's memory: one restarted meanwhile starts it anew.
 - **A boosted process runs under `tower-guest boost-job`**, in its
-  process's group and cgroup, which once its command ends writes what
-  it changed on the boost relative to the tree synced (new files not
-  ignored count; 200 listed, with the count) and its artifacts' sizes,
-  then exits as its command did, by the same signal. That diff runs in
-  the process's cgroup: a boosted process's peak memory, CPU time and
-  wall time include it (`process-usage.md`). Its changed files are not
-  copied back; a box keeps the list for its last 10 processes, the count
-  for all.
-- **Artifacts** (`StartProcessRequest.artifacts`, paths in /workspace,
-  none in a `.git` directory) are copied back to the same paths in the
-  box (`Provider.Copy`, boost to box) when the process is settled: at
-  the first read of its exit, by the boost controller once it ends,
-  before a sync puts back what it wrote, or before its boost goes; once,
-  the settling kept before its report is removed. Each is measured
-  again on the boost right before it is copied; they copy in their order
-  up to 1GiB together; one not there, leading out of /workspace by a
-  name or a symlink, past the cap, or not copied (the box stopped) says
-  why in the exit, whose code it never changes.
+  process's group and cgroup, which walks the boost's `/workspace`
+  before its command starts and once it ends: what differs, by type,
+  mode, size, mtime, inode or ctime, is what the job added, changed or
+  deleted, kept for its write-back; it reads git's HEAD and a hash of
+  its index at both ends too. It exits as its command did, by the same
+  signal. Both walks run in the process's cgroup: a boosted process's
+  peak memory, CPU time and wall time include them
+  (`process-usage.md`).
+- **Once a boosted process ends, what it changed is written back** to
+  the box, at its settle, before its exit is answered: at the first
+  read of its exit, by the boost controller once it ends, before a sync
+  undoes it on the boost, or before its boost goes; once, the settle
+  kept before its report is removed. `boost-back` packs on the boost
+  each path the job added or changed as it is then, with its mode,
+  mtime or link target, and what it deleted, up to 2GiB in path order
+  (a file past it stays, listed in `over_cap`); tower copies it to the
+  box, where `boost-writeback` applies it through an `os.Root` of the
+  checkout. The box wins: a path the box changed after the job's sync
+  began, as that sync's manifest of the box says, by any record field,
+  inode or ctime too, or one under a directory the box removed or made
+  a file or a link, stays the box's and is listed in `conflicts`; a
+  directory the job removed goes only if the box put nothing in it
+  since. Nothing is written through a link. Files keep the boost's
+  mtimes, so the next sync finds them the same. The exit says what came
+  back (`BoostRun.back`): files, deletions, bytes, the first 200 paths
+  with the count, conflicts, what was past the cap, the time it took,
+  and whether the job moved git's HEAD or changed its index. A box not
+  running when the process is settled gets nothing back, and its exit
+  says so; a process started before this tower, whose sync kept no
+  manifest, likewise. A box keeps the paths' list for its last 10
+  processes, the count for all.
 - `test/boostcheck` checks the above on a real tower and hangar target
   (`docs/runbook/testbed.md`).
 
@@ -256,18 +280,21 @@ What is accepted and built, in the API's terms:
   services use, not their heaviest job.
 - A boosted job pays the boost's start (about 15 seconds) once per burst,
   and a sync of what changed before each job.
-- A job that writes source files (code generation) must not be boosted:
-  its writes stay on the boost. The result says which files it changed.
-- A boost's caches start from the warm golden's and are lost with it;
-  what a job builds does not reach the box's caches.
-- A gitignored file a box made by hand is not on the boost.
+- A job's writes come back once it ends, a file at a time: a large
+  build output costs its bytes each way, up to 2GiB a move; past that,
+  files stay where they were, said in the exit. A change in place to a
+  large file moves the whole file.
+- A boost's caches (`/.ws-cache`) start from the warm golden's and are
+  lost with it; what a job puts there does not reach the box's.
+- A commit or `git add` a job makes on the boost does not come back,
+  though its files do; the exit says so.
 - Routing is only as good as the records: the first heavy run of a
   command may OOM in the box.
 
 ## Not decided yet
 
 - What workstream's tools take and show: the `boost` argument of a job,
-  artifacts, and how a pending start and usage read in a job's result
+  and how a pending start, usage and what came back read in a job's result
   (usage on `await_job` is asked for). The API they call is above.
 - Whether a boost runs Docker (docker-in-docker works in a hangar guest,
   but tower starts no dockerd today), which would move e2e that needs
