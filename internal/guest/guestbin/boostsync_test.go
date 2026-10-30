@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/json"
-	"io"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,9 +49,14 @@ func read(t *testing.T, file string) string {
 	t.Helper()
 	b, err := os.ReadFile(file)
 	if err != nil {
-		t.Fatal(err)
+		return "<" + err.Error() + ">"
 	}
 	return string(b)
+}
+
+func exists(file string) bool {
+	_, err := os.Lstat(file)
+	return err == nil
 }
 
 // boostRun runs a boost subcommand and returns its exit code, stdout and
@@ -62,194 +67,571 @@ func boostRun(args ...string) (int, string, string) {
 	return code, out.String(), errOut.String()
 }
 
-// pair is a box and its boost, both clones of origin at its first commit.
+// pair is a box and its boost: a clone of origin at its first commit, and
+// a copy of it, as a box and its boost are both made of the box's warm
+// golden. last is the box's manifest last sent.
 type pair struct {
 	origin, box, boost string
 	first              string
+	last               string
+	n                  int
 }
 
-func newPair(t *testing.T) pair {
+func newPair(t *testing.T) *pair {
 	t.Helper()
 	root := t.TempDir()
-	p := pair{origin: filepath.Join(root, "origin.git"), box: filepath.Join(root, "box"), boost: filepath.Join(root, "boost")}
+	p := &pair{origin: filepath.Join(root, "origin.git"), box: filepath.Join(root, "box"), boost: filepath.Join(root, "boost")}
 	seed := filepath.Join(root, "seed")
 	git(t, root, "init", "-q", "-b", "main", seed)
 	write(t, filepath.Join(seed, "a.txt"), "a\n", 0o644)
 	write(t, filepath.Join(seed, "b.txt"), "b\n", 0o644)
 	write(t, filepath.Join(seed, "d", "c.txt"), "c\n", 0o644)
-	write(t, filepath.Join(seed, "run.sh"), "#!/bin/sh\n", 0o644)
-	write(t, filepath.Join(seed, ".gitignore"), "*.log\n/.ws-cache/\n", 0o644)
+	write(t, filepath.Join(seed, "run.sh"), "#!/bin/sh\n", 0o755)
+	write(t, filepath.Join(seed, ".gitignore"), "*.log\n/.ws-cache/\n/bin/\nnode_modules/\n", 0o644)
 	git(t, seed, "add", "-A")
 	git(t, seed, "commit", "-q", "-m", "first")
 	git(t, root, "clone", "-q", "--bare", seed, p.origin)
 	git(t, root, "clone", "-q", p.origin, p.box)
-	git(t, root, "clone", "-q", p.origin, p.boost)
+	// Ignored files the golden holds: dependencies installed.
+	write(t, filepath.Join(p.box, "node_modules", "dep", "index.js"), "v1\n", 0o644)
+	if out, err := exec.Command("cp", "-a", p.box, p.boost).CombinedOutput(); err != nil {
+		t.Fatalf("cp: %v: %s", err, out)
+	}
 	p.first = git(t, p.box, "rev-parse", "HEAD")
 	return p
 }
 
-// send packs the box against base and applies it on the boost, as tower
-// does through Copy, and returns the manifest.
-func (p pair) send(t *testing.T, base string, applyArgs ...string) (guestbin.Manifest, int, string) {
+func (p *pair) boostDir(dir string) string { return filepath.Join(dir, ".git", guestbin.BoostDir) }
+
+func (p *pair) id() string {
+	p.n++
+	return fmt.Sprintf("%d%d", time.Now().UnixNano(), p.n)
+}
+
+// copyDir copies a staging directory from one instance to the other, as
+// tower does through Provider.Copy.
+func copyDir(t *testing.T, from, to string) {
 	t.Helper()
-	id := "sync-" + strings.ReplaceAll(time.Now().Format("150405.000000000"), ".", "")
-	out := filepath.Join(p.box, ".git", guestbin.BoostDir, id)
-	code, stdout, stderr := boostRun("boost-pack", "--dir", p.box, "--base", base, "--out", out)
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("cp", "-a", from, to).CombinedOutput(); err != nil {
+		t.Fatalf("cp: %v: %s", err, out)
+	}
+	_ = os.RemoveAll(from)
+}
+
+// pack packs the box, as tower does: not shared, against the boost's
+// manifest, taken on the boost and copied to the box; shared, against the
+// box's manifest last sent. It returns the staging directory on the boost
+// and the manifest, failing the test unless the pack exits 0.
+func (p *pair) pack(t *testing.T, shared bool, args ...string) (string, guestbin.Manifest) {
+	t.Helper()
+	staging, m, code, stderr := p.tryPack(t, shared, args...)
 	if code != 0 {
 		t.Fatalf("boost-pack exited %d: %s", code, stderr)
 	}
-	var m guestbin.Manifest
-	if err := json.Unmarshal([]byte(stdout), &m); err != nil {
-		t.Fatal(err)
-	}
-	staging := filepath.Join(p.boost, ".git", guestbin.BoostDir, id)
-	if err := os.MkdirAll(filepath.Dir(staging), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if b, err := exec.Command("cp", "-a", out, staging).CombinedOutput(); err != nil {
-		t.Fatalf("copying the staging directory: %v: %s", err, b)
-	}
-	if code, _, stderr := boostRun("boost-clean", "--dir", p.box, "--name", id); code != 0 {
-		t.Fatalf("boost-clean: %s", stderr)
-	}
-	code, _, stderr = boostRun(append([]string{"boost-apply", "--dir", p.boost, "--staging", staging}, applyArgs...)...)
-	if _, err := os.Stat(staging); err == nil {
-		t.Errorf("boost-apply exited %d and left its staging directory", code)
-	}
-	if _, err := os.Stat(out); err == nil {
-		t.Error("boost-clean left the box's staging directory")
-	}
-	return m, code, stderr
+	return staging, m
 }
 
-// TestATreeDiffSendsWhatChanged: the box's work tree, tracked and
-// untracked not ignored, reaches the boost as only what changed since the
-// base: an add, a change, a delete, a rename, a mode, a symlink, an
-// untracked file; never a gitignored one; and the box's index is not
-// touched.
-func TestATreeDiffSendsWhatChanged(t *testing.T) {
-	p := newPair(t)
-	write(t, filepath.Join(p.box, "a.txt"), "a, changed\n", 0o644)
-	if err := os.Remove(filepath.Join(p.box, "b.txt")); err != nil {
-		t.Fatal(err)
+func (p *pair) tryPack(t *testing.T, shared bool, args ...string) (string, guestbin.Manifest, int, string) {
+	t.Helper()
+	id := "sync-" + p.id()
+	out := filepath.Join(p.boostDir(p.box), id)
+	pack := []string{"boost-pack", "--dir", p.box, "--out", out}
+	if shared {
+		pack = append(pack, "--shared")
+	} else {
+		mine := filepath.Join(p.boostDir(p.boost), id, "boost.manifest")
+		if code, _, stderr := boostRun("boost-manifest", "--dir", p.boost, "--out", mine); code != 0 {
+			t.Fatalf("boost-manifest: %s", stderr)
+		}
+		copyDir(t, filepath.Dir(mine), out)
+		pack = append(pack, "--boost", filepath.Join(out, "boost.manifest"))
 	}
-	if err := os.Rename(filepath.Join(p.box, "d"), filepath.Join(p.box, "e")); err != nil {
-		t.Fatal(err)
+	if p.last != "" {
+		pack = append(pack, "--since", p.last)
 	}
-	if err := os.Chmod(filepath.Join(p.box, "run.sh"), 0o755); err != nil {
-		t.Fatal(err)
+	code, stdout, stderr := boostRun(append(pack, args...)...)
+	var m guestbin.Manifest
+	if code == 0 {
+		if err := json.Unmarshal([]byte(stdout), &m); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := os.Symlink("a.txt", filepath.Join(p.box, "l")); err != nil {
-		t.Fatal(err)
+	staging := filepath.Join(p.boostDir(p.boost), id)
+	_ = os.RemoveAll(staging)
+	if code == 0 {
+		copyDir(t, out, staging)
 	}
-	write(t, filepath.Join(p.box, "new.txt"), "untracked\n", 0o644)
-	write(t, filepath.Join(p.box, "build.log"), "ignored\n", 0o644)
-	write(t, filepath.Join(p.box, ".ws-cache", "x"), "cache\n", 0o644)
-	index := read(t, filepath.Join(p.box, ".git", "index"))
+	return staging, m, code, stderr
+}
 
-	m, code, stderr := p.send(t, p.first)
+func (p *pair) apply(t *testing.T, staging string, shared bool) (guestbin.Applied, int, string) {
+	t.Helper()
+	args := []string{"boost-apply", "--dir", p.boost, "--staging", staging}
+	if shared {
+		args = append(args, "--shared")
+	}
+	code, out, stderr := boostRun(args...)
+	var a guestbin.Applied
+	if code == 0 {
+		if err := json.Unmarshal([]byte(out), &a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if exists(staging) {
+		t.Errorf("boost-apply left its staging directory")
+	}
+	return a, code, stderr
+}
+
+// send packs and applies, as a sync does, failing the test unless both
+// exit 0; the box's manifest sent is its last.
+func (p *pair) send(t *testing.T, shared bool, args ...string) (guestbin.Manifest, guestbin.Applied) {
+	t.Helper()
+	staging, m := p.pack(t, shared, args...)
+	a, code, stderr := p.apply(t, staging, shared)
 	if code != 0 {
 		t.Fatalf("boost-apply exited %d: %s", code, stderr)
 	}
-	if read(t, filepath.Join(p.box, ".git", "index")) != index {
-		t.Error("boost-pack changed the box's own index")
+	p.last = m.Sent
+	return m, a
+}
+
+// job runs line under boost-job on the boost and returns its report's
+// path and the report.
+func (p *pair) job(t *testing.T, line string) (string, guestbin.Report) {
+	t.Helper()
+	report := filepath.Join(p.boostDir(p.boost), "job-"+p.id()+".json")
+	code, _, stderr := boostRun("boost-job", "--dir", p.boost, "--report", report, "--cwd", p.boost, "--", "sh", "-c", line)
+	if code != 0 {
+		t.Fatalf("boost-job exited %d: %s", code, stderr)
 	}
-	if m.Full || m.Files != 5 || m.Deleted != 2 {
-		t.Errorf("manifest %+v, want a delta of 5 files sent (a, e/c, run.sh, l, new) and 2 deleted (b, d/c)", m)
+	var r guestbin.Report
+	if err := json.Unmarshal([]byte(read(t, report)), &r); err != nil {
+		t.Fatal(err)
 	}
-	if got := read(t, filepath.Join(p.boost, "a.txt")); got != "a, changed\n" {
-		t.Errorf("a.txt on the boost: %q", got)
+	return report, r
+}
+
+// back brings a job's changes back to the box, as a settle does: packed on
+// the boost, copied, written back in the box against the box as the job's
+// sync sent it.
+func (p *pair) back(t *testing.T, report, sent string, args ...string) (guestbin.Back, guestbin.WroteBack) {
+	t.Helper()
+	id := "sync-back-" + p.id()
+	out := filepath.Join(p.boostDir(p.boost), id)
+	code, stdout, stderr := boostRun(append([]string{"boost-back", "--dir", p.boost, "--report", report, "--out", out}, args...)...)
+	if code != 0 {
+		t.Fatalf("boost-back exited %d: %s", code, stderr)
 	}
-	for _, gone := range []string{"b.txt", "d", "build.log", ".ws-cache"} {
-		if _, err := os.Lstat(filepath.Join(p.boost, gone)); err == nil {
-			t.Errorf("%s is on the boost", gone)
+	var b guestbin.Back
+	if err := json.Unmarshal([]byte(stdout), &b); err != nil {
+		t.Fatal(err)
+	}
+	staging := filepath.Join(p.boostDir(p.box), id)
+	copyDir(t, out, staging)
+	wb := []string{"boost-writeback", "--dir", p.box, "--staging", staging, "--sent", sent}
+	if p.last != "" {
+		wb = append(wb, "--last", p.last)
+	}
+	code, stdout, stderr = boostRun(wb...)
+	if code != 0 {
+		t.Fatalf("boost-writeback exited %d: %s", code, stderr)
+	}
+	var w guestbin.WroteBack
+	if err := json.Unmarshal([]byte(stdout), &w); err != nil {
+		t.Fatal(err)
+	}
+	if exists(staging) {
+		t.Error("boost-writeback left its staging directory")
+	}
+	return b, w
+}
+
+func mode(t *testing.T, file string) os.FileMode {
+	t.Helper()
+	info, err := os.Lstat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Mode()
+}
+
+func mtime(t *testing.T, file string) time.Time {
+	t.Helper()
+	info, err := os.Lstat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.ModTime()
+}
+
+func changedOf(r guestbin.Report) map[string]string {
+	out := map[string]string{}
+	for _, c := range r.Changed {
+		out[c.Path] = c.Status
+	}
+	return out
+}
+
+// TestTheBoxsFilesReachTheBoost: what differs between the box's files and
+// the boost's reaches the boost, ignored files too: a change, a new file,
+// a deletion, an executable, a symlink, a dependency the box updated;
+// never .git or .ws-cache. Their mtimes are kept, so the next send sends
+// nothing.
+func TestTheBoxsFilesReachTheBoost(t *testing.T) {
+	p := newPair(t)
+	write(t, filepath.Join(p.box, "a.txt"), "a, edited\n", 0o644)
+	write(t, filepath.Join(p.box, "new.txt"), "untracked\n", 0o644)
+	write(t, filepath.Join(p.box, "bin", "app"), "#!/bin/sh\necho app\n", 0o755)
+	write(t, filepath.Join(p.box, "node_modules", "dep", "index.js"), "v2\n", 0o644)
+	write(t, filepath.Join(p.box, "build.log"), "ignored\n", 0o644)
+	write(t, filepath.Join(p.box, ".ws-cache", "go", "mod"), "the box's cache\n", 0o644)
+	if err := os.Remove(filepath.Join(p.box, "b.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/usr/bin/python3", filepath.Join(p.box, "python")); err != nil {
+		t.Fatal(err)
+	}
+	// Its mode alone changed.
+	if err := os.Chmod(filepath.Join(p.box, "d", "c.txt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m, a := p.send(t, false)
+	if m.Files != 6 || m.Deleted != 1 || a.Files != 6 || a.Deleted != 1 || len(a.Mismatch) != 0 {
+		t.Errorf("sent %+v, applied %+v; want 6 files (a.txt, new.txt, bin/app, node_modules' index.js, build.log, d/c.txt's mode; the link is no file) and b.txt deleted", m, a)
+	}
+	if mode(t, filepath.Join(p.boost, "d", "c.txt")).Perm() != 0o755 {
+		t.Errorf("d/c.txt, made executable in the box: %v on the boost", mode(t, filepath.Join(p.boost, "d", "c.txt")))
+	}
+	for f, want := range map[string]string{"a.txt": "a, edited\n", "new.txt": "untracked\n", "bin/app": "#!/bin/sh\necho app\n",
+		"node_modules/dep/index.js": "v2\n", "build.log": "ignored\n"} {
+		if got := read(t, filepath.Join(p.boost, f)); got != want {
+			t.Errorf("%s on the boost: %q, want %q", f, got, want)
+		}
+		if got, want := mtime(t, filepath.Join(p.boost, f)), mtime(t, filepath.Join(p.box, f)); !got.Equal(want) {
+			t.Errorf("%s on the boost has mtime %v, the box's %v", f, got, want)
 		}
 	}
-	if got := read(t, filepath.Join(p.boost, "e", "c.txt")); got != "c\n" {
-		t.Errorf("the renamed e/c.txt on the boost: %q", got)
+	if mode(t, filepath.Join(p.boost, "bin", "app")).Perm() != 0o755 {
+		t.Errorf("bin/app on the boost: %v, want executable", mode(t, filepath.Join(p.boost, "bin", "app")))
 	}
-	if info, err := os.Stat(filepath.Join(p.boost, "run.sh")); err != nil || info.Mode().Perm() != 0o755 {
-		t.Errorf("run.sh on the boost: %v, %v; want mode 0755", info, err)
+	if exists(filepath.Join(p.boost, "b.txt")) {
+		t.Error("b.txt the box deleted is on the boost")
 	}
-	if target, err := os.Readlink(filepath.Join(p.boost, "l")); err != nil || target != "a.txt" {
-		t.Errorf("the symlink l on the boost: %q, %v", target, err)
+	if l, err := os.Readlink(filepath.Join(p.boost, "python")); err != nil || l != "/usr/bin/python3" {
+		t.Errorf("a link out of /workspace on the boost: %q, %v; want it verbatim", l, err)
 	}
-	if got := read(t, filepath.Join(p.boost, "new.txt")); got != "untracked\n" {
-		t.Errorf("new.txt on the boost: %q", got)
+	if exists(filepath.Join(p.boost, ".ws-cache", "go", "mod")) {
+		t.Error(".ws-cache reached the boost")
 	}
-	if git(t, p.boost, "rev-parse", "HEAD") != p.first {
-		t.Error("the boost's HEAD is not the box's")
+	if status, box := git(t, p.boost, "status", "--porcelain"), git(t, p.box, "status", "--porcelain"); status != box {
+		t.Errorf("git status on the boost:\n%s\nin the box:\n%s", status, box)
 	}
-	if status := git(t, p.boost, "status", "--porcelain"); !strings.Contains(status, "a.txt") || !strings.Contains(status, "new.txt") {
-		t.Errorf("git status on the boost does not show the box's changes: %q", status)
+	m, _ = p.send(t, false)
+	if m.Files != 0 || m.Deleted != 0 {
+		t.Errorf("a second send with nothing changed: %+v", m)
 	}
 }
 
-// TestTheBoostsOwnWritesArePutBack: what a job wrote on the boost since
-// the last sync is put back before the next, unless a job still runs on
-// it (--shared), when it stays and the tree is not checked.
-func TestTheBoostsOwnWritesArePutBack(t *testing.T) {
+// TestTheBoostIsMadeTheBoxs: what only the boost changed, a file it added
+// or changed, ignored or not, is undone by a send no job runs beside; a
+// shared send sends the box's changes since its last alone, and leaves
+// what the boost wrote.
+func TestTheBoostIsMadeTheBoxs(t *testing.T) {
 	p := newPair(t)
-	write(t, filepath.Join(p.box, "a.txt"), "box 1\n", 0o644)
-	m, code, stderr := p.send(t, p.first)
-	if code != 0 {
-		t.Fatal(stderr)
-	}
-	// A job on the boost rewrites a tracked file and adds one.
-	write(t, filepath.Join(p.boost, "b.txt"), "generated\n", 0o644)
+	p.send(t, false)
+	write(t, filepath.Join(p.boost, "a.txt"), "the boost's\n", 0o644)
 	write(t, filepath.Join(p.boost, "gen.go"), "package gen\n", 0o644)
-	write(t, filepath.Join(p.box, "a.txt"), "box 2\n", 0o644)
+	write(t, filepath.Join(p.boost, "out.log"), "the boost's log\n", 0o644)
+	write(t, filepath.Join(p.box, "b.txt"), "the box's b\n", 0o644)
 
-	shared, code, stderr := p.send(t, m.Tree, "--shared")
-	if code != 0 || shared.Files != 1 {
-		t.Fatalf("a shared send: exit %d, %+v: %s", code, shared, stderr)
+	m, _ := p.send(t, true)
+	if m.Files != 1 || m.Deleted != 0 || !m.Shared {
+		t.Errorf("a shared send: %+v, want b.txt alone", m)
 	}
-	if read(t, filepath.Join(p.boost, "b.txt")) != "generated\n" || read(t, filepath.Join(p.boost, "a.txt")) != "box 2\n" {
-		t.Error("a shared send put back what a running job wrote, or did not apply the box's change")
+	if read(t, filepath.Join(p.boost, "a.txt")) != "the boost's\n" || !exists(filepath.Join(p.boost, "gen.go")) {
+		t.Error("a shared send undid what a running job wrote")
+	}
+	if read(t, filepath.Join(p.boost, "b.txt")) != "the box's b\n" {
+		t.Error("a shared send did not send the box's change")
 	}
 
-	write(t, filepath.Join(p.box, "a.txt"), "box 3\n", 0o644)
-	if _, code, stderr := p.send(t, shared.Tree); code != 0 {
-		t.Fatalf("a send after the job: %d %s", code, stderr)
+	m, _ = p.send(t, false)
+	if m.Files != 1 || m.Deleted != 2 {
+		t.Errorf("a send no job runs beside: %+v, want a.txt sent, gen.go and out.log deleted", m)
 	}
-	if got := read(t, filepath.Join(p.boost, "b.txt")); got != "b\n" {
-		t.Errorf("b.txt the job rewrote is %q after the next send, want the box's", got)
-	}
-	if _, err := os.Stat(filepath.Join(p.boost, "gen.go")); err == nil {
-		t.Error("gen.go the job added is still on the boost")
-	}
-	if read(t, filepath.Join(p.boost, "a.txt")) != "box 3\n" {
-		t.Error("the box's latest change did not reach the boost")
+	if read(t, filepath.Join(p.boost, "a.txt")) != "a\n" || exists(filepath.Join(p.boost, "gen.go")) || exists(filepath.Join(p.boost, "out.log")) {
+		t.Error("what the boost alone changed is still there")
 	}
 }
 
-// TestAWholeTreeIsSentWithoutABase: with no base, or one the box lacks,
-// the whole tree is sent, and the boost holds exactly it; one the boost
-// lacks is said apart, so tower sends the whole tree.
-func TestAWholeTreeIsSentWithoutABase(t *testing.T) {
+// TestASharedSendNeedsTheLast: a shared send is of what the box changed
+// since its last; without it, it is refused with its code.
+func TestASharedSendNeedsTheLast(t *testing.T) {
 	p := newPair(t)
-	write(t, filepath.Join(p.box, "a.txt"), "box\n", 0o644)
-	write(t, filepath.Join(p.boost, "stray.txt"), "only on the boost\n", 0o644)
-	m, code, stderr := p.send(t, "0123456789abcdef0123456789abcdef01234567")
-	if code != 0 || !m.Full || m.Files != 5 {
-		t.Fatalf("a send against a base the box lacks: exit %d, %+v: %s", code, m, stderr)
+	if _, _, code, _ := p.tryPack(t, true); code != guestbin.ExitNoSince {
+		t.Errorf("a shared send with no last: exit %d, want %d", code, guestbin.ExitNoSince)
 	}
-	if _, err := os.Stat(filepath.Join(p.boost, "stray.txt")); err == nil {
-		t.Error("a whole tree sent left a path not in it")
+	p.last = "sent-gone"
+	if _, _, code, _ := p.tryPack(t, true); code != guestbin.ExitNoSince {
+		t.Errorf("a shared send whose last is not kept: exit %d, want %d", code, guestbin.ExitNoSince)
 	}
-	if read(t, filepath.Join(p.boost, "a.txt")) != "box\n" {
-		t.Error("a whole tree sent did not write the box's a.txt")
+}
+
+// TestAJobsChangesComeBack: what a job adds, changes or deletes, ignored
+// files too, reaches the box with its mode and mtime: an executable built,
+// a generated tracked file, a deletion, a link; .ws-cache stays the
+// boost's. The next send sends nothing back.
+func TestAJobsChangesComeBack(t *testing.T) {
+	p := newPair(t)
+	m, _ := p.send(t, false)
+	report, r := p.job(t, `mkdir -p bin && printf '#!/bin/sh\necho built\n' > bin/app && chmod +x bin/app &&
+		echo generated > a.txt && rm b.txt && ln -s ../a.txt d/link && mkdir -p .ws-cache && echo c > .ws-cache/x &&
+		rm -r node_modules/dep && echo z > build.log`)
+	got := changedOf(r)
+	want := map[string]string{"bin": "A", "bin/app": "A", "a.txt": "M", "b.txt": "D", "d/link": "A", "node_modules/dep": "D",
+		"node_modules/dep/index.js": "D", "build.log": "A"}
+	if r.Version != guestbin.ReportVersion || r.Total != len(want) || r.Error != "" {
+		t.Errorf("the job's report: %+v, want %v", r, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("the report says %s %q, want %q", k, got[k], v)
+		}
+	}
+	b, w := p.back(t, report, m.Sent)
+	if b.Files != 3 || b.Deleted != 3 || w.Files != 3 || w.Deleted != 3 || len(w.Conflicts) != 0 {
+		t.Errorf("brought back %+v, written %+v; want bin/app, a.txt, build.log and three deletions", b, w)
+	}
+	if read(t, filepath.Join(p.box, "bin", "app")) != "#!/bin/sh\necho built\n" || mode(t, filepath.Join(p.box, "bin", "app")).Perm()&0o111 == 0 {
+		t.Errorf("bin/app in the box: %q, %v", read(t, filepath.Join(p.box, "bin", "app")), mode(t, filepath.Join(p.box, "bin", "app")))
+	}
+	if out, err := exec.Command(filepath.Join(p.box, "bin", "app")).Output(); err != nil || string(out) != "built\n" {
+		t.Errorf("bin/app run in the box: %q, %v", out, err)
+	}
+	if read(t, filepath.Join(p.box, "a.txt")) != "generated\n" || exists(filepath.Join(p.box, "b.txt")) || exists(filepath.Join(p.box, "node_modules", "dep")) {
+		t.Error("the job's change, or its deletions, did not reach the box")
+	}
+	if l, err := os.Readlink(filepath.Join(p.box, "d", "link")); err != nil || l != "../a.txt" {
+		t.Errorf("d/link in the box: %q, %v", l, err)
+	}
+	if exists(filepath.Join(p.box, ".ws-cache", "x")) {
+		t.Error(".ws-cache came back")
+	}
+	if got, want := mtime(t, filepath.Join(p.box, "a.txt")), mtime(t, filepath.Join(p.boost, "a.txt")); !got.Equal(want) {
+		t.Errorf("a.txt brought back has mtime %v, the boost's %v", got, want)
+	}
+	// The box's last manifest holds what was written back: a shared send,
+	// of what the box changed since, sends nothing.
+	if m, _ := p.send(t, true); m.Files != 0 || m.Deleted != 0 {
+		t.Errorf("a shared send after the write-back: %+v, want nothing", m)
+	}
+	m, _ = p.send(t, false)
+	if m.Files != 0 || m.Deleted != 0 {
+		t.Errorf("a send after the write-back: %+v, want nothing", m)
+	}
+	if !exists(filepath.Join(p.boost, ".ws-cache", "x")) {
+		t.Error("the boost's .ws-cache went")
+	}
+}
+
+// TestTheBoxWinsAConflict: a path the box changed after the job's sync
+// began, or one under a directory the box made something else, stays the
+// box's, and is listed; the rest comes back.
+func TestTheBoxWinsAConflict(t *testing.T) {
+	p := newPair(t)
+	m, _ := p.send(t, false)
+	report, _ := p.job(t, `echo job > a.txt && echo job > b.txt && echo job > d/c.txt && echo job > new.txt`)
+	write(t, filepath.Join(p.box, "a.txt"), "the box's, meanwhile\n", 0o644)
+	write(t, filepath.Join(p.box, "new.txt"), "the box's too\n", 0o644)
+	if err := os.RemoveAll(filepath.Join(p.box, "d")); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(p.box, "d"), "a file now\n", 0o644)
+	_, w := p.back(t, report, m.Sent)
+	slices.Sort(w.Conflicts)
+	if !slices.Equal(w.Conflicts, []string{"a.txt", "d/c.txt", "new.txt"}) || w.Files != 1 {
+		t.Errorf("written back %+v, want b.txt, and a.txt, d/c.txt and new.txt in conflict", w)
+	}
+	if read(t, filepath.Join(p.box, "a.txt")) != "the box's, meanwhile\n" || read(t, filepath.Join(p.box, "new.txt")) != "the box's too\n" ||
+		read(t, filepath.Join(p.box, "d")) != "a file now\n" {
+		t.Error("the box's change was overwritten")
+	}
+	if read(t, filepath.Join(p.box, "b.txt")) != "job\n" {
+		t.Error("b.txt, in no conflict, did not come back")
+	}
+}
+
+// TestNothingIsWrittenThroughALink: a write-back never goes through a
+// link the box has where the job had a directory, in the checkout or out
+// of it; a tar naming a path under a link makes a directory there rather
+// than follow it.
+func TestNothingIsWrittenThroughALink(t *testing.T) {
+	p := newPair(t)
+	outside := t.TempDir()
+	m, _ := p.send(t, false)
+	report, _ := p.job(t, `echo job > d/c.txt && echo job > d/new.txt`)
+	if err := os.RemoveAll(filepath.Join(p.box, "d")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(p.box, "d")); err != nil {
+		t.Fatal(err)
+	}
+	_, w := p.back(t, report, m.Sent)
+	if w.Files != 0 || len(w.Conflicts) != 2 {
+		t.Errorf("written back %+v, want both under the link in conflict", w)
+	}
+	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+		t.Errorf("written outside the checkout, through a link: %v", entries)
 	}
 
-	// A base the box has and the boost lacks.
-	write(t, filepath.Join(p.box, "x.txt"), "x\n", 0o644)
-	git(t, p.box, "add", "x.txt")
-	git(t, p.box, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "local")
-	local := git(t, p.box, "rev-parse", "HEAD")
-	write(t, filepath.Join(p.box, "a.txt"), "box 2\n", 0o644)
-	if _, code, _ := p.send(t, local); code != guestbin.ExitBaseMissing {
-		t.Errorf("a base the boost lacks: exit %d, want %d", code, guestbin.ExitBaseMissing)
+	// A tar that names a link, then a path under it.
+	staging := filepath.Join(p.boostDir(p.boost), "sync-crafted")
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		t.Fatal(err)
 	}
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	_ = tw.WriteHeader(&tar.Header{Name: "esc", Typeflag: tar.TypeSymlink, Linkname: outside, Mode: 0o777})
+	_ = tw.WriteHeader(&tar.Header{Name: "esc/x", Typeflag: tar.TypeReg, Mode: 0o644, Size: 2})
+	_, _ = tw.Write([]byte("x\n"))
+	_ = tw.Close()
+	write(t, filepath.Join(staging, "files.tar"), buf.String(), 0o644)
+	write(t, filepath.Join(staging, "files.deleted"), "", 0o644)
+	write(t, filepath.Join(staging, "manifest.json"), `{"tree":"","sent":"sent-x"}`, 0o644)
+	if _, code, stderr := p.apply(t, staging, true); code != 0 {
+		t.Fatalf("boost-apply: %d %s", code, stderr)
+	}
+	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+		t.Errorf("boost-apply wrote through a link: %v", entries)
+	}
+	if read(t, filepath.Join(p.boost, "esc", "x")) != "x\n" {
+		t.Error("esc/x was not made in the checkout")
+	}
+}
+
+// TestWhatIsPastTheCapStays: a file past what one move takes is not
+// moved, either way, and is said; the move does not fail.
+func TestWhatIsPastTheCapStays(t *testing.T) {
+	p := newPair(t)
+	m, _ := p.send(t, false)
+	write(t, filepath.Join(p.box, "big.bin"), strings.Repeat("x", 4096), 0o644)
+	write(t, filepath.Join(p.box, "small.txt"), "small\n", 0o644)
+	m2, a := p.send(t, false, "--max", "1024")
+	if len(m2.Over) != 1 || m2.Over[0] != (guestbin.OverCap{Path: "big.bin", Bytes: 4096}) || m2.Files != 1 || len(a.Mismatch) != 0 {
+		t.Errorf("a send past its cap: %+v, applied %+v; want small.txt sent, big.bin over", m2, a)
+	}
+	if exists(filepath.Join(p.boost, "big.bin")) || !exists(filepath.Join(p.boost, "small.txt")) {
+		t.Error("the cap did not hold")
+	}
+	report, _ := p.job(t, `head -c 4096 /dev/zero > out.bin && echo r > r.txt`)
+	b, w := p.back(t, report, m2.Sent, "--max", "1024")
+	if len(b.Over) != 1 || b.Over[0].Path != "out.bin" || b.Files != 1 || w.Files != 1 {
+		t.Errorf("brought back %+v, %+v; want r.txt, out.bin over", b, w)
+	}
+	if exists(filepath.Join(p.box, "out.bin")) || read(t, filepath.Join(p.box, "r.txt")) != "r\n" {
+		t.Error("the cap back did not hold")
+	}
+	_ = m
+}
+
+// TestContentTheRecordsMissIsSentAgain: a tracked file whose content on
+// the boost is not the box's, though its size and mtime are, is found by
+// the boost's check against the box's tree, and sent when asked.
+func TestContentTheRecordsMissIsSentAgain(t *testing.T) {
+	p := newPair(t)
+	p.send(t, false)
+	f := filepath.Join(p.boost, "a.txt")
+	at := mtime(t, f)
+	write(t, f, "B\n", 0o644)
+	if err := os.Chtimes(f, at, at); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(p.box, "b.txt"), "b, edited\n", 0o644)
+	_, a := p.send(t, false)
+	if !slices.Equal(a.Mismatch, []string{"a.txt"}) {
+		t.Fatalf("the boost's check: %+v, want a.txt", a)
+	}
+	_, a = p.send(t, false, "--force", "a.txt")
+	if len(a.Mismatch) != 0 || read(t, f) != "a\n" {
+		t.Errorf("sent again: %+v, a.txt %q", a, read(t, f))
+	}
+}
+
+// TestAChangeThatKeepsItsMtimeIsSent: a file the box rewrote to its size
+// and mtime since its last send is sent: its inode or ctime moved.
+func TestAChangeThatKeepsItsMtimeIsSent(t *testing.T) {
+	p := newPair(t)
+	p.send(t, false)
+	f := filepath.Join(p.box, "node_modules", "dep", "index.js")
+	at := mtime(t, f)
+	write(t, f, "v9\n", 0o644)
+	if err := os.Chtimes(f, at, at); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := p.send(t, false)
+	if m.Files != 1 || read(t, filepath.Join(p.boost, "node_modules", "dep", "index.js")) != "v9\n" {
+		t.Errorf("a change that kept its size and mtime: %+v", m)
+	}
+}
+
+// TestGitChangesOnTheBoostAreSaid: a job's commit, or its git add, moves
+// the boost's HEAD or index, which never come back: the report says so.
+func TestGitChangesOnTheBoostAreSaid(t *testing.T) {
+	p := newPair(t)
+	p.send(t, false)
+	_, r := p.job(t, `echo x > a.txt && git -c user.name=t -c user.email=t@example.com commit -q -am job`)
+	if !r.HeadMoved || !r.IndexChanged {
+		t.Errorf("a job that committed: %+v, want HEAD moved and the index changed", r)
+	}
+	_, r = p.job(t, `echo y > b.txt && git add b.txt`)
+	if r.HeadMoved || !r.IndexChanged {
+		t.Errorf("a job that staged: %+v, want the index changed alone", r)
+	}
+	_, r = p.job(t, `echo z > b.txt`)
+	if r.HeadMoved || r.IndexChanged {
+		t.Errorf("a job that left git alone: %+v", r)
+	}
+}
+
+// TestAJobExitsAsItsCommandDid: boost-job exits as its command did, by a
+// signal too, and its report is written either way.
+func TestAJobExitsAsItsCommandDid(t *testing.T) {
+	p := newPair(t)
+	report := filepath.Join(p.boostDir(p.boost), "job-exit.json")
+	if code, _, _ := boostRun("boost-job", "--dir", p.boost, "--report", report, "--cwd", p.boost, "--", "sh", "-c", "echo x > x.txt; exit 3"); code != 3 {
+		t.Errorf("exit %d, want 3", code)
+	}
+	var r guestbin.Report
+	if err := json.Unmarshal([]byte(read(t, report)), &r); err != nil || changedOf(r)["x.txt"] != "A" {
+		t.Errorf("the report of a command that failed: %+v, %v", r, err)
+	}
+	if code, _, _ := boostRun("boost-job", "--dir", p.boost, "--", "sh", "-c", "kill -TERM $$"); code != 128+15 {
+		t.Errorf("a command a signal ended: exit %d, want 143", code)
+	}
+}
+
+// TestTwoJobsAtOnceKeepEachOthersWrites: a job's sync beside another job
+// leaves what that one writes; each one's changes come back.
+func TestTwoJobsAtOnceKeepEachOthersWrites(t *testing.T) {
+	p := newPair(t)
+	m1, _ := p.send(t, false)
+	// The first job is running: what it wrote so far.
+	write(t, filepath.Join(p.boost, "one.out"), "one\n", 0o644)
+	write(t, filepath.Join(p.box, "a.txt"), "the box's, for two\n", 0o644)
+	m2, _ := p.send(t, true)
+	if !exists(filepath.Join(p.boost, "one.out")) || read(t, filepath.Join(p.boost, "a.txt")) != "the box's, for two\n" {
+		t.Fatal("the shared send undid the first job's write, or did not send the box's")
+	}
+	report2, _ := p.job(t, `echo two > two.out`)
+	_, w2 := p.back(t, report2, m2.Sent)
+	if w2.Files != 1 || read(t, filepath.Join(p.box, "two.out")) != "two\n" {
+		t.Errorf("the second job's write-back: %+v", w2)
+	}
+	_ = m1
 }
 
 // TestLocalCommitsReachTheBoost: the box's HEAD, a commit its remote refs
@@ -260,9 +642,9 @@ func TestLocalCommitsReachTheBoost(t *testing.T) {
 	write(t, filepath.Join(p.box, "a.txt"), "committed\n", 0o644)
 	git(t, p.box, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-am", "local")
 	head := git(t, p.box, "rev-parse", "HEAD")
-	m, code, stderr := p.send(t, p.first)
-	if code != 0 || !m.Bundle {
-		t.Fatalf("exit %d, %+v: %s", code, m, stderr)
+	m, _ := p.send(t, false)
+	if !m.Bundle {
+		t.Fatalf("%+v, want a bundle", m)
 	}
 	if got := git(t, p.boost, "rev-parse", "HEAD"); got != head {
 		t.Errorf("the boost's HEAD is %s, want the box's %s", got, head)
@@ -272,295 +654,6 @@ func TestLocalCommitsReachTheBoost(t *testing.T) {
 	}
 	if status := git(t, p.boost, "status", "--porcelain"); status != "" {
 		t.Errorf("the boost's status, clean in the box: %q", status)
-	}
-}
-
-// TestADeltaPastItsCapIsRefused: a delta past --max is refused, naming
-// the largest paths.
-func TestADeltaPastItsCapIsRefused(t *testing.T) {
-	p := newPair(t)
-	write(t, filepath.Join(p.box, "big.bin"), strings.Repeat("x", 4096), 0o644)
-	code, _, stderr := boostRun("boost-pack", "--dir", p.box, "--base", p.first, "--out", filepath.Join(t.TempDir(), "out"), "--max", "1024")
-	if code != guestbin.ExitTooLarge || !strings.Contains(stderr, "big.bin (4096 bytes)") {
-		t.Errorf("a delta past its cap: exit %d, %q", code, stderr)
-	}
-}
-
-// TestABoostJobReports: boost-job runs its command, exits as it did, and
-// reports what it changed relative to the tree sent, and its artifacts'
-// sizes, refusing one that climbs out of the checkout by its name, or
-// leads out of it through a symlink.
-func TestABoostJobReports(t *testing.T) {
-	p := newPair(t)
-	m, code, stderr := p.send(t, p.first)
-	if code != 0 {
-		t.Fatal(stderr)
-	}
-	report := filepath.Join(p.boost, ".git", guestbin.BoostDir, "job-1.json")
-	code, _, stderr = boostRun("boost-job", "--dir", p.boost, "--tree", m.Tree, "--report", report,
-		"--artifact", "out", "--artifact", "missing", "--artifact", "../escape", "--artifact", "esc", "--",
-		"sh", "-c", `cd "$1" && echo y >> a.txt && echo g > gen.txt && mkdir out && echo 123456 > out/r && echo z > z.log && ln -s "$2" esc.log && ln -s "$2" esc && exit 3`,
-		"sh", p.boost, t.TempDir())
-	if code != 3 {
-		t.Fatalf("boost-job exited %d, want its command's 3: %s", code, stderr)
-	}
-	var r guestbin.Report
-	if err := json.Unmarshal([]byte(read(t, report)), &r); err != nil {
-		t.Fatal(err)
-	}
-	got := map[string]string{}
-	for _, c := range r.Changed {
-		got[c.Path] = c.Status
-	}
-	if r.Total != 4 || got["a.txt"] != "M" || got["gen.txt"] != "A" || got["out/r"] != "A" || got["esc"] != "A" {
-		t.Errorf("changed %+v (total %d), want a.txt M, gen.txt and out/r A, not the ignored z.log", r.Changed, r.Total)
-	}
-	arts := map[string]guestbin.Artifact{}
-	for _, a := range r.Artifacts {
-		arts[a.Path] = a
-	}
-	if a := arts["out"]; !a.Exists || a.Bytes != 7 || a.Error != "" {
-		t.Errorf("artifact out: %+v", a)
-	}
-	if a := arts["missing"]; a.Exists || a.Error == "" {
-		t.Errorf("artifact missing: %+v", a)
-	}
-	if a := arts["../escape"]; a.Exists || a.Error == "" {
-		t.Errorf("artifact ../escape: %+v", a)
-	}
-	if a := arts["esc"]; a.Exists || !strings.Contains(a.Error, "leads out") {
-		t.Errorf("artifact esc, a symlink out of the checkout: %+v", a)
-	}
-	// Measured again, as tower does right before it copies them back.
-	code, out, stderr := boostRun("boost-measure", "--dir", p.boost, "--artifact", "out", "--artifact", "esc")
-	var again []guestbin.Artifact
-	if code != 0 || json.Unmarshal([]byte(out), &again) != nil || len(again) != 2 || again[0].Bytes != 7 || again[1].Exists {
-		t.Errorf("boost-measure: exit %d, %s %s", code, out, stderr)
-	}
-	code, _, _ = boostRun("boost-job", "--dir", p.boost, "--", "sh", "-c", "kill -TERM $$")
-	if code != 128+15 {
-		t.Errorf("a command a signal ended: exit %d, want 143", code)
-	}
-}
-
-// TestBoostLeftoversAreSwept: boost-clean removes what it is named, and
-// every subcommand sweeps what a crash left past a day.
-func TestBoostLeftoversAreSwept(t *testing.T) {
-	p := newPair(t)
-	dir := filepath.Join(p.box, ".git", guestbin.BoostDir)
-	old, fresh := filepath.Join(dir, "sync-old"), filepath.Join(dir, "job-fresh.json")
-	write(t, filepath.Join(old, "delta.tar"), "x", 0o644)
-	write(t, fresh, "{}", 0o644)
-	day := time.Now().Add(-25 * time.Hour)
-	if err := os.Chtimes(old, day, day); err != nil {
-		t.Fatal(err)
-	}
-	if code, _, stderr := boostRun("boost-clean", "--dir", p.box); code != 0 {
-		t.Fatal(stderr)
-	}
-	if _, err := os.Stat(old); err == nil {
-		t.Error("a staging directory a day old was not swept")
-	}
-	if _, err := os.Stat(fresh); err != nil {
-		t.Error("a fresh report was swept")
-	}
-	if code, out, _ := boostRun("boost-clean", "--dir", p.box, "--name", "job-fresh.json"); code != 0 || !strings.Contains(out, "job-fresh.json") {
-		t.Errorf("boost-clean of a report: %d %s", code, out)
-	}
-	if code, _, _ := boostRun("boost-clean", "--dir", p.box, "--name", "../../a.txt"); code == 0 {
-		t.Error("boost-clean removed a name outside its directory")
-	}
-	entries, _ := os.ReadDir(dir)
-	if names := slices.Collect(func(yield func(string) bool) {
-		for _, e := range entries {
-			if !yield(e.Name()) {
-				return
-			}
-		}
-	}); slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(n, "sync-") || strings.HasPrefix(n, "job-") }) {
-		t.Errorf("left in the boost directory: %v", names)
-	}
-}
-
-// pack packs the box against base, copies the staging directory to the
-// boost, and returns where it is there and the manifest, without applying.
-func (p pair) pack(t *testing.T, base string, packArgs ...string) (string, guestbin.Manifest) {
-	t.Helper()
-	id := "sync-" + strings.ReplaceAll(time.Now().Format("150405.000000000"), ".", "")
-	out := filepath.Join(p.box, ".git", guestbin.BoostDir, id)
-	code, stdout, stderr := boostRun(append([]string{"boost-pack", "--dir", p.box, "--base", base, "--out", out}, packArgs...)...)
-	if code != 0 {
-		t.Fatalf("boost-pack exited %d: %s", code, stderr)
-	}
-	var m guestbin.Manifest
-	if err := json.Unmarshal([]byte(stdout), &m); err != nil {
-		t.Fatal(err)
-	}
-	staging := filepath.Join(p.boost, ".git", guestbin.BoostDir, id)
-	if err := os.MkdirAll(filepath.Dir(staging), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if b, err := exec.Command("cp", "-a", out, staging).CombinedOutput(); err != nil {
-		t.Fatalf("copying the staging directory: %v: %s", err, b)
-	}
-	_ = os.RemoveAll(out)
-	return staging, m
-}
-
-func (p pair) apply(staging string, args ...string) (int, string) {
-	code, _, stderr := boostRun(append([]string{"boost-apply", "--dir", p.boost, "--staging", staging}, args...)...)
-	return code, stderr
-}
-
-// TestSubmodulesAreTheBoostsOwn: a committed submodule checked out in the
-// box alone, and an untracked nested repository git add -A takes as one,
-// do not keep the tree made on the boost from being the one sent: their
-// checkouts are never sent; and the next send is a delta.
-func TestSubmodulesAreTheBoostsOwn(t *testing.T) {
-	root := t.TempDir()
-	sub := filepath.Join(root, "sub-origin")
-	git(t, root, "init", "-q", "-b", "main", sub)
-	write(t, filepath.Join(sub, "s.txt"), "in the submodule\n", 0o644)
-	git(t, sub, "add", "-A")
-	git(t, sub, "commit", "-q", "-m", "sub")
-	seed := filepath.Join(root, "seed")
-	git(t, root, "init", "-q", "-b", "main", seed)
-	write(t, filepath.Join(seed, "a.txt"), "a\n", 0o644)
-	git(t, seed, "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub, "sub")
-	git(t, seed, "commit", "-q", "-m", "first")
-	origin, box, boost := filepath.Join(root, "origin.git"), filepath.Join(root, "box"), filepath.Join(root, "boost")
-	git(t, root, "clone", "-q", "--bare", seed, origin)
-	git(t, root, "clone", "-q", origin, box)
-	git(t, root, "clone", "-q", origin, boost)
-	git(t, box, "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init")
-	p := pair{origin: origin, box: box, boost: boost, first: git(t, box, "rev-parse", "HEAD")}
-	// An untracked nested repository, with a commit.
-	nested := filepath.Join(box, "nested")
-	git(t, box, "init", "-q", "-b", "main", nested)
-	write(t, filepath.Join(nested, "n.txt"), "nested\n", 0o644)
-	git(t, nested, "add", "-A")
-	git(t, nested, "commit", "-q", "-m", "nested")
-	write(t, filepath.Join(box, "a.txt"), "box\n", 0o644)
-
-	m, code, stderr := p.send(t, p.first)
-	if code != 0 {
-		t.Fatalf("a send with a submodule and a nested repository: exit %d: %s", code, stderr)
-	}
-	if len(m.Links) != 2 {
-		t.Errorf("the tree's gitlinks: %+v, want sub and nested", m.Links)
-	}
-	if read(t, filepath.Join(boost, "a.txt")) != "box\n" {
-		t.Error("the box's a.txt is not on the boost")
-	}
-	if _, err := os.Stat(filepath.Join(boost, "nested", "n.txt")); err == nil {
-		t.Error("a nested repository's checkout was sent")
-	}
-	write(t, filepath.Join(box, "a.txt"), "box 2\n", 0o644)
-	m2, code, stderr := p.send(t, m.Tree)
-	if code != 0 || m2.Full || m2.Files != 1 {
-		t.Errorf("the next send: exit %d, %+v: %s", code, m2, stderr)
-	}
-	// A job's report does not list the submodules it never saw.
-	report := filepath.Join(boost, ".git", guestbin.BoostDir, "job-sub.json")
-	if code, _, stderr := boostRun("boost-job", "--dir", boost, "--tree", m2.Tree, "--report", report, "--", "true"); code != 0 {
-		t.Fatal(stderr)
-	}
-	var r guestbin.Report
-	if err := json.Unmarshal([]byte(read(t, report)), &r); err != nil || r.Total != 0 || r.Error != "" {
-		t.Errorf("a job that changed nothing reports %+v (%v)", r, err)
-	}
-}
-
-// TestPathsAreNeverPatterns: names git would read as pathspec magic or
-// globs are restored as the paths they are.
-func TestPathsAreNeverPatterns(t *testing.T) {
-	p := newPair(t)
-	names := []string{":x", "a[1].txt", "a1.txt", "*"}
-	for _, n := range names {
-		write(t, filepath.Join(p.box, n), "box "+n+"\n", 0o644)
-	}
-	git(t, p.box, "add", "-A")
-	git(t, p.box, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "odd names")
-	m, code, stderr := p.send(t, p.first)
-	if code != 0 {
-		t.Fatal(stderr)
-	}
-	// A job on the boost rewrites them all; the box changes one more file.
-	for _, n := range names {
-		write(t, filepath.Join(p.boost, n), "job\n", 0o644)
-	}
-	write(t, filepath.Join(p.box, "b.txt"), "box b\n", 0o644)
-	if _, code, stderr := p.send(t, m.Tree); code != 0 {
-		t.Fatalf("a send restoring %v: exit %d: %s", names, code, stderr)
-	}
-	for _, n := range names {
-		if got := read(t, filepath.Join(p.boost, n)); got != "box "+n+"\n" {
-			t.Errorf("%s on the boost: %q", n, got)
-		}
-	}
-}
-
-// TestATreeThatIsNotTheOneSentIsRefused: apply's result is checked: a
-// delta that makes another tree exits with the mismatch's code.
-func TestATreeThatIsNotTheOneSentIsRefused(t *testing.T) {
-	p := newPair(t)
-	write(t, filepath.Join(p.box, "a.txt"), "box\n", 0o644)
-	staging, _ := p.pack(t, p.first)
-	// A path the delta writes that the box has not.
-	f, err := os.OpenFile(filepath.Join(staging, "delta.tar"), os.O_RDWR, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.Seek(-1024, io.SeekEnd); err != nil {
-		t.Fatal(err)
-	}
-	tw := tar.NewWriter(f)
-	if err := tw.WriteHeader(&tar.Header{Name: "extra.txt", Mode: 0o644, Size: 2}); err != nil {
-		t.Fatal(err)
-	}
-	_, _ = tw.Write([]byte("x\n"))
-	_ = tw.Close()
-	_ = f.Close()
-	if code, stderr := p.apply(staging); code != guestbin.ExitTreeMismatch {
-		t.Errorf("a delta that makes another tree: exit %d, want %d: %s", code, guestbin.ExitTreeMismatch, stderr)
-	}
-}
-
-// TestTheStagedStateIsTheBoxs: what is staged in the box is staged on the
-// boost: git status and git diff there say what they say in the box.
-func TestTheStagedStateIsTheBoxs(t *testing.T) {
-	p := newPair(t)
-	write(t, filepath.Join(p.box, "a.txt"), "staged\n", 0o644)
-	git(t, p.box, "add", "a.txt")
-	write(t, filepath.Join(p.box, "a.txt"), "staged, then changed\n", 0o644)
-	write(t, filepath.Join(p.box, "s.txt"), "new, staged\n", 0o644)
-	git(t, p.box, "add", "s.txt")
-	git(t, p.box, "rm", "-q", "--cached", "b.txt")
-	if _, code, stderr := p.send(t, p.first); code != 0 {
-		t.Fatal(stderr)
-	}
-	for _, args := range [][]string{{"status", "--porcelain"}, {"diff", "--cached", "--stat"}, {"diff", "--stat"}} {
-		if box, boost := git(t, p.box, args...), git(t, p.boost, args...); box != boost {
-			t.Errorf("git %s:\nin the box:\n%s\non the boost:\n%s", strings.Join(args, " "), box, boost)
-		}
-	}
-}
-
-// TestADirectoryBecomingAFileGoesWithItsIgnoredFiles: a path that is a
-// directory on the boost, holding ignored files, and a file in the box,
-// is the box's file: what the directory held goes.
-func TestADirectoryBecomingAFileGoesWithItsIgnoredFiles(t *testing.T) {
-	p := newPair(t)
-	write(t, filepath.Join(p.boost, "d", "build.log"), "ignored\n", 0o644)
-	if err := os.RemoveAll(filepath.Join(p.box, "d")); err != nil {
-		t.Fatal(err)
-	}
-	write(t, filepath.Join(p.box, "d"), "now a file\n", 0o644)
-	if _, code, stderr := p.send(t, p.first); code != 0 {
-		t.Fatalf("exit %d: %s", code, stderr)
-	}
-	if got := read(t, filepath.Join(p.boost, "d")); got != "now a file\n" {
-		t.Errorf("d on the boost: %q", got)
 	}
 }
 
@@ -579,15 +672,15 @@ func TestABoostLackingOriginsCommitsGetsHEADsHistory(t *testing.T) {
 	git(t, p.box, "pull", "-q", "--ff-only")
 	write(t, filepath.Join(p.box, "a.txt"), "local\n", 0o644)
 	git(t, p.box, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-am", "local")
-	staging, m := p.pack(t, p.first)
+	staging, m := p.pack(t, false)
 	if !m.Bundle {
 		t.Fatal("no bundle for a local commit")
 	}
-	if code, stderr := p.apply(staging); code != guestbin.ExitHeadMissing {
+	if _, code, stderr := p.apply(t, staging, false); code != guestbin.ExitHeadMissing {
 		t.Fatalf("a bundle the boost lacks the prerequisites of: exit %d, want %d: %s", code, guestbin.ExitHeadMissing, stderr)
 	}
-	staging, _ = p.pack(t, p.first, "--bundle-all")
-	if code, stderr := p.apply(staging); code != 0 {
+	staging, _ = p.pack(t, false, "--bundle-all")
+	if _, code, stderr := p.apply(t, staging, false); code != 0 {
 		t.Fatalf("with HEAD's whole history: exit %d: %s", code, stderr)
 	}
 	if got, want := git(t, p.boost, "rev-parse", "HEAD"), git(t, p.box, "rev-parse", "HEAD"); got != want {
@@ -595,28 +688,165 @@ func TestABoostLackingOriginsCommitsGetsHEADsHistory(t *testing.T) {
 	}
 }
 
-// TestABundlePastTheCapIsRefused: the commits a sync bundles count with
-// what changed toward its cap: a file committed and removed again changes
-// nothing, but the commits hold it.
-func TestABundlePastTheCapIsRefused(t *testing.T) {
+// TestGitsStatePastTheCapIsRefused: HEAD's commits a sync bundles go
+// whole or not at all: past the cap, the sync is refused.
+func TestGitsStatePastTheCapIsRefused(t *testing.T) {
 	p := newPair(t)
 	write(t, filepath.Join(p.box, "big.bin"), rand.Text()+rand.Text()+rand.Text()+rand.Text()+rand.Text()+rand.Text()+rand.Text()+rand.Text(), 0o644)
 	git(t, p.box, "add", "big.bin")
 	git(t, p.box, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "big")
 	git(t, p.box, "rm", "-q", "big.bin")
 	git(t, p.box, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "no big")
-	out := filepath.Join(t.TempDir(), "out")
-	code, _, stderr := boostRun("boost-pack", "--dir", p.box, "--base", p.first, "--out", out, "--max", "200", "--bundle-all")
-	if code != guestbin.ExitTooLarge || !strings.Contains(stderr, "HEAD's whole history") {
+	if _, _, code, stderr := p.tryPack(t, false, "--max", "200", "--bundle-all"); code != guestbin.ExitTooLarge {
 		t.Errorf("a bundle past the cap: exit %d, %q", code, stderr)
 	}
 }
 
-// TestNothingOutsideTheCheckoutIsRemoved: a path the box deleted, which
-// on the boost leads out of the checkout through a symlink, removes
-// nothing out there.
-func TestNothingOutsideTheCheckoutIsRemoved(t *testing.T) {
+// TestTheStagedStateIsTheBoxs: what is staged in the box is staged on the
+// boost: git status and git diff there say what they say in the box.
+func TestTheStagedStateIsTheBoxs(t *testing.T) {
 	p := newPair(t)
+	write(t, filepath.Join(p.box, "a.txt"), "staged\n", 0o644)
+	git(t, p.box, "add", "a.txt")
+	write(t, filepath.Join(p.box, "a.txt"), "staged, then changed\n", 0o644)
+	write(t, filepath.Join(p.box, "s.txt"), "new, staged\n", 0o644)
+	git(t, p.box, "add", "s.txt")
+	git(t, p.box, "rm", "-q", "--cached", "b.txt")
+	_, a := p.send(t, false)
+	if !a.Staged {
+		t.Errorf("%+v, want the box's index", a)
+	}
+	for _, args := range [][]string{{"status", "--porcelain"}, {"diff", "--cached", "--stat"}, {"diff", "--stat"}} {
+		if box, boost := git(t, p.box, args...), git(t, p.boost, args...); box != boost {
+			t.Errorf("git %s:\nin the box:\n%s\non the boost:\n%s", strings.Join(args, " "), box, boost)
+		}
+	}
+}
+
+// TestPathsAreNeverPatterns: names git would read as pathspec magic or
+// globs move as the paths they are.
+func TestPathsAreNeverPatterns(t *testing.T) {
+	p := newPair(t)
+	names := []string{":x", "a[1].txt", "a1.txt", "*"}
+	for _, n := range names {
+		write(t, filepath.Join(p.box, n), "box "+n+"\n", 0o644)
+	}
+	git(t, p.box, "add", "-A")
+	git(t, p.box, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "odd names")
+	if _, a := p.send(t, false); len(a.Mismatch) != 0 {
+		t.Fatalf("%+v", a)
+	}
+	for _, n := range names {
+		write(t, filepath.Join(p.boost, n), "job\n", 0o644)
+	}
+	p.send(t, false)
+	for _, n := range names {
+		if got := read(t, filepath.Join(p.boost, n)); got != "box "+n+"\n" {
+			t.Errorf("%s on the boost: %q", n, got)
+		}
+	}
+}
+
+// TestSubmodulesKeepTheirOwnGit: a submodule's files move as any, its git
+// state never: the boost's tree checks against the box's with its own
+// gitlinks.
+func TestSubmodulesKeepTheirOwnGit(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "sub-origin")
+	git(t, root, "init", "-q", "-b", "main", sub)
+	write(t, filepath.Join(sub, "s.txt"), "in the submodule\n", 0o644)
+	git(t, sub, "add", "-A")
+	git(t, sub, "commit", "-q", "-m", "sub")
+	seed := filepath.Join(root, "seed")
+	git(t, root, "init", "-q", "-b", "main", seed)
+	write(t, filepath.Join(seed, "a.txt"), "a\n", 0o644)
+	git(t, seed, "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub, "sub")
+	git(t, seed, "commit", "-q", "-m", "first")
+	p := &pair{origin: filepath.Join(root, "origin.git"), box: filepath.Join(root, "box"), boost: filepath.Join(root, "boost")}
+	git(t, root, "clone", "-q", "--bare", seed, p.origin)
+	git(t, root, "clone", "-q", p.origin, p.box)
+	if out, err := exec.Command("cp", "-a", p.box, p.boost).CombinedOutput(); err != nil {
+		t.Fatalf("cp: %v: %s", err, out)
+	}
+	git(t, p.box, "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init")
+	write(t, filepath.Join(p.box, "a.txt"), "box\n", 0o644)
+	m, a := p.send(t, false)
+	if len(m.Links) != 1 || len(a.Mismatch) != 0 {
+		t.Errorf("sent %+v, applied %+v", m, a)
+	}
+	if read(t, filepath.Join(p.boost, "sub", "s.txt")) != "in the submodule\n" || exists(filepath.Join(p.boost, "sub", ".git")) {
+		t.Error("the submodule's files did not reach the boost, or its git file did")
+	}
+}
+
+// TestATrackedFileAnIgnoreRuleMatchesIsChecked: the boost's check tracks
+// what the box tracks, a file an ignore rule matches too.
+func TestATrackedFileAnIgnoreRuleMatchesIsChecked(t *testing.T) {
+	p := newPair(t)
+	write(t, filepath.Join(p.box, ".gitignore"), "*.log\n/.ws-cache/\n*.toml\n", 0o644)
+	write(t, filepath.Join(p.box, ".devcontainer", "mise.toml"), "[tools]\n", 0o644)
+	git(t, p.box, "add", ".gitignore")
+	git(t, p.box, "add", "-f", ".devcontainer/mise.toml")
+	write(t, filepath.Join(p.box, "local.toml"), "ignored, untracked\n", 0o644)
+	m, a := p.send(t, false)
+	if len(a.Mismatch) != 0 {
+		t.Errorf("sent %+v, applied %+v", m, a)
+	}
+	if git(t, p.boost, "status", "--porcelain") != git(t, p.box, "status", "--porcelain") {
+		t.Error("git status differs")
+	}
+}
+
+// TestBoostLeftoversAreSwept: boost-clean removes what it is named, the
+// sent manifests it is not told to keep, and every subcommand sweeps what
+// a crash left past a day.
+func TestBoostLeftoversAreSwept(t *testing.T) {
+	p := newPair(t)
+	m1, _ := p.send(t, false)
+	m2, _ := p.send(t, false)
+	dir := p.boostDir(p.box)
+	old, fresh := filepath.Join(dir, "sync-old"), filepath.Join(dir, "job-fresh.json")
+	write(t, filepath.Join(old, "files.tar"), "x", 0o644)
+	write(t, fresh, "{}", 0o644)
+	day := time.Now().Add(-25 * time.Hour)
+	if err := os.Chtimes(old, day, day); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := boostRun("boost-clean", "--dir", p.box, "--prune-sent", "--keep", m2.Sent); code != 0 {
+		t.Fatal(stderr)
+	}
+	if exists(old) || !exists(fresh) {
+		t.Error("the sweep took the fresh report, or left the old staging")
+	}
+	if exists(filepath.Join(dir, m1.Sent+".manifest")) || !exists(filepath.Join(dir, m2.Sent+".manifest")) {
+		t.Error("prune-sent did not keep the last sent alone")
+	}
+	if code, _, _ := boostRun("boost-clean", "--dir", p.box, "--name", "../../a.txt"); code == 0 {
+		t.Error("boost-clean removed a name outside its directory")
+	}
+}
+
+// TestADirectoryTheBoxAddedToStays: a directory the job removed, which
+// the box put a file in since, stays with the box's file.
+func TestADirectoryTheBoxAddedToStays(t *testing.T) {
+	p := newPair(t)
+	m, _ := p.send(t, false)
+	report, _ := p.job(t, `rm -r d`)
+	write(t, filepath.Join(p.box, "d", "mine.txt"), "the box's\n", 0o644)
+	_, w := p.back(t, report, m.Sent)
+	if read(t, filepath.Join(p.box, "d", "mine.txt")) != "the box's\n" || exists(filepath.Join(p.box, "d", "c.txt")) {
+		t.Errorf("written back %+v: d/mine.txt %q, d/c.txt there %v", w, read(t, filepath.Join(p.box, "d", "mine.txt")), exists(filepath.Join(p.box, "d", "c.txt")))
+	}
+	if !slices.Contains(w.Conflicts, "d") {
+		t.Errorf("conflicts %v, want d", w.Conflicts)
+	}
+}
+
+// TestNothingOutsideIsDeleted: a path the box deleted, which on the boost
+// is under a link out of the checkout, deletes nothing out there.
+func TestNothingOutsideIsDeleted(t *testing.T) {
+	p := newPair(t)
+	p.send(t, false)
 	outside := t.TempDir()
 	write(t, filepath.Join(outside, "c.txt"), "outside\n", 0o644)
 	if err := os.RemoveAll(filepath.Join(p.boost, "d")); err != nil {
@@ -628,154 +858,24 @@ func TestNothingOutsideTheCheckoutIsRemoved(t *testing.T) {
 	if err := os.Remove(filepath.Join(p.box, "d", "c.txt")); err != nil {
 		t.Fatal(err)
 	}
-	p.send(t, p.first)
-	if got := read(t, filepath.Join(outside, "c.txt")); got != "outside\n" {
-		t.Errorf("a file outside the checkout, through a symlink: %q", got)
+	p.send(t, true)
+	if read(t, filepath.Join(outside, "c.txt")) != "outside\n" {
+		t.Error("a file outside the checkout was deleted through a link")
 	}
 }
 
-// newTrackedIgnoredPair is newPair whose repository tracks
-// .devcontainer/mise.toml though its .gitignore matches it (a root
-// *.toml): a file committed with add -f, or before the rule.
-func newTrackedIgnoredPair(t *testing.T) pair {
-	t.Helper()
+// TestADeletionOfWhatTheBoxChangedStays: a file the job deleted, which
+// the box changed after the job's sync began, stays the box's.
+func TestADeletionOfWhatTheBoxChangedStays(t *testing.T) {
 	p := newPair(t)
-	write(t, filepath.Join(p.box, ".gitignore"), "*.log\n/.ws-cache/\n*.toml\n", 0o644)
-	write(t, filepath.Join(p.box, ".devcontainer", "mise.toml"), "[tools]\n", 0o644)
-	git(t, p.box, "add", ".gitignore")
-	git(t, p.box, "add", "-f", ".devcontainer/mise.toml")
-	git(t, p.box, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "mise")
-	git(t, p.box, "push", "-q", "origin", "HEAD:main")
-	git(t, p.boost, "pull", "-q", "--ff-only")
-	p.first = git(t, p.box, "rev-parse", "HEAD")
-	if got := git(t, p.box, "check-ignore", "--no-index", ".devcontainer/mise.toml"); got != ".devcontainer/mise.toml" {
-		t.Fatalf("mise.toml is not matched by an ignore rule: %q", got)
+	m, _ := p.send(t, false)
+	report, _ := p.job(t, `rm a.txt b.txt`)
+	write(t, filepath.Join(p.box, "a.txt"), "the box's, meanwhile\n", 0o644)
+	_, w := p.back(t, report, m.Sent)
+	if read(t, filepath.Join(p.box, "a.txt")) != "the box's, meanwhile\n" || exists(filepath.Join(p.box, "b.txt")) {
+		t.Errorf("written back %+v: a.txt %q, b.txt there %v", w, read(t, filepath.Join(p.box, "a.txt")), exists(filepath.Join(p.box, "b.txt")))
 	}
-	return p
-}
-
-// TestATrackedFileAnIgnoreRuleMatchesIsSynced: a file the box tracks
-// though an ignore rule matches it is in the tree sent, and the boost
-// makes the same tree: in a delta, in a whole tree, with the box's change
-// to it; a job's change to it is put back before the next sync, and the
-// job's report lists it.
-func TestATrackedFileAnIgnoreRuleMatchesIsSynced(t *testing.T) {
-	p := newTrackedIgnoredPair(t)
-	mise := ".devcontainer/mise.toml"
-	write(t, filepath.Join(p.box, "a.txt"), "edited\n", 0o644)
-	m, code, stderr := p.send(t, p.first)
-	if code != 0 || m.Full {
-		t.Fatalf("a delta: exit %d, %+v: %s", code, m, stderr)
+	if !slices.Equal(w.Conflicts, []string{"a.txt"}) || w.Deleted != 1 {
+		t.Errorf("written back %+v, want b.txt deleted, a.txt in conflict", w)
 	}
-	if got := git(t, p.box, "ls-tree", "--name-only", m.Tree, ".devcontainer/"); got != mise {
-		t.Errorf("the tree sent holds %q under .devcontainer, want %s", got, mise)
-	}
-	if status, box := git(t, p.boost, "status", "--porcelain"), git(t, p.box, "status", "--porcelain"); status != box {
-		t.Errorf("the boost's status after a delta: %q, the box's %q", status, box)
-	}
-
-	write(t, filepath.Join(p.box, mise), "[tools]\ngo = \"1.25\"\n", 0o644)
-	m, code, stderr = p.send(t, m.Tree)
-	if code != 0 || m.Files != 1 {
-		t.Fatalf("the box's change to it: exit %d, %+v: %s", code, m, stderr)
-	}
-	if got := read(t, filepath.Join(p.boost, mise)); got != "[tools]\ngo = \"1.25\"\n" {
-		t.Errorf("the boost's %s after the box changed it: %q", mise, got)
-	}
-
-	// A job edits it: its report lists it; the next sync puts it back.
-	report := filepath.Join(p.boost, ".git", guestbin.BoostDir, "job-1.json")
-	if code, _, stderr := boostRun("boost-job", "--dir", p.boost, "--tree", m.Tree, "--report", report, "--",
-		"sh", "-c", `echo job >> "$1"`, "sh", filepath.Join(p.boost, mise)); code != 0 {
-		t.Fatalf("boost-job: exit %d: %s", code, stderr)
-	}
-	var r guestbin.Report
-	if err := json.Unmarshal([]byte(read(t, report)), &r); err != nil {
-		t.Fatal(err)
-	}
-	if r.Total != 1 || len(r.Changed) != 1 || r.Changed[0] != (guestbin.Changed{Path: mise, Status: "M"}) {
-		t.Errorf("a job that edited %s reports %+v (total %d), want it M alone", mise, r.Changed, r.Total)
-	}
-	write(t, filepath.Join(p.box, "b.txt"), "b, edited\n", 0o644)
-	m, a := p.sendApplied(t, m.Tree)
-	if got := read(t, filepath.Join(p.boost, mise)); got != "[tools]\ngo = \"1.25\"\n" || a.Restored != 1 {
-		t.Errorf("the job's change to %s after the next sync: %q, %d restored; want the box's, 1", mise, got, a.Restored)
-	}
-	// Nothing the boost changed: nothing put back, the file the base
-	// tracks either.
-	write(t, filepath.Join(p.box, "b.txt"), "b, edited again\n", 0o644)
-	if m, a = p.sendApplied(t, m.Tree); a.Restored != 0 {
-		t.Errorf("a sync after none of the boost's changes restored %d paths", a.Restored)
-	}
-
-	// A whole tree.
-	m, code, stderr = p.send(t, "")
-	if code != 0 || !m.Full {
-		t.Fatalf("a whole tree: exit %d, %+v: %s", code, m, stderr)
-	}
-	if got := read(t, filepath.Join(p.boost, mise)); got != "[tools]\ngo = \"1.25\"\n" {
-		t.Errorf("the boost's %s after a whole tree: %q", mise, got)
-	}
-}
-
-// TestAnIgnoredUntrackedFileNeverTravels: a file an ignore rule matches
-// that the box does not track is not sent, in a delta or a whole tree,
-// nor is one the box stops tracking; the boost's own stays.
-func TestAnIgnoredUntrackedFileNeverTravels(t *testing.T) {
-	p := newTrackedIgnoredPair(t)
-	write(t, filepath.Join(p.box, "local.toml"), "the box's own\n", 0o644)
-	write(t, filepath.Join(p.boost, "boost.toml"), "the boost's own\n", 0o644)
-	for _, base := range []string{p.first, ""} {
-		m, code, stderr := p.send(t, base)
-		if code != 0 {
-			t.Fatalf("base %q: exit %d: %s", base, code, stderr)
-		}
-		if got := git(t, p.box, "ls-tree", "--name-only", m.Tree, "local.toml"); got != "" {
-			t.Errorf("base %q: the tree sent holds local.toml", base)
-		}
-		if _, err := os.Stat(filepath.Join(p.boost, "local.toml")); err == nil {
-			t.Errorf("base %q: the box's ignored local.toml reached the boost", base)
-		}
-		if got := read(t, filepath.Join(p.boost, "boost.toml")); got != "the boost's own\n" {
-			t.Errorf("base %q: the boost's own ignored boost.toml: %q", base, got)
-		}
-	}
-	// The box stops tracking mise.toml, which stays there, ignored.
-	git(t, p.box, "rm", "-q", "--cached", ".devcontainer/mise.toml")
-	m, code, stderr := p.send(t, p.first)
-	if code != 0 {
-		t.Fatalf("a send once the box untracked it: exit %d: %s", code, stderr)
-	}
-	if got := git(t, p.box, "ls-tree", "-r", "--name-only", m.Tree, ".devcontainer"); got != "" {
-		t.Errorf("the tree sent once the box untracked it holds %q", got)
-	}
-}
-
-// TestABoxWithoutAnIndexTracksHEAD: a box whose index is gone sends its
-// work tree with HEAD's paths tracked, an ignored one too.
-func TestABoxWithoutAnIndexTracksHEAD(t *testing.T) {
-	p := newTrackedIgnoredPair(t)
-	if err := os.Remove(filepath.Join(p.box, ".git", "index")); err != nil {
-		t.Fatal(err)
-	}
-	write(t, filepath.Join(p.box, "a.txt"), "edited\n", 0o644)
-	m, code, stderr := p.send(t, p.first)
-	if code != 0 || m.Files != 1 || m.Deleted != 0 {
-		t.Fatalf("a box without an index: exit %d, %+v: %s", code, m, stderr)
-	}
-	if read(t, filepath.Join(p.boost, "a.txt")) != "edited\n" || read(t, filepath.Join(p.boost, ".devcontainer", "mise.toml")) != "[tools]\n" {
-		t.Error("the boost does not hold the box's work tree")
-	}
-}
-
-// sendApplied is send, which must apply, with what boost-apply said.
-func (p pair) sendApplied(t *testing.T, base string) (guestbin.Manifest, guestbin.Applied) {
-	t.Helper()
-	staging, m := p.pack(t, base)
-	code, out, stderr := boostRun("boost-apply", "--dir", p.boost, "--staging", staging)
-	var a guestbin.Applied
-	if code != 0 || json.Unmarshal([]byte(out), &a) != nil {
-		t.Fatalf("boost-apply: exit %d, %q: %s", code, out, stderr)
-	}
-	return m, a
 }
