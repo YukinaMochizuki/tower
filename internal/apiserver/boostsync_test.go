@@ -670,3 +670,32 @@ func TestASyncStaysGoodForAReask(t *testing.T) {
 	}
 }
 
+// TestAWholeTreeThatMakesAnotherIsSaidSo: a sync whose tree the boost
+// does not make is sent once more, whole; if that makes another too, the
+// start fails saying so, not that the boost lacks a base.
+func TestAWholeTreeThatMakesAnotherIsSaidSo(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	w.startBoosted(boostOn("dev", "true"))
+	before := len(w.fake.Execs())
+	w.fake.OnExec(func(req provider.ExecRequest) (int, bool) {
+		if len(req.Command) > 1 && req.Command[0] == provider.GuestBinary && req.Command[1] == "boost-apply" {
+			return guestbin.ExitTreeMismatch, true
+		}
+		return 0, false
+	})
+	w.write(w.box, "a.txt", "edited\n")
+	_, err := w.as(workstream).envs.StartProcess(t.Context(), connect.NewRequest(boostOn("dev", "true")))
+	if connect.CodeOf(err) != connect.CodeInternal || !strings.Contains(err.Error(), "the whole tree sent made another tree") || strings.Contains(err.Error(), "lacks the sync's base") {
+		t.Errorf("a whole tree that makes another: %v", err)
+	}
+	var bases []string
+	for _, x := range w.fake.Execs()[before:] {
+		if i := slices.Index(x.Command, "--base"); len(x.Command) > 1 && x.Command[1] == "boost-pack" && i > 0 {
+			bases = append(bases, x.Command[i+1])
+		}
+	}
+	if len(bases) != 2 || bases[0] == "" || bases[1] != "" {
+		t.Errorf("the syncs' bases: %q, want a delta's, then one whole tree", bases)
+	}
+}

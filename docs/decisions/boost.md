@@ -155,15 +155,24 @@ What is accepted and built, in the API's terms:
   (`GIT_LITERAL_PATHSPECS`), and each git call takes the checkout as a
   safe directory for itself alone. `boost-pack` in the box writes the
   work tree as a tree through a copy of the box's index
-  (`GIT_INDEX_FILE`; the box's own is never touched), tracked files and
-  untracked ones git does not ignore, and packs what changed since a
-  base, read from the object store, with modes and symlinks, the paths
-  deleted, what is staged where it differs from the work tree, and a
+  (`GIT_INDEX_FILE`; the box's own is never touched), tracked files, one
+  an ignore rule matches too, and untracked ones git does not ignore (a
+  box without an index tracks HEAD's paths), and packs what changed
+  since a base, read from the object store, with modes and symlinks,
+  the paths deleted, what is staged where it differs from the work tree, and a
   bundle of HEAD's commits no `origin` ref reaches. tower copies the
   pack to the boost (`Provider.Copy`), fetches the mirror there
   (`UpdateOrigin`), and `boost-apply` puts back what the boost's own
   jobs changed since the base, applies the pack, and checks the tree
-  made is the one sent; then sets HEAD to the box's commit on its
+  made is the one sent. Each tree the boost makes of its work tree, to
+  put back, to check, or for a job's report, goes through an index of
+  its own, first given the paths of the tree it is measured against
+  (`read-tree -m`, which keeps its stat cache): the base, the tree sent
+  (made there from the base and the pack), the tree synced. So a file
+  the box tracks that an ignore rule matches is tracked on the boost
+  too, and one ignored and untracked in the box never travels. A whole
+  tree that still makes another fails the start (`INTERNAL`), saying
+  so; then sets HEAD to the box's commit on its
   branch and the index to the box's, so `git status` and `git diff` say
   there what they say in the box. The base is the tree last sent to
   that boost's instance (a `BoostSync` record per box), else the commit
