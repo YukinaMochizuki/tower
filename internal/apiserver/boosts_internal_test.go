@@ -12,6 +12,7 @@ import (
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/controller"
 	"github.com/YukinaMochizuki/tower/internal/guest/guestbin"
+	"github.com/YukinaMochizuki/tower/internal/provider"
 )
 
 // TestTheBoostQueueTakesWorkstreamsInTurn: first come first served within
@@ -218,5 +219,32 @@ func TestStartedTicketsArePrunedWithoutAStart(t *testing.T) {
 	}
 	if _, ok := tq.started["starting"]; !ok {
 		t.Error("a start under way was dropped")
+	}
+}
+
+// TestAWaitForRoomIsOfTheSpecAsItIs: an instance waits for room only while
+// it is asked to run and its provider said so of its current generation.
+func TestAWaitForRoomIsOfTheSpecAsItIs(t *testing.T) {
+	in := func(rs envv1alpha1.RunState, generation, observed int64) *envv1alpha1.Instance {
+		return &envv1alpha1.Instance{
+			Metadata: &metav1.ObjectMeta{Generation: generation},
+			Spec:     &envv1alpha1.InstanceSpec{RunState: rs},
+			Status: &envv1alpha1.InstanceStatus{Phase: envv1alpha1.InstancePhase_INSTANCE_PHASE_PENDING, Conditions: []*metav1.Condition{{
+				Type: "Ready", Status: metav1.ConditionStatus_CONDITION_STATUS_FALSE, Reason: provider.ReasonWaitingForRoom, Message: "no room", ObservedGeneration: observed,
+			}}},
+		}
+	}
+	for _, tt := range []struct {
+		name string
+		in   *envv1alpha1.Instance
+		want bool
+	}{
+		{"waiting", in(envv1alpha1.RunState_RUN_STATE_RUNNING, 2, 2), true},
+		{"said of an older spec", in(envv1alpha1.RunState_RUN_STATE_RUNNING, 3, 2), false},
+		{"asked to stop", in(envv1alpha1.RunState_RUN_STATE_STOPPED, 2, 2), false},
+	} {
+		if msg, got := waitingForRoom(tt.in); got != tt.want || (got && msg != "no room") {
+			t.Errorf("%s: waitingForRoom is %q, %v; want %v", tt.name, msg, got, tt.want)
+		}
 	}
 }

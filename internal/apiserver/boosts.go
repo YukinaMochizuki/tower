@@ -838,6 +838,12 @@ func (s *Server) boostSteps(ctx context.Context, key controller.Key, b *envv1alp
 		return boostRetire{}, nil
 	case envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING:
 	default:
+		// Its room in boost_budget stays held: it is admitted, and room
+		// freed on the node starts it (docs/decisions/boost.md).
+		if msg, ok := waitingForRoom(in); ok {
+			bs.not(envv1alpha1.BoostPhase_BOOST_PHASE_STARTING, provider.ReasonWaitingForRoom, "waiting for room on its target's nodes: "+msg)
+			return boostRetire{}, nil
+		}
 		bs.not(envv1alpha1.BoostPhase_BOOST_PHASE_STARTING, "Starting", "its instance is starting")
 		return boostRetire{}, nil
 	}

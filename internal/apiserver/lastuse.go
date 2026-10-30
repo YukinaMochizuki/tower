@@ -1,6 +1,7 @@
 package apiserver
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/conditions"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/controller"
+	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/store"
 )
 
@@ -370,12 +372,24 @@ func (s *Server) pruneUseRecords(ctx context.Context) error {
 	return nil
 }
 
+// wakeRoomWait is how long Wake waits for a box whose instance waits for
+// room on its node before it answers: long enough for room just freed
+// there to start it, short enough that the caller is told why, not left
+// to its deadline.
+const wakeRoomWait = 5 * time.Second
+
+func (s *Server) wakeRoomWaitFor() time.Duration {
+	return cmp.Or(time.Duration(s.wakeRoomWait.Load()), wakeRoomWait)
+}
+
 // Wake starts a box tower stopped for idleness and waits until it is
 // READY, as the data plane does on the box's next use; a box already
 // running is used at once. A box stopped at workstream's request stays
 // stopped: that is FailedPrecondition, and so is a FAILED box, at once,
-// with why. It returns once the box is READY, FAILED, being deleted, or
-// ctx is done.
+// with why. A box waiting for room on its node is Unavailable once it has
+// waited wakeRoomWait, saying the target's words: it stays asked to run,
+// and starts by itself once there is room. It returns once the box is
+// READY, FAILED, being deleted, or ctx is done.
 func (s *Server) Wake(ctx context.Context, project, box string) error {
 	key := controller.Key{Project: project, Name: box}
 	since, err := s.store.Revision(ctx)
@@ -409,8 +423,13 @@ func (s *Server) Wake(ctx context.Context, project, box string) error {
 	if b.GetStatus().GetPhase() == envv1alpha1.BoxPhase_BOX_PHASE_READY && b.GetStatus().GetStoppedReason() == "" {
 		return nil
 	}
+	wctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	room := &roomWait{box: box, wait: s.wakeRoomWaitFor(), stop: cancel}
+	defer room.end()
+	room.see(b)
 	done := errors.New("woken")
-	err = s.store.Watch(ctx, store.WatchOptions{Kind: registry.Box.Kind, Project: project, SinceRevision: since}, func(ev store.Event) error {
+	err = s.store.Watch(wctx, store.WatchOptions{Kind: registry.Box.Kind, Project: project, SinceRevision: since}, func(ev store.Event) error {
 		if ev.Object.Name != box {
 			return nil
 		}
@@ -431,10 +450,79 @@ func (s *Server) Wake(ctx context.Context, project, box string) error {
 		if b.GetStatus().GetPhase() == envv1alpha1.BoxPhase_BOX_PHASE_READY {
 			return done
 		}
+		room.see(b)
 		return nil
 	})
 	if errors.Is(err, done) {
 		return nil
 	}
+	if noRoom := room.answered(); noRoom != nil && ctx.Err() == nil {
+		return noRoom
+	}
 	return err
+}
+
+// roomWait bounds a Wake's wait for a box waiting for room on its node:
+// once it has waited wait since it was first seen so, the Wake is stopped
+// with an Unavailable that says why. A box seen otherwise in between, as
+// starting once room was freed, starts the bound again.
+type roomWait struct {
+	box  string
+	wait time.Duration
+	stop context.CancelCauseFunc
+
+	mu    sync.Mutex
+	timer *time.Timer
+	// bound counts the bounds started, so one stopped that fires anyway
+	// does nothing.
+	bound int
+	msg   string
+	err   error
+}
+
+// see hears the box as it is now.
+func (r *roomWait) see(b *envv1alpha1.Box) {
+	c := conditions.Find(b.GetStatus().GetConditions(), BoxReady)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if b.GetStatus().GetPhase() != envv1alpha1.BoxPhase_BOX_PHASE_STARTING || c.GetReason() != provider.ReasonWaitingForRoom {
+		if r.timer != nil {
+			r.timer.Stop()
+			r.timer = nil
+		}
+		return
+	}
+	r.msg = c.GetMessage()
+	if r.timer == nil {
+		r.bound++
+		bound := r.bound
+		r.timer = time.AfterFunc(r.wait, func() { r.fire(bound) })
+	}
+}
+
+func (r *roomWait) fire(bound int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.timer == nil || bound != r.bound {
+		return
+	}
+	r.err = connect.NewError(connect.CodeUnavailable, fmt.Errorf(
+		"box %q is %s; it stays asked to run and starts by itself once there is room: call again later", r.box, r.msg))
+	r.stop(r.err)
+}
+
+// answered is the Unavailable the wait was stopped with, nil if none.
+func (r *roomWait) answered() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.err
+}
+
+func (r *roomWait) end() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.timer != nil {
+		r.timer.Stop()
+		r.timer = nil
+	}
 }

@@ -461,6 +461,62 @@ func TestABoostThatDoesNotStartFails(t *testing.T) {
 	}
 }
 
+// TestABoostWaitingForRoomSaysSo: a boost whose instance waits for room on
+// its target's nodes answers PENDING_REASON_NODE_FULL, with the target's
+// words and no estimate, not BOOST_STARTING; it keeps its room in
+// boost_budget, so another box's boost is queued behind it; once there is
+// room it starts by itself, and the start asked again runs on it. One
+// still waiting at boost_start_timeout fails, saying what it waited for.
+func TestABoostWaitingForRoomSaysSo(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, &targetsv1alpha1.TargetSettings{
+		BoostBudget:       &targetsv1alpha1.BoostSize{Cpu: "4", Memory: "4Gi"},
+		BoostStartTimeout: durationpb.New(5 * time.Minute),
+	})
+	w.readyBox("a")
+	w.readyBox("b", func(b *envv1alpha1.Box) { b.Spec.Workstream = "ws2" })
+	const full = "no ready node has 8Gi of memory free"
+	w.fake.FillTarget(full)
+	req := boostOn("a", "true")
+	var p *envv1alpha1.PendingStart
+	testutil.Eventually(t, "the boosted start pending NODE_FULL", func() (bool, string) {
+		p = w.start(req).GetPending()
+		req.Pending = p.GetTicket()
+		return p.GetReason() == envv1alpha1.PendingReason_PENDING_REASON_NODE_FULL, p.String()
+	})
+	if !strings.Contains(p.GetMessage(), full) || !strings.Contains(p.GetMessage(), "starts by itself") || !strings.Contains(p.GetMessage(), "boost_start_timeout (5m0s)") ||
+		p.GetEstimatedWait() != nil {
+		t.Errorf("a boost waiting for room: %v", p)
+	}
+	if b, _ := w.boost("a"); condition(b.GetStatus().GetConditions(), "Ready").GetReason() != provider.ReasonWaitingForRoom {
+		t.Errorf("the boost waiting for room is %v", b.GetStatus())
+	}
+	queued := w.start(boostOn("b", "true")).GetPending()
+	if queued.GetReason() != envv1alpha1.PendingReason_PENDING_REASON_QUEUED_BUDGET {
+		t.Fatalf("a second boost beside one waiting for room: %v", queued)
+	}
+	w.fake.FillTarget("")
+	if res := w.startBoosted(req); res.GetRanOn().GetKind() != envv1alpha1.RanOnKind_RAN_ON_KIND_BOOST {
+		t.Fatalf("the boost once there is room: %v", res)
+	}
+
+	// b's, admitted once a's is gone, waits past its timeout.
+	w.fake.FillTarget(full)
+	w.advance(11 * time.Minute)
+	testutil.Eventually(t, "a's boost gone", func() bool { _, ok := w.boost("a"); return !ok })
+	again := boostOn("b", "true")
+	again.Pending = queued.GetTicket()
+	testutil.Eventually(t, "b's boosted start pending NODE_FULL", func() (bool, string) {
+		p := w.start(again).GetPending()
+		return p.GetReason() == envv1alpha1.PendingReason_PENDING_REASON_NODE_FULL, p.String()
+	})
+	w.advance(6 * time.Minute)
+	failed := w.waitBoost("b", envv1alpha1.BoostPhase_BOOST_PHASE_FAILED)
+	if c := condition(failed.GetStatus().GetConditions(), "Ready"); c.GetReason() != "StartTimedOut" || !strings.Contains(c.GetMessage(), full) {
+		t.Errorf("the boost that waited for room past its timeout says %v", c)
+	}
+}
+
 // TestAFailedBoostFreesItsRoom: a boost whose instance fails to boot is
 // FAILED at once, holding no room; one whose box failed fails too.
 func TestAFailedBoostFreesItsRoom(t *testing.T) {

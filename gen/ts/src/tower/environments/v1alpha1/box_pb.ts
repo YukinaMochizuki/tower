@@ -708,7 +708,9 @@ export enum BoxPhase {
   BUILDING = 3,
 
   /**
-   * Its instance is being made or started.
+   * Its instance is being made or started. Ready's reason WaitingForRoom
+   * says its node has no room to start it, in the target's words: it
+   * starts by itself once there is room.
    *
    * @generated from enum value: BOX_PHASE_STARTING = 4;
    */

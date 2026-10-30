@@ -50,6 +50,12 @@ const (
 	// its start for 40 seconds, then is made again, as the box may have
 	// changed since.
 	PendingReason_PENDING_REASON_SYNCING PendingReason = 5
+	// The box's boost is made but waits for room on its target's nodes: the
+	// message gives the target's words, as how much memory is free. It
+	// starts by itself once there is room, or fails at the target's
+	// boost_start_timeout; it keeps its room in boost_budget meanwhile. No
+	// wait is estimated.
+	PendingReason_PENDING_REASON_NODE_FULL PendingReason = 6
 )
 
 // Enum value maps for PendingReason.
@@ -61,6 +67,7 @@ var (
 		3: "PENDING_REASON_BOOST_BUSY",
 		4: "PENDING_REASON_BOOST_GOING",
 		5: "PENDING_REASON_SYNCING",
+		6: "PENDING_REASON_NODE_FULL",
 	}
 	PendingReason_value = map[string]int32{
 		"PENDING_REASON_UNSPECIFIED":    0,
@@ -69,6 +76,7 @@ var (
 		"PENDING_REASON_BOOST_BUSY":     3,
 		"PENDING_REASON_BOOST_GOING":    4,
 		"PENDING_REASON_SYNCING":        5,
+		"PENDING_REASON_NODE_FULL":      6,
 	}
 )
 
@@ -3199,14 +3207,15 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x16\n" +
 	"\x06ticket\x18\x02 \x01(\tR\x06ticket\x12;\n" +
 	"\vexpire_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"expireTime*\xcf\x01\n" +
+	"expireTime*\xed\x01\n" +
 	"\rPendingReason\x12\x1e\n" +
 	"\x1aPENDING_REASON_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cPENDING_REASON_QUEUED_BUDGET\x10\x01\x12!\n" +
 	"\x1dPENDING_REASON_BOOST_STARTING\x10\x02\x12\x1d\n" +
 	"\x19PENDING_REASON_BOOST_BUSY\x10\x03\x12\x1e\n" +
 	"\x1aPENDING_REASON_BOOST_GOING\x10\x04\x12\x1a\n" +
-	"\x16PENDING_REASON_SYNCING\x10\x05*T\n" +
+	"\x16PENDING_REASON_SYNCING\x10\x05\x12\x1c\n" +
+	"\x18PENDING_REASON_NODE_FULL\x10\x06*T\n" +
 	"\tRanOnKind\x12\x1b\n" +
 	"\x17RAN_ON_KIND_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fRAN_ON_KIND_BOX\x10\x01\x12\x15\n" +

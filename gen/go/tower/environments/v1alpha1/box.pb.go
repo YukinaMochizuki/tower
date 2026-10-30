@@ -34,7 +34,9 @@ const (
 	BoxPhase_BOX_PHASE_UNPLACED BoxPhase = 2
 	// Its image or golden is being built.
 	BoxPhase_BOX_PHASE_BUILDING BoxPhase = 3
-	// Its instance is being made or started.
+	// Its instance is being made or started. Ready's reason WaitingForRoom
+	// says its node has no room to start it, in the target's words: it
+	// starts by itself once there is room.
 	BoxPhase_BOX_PHASE_STARTING BoxPhase = 4
 	BoxPhase_BOX_PHASE_READY    BoxPhase = 5
 	// Stopped, its disk kept; stopped_reason says why.

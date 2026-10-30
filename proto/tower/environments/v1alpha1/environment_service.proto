@@ -11,7 +11,11 @@ import "tower/environments/v1alpha1/common.proto";
 // box's origin, push a branch, and ask for a ticket to stream to a port
 // directly. Only ROLE_WORKSTREAM may call it. Every call counts as a use of
 // the environment; a box tower stopped for idleness is started first, and
-// the call waits for it within its deadline. In a machine whose blueprint
+// the call waits for it within its deadline. A box whose node has no room
+// to start it (its Ready reason WaitingForRoom) is UNAVAILABLE once it has
+// waited 5 seconds, the error giving the target's words: it stays asked to
+// run and starts by itself once there is room, and a call then reaches
+// it (docs/decisions/boost.md, "A full node"). In a machine whose blueprint
 // names a run_as user, commands and processes run as that user, in its
 // home unless given a directory, and a file written or copied there is
 // handed to it (docs/decisions/machine-blueprints.md). It is not a resource's
@@ -376,6 +380,12 @@ enum PendingReason {
   // its start for 40 seconds, then is made again, as the box may have
   // changed since.
   PENDING_REASON_SYNCING = 5;
+  // The box's boost is made but waits for room on its target's nodes: the
+  // message gives the target's words, as how much memory is free. It
+  // starts by itself once there is room, or fails at the target's
+  // boost_start_timeout; it keeps its room in boost_budget meanwhile. No
+  // wait is estimated.
+  PENDING_REASON_NODE_FULL = 6;
 }
 
 // RanOn is where a process runs or ran.
