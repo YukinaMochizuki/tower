@@ -78,7 +78,7 @@ func boostMain(args []string) int {
 
 func boost(args []string, stdout, stderr io.Writer, main bool) (int, syscall.Signal) {
 	if len(args) == 0 {
-		return failed(stderr, 2, errors.New("a boost subcommand is boost-manifest, boost-pack, boost-apply, boost-job, boost-back, boost-writeback or boost-clean")), 0
+		return failed(stderr, 2, errors.New("a boost subcommand is boost-baseline, boost-manifest, boost-pack, boost-apply, boost-job, boost-back, boost-writeback or boost-clean")), 0
 	}
 	var err error
 	var out any
@@ -91,6 +91,8 @@ func boost(args []string, stdout, stderr io.Writer, main bool) (int, syscall.Sig
 		out, err = boostClean(args[1:])
 	case "boost-manifest":
 		out, err = boostManifest(args[1:])
+	case "boost-baseline":
+		out, err = boostBaseline(args[1:])
 	case "boost-back":
 		out, err = boostBack(args[1:])
 	case "boost-writeback":

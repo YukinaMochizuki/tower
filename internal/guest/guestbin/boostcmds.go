@@ -123,8 +123,10 @@ type WroteBack struct {
 	Bytes   int64 `json:"bytes"`
 	Deleted int   `json:"deleted"`
 	// Conflicts are the paths the box changed since the job's sync began,
-	// left as the box has them.
+	// left as the box has them; Unchanged those the box already had as the
+	// job left them, written back by another job, or as the box made them.
 	Conflicts []string `json:"conflicts,omitempty"`
+	Unchanged []string `json:"unchanged,omitempty"`
 }
 
 // boostPack: --dir, the box's checkout; --out, the staging directory;
@@ -176,6 +178,7 @@ func boostPack(args []string) (*Manifest, error) {
 		return nil, err
 	}
 	var last []fileRec
+	haveLast := false
 	if *since != "" {
 		if err := checkSentName(*since); err != nil {
 			return nil, err
@@ -184,7 +187,8 @@ func boostPack(args []string) (*Manifest, error) {
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
-		if errors.Is(err, fs.ErrNotExist) {
+		haveLast = err == nil
+		if !haveLast {
 			last = nil
 			if *shared {
 				return nil, codedError{ExitNoSince, fmt.Errorf("the box's last sync, %s, is not kept", *since)}
@@ -202,15 +206,20 @@ func boostPack(args []string) (*Manifest, error) {
 			return nil, err
 		}
 		changes = diffRecs(boost, now, fileRec.sameAs)
-		// A file the box changed since its last sync though its size and
-		// mtime did not, and one the boost holds other content of: sent
-		// whatever the records say.
-		lastIdx, nowIdx := indexRecs(last), indexRecs(now)
+		// A file the box changed since its last sync to this boost though
+		// its size and mtime did not, and one the boost holds other content
+		// of: sent whatever the records say. A boost the box has not synced
+		// to holds its warm golden's files, and its own setup's: every file
+		// the box touched since its baseline is sent, untouched ones
+		// compared by their records alone.
+		nowIdx := indexRecs(now)
 		more := map[string]bool{}
-		for _, r := range now {
-			if l, ok := lastIdx[r.Path]; ok && r.Type == 'f' && l.sameAs(r) && !l.sameHere(r) {
-				more[r.Path] = true
-			}
+		touched, err := touchedSince(boostDir, now, last, haveLast)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range touched {
+			more[p] = true
 		}
 		for _, p := range force {
 			if _, ok := nowIdx[p]; ok {
@@ -264,6 +273,63 @@ func boostPack(args []string) (*Manifest, error) {
 		return nil, err
 	}
 	return m, os.WriteFile(filepath.Join(*out, "manifest.json"), b, 0o644)
+}
+
+// baselineName is the box's manifest as its /workspace was once its
+// repositories were checked out from its warm golden, before its setup
+// steps ran (boost-baseline): what a boost made of that golden holds, but
+// for its own setup's writes.
+const baselineName = "baseline.manifest"
+
+// touchedSince are the files and links of now the box touched since it
+// last synced to the boost (last, when haveLast), or else since its
+// baseline: their inode or ctime moved, or they were not there. With
+// neither, every one is.
+func touchedSince(boostDir string, now, last []fileRec, haveLast bool) ([]string, error) {
+	base := last
+	if !haveLast {
+		var err error
+		base, err = readManifest(filepath.Join(boostDir, baselineName))
+		if errors.Is(err, fs.ErrNotExist) {
+			base = nil
+		} else if err != nil {
+			return nil, err
+		}
+	}
+	idx := indexRecs(base)
+	var out []string
+	for _, r := range now {
+		if r.Type == 'd' {
+			continue
+		}
+		if b, ok := idx[r.Path]; haveLast && !ok {
+			// New since the last sync: the records' diff sends it.
+			continue
+		} else if !ok || !b.sameHere(r) {
+			out = append(out, r.Path)
+		}
+	}
+	return out, nil
+}
+
+// boostBaseline: --dir, a box's checkout: its manifest as it is, kept in
+// its boost directory as its baseline (baselineName), which a sync to a
+// boost it has not synced to compares the box with.
+func boostBaseline(args []string) (map[string]int, error) {
+	fl := flag.NewFlagSet("boost-baseline", flag.ContinueOnError)
+	dir := fl.String("dir", "/workspace", "")
+	if err := fl.Parse(args); err != nil {
+		return nil, err
+	}
+	_, boostDir, err := boostGitDir(*dir)
+	if err != nil {
+		return nil, err
+	}
+	recs, err := walk(*dir)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]int{"paths": len(recs)}, writeManifest(filepath.Join(boostDir, baselineName), recs)
 }
 
 // checkSentName refuses a name that is no sent manifest's.
@@ -858,7 +924,7 @@ func boostWriteback(args []string) (*WroteBack, error) {
 			out.Bytes += hdr.Size
 		}
 	}
-	out.Conflicts = w.conflicts
+	out.Conflicts, out.Unchanged = w.conflicts, w.unchanged
 	if *last != "" {
 		if err := checkSentName(*last); err != nil {
 			return nil, err
@@ -880,6 +946,7 @@ type writer struct {
 	made, wrote, gone map[string]bool
 	skipped           []string
 	conflicts         []string
+	unchanged         []string
 }
 
 // changed says the box changed p since the job's sync began: it is there
@@ -956,6 +1023,13 @@ func (w *writer) remove(p string) (bool, error) {
 		w.conflict(p)
 		return false, nil
 	}
+	if _, ok, err := lstatRec(w.root, p); err != nil {
+		return false, err
+	} else if !ok {
+		// Gone already, as the job left it.
+		w.unchanged = append(w.unchanged, p)
+		return false, nil
+	}
 	changed, err := w.changed(p)
 	if err != nil {
 		return false, err
@@ -1005,6 +1079,17 @@ func (w *writer) apply(hdr *tar.Header, body io.Reader) (bool, error) {
 	if !hold {
 		return skip()
 	}
+	if now, ok, err := lstatRec(w.root, p); err != nil {
+		return false, err
+	} else if ok && sameAsEntry(now, hdr) {
+		// The box has it as the job left it: written back by another job
+		// that wrote it too, or made so in the box.
+		w.unchanged = append(w.unchanged, p)
+		if hdr.Typeflag == tar.TypeDir {
+			w.made[p] = true
+		}
+		return false, nil
+	}
 	changed, err := w.changed(p)
 	if err != nil {
 		return false, err
@@ -1027,6 +1112,20 @@ func (w *writer) apply(hdr *tar.Header, body io.Reader) (bool, error) {
 	}
 	w.wrote[p] = true
 	return true, nil
+}
+
+// sameAsEntry says r is what the tar entry hdr makes: its type and mode,
+// a file's size and mtime, a link's target.
+func sameAsEntry(r fileRec, hdr *tar.Header) bool {
+	switch hdr.Typeflag {
+	case tar.TypeDir:
+		return r.Type == 'd' && r.Mode == fs.FileMode(hdr.Mode).Perm()
+	case tar.TypeSymlink:
+		return r.Type == 'l' && r.Link == hdr.Linkname
+	case tar.TypeReg:
+		return r.Type == 'f' && r.Mode == fs.FileMode(hdr.Mode).Perm() && r.Size == hdr.Size && r.MTime == hdr.ModTime.UnixNano()
+	}
+	return false
 }
 
 // keepLast makes the box's manifest last sent hold what was written back

@@ -94,6 +94,11 @@ func newPair(t *testing.T) *pair {
 	git(t, root, "clone", "-q", p.origin, p.box)
 	// Ignored files the golden holds: dependencies installed.
 	write(t, filepath.Join(p.box, "node_modules", "dep", "index.js"), "v1\n", 0o644)
+	// The box's baseline, as tower takes it once its repository is checked
+	// out from its golden, of which the boost is made too.
+	if code, _, stderr := boostRun("boost-baseline", "--dir", p.box); code != 0 {
+		t.Fatalf("boost-baseline: %s", stderr)
+	}
 	if out, err := exec.Command("cp", "-a", p.box, p.boost).CombinedOutput(); err != nil {
 		t.Fatalf("cp: %v: %s", err, out)
 	}
@@ -877,5 +882,146 @@ func TestADeletionOfWhatTheBoxChangedStays(t *testing.T) {
 	}
 	if !slices.Equal(w.Conflicts, []string{"a.txt"}) || w.Deleted != 1 {
 		t.Errorf("written back %+v, want b.txt deleted, a.txt in conflict", w)
+	}
+}
+
+// TestAFirstSyncSendsWhatTheBoxTouched: a file the box rewrote to the same
+// size and mtime since its baseline, as npm's fixed mtimes do, reaches a
+// boost the box never synced to; one untouched since is not sent.
+func TestAFirstSyncSendsWhatTheBoxTouched(t *testing.T) {
+	p := newPair(t)
+	f := filepath.Join(p.box, "node_modules", "dep", "index.js")
+	at := mtime(t, f)
+	write(t, f, "v9\n", 0o644)
+	if err := os.Chtimes(f, at, at); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := p.send(t, false)
+	if m.Files != 1 || read(t, filepath.Join(p.boost, "node_modules", "dep", "index.js")) != "v9\n" {
+		t.Errorf("a first sync after the box rewrote index.js to its size and mtime: %+v, the boost's %q", m,
+			read(t, filepath.Join(p.boost, "node_modules", "dep", "index.js")))
+	}
+}
+
+// TestABoxWithoutABaselineSendsAllItHas: a box without a baseline, made
+// before tower took one, sends every file to a boost it never synced to.
+func TestABoxWithoutABaselineSendsAllItHas(t *testing.T) {
+	p := newPair(t)
+	if err := os.Remove(filepath.Join(p.boostDir(p.box), "baseline.manifest")); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := p.send(t, false)
+	// a.txt, b.txt, d/c.txt, run.sh, .gitignore, node_modules' index.js.
+	if m.Files != 6 {
+		t.Errorf("a first sync without a baseline: %+v, want every file", m)
+	}
+	if m, _ := p.send(t, false); m.Files != 0 {
+		t.Errorf("the next: %+v, want nothing", m)
+	}
+}
+
+// TestAWriteBackKeepsTheBoxsEditThatKeptItsRecords: a box edit during the
+// job that kept its size and mtime is not overwritten by the job's.
+func TestAWriteBackKeepsTheBoxsEditThatKeptItsRecords(t *testing.T) {
+	p := newPair(t)
+	m, _ := p.send(t, false)
+	report, _ := p.job(t, `echo J > a.txt`)
+	f := filepath.Join(p.box, "a.txt")
+	at := mtime(t, f)
+	write(t, f, "B\n", 0o644)
+	if err := os.Chtimes(f, at, at); err != nil {
+		t.Fatal(err)
+	}
+	_, w := p.back(t, report, m.Sent)
+	if read(t, f) != "B\n" || !slices.Equal(w.Conflicts, []string{"a.txt"}) {
+		t.Errorf("written back %+v: a.txt %q, want the box's, in conflict", w, read(t, f))
+	}
+}
+
+// TestNoPathOutsideTheSyncIsWrittenBack: changes naming a path in .git, or
+// one climbing out, are refused, on the boost and in the box.
+func TestNoPathOutsideTheSyncIsWrittenBack(t *testing.T) {
+	p := newPair(t)
+	m, _ := p.send(t, false)
+	write(t, filepath.Join(p.boost, ".git", "hooks", "x"), "#!/bin/sh\n", 0o755)
+	for _, bad := range []string{".git/hooks/x", "../x", "sub/.git/config"} {
+		report := filepath.Join(p.boostDir(p.boost), "job-bad.json")
+		write(t, report, "{}", 0o644)
+		write(t, strings.TrimSuffix(report, ".json")+".changes", "A\x00"+bad+"\x00", 0o644)
+		out := filepath.Join(p.boostDir(p.boost), "sync-back-bad")
+		if code, _, _ := boostRun("boost-back", "--dir", p.boost, "--report", report, "--out", out); code == 0 {
+			t.Errorf("boost-back of changes naming %q exited 0", bad)
+		}
+		_ = os.RemoveAll(out)
+		// A tar naming it, as a boost-back unchecked would pack it.
+		staging := filepath.Join(p.boostDir(p.box), "sync-back-crafted")
+		var buf bytes.Buffer
+		tw := tar.NewWriter(&buf)
+		_ = tw.WriteHeader(&tar.Header{Name: bad, Typeflag: tar.TypeReg, Mode: 0o755, Size: 3})
+		_, _ = tw.Write([]byte("x!\n"))
+		_ = tw.Close()
+		write(t, filepath.Join(staging, "files.tar"), buf.String(), 0o644)
+		write(t, filepath.Join(staging, "files.deleted"), "", 0o644)
+		if code, _, _ := boostRun("boost-writeback", "--dir", p.box, "--staging", staging, "--sent", m.Sent); code == 0 {
+			t.Errorf("boost-writeback of a tar naming %q exited 0", bad)
+		}
+	}
+	if exists(filepath.Join(p.box, ".git", "hooks", "x")) || exists(filepath.Join(filepath.Dir(p.box), "x")) || exists(filepath.Join(p.box, "sub", ".git")) {
+		t.Error("a path outside the sync was written in the box")
+	}
+}
+
+// TestWhatAnotherJobWroteBackIsNotMovedAgain: a path two jobs at once both
+// changed, written back by the first, is the box's already for the
+// second: neither moved by it nor a conflict.
+func TestWhatAnotherJobWroteBackIsNotMovedAgain(t *testing.T) {
+	p := newPair(t)
+	m, _ := p.send(t, false)
+	// The second job's walk sees the first's write, made while it ran.
+	report2, _ := p.job(t, `echo one > shared.out && echo two > two.out`)
+	report1 := filepath.Join(p.boostDir(p.boost), "job-first.json")
+	write(t, report1, "{}", 0o644)
+	write(t, strings.TrimSuffix(report1, ".json")+".changes", "A\x00shared.out\x00", 0o644)
+	if _, w1 := p.back(t, report1, m.Sent); w1.Files != 1 {
+		t.Fatalf("the first's write-back: %+v", w1)
+	}
+	_, w2 := p.back(t, report2, m.Sent)
+	if w2.Files != 1 || len(w2.Conflicts) != 0 || !slices.Equal(w2.Unchanged, []string{"shared.out"}) {
+		t.Errorf("the second's write-back: %+v, want two.out written, shared.out unchanged, no conflict", w2)
+	}
+}
+
+// TestTowerGuestRunsEveryBoostSubcommand: tower-guest itself, as tower
+// runs it, takes each boost subcommand tower runs, not only those the
+// in-process tests call through Boost.
+func TestTowerGuestRunsEveryBoostSubcommand(t *testing.T) {
+	p := newPair(t)
+	out := filepath.Join(t.TempDir(), "m")
+	if code := guestbin.Main([]string{"boost-manifest", "--dir", p.box, "--out", out}); code != 0 || !exists(out) {
+		t.Errorf("tower-guest boost-manifest: exit %d", code)
+	}
+	if code := guestbin.Main([]string{"boost-baseline", "--dir", p.box}); code != 0 {
+		t.Errorf("tower-guest boost-baseline: exit %d", code)
+	}
+	// Missing their arguments, each is refused by itself, as a command
+	// it has, not as one it has not (2).
+	for _, c := range []string{"boost-pack", "boost-apply", "boost-back", "boost-writeback", "boost-clean"} {
+		if code := guestbin.Main([]string{c, "--dir", p.box}); code == 2 {
+			t.Errorf("tower-guest %s: exit 2, a command it has not", c)
+		}
+	}
+	if code := guestbin.Main([]string{"boost-nope"}); code != 2 {
+		t.Errorf("tower-guest boost-nope: exit %d, want 2", code)
+	}
+}
+
+// TestASyncsOwnTempFilesNeverTravel: a file a sync was writing beside its
+// path, left by a crash, is never walked, so never sent.
+func TestASyncsOwnTempFilesNeverTravel(t *testing.T) {
+	p := newPair(t)
+	write(t, filepath.Join(p.box, "d", ".tower-boost-abc-c.txt"), "half written\n", 0o600)
+	m, _ := p.send(t, false)
+	if m.Files != 0 || exists(filepath.Join(p.boost, "d", ".tower-boost-abc-c.txt")) {
+		t.Errorf("a sync's leftover was sent: %+v", m)
 	}
 }

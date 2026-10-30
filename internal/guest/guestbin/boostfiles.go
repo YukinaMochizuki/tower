@@ -65,13 +65,21 @@ func (a fileRec) sameHere(b fileRec) bool {
 
 // excluded says p, relative to the checkout, is never synced: .git at any
 // depth (a checkout's own git state, a submodule's or a nested
-// repository's), and the top .ws-cache (each instance's own caches).
+// repository's), the top .ws-cache (each instance's own caches), and a
+// file a sync is writing beside its path (tempPrefix).
 func excluded(p string) bool {
 	if p == ".ws-cache" || strings.HasPrefix(p, ".ws-cache/") {
 		return true
 	}
+	if strings.HasPrefix(path.Base(p), tempPrefix) {
+		return true
+	}
 	return slices.Contains(strings.Split(p, "/"), ".git")
 }
+
+// tempPrefix begins the name of a file a sync writes beside its path
+// before it renames it on.
+const tempPrefix = ".tower-boost-"
 
 // checkPath refuses a path that is no path in the checkout, or one never
 // synced.
@@ -129,6 +137,7 @@ func walk(dir string) ([]fileRec, error) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
+			sweepTemp(file, d)
 			return nil
 		}
 		info, err := d.Info()
@@ -151,6 +160,22 @@ func walk(dir string) ([]fileRec, error) {
 	})
 	slices.SortFunc(out, func(a, b fileRec) int { return strings.Compare(a.Path, b.Path) })
 	return out, err
+}
+
+// sweepTemp removes a file a sync was writing beside its path that a
+// crash left, once its ctime, which a sync's own writes move, is older
+// than boostKeepFor.
+func sweepTemp(file string, d fs.DirEntry) {
+	if !strings.HasPrefix(d.Name(), tempPrefix) || !d.Type().IsRegular() {
+		return
+	}
+	info, err := d.Info()
+	if err != nil {
+		return
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok && time.Since(time.Unix(0, st.Ctim.Nano())) > boostKeepFor {
+		_ = os.Remove(file)
+	}
 }
 
 // lstatRec is p's record now in root, false if it is not there.
@@ -437,9 +462,9 @@ func applyEntry(root *os.Root, hdr *tar.Header, body io.Reader) error {
 				return err
 			}
 		}
-		tmp := path.Join(path.Dir(p), ".tower-boost-"+strconv.FormatInt(time.Now().UnixNano(), 36)+"-"+path.Base(p))
+		tmp := path.Join(path.Dir(p), tempPrefix+strconv.FormatInt(time.Now().UnixNano(), 36)+"-"+path.Base(p))
 		if len(path.Base(tmp)) > 255 {
-			tmp = path.Join(path.Dir(p), ".tower-boost-"+strconv.FormatInt(time.Now().UnixNano(), 36))
+			tmp = path.Join(path.Dir(p), tempPrefix+strconv.FormatInt(time.Now().UnixNano(), 36))
 		}
 		f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
