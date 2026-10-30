@@ -78,9 +78,12 @@ type boostProcess struct {
 	// before it started, SyncID the box's manifest as that sync sent it,
 	// which its write-back compares the box with; none for one started
 	// before tower wrote boosted processes' changes back.
-	RunID  string     `json:"runId,omitempty"`
-	SyncID string     `json:"syncId,omitempty"`
-	Sync   *syncStats `json:"sync,omitempty"`
+	RunID  string `json:"runId,omitempty"`
+	SyncID string `json:"syncId,omitempty"`
+	// TicketID is the ticket of the start that started it: asked about
+	// again, after a restart too, it is answered this process.
+	TicketID string     `json:"ticket,omitempty"`
+	Sync     *syncStats `json:"sync,omitempty"`
 	// Run is what of its changes was written back, once Settled.
 	Run     *runResult `json:"run,omitempty"`
 	Settled bool       `json:"settled,omitempty"`
@@ -340,8 +343,18 @@ func (s *Server) keepBoostExits(ctx context.Context, boxKey controller.Key, b *e
 	if _, err := s.getRecord(ctx, boxProcessesKey(boxKey), &rec); err != nil {
 		return false, err
 	}
-	mine := slices.ContainsFunc(rec.Boost, func(p boostProcess) bool { return p.InstanceUID == in.GetMetadata().GetUid() && p.Exit == nil })
-	if !mine && force {
+	uid := in.GetMetadata().GetUid()
+	// Its processes whose exits are kept but whose changes are not
+	// written back yet, by another settle under way, as before its box
+	// stops: written back before the boost goes, waiting on that settle.
+	var pending []string
+	for _, bp := range rec.Boost {
+		if bp.InstanceUID == uid && bp.Exit != nil && bp.RunID != "" && !bp.Settled && !bp.Gone {
+			pending = append(pending, bp.ID)
+		}
+	}
+	mine := slices.ContainsFunc(rec.Boost, func(p boostProcess) bool { return p.InstanceUID == uid && p.Exit == nil })
+	if !mine && force && len(pending) == 0 {
 		return false, nil
 	}
 	p, err := s.providerFor(b.GetSpec().GetTarget())
@@ -371,7 +384,8 @@ func (s *Server) keepBoostExits(ctx context.Context, boxKey controller.Key, b *e
 	var listed []listedProcess
 	exits := map[string]*provider.ProcessExit{}
 	for _, bp := range rec.Boost {
-		if bp.InstanceUID != in.GetMetadata().GetUid() {
+		if bp.InstanceUID != uid || bp.Exit != nil {
+			// Another's, or kept, its usage recorded, already.
 			continue
 		}
 		i := slices.IndexFunc(ps, func(p provider.Process) bool { return p.ID == bp.ProviderID && p.Exit != nil })
@@ -382,17 +396,25 @@ func (s *Server) keepBoostExits(ctx context.Context, boxKey controller.Key, b *e
 		p.ID, exits[bp.ID] = bp.ID, p.Exit
 		listed = append(listed, listedProcess{Process: p, at: ranOn{Kind: ranOnBoost, CPU: bp.CPU, Memory: bp.Memory}})
 	}
-	if len(listed) == 0 {
+	if len(listed) == 0 && len(pending) == 0 {
 		return false, nil
 	}
-	if err := changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool { return r.keepExits(exits) }); err != nil {
-		return false, err
-	}
-	// Their reports and artifacts, before the boost goes.
-	for _, l := range listed {
-		if _, err := s.settleBoostProcess(ctx, p, boxKey, provider.Instance{Project: boxKey.Project, Name: in.GetMetadata().GetName()}, l.ID); err != nil {
-			s.log.Error("settling a boost process failed", "box", boxKey.String(), "process", l.ID, "error", err)
+	if len(exits) > 0 {
+		if err := changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool { return r.keepExits(exits) }); err != nil {
+			return false, err
 		}
+	}
+	// What they changed, written back before the boost goes.
+	for _, l := range listed {
+		pending = append(pending, l.ID)
+	}
+	for _, id := range pending {
+		if _, err := s.settleBoostProcess(ctx, p, boxKey, provider.Instance{Project: boxKey.Project, Name: in.GetMetadata().GetName()}, id); err != nil {
+			s.log.Error("settling a boost process failed", "box", boxKey.String(), "process", id, "error", err)
+		}
+	}
+	if len(listed) == 0 {
+		return false, nil
 	}
 	box, ok, err := getTyped[*envv1alpha1.Box](ctx, s, registry.Box, resource.Key{Project: boxKey.Project, Name: boxKey.Name})
 	if err != nil {
@@ -446,14 +468,12 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 	now := s.clock.Now()
 	tq.prune(now)
 	var tk *boostTicket
-	if st, ok := tq.started[m.GetPending()]; ok && m.GetPending() != "" && st.box == boxKey {
+	if id := m.GetPending(); id != "" {
 		// Asked again once started, as by a caller that lost the answer:
-		// that start, never a second one; nothing to give up.
-		if st.res == nil {
-			return &envv1alpha1.StartProcessResponse{Pending: &envv1alpha1.PendingStart{Ticket: m.GetPending(),
-				Reason: envv1alpha1.PendingReason_PENDING_REASON_SYNCING, Message: "its process is being started; ask again"}}, nil
+		// that start, never a second one.
+		if res, ok, err := s.startedAnswer(ctx, c, e, tq, boxKey, id, m.GetCancel(), now); err != nil || ok {
+			return res, err
 		}
-		return proto.Clone(st.res).(*envv1alpha1.StartProcessResponse), nil
 	}
 	if id := m.GetPending(); id != "" {
 		if t, ok := tq.tickets[id]; ok && t.box == boxKey {
@@ -665,23 +685,88 @@ func (h environmentService) syncAndStart(ctx context.Context, c authz.Caller, e 
 		if hook := s.beforeBoostStart.Load(); hook != nil {
 			(*hook)(boxKey)
 		}
-		res, err := h.startOnBoost(ctx, c, e, m, command, b, tq, boxKey, run.stats)
+		res, err := h.startOnBoost(ctx, c, e, m, command, b, tq, boxKey, run.stats, tk.id)
 		tq.mu.Lock()
+		cancel := st.cancel
 		if err != nil {
 			delete(tq.started, tk.id)
 		} else {
 			st.res, st.at = proto.Clone(res).(*envv1alpha1.StartProcessResponse), s.clock.Now()
 		}
 		tq.mu.Unlock()
+		if err == nil && cancel {
+			// Given up while it was being started.
+			s.termBoostProcess(ctx, c, e, boxKey, res.GetProcess())
+		}
 		return res, err
 	}
+}
+
+// startedAnswer answers a ticket that started its process, asked about
+// again within boostTicketTTL of its start: from tq while this apiserver
+// knows it, else from the box's processes, as after a restart. A cancel
+// sends that process TERM, once started. ok says the ticket started one.
+// Held tq.mu.
+func (s *Server) startedAnswer(ctx context.Context, c authz.Caller, e *environment, tq *targetBoosts, boxKey controller.Key, id string, cancel bool, now time.Time) (*envv1alpha1.StartProcessResponse, bool, error) {
+	if st, ok := tq.started[id]; ok && st.box == boxKey {
+		if st.res == nil {
+			msg := "its process is being started; ask again"
+			if cancel {
+				st.cancel = true
+				msg = "its process is being started; it is sent TERM once it is"
+			}
+			return &envv1alpha1.StartProcessResponse{Pending: &envv1alpha1.PendingStart{Ticket: id,
+				Reason: envv1alpha1.PendingReason_PENDING_REASON_SYNCING, Message: msg}}, true, nil
+		}
+		if cancel {
+			s.termBoostProcess(ctx, c, e, boxKey, st.res.GetProcess())
+		}
+		return proto.Clone(st.res).(*envv1alpha1.StartProcessResponse), true, nil
+	}
+	if _, ok := tq.tickets[id]; ok {
+		return nil, false, nil
+	}
+	var rec boxProcesses
+	if _, err := s.getRecord(ctx, boxProcessesKey(boxKey), &rec); err != nil {
+		return nil, false, apiError(err)
+	}
+	if rec.BoxUID != e.box.GetMetadata().GetUid() {
+		return nil, false, nil
+	}
+	for _, bp := range rec.Boost {
+		if bp.TicketID != id || now.Sub(bp.Started) > boostTicketTTL {
+			continue
+		}
+		if cancel {
+			s.termBoostProcess(ctx, c, e, boxKey, bp.ID)
+		}
+		at := ranOn{Kind: ranOnBoost, CPU: bp.CPU, Memory: bp.Memory}
+		return &envv1alpha1.StartProcessResponse{Process: bp.ID, RanOn: at.proto(), Boost: boostRunOf(bp)}, true, nil
+	}
+	return nil, false, nil
+}
+
+// termBoostProcess sends the box's boost process id TERM, as a cancel of
+// the ticket that started it asks.
+func (s *Server) termBoostProcess(ctx context.Context, c authz.Caller, e *environment, boxKey controller.Key, id string) {
+	var rec boxProcesses
+	if _, err := s.getRecord(ctx, boxProcessesKey(boxKey), &rec); err != nil {
+		s.log.Error("reading a boost process to stop failed", "environment", e.String(), "process", id, "error", err)
+		return
+	}
+	bp, ok := rec.find(id)
+	if !ok {
+		return
+	}
+	err := e.p.SignalProcess(ctx, provider.Instance{Project: boxKey.Project, Name: bp.Instance}, bp.ProviderID, provider.SignalTerm)
+	s.log.Info("a started boosted start given up: its process sent TERM", "caller", c.String(), "environment", e.String(), "process", id, "error", err)
 }
 
 // startOnBoost starts the process on the box's READY boost b, keeping
 // where it runs in boxProcesses; if that cannot be kept, the process is
 // killed, as no call could reach it. tq counts it as starting, which ends
 // here.
-func (h environmentService) startOnBoost(ctx context.Context, c authz.Caller, e *environment, m *envv1alpha1.StartProcessRequest, command []string, b *envv1alpha1.Boost, tq *targetBoosts, boxKey controller.Key, synced *syncStats) (*envv1alpha1.StartProcessResponse, error) {
+func (h environmentService) startOnBoost(ctx context.Context, c authz.Caller, e *environment, m *envv1alpha1.StartProcessRequest, command []string, b *envv1alpha1.Boost, tq *targetBoosts, boxKey controller.Key, synced *syncStats, ticket string) (*envv1alpha1.StartProcessResponse, error) {
 	s := h.s
 	defer func() {
 		tq.mu.Lock()
@@ -733,7 +818,7 @@ func (h environmentService) startOnBoost(ctx context.Context, c authz.Caller, e 
 	entry := boostProcess{
 		ID: id, BoostUID: b.GetMetadata().GetUid(), Instance: ref.Name, InstanceUID: in.GetMetadata().GetUid(), ProviderID: pid,
 		CPU: at.CPU, Memory: at.Memory, Name: m.GetName(), Coarse: coarseCommand(commandText(e.givenCommand(command))), Dir: m.GetDir(),
-		Started: s.clock.Now(), RunID: runID, SyncID: syncID, Sync: synced,
+		Started: s.clock.Now(), RunID: runID, SyncID: syncID, Sync: synced, TicketID: ticket,
 	}
 	err = changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool {
 		if uid := e.box.GetMetadata().GetUid(); r.BoxUID != uid {

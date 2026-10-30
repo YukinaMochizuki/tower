@@ -599,9 +599,10 @@ export type StartProcessRequest = Message<"tower.environments.v1alpha1.StartProc
   /**
    * With pending, gives the ticket up instead: nothing starts, and its
    * place goes to the next. A ticket that started its process, asked
-   * about again until it would have been dropped, is answered that
-   * process, never a second start, so a caller that lost the answer
-   * asks again safely.
+   * about again within five minutes of its start, after an apiserver's
+   * restart too, is answered that process, never a second start, so a
+   * caller that lost the answer asks again safely; cancelled, that
+   * process is sent TERM, and is answered.
    *
    * @generated from field: bool cancel = 9;
    */
@@ -814,7 +815,9 @@ export type WriteBack = Message<"tower.environments.v1alpha1.WriteBack"> & {
   bytes: bigint;
 
   /**
-   * The paths moved, the first 200, with how many there were.
+   * The paths this write-back wrote, the first 200, with how many there
+   * were: not those the box already had as the process left them, as
+   * another process's write-back made them.
    *
    * @generated from field: repeated tower.environments.v1alpha1.MovedFile moved = 5;
    */
@@ -834,7 +837,10 @@ export type WriteBack = Message<"tower.environments.v1alpha1.WriteBack"> & {
   conflicts: string[];
 
   /**
-   * Files not brought back, past what one process brings back (2GiB).
+   * Files not brought back, past what one process brings back (2GiB):
+   * they are only on the boost, and the next sync not beside a running
+   * process removes them there, an exception to "as if it had run in the
+   * box".
    *
    * @generated from field: repeated tower.environments.v1alpha1.OverCap over_cap = 8;
    */
@@ -842,8 +848,8 @@ export type WriteBack = Message<"tower.environments.v1alpha1.WriteBack"> & {
 
   /**
    * The process moved git's HEAD (a commit), or changed its index (git
-   * add): neither comes back, the one exception to "as if it had run in
-   * the box"; its files do.
+   * add): neither comes back, an exception to "as if it had run in the
+   * box"; its files do.
    *
    * @generated from field: bool head_moved = 9;
    */

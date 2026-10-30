@@ -176,7 +176,7 @@ func plainGuest(w *workspaces, command []string) (string, bool) {
 		return "", false
 	}
 	switch command[1] {
-	case "boost-manifest":
+	case "boost-manifest", "boost-baseline":
 		return `{"paths":0}` + "\n", true
 	case "boost-pack":
 		return `{"tree":"fake-tree","sent":"sent-fake"}` + "\n", true

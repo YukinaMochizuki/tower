@@ -1413,9 +1413,10 @@ type StartProcessRequest struct {
 	Pending string `protobuf:"bytes,8,opt,name=pending,proto3" json:"pending,omitempty"`
 	// With pending, gives the ticket up instead: nothing starts, and its
 	// place goes to the next. A ticket that started its process, asked
-	// about again until it would have been dropped, is answered that
-	// process, never a second start, so a caller that lost the answer
-	// asks again safely.
+	// about again within five minutes of its start, after an apiserver's
+	// restart too, is answered that process, never a second start, so a
+	// caller that lost the answer asks again safely; cancelled, that
+	// process is sent TERM, and is answered.
 	Cancel        bool `protobuf:"varint,9,opt,name=cancel,proto3" json:"cancel,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1850,17 +1851,22 @@ type WriteBack struct {
 	Files   int32 `protobuf:"varint,2,opt,name=files,proto3" json:"files,omitempty"`
 	Deleted int32 `protobuf:"varint,3,opt,name=deleted,proto3" json:"deleted,omitempty"`
 	Bytes   int64 `protobuf:"varint,4,opt,name=bytes,proto3" json:"bytes,omitempty"`
-	// The paths moved, the first 200, with how many there were.
+	// The paths this write-back wrote, the first 200, with how many there
+	// were: not those the box already had as the process left them, as
+	// another process's write-back made them.
 	Moved []*MovedFile `protobuf:"bytes,5,rep,name=moved,proto3" json:"moved,omitempty"`
 	Total int32        `protobuf:"varint,6,opt,name=total,proto3" json:"total,omitempty"`
 	// Paths the box changed after the process's sync began, or whose
 	// directory it did: the box's stay, the process's are not written.
 	Conflicts []string `protobuf:"bytes,7,rep,name=conflicts,proto3" json:"conflicts,omitempty"`
-	// Files not brought back, past what one process brings back (2GiB).
+	// Files not brought back, past what one process brings back (2GiB):
+	// they are only on the boost, and the next sync not beside a running
+	// process removes them there, an exception to "as if it had run in the
+	// box".
 	OverCap []*OverCap `protobuf:"bytes,8,rep,name=over_cap,json=overCap,proto3" json:"over_cap,omitempty"`
 	// The process moved git's HEAD (a commit), or changed its index (git
-	// add): neither comes back, the one exception to "as if it had run in
-	// the box"; its files do.
+	// add): neither comes back, an exception to "as if it had run in the
+	// box"; its files do.
 	HeadMoved    bool `protobuf:"varint,9,opt,name=head_moved,json=headMoved,proto3" json:"head_moved,omitempty"`
 	IndexChanged bool `protobuf:"varint,10,opt,name=index_changed,json=indexChanged,proto3" json:"index_changed,omitempty"`
 	// Why nothing, or not all, came back: the box was not running, the

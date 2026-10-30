@@ -198,3 +198,25 @@ func TestOnlyTheLastProcessesKeepTheirChangedFiles(t *testing.T) {
 		}
 	}
 }
+
+// TestStartedTicketsArePrunedWithoutAStart: a started ticket's answer is
+// dropped once its TTL passed, by the prune each minute, whether or not
+// a start comes.
+func TestStartedTicketsArePrunedWithoutAStart(t *testing.T) {
+	t0 := time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC)
+	var q boostQueues
+	tq := q.of("t1")
+	tq.started["old"] = &startedTicket{at: t0, res: &envv1alpha1.StartProcessResponse{Process: "p"}}
+	tq.started["new"] = &startedTicket{at: t0.Add(4 * time.Minute), res: &envv1alpha1.StartProcessResponse{Process: "q"}}
+	tq.started["starting"] = &startedTicket{at: t0}
+	q.pruneAll(t0.Add(6 * time.Minute))
+	if _, ok := tq.started["old"]; ok {
+		t.Error("a started ticket past its TTL was kept")
+	}
+	if _, ok := tq.started["new"]; !ok {
+		t.Error("a started ticket within its TTL was dropped")
+	}
+	if _, ok := tq.started["starting"]; !ok {
+		t.Error("a start under way was dropped")
+	}
+}

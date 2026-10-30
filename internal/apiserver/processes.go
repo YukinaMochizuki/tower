@@ -2,6 +2,8 @@ package apiserver
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"maps"
 	"math"
 	"slices"
@@ -189,6 +191,9 @@ func (h environmentService) AttachProcess(ctx context.Context, req *connect.Requ
 		// A boost's process: what it changed and copied back, before its
 		// end is said.
 		bp, err := h.s.settleBoostProcess(ctx, e.p, controller.Key{Project: e.key.Project, Name: e.key.Name}, ref, m.GetProcess())
+		if errors.Is(err, errWriteBackLater) {
+			return connect.NewError(connect.CodeUnavailable, fmt.Errorf("%s: its process ended; %w; ask again", e, err))
+		}
 		if err != nil {
 			return apiError(err)
 		}

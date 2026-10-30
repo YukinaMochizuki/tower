@@ -204,6 +204,10 @@ func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.B
 		if err := s.settleInstance(ctx, boxKey, b, in, e.p); err != nil {
 			s.log.Warn("settling a boost's ended processes before a sync failed; what they wrote stays", "environment", e.String(), "error", err)
 			shared = true
+		} else if open, err := s.unsettled(ctx, boxKey, in); err != nil || open > 0 {
+			// One not settled yet keeps what it wrote: never undone before it
+			// is written back.
+			shared = true
 		}
 	}
 	var rec boostSyncRecord
@@ -318,6 +322,63 @@ func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.B
 			"over", len(st.Over), "full", st.Full, "shared", st.Shared, "took", st.Took)
 		return st, nil
 	}
+}
+
+// writeBackBeforeStop writes back, before the box's instance stops, what
+// its boost's ended processes changed: as a job, once for the boost's
+// instance; done says it was, or there is nothing to. Those still running
+// are lost with the boost, which the stop deletes.
+func (s *Server) writeBackBeforeStop(ctx context.Context, boxKey controller.Key) (done bool, err error) {
+	// Its boost, READY or going (the stop deletes it), while its instance
+	// runs.
+	b, ok, err := getTyped[*envv1alpha1.Boost](ctx, s, registry.Boost, resource.Key{Project: boxKey.Project, Name: boxKey.Name})
+	if err != nil || !ok {
+		return true, err
+	}
+	in, ok, err := getTyped[*envv1alpha1.Instance](ctx, s, registry.Instance, resource.Key{Project: boxKey.Project, Name: boostInstanceName(b.GetMetadata().GetName())})
+	if err != nil || !ok || !owns(registry.Boost, b, in) || in.GetStatus().GetPhase() != envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING {
+		return true, err
+	}
+	uid := in.GetMetadata().GetUid()
+	if v, ok := s.stopWrittenBack.Load(boxKey.String()); ok && v == uid {
+		return true, nil
+	}
+	if n, err := s.unsettled(ctx, boxKey, in); err != nil || n == 0 {
+		return err == nil, err
+	}
+	p, err := s.providerFor(b.GetSpec().GetTarget())
+	if err != nil {
+		// Its target's provider is not there: nothing can be written back,
+		// and the stop does not wait on it.
+		s.log.Warn("writing a box's boosted processes back before it stops: no provider", "box", boxKey.String(), "error", err)
+		return true, nil //nolint:nilerr // the stop goes on; what is not written back says so once its boost goes
+	}
+	s.startJob(b.GetSpec().GetTarget(), "boost-stop-writeback/"+boxKey.String(), s.boxCtrl, boxKey, func(ctx context.Context) error {
+		if err := s.settleInstance(ctx, boxKey, b, in, p); err != nil {
+			// Its stop does not wait on a write-back that fails: what is not
+			// written back says so once its boost goes.
+			s.log.Warn("writing a box's boosted processes back before it stops failed", "box", boxKey.String(), "error", err)
+		}
+		s.stopWrittenBack.Store(boxKey.String(), uid)
+		return nil
+	})
+	return false, nil
+}
+
+// unsettled counts the box's processes on the boost's instance in whose
+// changes are not written back yet, running or ended.
+func (s *Server) unsettled(ctx context.Context, boxKey controller.Key, in *envv1alpha1.Instance) (int, error) {
+	var rec boxProcesses
+	if _, err := s.getRecord(ctx, boxProcessesKey(boxKey), &rec); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, bp := range rec.Boost {
+		if bp.InstanceUID == in.GetMetadata().GetUid() && bp.RunID != "" && !bp.Settled && !bp.Gone {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // pruneSent removes the box's sent manifests none needs: all but its last
@@ -470,7 +531,12 @@ func (s *Server) settleBoostProcess(ctx context.Context, p provider.Provider, bo
 			run.Error = r.Error
 			run.Back = &writeBack{HeadMoved: r.HeadMoved, IndexChanged: r.IndexChanged, Error: "its changes could not be read: nothing was brought back"}
 		default:
-			run.Back = s.writeBack(ctx, p, boxKey, boostRef, bp, r)
+			back, err := s.writeBack(ctx, p, boxKey, boostRef, bp, r)
+			if err != nil {
+				// Not settled: settled again once its box is ready.
+				return bp, err
+			}
+			run.Back = back
 		}
 	}
 	// Settled before its report goes: one settled again after a crash
@@ -502,14 +568,34 @@ func (s *Server) settleBoostProcess(ctx context.Context, p provider.Provider, bo
 // (boost-writeback) against the box as the process's sync sent it, so a
 // path the box changed since stays the box's. A box not running gets
 // nothing; what fails is said in the result.
-func (s *Server) writeBack(ctx context.Context, p provider.Provider, boxKey controller.Key, boostRef provider.Instance, bp boostProcess, r guestbin.Report) *writeBack {
+func (s *Server) writeBack(ctx context.Context, p provider.Provider, boxKey controller.Key, boostRef provider.Instance, bp boostProcess, r guestbin.Report) (*writeBack, error) {
 	wb := &writeBack{HeadMoved: r.HeadMoved, IndexChanged: r.IndexChanged}
 	started := s.clock.Now()
 	defer func() { wb.Took = s.clock.Since(started) }()
 	box, ok, err := getTyped[*envv1alpha1.Box](ctx, s, registry.Box, resource.Key{Project: boxKey.Project, Name: boxKey.Name})
-	if err != nil || !ok || box.GetStatus().GetPhase() != envv1alpha1.BoxPhase_BOX_PHASE_READY {
-		wb.Error = "the box was not running when it ended: nothing was brought back"
-		return wb
+	if err != nil {
+		return nil, err
+	}
+	switch phase := box.GetStatus().GetPhase(); {
+	case !ok || box.GetMetadata().GetDeleteTime() != nil:
+		wb.Error = "the box is gone: nothing was brought back"
+		return wb, nil
+	case phase == envv1alpha1.BoxPhase_BOX_PHASE_READY:
+		// Running, or about to stop once its boost's ended processes are
+		// written back (writeBackBeforeStop).
+	case phase == envv1alpha1.BoxPhase_BOX_PHASE_STOPPED || box.GetStatus().GetStoppedReason() != "" ||
+		box.GetSpec().GetRunState() == envv1alpha1.RunState_RUN_STATE_STOPPED:
+		// Stopped, its boost's ended processes written back before: this one
+		// ended after, or still ran.
+		wb.Error = "the box was stopped when it ended: nothing was brought back"
+		return wb, nil
+	case phase == envv1alpha1.BoxPhase_BOX_PHASE_FAILED:
+		wb.Error = "the box failed: nothing was brought back"
+		return wb, nil
+	default:
+		// Starting, or made again: written back once it is ready.
+		return nil, fmt.Errorf("box %s is %s: its boosted process's changes are written back once it is ready: %w",
+			boxKey, strings.TrimPrefix(phase.String(), "BOX_PHASE_"), errWriteBackLater)
 	}
 	boxRef := provider.Instance{Project: boxKey.Project, Name: box.GetStatus().GetInstance()}
 	name := "sync-back-" + bp.RunID
@@ -526,18 +612,18 @@ func (s *Server) writeBack(ctx context.Context, p provider.Provider, boxKey cont
 	if err != nil || code != 0 {
 		clean(boostRef)
 		wb.Error = fmt.Sprintf("its changes could not be packed on the boost: %s", cmp.Or(msg, fmt.Sprint(err), fmt.Sprintf("exit %d", code)))
-		return wb
+		return wb, nil
 	}
 	var back guestbin.Back
 	if err := json.Unmarshal(out, &back); err != nil {
 		clean(boostRef)
 		wb.Error = "boost-back's answer: " + err.Error()
-		return wb
+		return wb, nil
 	}
 	wb.Moved, wb.Total, wb.Over = back.Moved, back.Total, back.Over
 	if back.Total == 0 {
 		clean(boostRef)
-		return wb
+		return wb, nil
 	}
 	err = p.Copy(ctx, boostRef, stage, boxRef, stage)
 	clean(boostRef)
@@ -545,7 +631,7 @@ func (s *Server) writeBack(ctx context.Context, p provider.Provider, boxKey cont
 		clean(boxRef)
 		wb.Error = "its changes could not be copied to the box: " + err.Error()
 		wb.Moved, wb.Total = nil, 0
-		return wb
+		return wb, nil
 	}
 	var sync boostSyncRecord
 	_, _ = s.getRecord(ctx, boostSyncKey(boxKey), &sync)
@@ -558,22 +644,31 @@ func (s *Server) writeBack(ctx context.Context, p provider.Provider, boxKey cont
 		clean(boxRef)
 		wb.Error = fmt.Sprintf("its changes could not be written back: %s", cmp.Or(msg, fmt.Sprint(err), fmt.Sprintf("exit %d", code)))
 		wb.Moved, wb.Total = nil, 0
-		return wb
+		return wb, nil
 	}
 	var w guestbin.WroteBack
 	if err := json.Unmarshal(out, &w); err != nil {
 		wb.Error = "boost-writeback's answer: " + err.Error()
-		return wb
+		return wb, nil
 	}
 	wb.Files, wb.Deleted, wb.Bytes, wb.Conflicts = w.Files, w.Deleted, w.Bytes, w.Conflicts
-	// What moved is what was written: a conflict stayed the box's.
-	if len(w.Conflicts) > 0 {
-		wb.Moved = slices.DeleteFunc(wb.Moved, func(m guestbin.Moved) bool { return slices.Contains(w.Conflicts, m.Path) })
-		wb.Total = max(wb.Total-len(w.Conflicts), len(wb.Moved))
+	// What moved is what was written: a conflict stayed the box's, and a
+	// path the box already had as the process left it, another process's
+	// write-back among them, moved nothing.
+	if skip := len(w.Conflicts) + len(w.Unchanged); skip > 0 {
+		wb.Moved = slices.DeleteFunc(wb.Moved, func(m guestbin.Moved) bool {
+			return slices.Contains(w.Conflicts, m.Path) || slices.Contains(w.Unchanged, m.Path)
+		})
+		wb.Total = max(wb.Total-skip, len(wb.Moved))
 	}
-	s.pruneSent(ctx, p, boxRef, boxKey, sync.LastSent)
-	return wb
+	// The sent manifests none needs are pruned by the next sync, under the
+	// box's sync lock.
+	return wb, nil
 }
+
+// errWriteBackLater is a write-back for a box not ready yet: the process
+// stays unsettled, and is settled again.
+var errWriteBackLater = fmt.Errorf("written back once the box is ready: %w", controller.ErrWaiting)
 
 // syncRun is one boosted start's sync, run as a job: done once it ends.
 type syncRun struct {

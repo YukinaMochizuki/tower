@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -162,6 +163,9 @@ type Server struct {
 	boostBackoffs boostBackoffs
 	// boostSettling settles each ended boost process once (boostsync.go).
 	boostSettling settling
+	// stopWrittenBack is, by box, the boost instance whose ended
+	// processes were written back before the box stopped.
+	stopWrittenBack sync.Map
 	// syncWait and backMax are boostSyncWait and boostBackMax
 	// unless a test sets them.
 	syncWait atomic.Int64
@@ -363,6 +367,7 @@ func (s *Server) Run(ctx context.Context) error {
 	defer s.jobs.wg.Wait()
 	defer s.hangar.wg.Wait()
 	g.Go(func() error { return s.runCompaction(gctx) })
+	g.Go(func() error { return s.runTicketPrune(gctx) })
 	if s.sessions != nil {
 		g.Go(func() error { return s.sessions.Run(gctx) })
 		g.Go(func() error { return s.recordTokenUses(gctx) })

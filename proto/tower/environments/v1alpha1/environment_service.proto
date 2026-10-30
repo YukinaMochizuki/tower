@@ -219,9 +219,10 @@ message StartProcessRequest {
   string pending = 8;
   // With pending, gives the ticket up instead: nothing starts, and its
   // place goes to the next. A ticket that started its process, asked
-  // about again until it would have been dropped, is answered that
-  // process, never a second start, so a caller that lost the answer
-  // asks again safely.
+  // about again within five minutes of its start, after an apiserver's
+  // restart too, is answered that process, never a second start, so a
+  // caller that lost the answer asks again safely; cancelled, that
+  // process is sent TERM, and is answered.
   bool cancel = 9;
   // Was artifacts, paths copied back once a boosted process ended: what a
   // boosted process writes in /workspace now comes back whole.
@@ -300,17 +301,22 @@ message WriteBack {
   int32 files = 2;
   int32 deleted = 3;
   int64 bytes = 4;
-  // The paths moved, the first 200, with how many there were.
+  // The paths this write-back wrote, the first 200, with how many there
+  // were: not those the box already had as the process left them, as
+  // another process's write-back made them.
   repeated MovedFile moved = 5;
   int32 total = 6;
   // Paths the box changed after the process's sync began, or whose
   // directory it did: the box's stay, the process's are not written.
   repeated string conflicts = 7;
-  // Files not brought back, past what one process brings back (2GiB).
+  // Files not brought back, past what one process brings back (2GiB):
+  // they are only on the boost, and the next sync not beside a running
+  // process removes them there, an exception to "as if it had run in the
+  // box".
   repeated OverCap over_cap = 8;
   // The process moved git's HEAD (a commit), or changed its index (git
-  // add): neither comes back, the one exception to "as if it had run in
-  // the box"; its files do.
+  // add): neither comes back, an exception to "as if it had run in the
+  // box"; its files do.
   bool head_moved = 9;
   bool index_changed = 10;
   // Why nothing, or not all, came back: the box was not running, the

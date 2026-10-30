@@ -78,3 +78,18 @@ func (s *Server) RecordExits(ctx context.Context, project, box string, ps []prov
 	s.exitsListed(ctx, e, listed, true)
 	return nil
 }
+
+// SettleBoostProcess settles the box's boost process id, on its boost's
+// instance, as reading its exit does; ErrWriteBackLater if its box is not
+// ready for its changes yet.
+func (s *Server) SettleBoostProcess(ctx context.Context, target, project, box, instance, id string) error {
+	p, err := s.providerFor(target)
+	if err != nil {
+		return err
+	}
+	_, err = s.settleBoostProcess(ctx, p, controller.Key{Project: project, Name: box}, provider.Instance{Project: project, Name: instance}, id)
+	return err
+}
+
+// ErrWriteBackLater is errWriteBackLater, for tests.
+var ErrWriteBackLater = errWriteBackLater

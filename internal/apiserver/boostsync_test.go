@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -18,6 +20,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
+	"github.com/YukinaMochizuki/tower/internal/apiserver"
 	"github.com/YukinaMochizuki/tower/internal/guest/guestbin"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/store"
@@ -819,4 +822,113 @@ func TestAJobsWriteBackOutlivesALaterSync(t *testing.T) {
 	if got, early := w.read(w.box, "first.out"), w.read(w.box, "early.out"); got != "first\n" || early != "early\n" {
 		t.Errorf("first.out in the box: %q, early.out %q", got, early)
 	}
+}
+
+// TestAWriteBackWaitsForItsBox: a boosted process that ended while its box
+// is being made again is not settled without its changes: it stays
+// unsettled, its boost is kept, and once the box is ready what it wrote
+// comes back.
+func TestAWriteBackWaitsForItsBox(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	w.fake.GuestProcessesInBackground()
+	res := w.startBoosted(boostOn("dev", "sh", "-c", `while [ ! -e go ]; do sleep 0.05; done; echo x > x.out`))
+	w.fake.FailCheckouts(fmt.Errorf("the mirror does not answer: %w", provider.ErrUnavailable))
+	w.fake.Vanish(w.box)
+	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_STARTING)
+	w.write(w.boost, "go", "")
+	settled := func() (bool, bool) {
+		o, err := w.store.Get(t.Context(), store.Key{Kind: "BoxProcesses", Project: "web", Name: "dev"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rec struct {
+			Boost []struct {
+				ID      string          `json:"id"`
+				Exit    json.RawMessage `json:"exit"`
+				Settled bool            `json:"settled"`
+			} `json:"boost"`
+		}
+		if err := json.Unmarshal(o.Data, &rec); err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range rec.Boost {
+			if p.ID == res.GetProcess() {
+				return len(p.Exit) > 0 && string(p.Exit) != "null", p.Settled
+			}
+		}
+		return false, false
+	}
+	testutil.Eventually(t, "its process ended, its exit kept", func() bool { ended, _ := settled(); return ended })
+	if err := w.srv.SettleBoostProcess(t.Context(), "t1", "web", "dev", "boost-dev", res.GetProcess()); !errors.Is(err, apiserver.ErrWriteBackLater) {
+		t.Fatalf("settled while its box starts: %v, want written back later", err)
+	}
+	if _, done := settled(); done {
+		t.Fatal("a process settled while its box was not ready")
+	}
+	// Long past boost_idle: its boost is kept, holding what it wrote.
+	w.clock.Advance(11 * time.Minute)
+	w.fake.FailCheckouts(nil)
+	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_READY)
+	_, end, err := attachProcess(t.Context(), w.as(workstream).envs, &envv1alpha1.AttachProcessRequest{Environment: boxEnv("dev"), Process: res.GetProcess(), Follow: true})
+	if err != nil || moved(end.GetExit())["x.out"] != "A" || w.read(w.box, "x.out") != "x\n" {
+		t.Errorf("once its box is ready: %v, %v; x.out in the box %q", end.GetExit().GetBoost(), err, w.read(w.box, "x.out"))
+	}
+}
+
+// TestAStopWritesBackFirst: a box stopped at workstream's request gets
+// what its boost's ended processes wrote before its instance stops.
+func TestAStopWritesBackFirst(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	w.srv.SetNoSettleJob()
+	res := w.startBoosted(boostOn("dev", "sh", "-c", "echo y > y.out"))
+	w.setRunState("dev", envv1alpha1.RunState_RUN_STATE_STOPPED)
+	testutil.Eventually(t, "the stopped box's boost gone", func() bool { _, ok := w.world.boost("dev"); return !ok })
+	if got := w.read(w.box, "y.out"); got != "y\n" {
+		t.Errorf("y.out in the stopped box: %q", got)
+	}
+	w.setRunState("dev", envv1alpha1.RunState_RUN_STATE_RUNNING)
+	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_READY)
+	if p := w.listed("dev")[res.GetProcess()]; moved(p.GetExit())["y.out"] != "A" {
+		t.Errorf("its exit: %v", p.GetExit().GetBoost())
+	}
+}
+
+// TestAStartedTicketSurvivesARestart: a ticket that started its process,
+// asked again after the apiserver restarted, is answered that process;
+// given up, its process is sent TERM.
+func TestAStartedTicketSurvivesARestart(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	w.readyBox("dev")
+	req := boostOn("dev", "sleep")
+	req.Pending = w.start(req).GetPending().GetTicket()
+	w.waitBoost("dev", envv1alpha1.BoostPhase_BOOST_PHASE_READY)
+	started := w.start(req)
+	if started.GetProcess() == "" {
+		t.Fatalf("the start: %v", started)
+	}
+	w.restart()
+	again := w.start(req)
+	if again.GetProcess() != started.GetProcess() || !proto.Equal(again.GetRanOn(), started.GetRanOn()) {
+		t.Errorf("asked again after a restart: %v, want its start %v", again, started)
+	}
+	n := 0
+	for _, p := range w.listed("dev") {
+		if p.GetRanOn().GetKind() == envv1alpha1.RanOnKind_RAN_ON_KIND_BOOST {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d boost processes for one ticket, want 1", n)
+	}
+	cancel := proto.Clone(req).(*envv1alpha1.StartProcessRequest)
+	cancel.Cancel = true
+	if res := w.start(cancel); res.GetProcess() != started.GetProcess() {
+		t.Errorf("a started ticket given up: %v, want its process", res)
+	}
+	testutil.Eventually(t, "the given-up process ended", func() bool {
+		return !w.listed("dev")[started.GetProcess()].GetRunning()
+	})
 }

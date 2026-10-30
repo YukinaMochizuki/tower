@@ -159,7 +159,9 @@ boosts follow them meanwhile), waits for boosts to go idle, and edits
 box A. A run killed before it ends leaves what its cleanups would have
 put back: the target's boost settings as the run set them (put them
 back by hand from a copy taken before), `TOWER_SYNC_FILE` edited and
-`boostcheck.tmp` in box A, and the boxes' boosts until they go idle.
+`boostcheck.tmp` in box A, the line `/boostcheck-out/` in box A's
+`.git/info/exclude` and its `boostcheck-out/`, and the boxes' boosts
+until they go idle.
 
 Each check logs what it saw, the boost's output among it. The sync's
 checks edit `TOWER_SYNC_FILE` in box A (README.md unless given) and put
