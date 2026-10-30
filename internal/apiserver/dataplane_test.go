@@ -304,6 +304,64 @@ func TestExecWakesAnIdleBox(t *testing.T) {
 	}
 }
 
+// TestAWakeWithNoRoomSaysSo: a call into a box tower stopped for idleness
+// whose node has no room to start it answers Unavailable once the box has
+// waited wakeRoomWait, with the target's words and that it starts by
+// itself, not at the call's deadline; the box stays asked to run, its
+// Ready saying it waits for room, and starts once there is room. Room
+// freed within the wait answers the call as any wake does.
+func TestAWakeWithNoRoomSaysSo(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, idleAfter(time.Hour))
+	w.srv.SetWakeRoomWait(300 * time.Millisecond)
+	w.readyBox("dev")
+	w.advance(61 * time.Minute)
+	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_STOPPED)
+	const full = "node n1 has 512Mi of memory free for this machine, not 4Gi; it starts once there is room"
+	w.fake.FillTarget(full)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.Wait)
+	defer cancel()
+	began := time.Now()
+	_, err := exec(ctx, w.as(workstream).envs, &envv1alpha1.ExecRequest{Environment: boxEnv("dev"), Command: argv("true")})
+	wantCode(t, err, connect.CodeUnavailable, "an exec in a box waiting for room")
+	if msg := messageOfErr(err); !strings.Contains(msg, "waiting for room on its node: "+full) || !strings.Contains(msg, "starts by itself") {
+		t.Errorf("the answer does not say why: %v", err)
+	}
+	if took := time.Since(began); took > testutil.Wait/2 {
+		t.Errorf("the answer took %v", took)
+	}
+	b := w.box("dev")
+	if c := condition(b.GetStatus().GetConditions(), "Ready"); b.GetStatus().GetPhase() != envv1alpha1.BoxPhase_BOX_PHASE_STARTING ||
+		b.GetStatus().GetStoppedReason() != "" || c.GetReason() != provider.ReasonWaitingForRoom || c.GetMessage() != "waiting for room on its node: "+full {
+		t.Errorf("the box waiting for room is %v", b.GetStatus())
+	}
+	w.fake.FillTarget("")
+	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_READY)
+
+	// Room freed while the call waits: the call goes on in the box.
+	w.srv.SetWakeRoomWait(testutil.Wait)
+	w.advance(61 * time.Minute)
+	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_STOPPED)
+	w.fake.FillTarget(full)
+	type result struct {
+		lines []string
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		r, err := exec(ctx, w.as(workstream).envs, &envv1alpha1.ExecRequest{Environment: boxEnv("dev"), Command: argv("echo", "awake")})
+		done <- result{r.lines, err}
+	}()
+	testutil.Eventually(t, "the box waiting for room", func() (bool, string) {
+		c := condition(w.box("dev").GetStatus().GetConditions(), "Ready")
+		return c.GetReason() == provider.ReasonWaitingForRoom, c.String()
+	})
+	w.fake.FillTarget("")
+	if r := <-done; r.err != nil || !slices.Equal(r.lines, []string{"out:awake"}) {
+		t.Fatalf("an exec whose box got room as it waited: %v, %v", r.lines, r.err)
+	}
+}
+
 // TestARequestedStopIsRefused: a box or machine workstream stopped is not
 // started by a call; the call says why.
 func TestARequestedStopIsRefused(t *testing.T) {

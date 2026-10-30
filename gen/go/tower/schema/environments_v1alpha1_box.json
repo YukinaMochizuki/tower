@@ -107,7 +107,7 @@
           ]
         },
         "phase": {
-          "description": "BoxPhase is where a box is in its life.\n\n- BOX_PHASE_PENDING: Waiting for its turn.\n- BOX_PHASE_UNPLACED: Its project has no Placement.\n- BOX_PHASE_BUILDING: Its image or golden is being built.\n- BOX_PHASE_STARTING: Its instance is being made or started.\n- BOX_PHASE_STOPPED: Stopped, its disk kept; stopped_reason says why.\n- BOX_PHASE_FAILED: It cannot be made; the Ready condition says why.",
+          "description": "BoxPhase is where a box is in its life.\n\n- BOX_PHASE_PENDING: Waiting for its turn.\n- BOX_PHASE_UNPLACED: Its project has no Placement.\n- BOX_PHASE_BUILDING: Its image or golden is being built.\n- BOX_PHASE_STARTING: Its instance is being made or started. Ready's reason WaitingForRoom says its node has no room to start it, in the target's words: it starts by itself once there is room.\n- BOX_PHASE_STOPPED: Stopped, its disk kept; stopped_reason says why.\n- BOX_PHASE_FAILED: It cannot be made; the Ready condition says why.",
           "enum": [
             "BOX_PHASE_PENDING",
             "BOX_PHASE_UNPLACED",

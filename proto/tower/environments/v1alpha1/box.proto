@@ -119,7 +119,9 @@ enum BoxPhase {
   BOX_PHASE_UNPLACED = 2;
   // Its image or golden is being built.
   BOX_PHASE_BUILDING = 3;
-  // Its instance is being made or started.
+  // Its instance is being made or started. Ready's reason WaitingForRoom
+  // says its node has no room to start it, in the target's words: it
+  // starts by itself once there is room.
   BOX_PHASE_STARTING = 4;
   BOX_PHASE_READY = 5;
   // Stopped, its disk kept; stopped_reason says why.

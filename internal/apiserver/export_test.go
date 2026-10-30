@@ -34,6 +34,10 @@ func (s *Server) SetBoostSync(wait time.Duration, backMax int64) {
 	s.backMax = backMax
 }
 
+// SetWakeRoomWait sets how long Wake waits for a box waiting for room on
+// its node, for tests.
+func (s *Server) SetWakeRoomWait(wait time.Duration) { s.wakeRoomWait.Store(int64(wait)) }
+
 // SetNoSettleJob keeps the boost controller from settling ended
 // processes itself, for tests.
 func (s *Server) SetNoSettleJob() { s.noSettleJob.Store(true) }

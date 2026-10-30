@@ -53,6 +53,14 @@ const SecretsDir = "/run/tower/secrets"
 // driver put it.
 const GuestBinary = "/.tower/tower-guest"
 
+// ReasonWaitingForRoom is the reason of an Instance's Ready condition,
+// phase PENDING, while it is asked to run and waits for room on its
+// target: its message, the target's own words, says how much there is,
+// and the instance starts by itself once there is room. The hangar
+// provider reports it for hangar's StartDoesNotFit and for a machine no
+// node has the memory or disk for (docs/decisions/boost.md).
+const ReasonWaitingForRoom = "WaitingForRoom"
+
 // Instance names an Instance object of the target, by its project and
 // name.
 type Instance struct {

@@ -54,10 +54,13 @@ func vmMachineOf(vm string) string { return "vm-" + vm }
 type machineObj struct {
 	vm        bool
 	name, uid string
-	// stopped says it is asked to be stopped; ready is its Ready condition.
-	stopped bool
-	ready   *hangarmeta.Condition
-	deleted bool
+	// stopped says it is asked to be stopped; ready is its Ready condition,
+	// and generation the object's, which a Ready of an older one does not
+	// speak for.
+	stopped    bool
+	ready      *hangarmeta.Condition
+	generation int64
+	deleted    bool
 	// ipv4 is a VM's first interface's address as its status gives it,
 	// with its prefix length; a container's is its machine's.
 	ipv4 string
@@ -79,16 +82,18 @@ func (o machineObj) address(m *hangarcompute.Machine) string {
 func containerObj(ct *hangarcompute.Container) machineObj {
 	return machineObj{
 		name: ct.GetMetadata().GetName(), uid: ct.GetMetadata().GetUid(), deleted: ct.GetMetadata().GetDeleteTime() != nil,
-		stopped: ct.GetSpec().GetRunState() == hangarcompute.ContainerRunState_CONTAINER_RUN_STATE_STOPPED,
-		ready:   conditionOf(ct.GetStatus().GetConditions(), "Ready"),
+		stopped:    ct.GetSpec().GetRunState() == hangarcompute.ContainerRunState_CONTAINER_RUN_STATE_STOPPED,
+		ready:      conditionOf(ct.GetStatus().GetConditions(), "Ready"),
+		generation: ct.GetMetadata().GetGeneration(),
 	}
 }
 
 func vmObj(vm *hangarcompute.VirtualMachine) machineObj {
 	o := machineObj{
 		vm: true, name: vm.GetMetadata().GetName(), uid: vm.GetMetadata().GetUid(), deleted: vm.GetMetadata().GetDeleteTime() != nil,
-		stopped: vm.GetSpec().GetRunState() == hangarcompute.VirtualMachineRunState_VIRTUAL_MACHINE_RUN_STATE_STOPPED,
-		ready:   conditionOf(vm.GetStatus().GetConditions(), "Ready"),
+		stopped:    vm.GetSpec().GetRunState() == hangarcompute.VirtualMachineRunState_VIRTUAL_MACHINE_RUN_STATE_STOPPED,
+		ready:      conditionOf(vm.GetStatus().GetConditions(), "Ready"),
+		generation: vm.GetMetadata().GetGeneration(),
 	}
 	if ifs := vm.GetStatus().GetInterfaces(); len(ifs) > 0 {
 		o.ipv4 = ifs[0].GetIpv4()

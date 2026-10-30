@@ -340,6 +340,10 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		return nil
 	case envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING:
 	default:
+		if msg, ok := waitingForRoom(in); ok {
+			bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, provider.ReasonWaitingForRoom, "waiting for room on its node: "+msg)
+			return nil
+		}
 		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", "its instance is starting")
 		return nil
 	}
@@ -377,6 +381,18 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 	st.Phase = envv1alpha1.BoxPhase_BOX_PHASE_READY
 	bs.cond(BoxReady, true, "Ready", "")
 	return nil
+}
+
+// waitingForRoom gives the target's words, and true, while the instance is
+// asked to run and waits for room on its target, as its provider reported
+// of its spec as it is (provider.ReasonWaitingForRoom).
+func waitingForRoom(in *envv1alpha1.Instance) (string, bool) {
+	r := conditions.Find(in.GetStatus().GetConditions(), "Ready")
+	if in.GetSpec().GetRunState() == envv1alpha1.RunState_RUN_STATE_STOPPED || r.GetReason() != provider.ReasonWaitingForRoom ||
+		r.GetObservedGeneration() != in.GetMetadata().GetGeneration() {
+		return "", false
+	}
+	return r.GetMessage(), true
 }
 
 // boxImageGolden resolves the box's image and makes its Golden, shared by

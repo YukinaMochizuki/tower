@@ -558,7 +558,8 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 
 	if ok {
 		have := boostSizeOf(b.GetSpec().GetResources())
-		readyMsg := conditions.Find(b.GetStatus().GetConditions(), BoostReady).GetMessage()
+		ready := conditions.Find(b.GetStatus().GetConditions(), BoostReady)
+		readyMsg := ready.GetMessage()
 		switch {
 		case b.GetMetadata().GetDeleteTime() != nil:
 			ticket(false)
@@ -571,6 +572,13 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 			return pending(envv1alpha1.PendingReason_PENDING_REASON_BOOST_STARTING, "its failed boost is replaced: "+readyMsg, 0, boostStartEstimate), nil
 		case have.covers(size) && b.GetStatus().GetPhase() == envv1alpha1.BoostPhase_BOOST_PHASE_READY:
 			return h.syncAndStart(ctx, c, e, m, command, b, tq, boxKey, ticket(true), &locked, pending)
+		case have.covers(size) && ready.GetReason() == provider.ReasonWaitingForRoom:
+			// Its room in boost_budget stays held: it is admitted, and
+			// starts by itself once the node has room (docs/decisions/boost.md).
+			ticket(true)
+			return pending(envv1alpha1.PendingReason_PENDING_REASON_NODE_FULL, fmt.Sprintf(
+				"its boost is %s; it starts by itself once there is room, or fails if not READY within the target's boost_start_timeout (%s)",
+				readyMsg, settingsOf(e.target).boostStartTimeout), 0, 0), nil
 		case have.covers(size):
 			ticket(true)
 			wait := max(boostStartEstimate-s.clock.Since(b.GetMetadata().GetCreateTime().AsTime()), 5*time.Second)

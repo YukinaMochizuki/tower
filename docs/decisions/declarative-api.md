@@ -23,7 +23,10 @@ operation records to finish.
   object is what workstream wants; its status says whether it is
   materialized, and where. A box tower stopped for idleness keeps its object,
   with a status that says so, and runs again on its next use: the identity
-  workstream holds stays valid throughout. A box whose disk is released will
+  workstream holds stays valid throughout. One whose node has no room to
+  start it stays asked to run and starts by itself once there is room; the
+  call that woke it is told so after a short wait, not held to its deadline
+  (`boost.md`, "A full node"). A box whose disk is released will
   keep it the same way, once tower does that.
 - **Policy is controllers.** Rebuilding a golden, stopping idle boxes and
   pre-warming are reconcilers over specs and statuses, as everything else

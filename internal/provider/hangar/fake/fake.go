@@ -102,6 +102,9 @@ type Fake struct {
 	// ReleaseDeletes; failPull are the images no pull of succeeds.
 	holdDeletes bool
 	failPull    map[string]bool
+	// nodeFree, while set, is the memory free on the fake's one node, too
+	// little for any container to start (FillNode).
+	nodeFree string
 	// installs counts tower-guest written in, in every container.
 	installs int
 	// execsAs are the operations tower-guest shim ran, with the user each
@@ -277,6 +280,40 @@ func (f *Fake) FailPull(image string) {
 	f.failPull[image] = true
 }
 
+// FillNode leaves free, too little for any container, of the memory of
+// the fake's one node, n1, as hangar#237 does: a stopped container asked
+// to run stays stopped, its Ready False with reason StartDoesNotFit, and a
+// new one is not placed, Unschedulable; each saying how much is free, at
+// the container's generation. FreeRoom starts them.
+func (f *Fake) FillNode(free string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nodeFree = free
+}
+
+// FreeRoom gives the node room again, and starts every container that
+// waited for it, as hangar does once a machine on the node stops, shrinks
+// or goes.
+func (f *Fake) FreeRoom() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nodeFree = ""
+	for _, ct := range f.containers.objs {
+		m := f.machines["ct-"+ct.GetMetadata().GetName()]
+		if m == nil || ct.GetSpec().GetRunState() == hangarcompute.ContainerRunState_CONTAINER_RUN_STATE_STOPPED || m.GetStatus().GetPhase() == hangarcompute.MachinePhase_MACHINE_PHASE_RUNNING {
+			continue
+		}
+		if r := ct.GetStatus().GetConditions(); len(r) == 0 || (r[0].GetReason() != computeStartDoesNotFit && r[0].GetReason() != "Unschedulable") {
+			continue
+		}
+		ct.Status = nil
+		m.Status.Phase, m.Status.BootTime = hangarcompute.MachinePhase_MACHINE_PHASE_RUNNING, timestamppb.New(f.clock.Now())
+	}
+}
+
+// computeStartDoesNotFit is hangar's computeapi.ReasonStartDoesNotFit.
+const computeStartDoesNotFit = "StartDoesNotFit"
+
 // SetLimits sets the project's quota; nil is none.
 func (f *Fake) SetLimits(l *hangartenancy.Limits) {
 	f.mu.Lock()
@@ -390,6 +427,7 @@ func (f *Fake) containerApplied(ct *hangarcompute.Container, isNew bool) error {
 	}
 	name := "ct-" + ct.GetMetadata().GetName()
 	m, ok := f.machines[name]
+	placed := ok && m.GetStatus().GetPhase() != hangarcompute.MachinePhase_MACHINE_PHASE_PENDING
 	if !ok {
 		if err := os.MkdirAll(f.root(ct.GetMetadata().GetUid()), 0o755); err != nil {
 			return err
@@ -416,6 +454,21 @@ func (f *Fake) containerApplied(ct *hangarcompute.Container, isNew bool) error {
 		ct.Status = &hangarcompute.ContainerStatus{Conditions: []*hangarmeta.Condition{{
 			Type: "Ready", Status: hangarmeta.ConditionStatus_CONDITION_STATUS_FALSE, Reason: "ImagePullFailed",
 			Message: "pulling " + ct.GetSpec().GetImage() + ": the registry refused it",
+		}}}
+		return nil
+	}
+	if running && m.GetStatus().GetPhase() != hangarcompute.MachinePhase_MACHINE_PHASE_RUNNING && f.nodeFree != "" {
+		// No room on the node: a placed machine stays stopped, a new one
+		// is not placed.
+		mem := cmp.Or(ct.GetSpec().GetResources().GetMemory(), "1Gi")
+		reason, msg := computeStartDoesNotFit, fmt.Sprintf("node n1 has %s of memory free for this machine, not %s; it starts once there is room", f.nodeFree, mem)
+		if !placed {
+			m.Status.Phase = hangarcompute.MachinePhase_MACHINE_PHASE_PENDING
+			reason, msg = "Unschedulable", fmt.Sprintf("no ready node has %s of memory free", mem)
+		}
+		ct.Status = &hangarcompute.ContainerStatus{ObservedGeneration: ct.GetMetadata().GetGeneration(), Conditions: []*hangarmeta.Condition{{
+			Type: "Ready", Status: hangarmeta.ConditionStatus_CONDITION_STATUS_FALSE, Reason: reason, Message: msg,
+			ObservedGeneration: ct.GetMetadata().GetGeneration(),
 		}}}
 		return nil
 	}

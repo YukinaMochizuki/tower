@@ -98,9 +98,12 @@ type Fake struct {
 	artifactN int
 	// The faults.
 	bootFailures map[string]string
-	vanished     map[string]bool
-	unavailable  bool
-	buildErr     error
+	// noRoom, while set, is what the target says of an instance asked to
+	// run that does not run yet: it waits for room (FillTarget).
+	noRoom      string
+	vanished    map[string]bool
+	unavailable bool
+	buildErr    error
 	// mirrorBuildErr fails builds from a mirror's work tree alone.
 	mirrorBuildErr error
 	// resolveErr fails every ResolveImage, as a registry that errors does.
@@ -367,6 +370,9 @@ func (f *Fake) realize(in *envv1alpha1.Instance, base *artifact) (envv1alpha1.In
 		f.pruneProcesses(local)
 		return envv1alpha1.InstancePhase_INSTANCE_PHASE_STOPPED, "Stopped", ""
 	}
+	if !local.running && f.noRoom != "" {
+		return envv1alpha1.InstancePhase_INSTANCE_PHASE_PENDING, provider.ReasonWaitingForRoom, f.noRoom
+	}
 	if !local.running {
 		local.running, local.started = true, f.clock.Now()
 	}
@@ -467,6 +473,20 @@ func (f *Fake) FailBoot(name, why string) {
 		if ref.Name == name {
 			f.enqueue(ref)
 		}
+	}
+}
+
+// FillTarget leaves the target no room to start an instance, as a hangar
+// node with too little memory free: one asked to run that does not run
+// yet waits, PENDING, its Ready WaitingForRoom with msg; "" gives room
+// again, and they start.
+func (f *Fake) FillTarget(msg string) {
+	f.mu.Lock()
+	f.noRoom = msg
+	refs := slices.Collect(maps.Keys(f.seen))
+	f.mu.Unlock()
+	for _, ref := range refs {
+		f.enqueue(ref)
 	}
 }
 

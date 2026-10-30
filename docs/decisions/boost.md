@@ -1,6 +1,7 @@
 # Heavy jobs run on a boost, not in a larger box
 
-Status: accepted in part, 2026-10-29; one box, 2026-10-30. The boost
+Status: accepted in part, 2026-10-29; one box, and a full node,
+2026-10-30. The boost
 itself (its kind, its life, the pending answer, the settings and the
 queue) and its sync (the box's files sent before each job, what a job
 changed written back once it ends), under "Built" below, are accepted
@@ -108,9 +109,10 @@ What is accepted and built, in the API's terms:
   process's id and `ran_on`, when the box's boost is READY and large
   enough; else `pending`, with a ticket, a reason (`QUEUED_BUDGET`,
   `BOOST_STARTING`, `BOOST_BUSY`, or `BOOST_GOING` while the box's boost
-  is being deleted, with no estimate), a message, its place in the queue
-  and about how long. The caller asks again with the ticket, or gives it up
-  (`cancel`); asking again keeps the ticket's place. A ticket not asked
+  is being deleted, with no estimate; `NODE_FULL`, below), a message,
+  its place in the queue and about how long. The caller asks again with
+  the ticket, or gives it up (`cancel`); asking again keeps the ticket's
+  place. A ticket not asked
   about for five minutes is dropped; while one waits for its boost to
   start, the boost is not reclaimed. A boost that cannot fit the Plan
   even with no boost held is refused at once (`FAILED_PRECONDITION`):
@@ -165,6 +167,40 @@ What is accepted and built, in the API's terms:
   on it. A boost's job that fails or must try again later (a step
   waiting on the target, a retire that found it busy) is held back by a
   backoff from 100ms doubling to a minute, counted across its restarts.
+- **A full node.** A stopped hangar machine gives its node's memory
+  back (hangar#237), so starting it again asks the node for room: with
+  too little free, hangar leaves it stopped, its Ready reason
+  `StartDoesNotFit` saying how much is free, and starts it by itself once
+  a machine there stops, shrinks or goes; a new machine no ready node
+  has the memory or disk for is `Unschedulable`, naming the shortfall,
+  and is placed once one does (hangar: `docs/decisions/machine-model.md`).
+  The hangar provider reports both, from the object's current generation,
+  as the Instance's Ready reason `WaitingForRoom` with hangar's words,
+  phase PENDING; an `Unschedulable` for want of a ready or uncordoned
+  node is not room, and is passed on as it was (decided 2026-10-30):
+  - **A box woken on a full node** is STARTING, its Ready reason
+    `WaitingForRoom`, "waiting for room on its node: " and hangar's
+    words. The data-plane call that woke it waits 5 seconds
+    (`wakeRoomWait`) and then answers `UNAVAILABLE` with those words and
+    that the box starts by itself once there is room, rather than at
+    its deadline: a node rarely gets room within a call's wait, and an
+    agent told why decides what to do meanwhile, where one left hanging
+    learns nothing. The 5 seconds let room freed just then (a machine
+    stopping as the box wakes) start the box within the call. The box
+    stays asked to run (`stopped_reason` empty), so hangar starts it once
+    there is room, and the next call finds it READY; it is not idle while
+    STARTING, so nothing stops it again meanwhile.
+  - **A boost on a full node** is STARTING, its Ready reason
+    `WaitingForRoom`; a start asking for it answers
+    `PENDING_REASON_NODE_FULL` with hangar's words and no estimate, not
+    `BOOST_STARTING`'s fixed one. A boost is always a new machine, so
+    hangar says `Unschedulable` of it, not `StartDoesNotFit`.
+    `boost_start_timeout` still bounds it, counted as for any boost not
+    READY, and fails it saying what it waited for. It keeps its room in
+    `boost_budget` meanwhile: it is admitted, and hangar starts it the
+    moment the node has room; releasing it would admit the next start,
+    whose boost would wait on the same node, and both would hold more
+    than the budget once room came.
 - **Before each boosted process, the boost is made the box's.**
   tower-guest's subcommands, run through Exec as argv, never a shell
   line; every path they give git is a path, never a pattern

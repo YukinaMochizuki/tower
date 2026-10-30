@@ -173,7 +173,9 @@ type Server struct {
 	// unless a test sets them.
 	syncWait atomic.Int64
 	backMax  int64
-	jobs     jobs
+	// wakeRoomWait is wakeRoomWait unless a test sets it.
+	wakeRoomWait atomic.Int64
+	jobs         jobs
 	// jobErrs are the jobs' last failures by target, for last_error.
 	jobErrs jobErrors
 	// teardowns are the last teardown passes of Targets being deleted.
