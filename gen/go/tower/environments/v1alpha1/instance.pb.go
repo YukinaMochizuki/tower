@@ -459,8 +459,9 @@ type InstanceStatus struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	ObservedGeneration int64                  `protobuf:"varint,1,opt,name=observed_generation,json=observedGeneration,proto3" json:"observed_generation,omitempty"`
 	// Ready; and, for a hangar target's container once it started a
-	// process, Measured: whether its processes are started by a root shim,
-	// so measured, and, false (NoRoot), why not
+	// process, RootStart: whether a root supervisor starts its processes,
+	// each as its user, which measuring them needs (they are measured where
+	// the guest's cgroups allow it too), and, false (NoRoot), why not
 	// (docs/decisions/process-usage.md).
 	Conditions []*v1.Condition `protobuf:"bytes,2,rep,name=conditions,proto3" json:"conditions,omitempty"`
 	Phase      InstancePhase   `protobuf:"varint,3,opt,name=phase,proto3,enum=tower.environments.v1alpha1.InstancePhase" json:"phase,omitempty"`

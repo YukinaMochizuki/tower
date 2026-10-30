@@ -63,13 +63,13 @@ func identities(f *fake.Fake) []string {
 	return out
 }
 
-// measured waits for the instance's Measured condition to be status, and
-// returns it.
-func measured(t *testing.T, get func() []*metav1.Condition, status metav1.ConditionStatus) *metav1.Condition {
+// rootStart waits for the instance's RootStart condition to be status,
+// and returns it.
+func rootStart(t *testing.T, get func() []*metav1.Condition, status metav1.ConditionStatus) *metav1.Condition {
 	t.Helper()
 	var c *metav1.Condition
-	testutil.Eventually(t, "its Measured condition "+status.String(), func() (bool, string) {
-		c = conditions.Find(get(), hangar.InstanceMeasured)
+	testutil.Eventually(t, "its RootStart condition "+status.String(), func() (bool, string) {
+		c = conditions.Find(get(), hangar.InstanceRootStart)
 		return c.GetStatus() == status, c.String()
 	})
 	return c
@@ -111,7 +111,9 @@ func TestOnlyAStartRunsAsRoot(t *testing.T) {
 		t.Errorf("who runs in the container was read as %q, want once as its user and once as root", got)
 	}
 	in := func() []*metav1.Condition { return w.Instance(t, "box").GetStatus().GetConditions() }
-	measured(t, in, metav1.ConditionStatus_CONDITION_STATUS_TRUE)
+	if c := rootStart(t, in, metav1.ConditionStatus_CONDITION_STATUS_TRUE); c.GetReason() != "Root" {
+		t.Errorf("RootStart is %v, want Root", c)
+	}
 }
 
 // TestARootImagesProcessesStartAsRoot: in a container whose user is root
@@ -169,8 +171,8 @@ func TestWithoutRootProcessesRunAsTheUser(t *testing.T) {
 				t.Errorf("who runs in the container was read as %q over two starts, want once", got)
 			}
 			in := func() []*metav1.Condition { return w.Instance(t, "box").GetStatus().GetConditions() }
-			if c := measured(t, in, metav1.ConditionStatus_CONDITION_STATUS_FALSE); c.GetReason() != "NoRoot" || !strings.Contains(c.GetMessage(), "root") {
-				t.Errorf("Measured is %v, want NoRoot saying why", c)
+			if c := rootStart(t, in, metav1.ConditionStatus_CONDITION_STATUS_FALSE); c.GetReason() != "NoRoot" || !strings.Contains(c.GetMessage(), "root") {
+				t.Errorf("RootStart is %v, want NoRoot saying why", c)
 			}
 
 			// Past the retry, a start asks again; the failure is not logged
