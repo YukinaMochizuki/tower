@@ -362,7 +362,7 @@ func (t *Target) installGuest(ctx context.Context, r runner) error {
 		return fmt.Errorf("reading the user the container runs as: exit %d, %q", code, owner)
 	}
 	script := "set -e; mkdir -p " + procRoot + "; tmp=" + guestPath + ".new.$$; cat > \"$tmp\"; chmod 0755 \"$tmp\"; mv -f \"$tmp\" " + guestPath +
-		"; chown " + owner + " " + procRoot + "; echo " + t.guest.hash + " > " + guestVersion + "; " + giveDirsLine(owner, WorkspaceDir, ReposDir)
+		"; " + processesDirLine(owner, procRoot) + "; echo " + t.guest.hash + " > " + guestVersion + "; " + giveDirsLine(owner, WorkspaceDir, ReposDir)
 	var errOut bytes.Buffer
 	code, err = r.sh(ctx, "0", script, bytes.NewReader(t.guest.data), &errOut)
 	if err != nil {
@@ -409,6 +409,15 @@ func (r runner) sh(ctx context.Context, user, line string, stdin io.Reader, out 
 		Stdin: stdin, Stdout: out, Stderr: out,
 	})
 	return exit.Code, err
+}
+
+// processesDirLine is the shell, run as root, that gives owner, "uid:gid",
+// the processes' directory, which an earlier tower's shim, run as the
+// user, makes processes in, readable to the user and its group alone: no
+// other user of the guest lists the processes there, nor reaches their
+// directories, root's and the user's group's (proclog.GroupReadable).
+func processesDirLine(owner, dir string) string {
+	return "chown " + owner + " " + dir + "; chmod 0750 " + dir
 }
 
 // giveDirsLine is the shell, run as root, that gives owner the workspace

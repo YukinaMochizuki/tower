@@ -169,9 +169,10 @@ func TestACommandHasTheHomeOfWhomItRunsAs(t *testing.T) {
 // TestACommandStartsAsItsUser starts a process as nobody, its supervisor
 // root: the command runs as that uid, gid and those groups alone, with
 // its HOME and no capability, and what it writes is nobody's. Its
-// process's directory and its files are root's, readable to nobody, who
-// writes none of them: a shim as nobody, as every operation but a start
-// runs, lists it and reads its log. It needs root, not cgroups:
+// process's directory and its files are root's, in nobody's group,
+// readable to that group alone (0750, 0640), and nobody writes none of
+// them: a shim as nobody, as every operation but a start runs, lists it
+// and reads its log. It needs root, not cgroups:
 // TestRealCgroupAsAUser measures one.
 func TestACommandStartsAsItsUser(t *testing.T) {
 	if os.Geteuid() != 0 {
@@ -201,10 +202,10 @@ func TestACommandStartsAsItsUser(t *testing.T) {
 		t.Errorf("the command kept capabilities %s", w.CapEff)
 	}
 	ownedBy(t, file, nobody)
-	rootUser := guest.Identity{}
+	rootUser := guest.Identity{GID: nobody.GID}
 	dir := filepath.Join(root, id)
 	ownedBy(t, dir, rootUser)
-	modeIs(t, dir, 0o755)
+	modeIs(t, dir, 0o750)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +214,7 @@ func TestACommandStartsAsItsUser(t *testing.T) {
 	for _, e := range entries {
 		names = append(names, e.Name())
 		ownedBy(t, filepath.Join(dir, e.Name()), rootUser)
-		modeIs(t, filepath.Join(dir, e.Name()), 0o644)
+		modeIs(t, filepath.Join(dir, e.Name()), 0o640)
 	}
 	for _, f := range []string{proclog.MetaFile, proclog.LockFile, proclog.PIDFile, proclog.ExitFile, "log-00000000000000000000"} {
 		if !slices.Contains(names, f) {
@@ -228,6 +229,61 @@ func TestACommandStartsAsItsUser(t *testing.T) {
 	if logged := asNobody(t, cmd, Header{Op: OpLog, Root: root, ID: id}); !strings.Contains(logged, "chunk") {
 		t.Errorf("a shim as nobody reads the log as %s", logged)
 	}
+}
+
+// TestAnotherUserReadsNoProcess: a third user of the guest, of neither
+// root's group nor the command user's, reads nothing of a process started
+// as nobody: not its log, its meta.json (its command line) nor its
+// directory's listing, even with the processes' root left 0755; with it
+// 0750, as installGuest makes it, it does not list the processes either.
+func TestAnotherUserReadsNoProcess(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("not root")
+	}
+	for _, rootMode := range []os.FileMode{0o755, 0o750} {
+		t.Run(rootMode.String(), func(t *testing.T) {
+			nobody := guest.Identity{UID: 65534, GID: 65534, Groups: []uint32{65534}}
+			root, work, cmd := asUserWorld(t, nobody)
+			nobody.Home = work
+			if err := os.Chmod(root, rootMode); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv(mainEnv, "1")
+			id, err := startSupervised(Header{Root: root, Command: []string{cmd}, Dir: work, LogCap: 1 << 20, Keep: 10, As: &nobody,
+				Env: map[string]string{helperEnv: helperWho}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitWho(t, root, id)
+			dir := filepath.Join(root, id)
+			third := &syscall.Credential{Uid: 4321, Gid: 4321}
+			for _, argv := range [][]string{
+				{"cat", filepath.Join(dir, "log-00000000000000000000")},
+				{"cat", filepath.Join(dir, proclog.MetaFile)},
+				{"ls", dir},
+			} {
+				if out, err := runAs(third, argv...); err == nil {
+					t.Errorf("uid 4321 ran %v: %q", argv, out)
+				}
+			}
+			ls, err := runAs(third, "ls", root)
+			if rootMode == 0o750 && err == nil {
+				t.Errorf("uid 4321 listed the processes' root, 0750: %q", ls)
+			}
+			// nobody, the command's user, reads them.
+			if out, err := runAs(&syscall.Credential{Uid: 65534, Gid: 65534}, "cat", filepath.Join(dir, proclog.MetaFile)); err != nil {
+				t.Errorf("nobody could not read its process's meta.json: %v: %s", err, out)
+			}
+		})
+	}
+}
+
+// runAs runs argv with cred, returning its output.
+func runAs(cred *syscall.Credential, argv ...string) (string, error) {
+	c := exec.Command(argv[0], argv[1:]...)
+	c.SysProcAttr = &syscall.SysProcAttr{Credential: cred}
+	out, err := c.CombinedOutput()
+	return string(out), err
 }
 
 // TestTheUserSignalsTheCommandAlone: a command started as nobody is in a

@@ -17,9 +17,10 @@ import (
 // starts the command: its uid, gid and groups, and its HOME; nothing else
 // of the environment differs between the two
 // (docs/decisions/process-usage.md). The supervisor stays root to measure
-// the command; the files it makes are root's, which the user reads and
-// writes none of (proclog.Readable). Every other operation, signal, list
-// and log among them, runs as the user.
+// the command; the files it makes are root's, in the user's group, which
+// reads them and writes none, and no other user reads them
+// (proclog.GroupReadable). Every other operation, signal, list and log
+// among them, runs as the user.
 
 // self is who this process runs as.
 func self() guest.Identity {

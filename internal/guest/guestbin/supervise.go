@@ -92,7 +92,8 @@ func workingDir(dir string) string {
 // keeps its output in its capped log, and writes how it ended. A command
 // that drops to a user (runas.go) starts as that user, the supervisor
 // staying root, outside the command's process group: its files are
-// root's, readable to the user (proclog.Readable).
+// root's, in the user's group, readable to it alone
+// (proclog.GroupReadable).
 func supervise(args []string) int {
 	if len(args) != 1 {
 		return 2
@@ -123,7 +124,7 @@ func supervise(args []string) int {
 	as := dropTo(h.As)
 	perm := proclog.Private
 	if as != nil {
-		perm = proclog.Readable
+		perm = proclog.GroupReadable(int(as.GID))
 	}
 	now := time.Now()
 	dir, err := proclog.Create(root, id, perm)

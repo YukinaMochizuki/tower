@@ -340,3 +340,43 @@ func TestASupervisorsWritesFollowNoSymlink(t *testing.T) {
 		})
 	}
 }
+
+// TestPruneGoesOnPastOneItCannotRemove: a finished process Prune cannot
+// remove, such as one root's an earlier supervisor run as the user meets,
+// is left, and the others beyond those kept are removed all the same.
+func TestPruneGoesOnPastOneItCannotRemove(t *testing.T) {
+	root := t.TempDir()
+	var ids []string
+	for i := range 4 {
+		id := proclog.NewID(time.Unix(int64(100+i), 0))
+		ids = append(ids, id)
+		dir := filepath.Join(root, id)
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		d := openDir(t, dir)
+		if err := proclog.WriteMeta(d, proclog.Meta{ID: id, Command: []string{"x"}}, proclog.Private); err != nil {
+			t.Fatal(err)
+		}
+		if err := proclog.WriteExit(d, proclog.Exit{}, proclog.Private); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stuck := ids[0]
+	proclog.SetRemoveAll(func(r *os.Root, name string) error {
+		if name == stuck {
+			return os.ErrPermission
+		}
+		return r.RemoveAll(name)
+	})
+	defer proclog.SetRemoveAll(nil)
+	if err := proclog.Prune(root, 1); !errors.Is(err, os.ErrPermission) {
+		t.Errorf("Prune said %v, want the one it could not remove", err)
+	}
+	for i, id := range ids {
+		_, err := os.Stat(filepath.Join(root, id))
+		if kept := i == 0 || i == len(ids)-1; kept != (err == nil) {
+			t.Errorf("process %d of 4, the oldest first: there %v, want %v (the one stuck and the newest kept)", i+1, err == nil, kept)
+		}
+	}
+}
