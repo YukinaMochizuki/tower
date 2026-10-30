@@ -165,7 +165,7 @@ func boostPack(args []string) (*Manifest, error) {
 	if err := os.MkdirAll(*out, 0o755); err != nil {
 		return nil, err
 	}
-	m, gitBytes, err := packGit(*dir, gitDir, boostDir, *out, *bundleAll)
+	m, gitBytes, inTree, err := packGit(*dir, gitDir, boostDir, *out, *bundleAll)
 	if err != nil {
 		return nil, err
 	}
@@ -209,9 +209,11 @@ func boostPack(args []string) (*Manifest, error) {
 		// A file the box changed since its last sync to this boost though
 		// its size and mtime did not, and one the boost holds other content
 		// of: sent whatever the records say. A boost the box has not synced
-		// to holds its warm golden's files, and its own setup's: every file
-		// the box touched since its baseline is sent, untouched ones
-		// compared by their records alone.
+		// to holds its warm golden's files, and its own setup's: every
+		// ignored file the box touched since its baseline is sent, untouched
+		// ones compared by their records alone. A file of the box's git tree
+		// (tracked, or untracked and not ignored) is not: the boost checks
+		// its content against that tree (checkTree), and is sent it again.
 		nowIdx := indexRecs(now)
 		more := map[string]bool{}
 		touched, err := touchedSince(boostDir, now, last, haveLast)
@@ -219,7 +221,9 @@ func boostPack(args []string) (*Manifest, error) {
 			return nil, err
 		}
 		for _, p := range touched {
-			more[p] = true
+			if haveLast || !inTree[p] {
+				more[p] = true
+			}
 		}
 		for _, p := range force {
 			if _, ok := nowIdx[p]; ok {
@@ -343,46 +347,51 @@ func checkSentName(n string) error {
 // packGit packs git's state of the box into out: its work tree's tree's
 // trees, for the boost's check (trees.pack); what is staged apart from
 // it (index.tar, index.deleted); and HEAD's commits no origin ref
-// reaches, or all of them (head.bundle). bytes is what they hold.
-func packGit(dir, gitDir, boostDir, out string, bundleAll bool) (*Manifest, int64, error) {
+// reaches, or all of them (head.bundle). bytes is what they hold; inTree
+// the paths of the work tree's tree, which the boost's check covers.
+func packGit(dir, gitDir, boostDir, out string, bundleAll bool) (*Manifest, int64, map[string]bool, error) {
 	tree, indexTree, err := boxSnapshot(dir, gitDir, boostDir)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	m := &Manifest{Tree: tree}
 	m.Head, _ = gitLine(dir, nil, "rev-parse", "--verify", "-q", "HEAD")
 	m.Branch, _ = gitLine(dir, nil, "symbolic-ref", "-q", "--short", "HEAD")
 	all, err := listTree(dir, tree)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	m.Links = linksOf(all)
+	inTree := make(map[string]bool, len(all))
+	for _, e := range all {
+		inTree[e.path] = true
+	}
 	if err := writeTrees(dir, tree, filepath.Join(out, "trees.pack")); err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	var staged []entry
 	var stagedDeleted []string
 	if indexTree != "" {
 		diff, err := diffTrees(dir, tree, indexTree)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, nil, err
 		}
 		staged, stagedDeleted = splitDelta(diff, &m.IndexGitlinks)
 		m.IndexTree = indexTree
 	}
 	sizes, err := blobSizes(dir, staged)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	var total int64
 	for _, n := range sizes {
 		total += n
 	}
 	if err := writeDelta(dir, filepath.Join(out, "index.tar"), staged); err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	if err := writeNUL(filepath.Join(out, "index.deleted"), stagedDeleted); err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	if m.Head != "" {
 		not := []string{"--not", "--remotes=origin"}
@@ -391,22 +400,22 @@ func packGit(dir, gitDir, boostDir, out string, bundleAll bool) (*Manifest, int6
 		}
 		n, err := gitLine(dir, nil, append([]string{"rev-list", "--count", "HEAD"}, not...)...)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, nil, err
 		}
 		if n != "0" {
 			bundle := filepath.Join(out, "head.bundle")
 			if _, err := gitRun(dir, nil, nil, append([]string{"bundle", "create", "-q", bundle, "HEAD"}, not...)...); err != nil {
-				return nil, 0, err
+				return nil, 0, nil, err
 			}
 			m.Bundle = true
 			info, err := os.Stat(bundle)
 			if err != nil {
-				return nil, 0, err
+				return nil, 0, nil, err
 			}
 			total += info.Size()
 		}
 	}
-	return m, total, nil
+	return m, total, inTree, nil
 }
 
 // writeTrees packs tree and every tree under it, no blob: what the boost

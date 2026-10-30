@@ -904,16 +904,18 @@ func TestAFirstSyncSendsWhatTheBoxTouched(t *testing.T) {
 }
 
 // TestABoxWithoutABaselineSendsAllItHas: a box without a baseline, made
-// before tower took one, sends every file to a boost it never synced to.
+// before tower took one, sends every ignored file to a boost it never
+// synced to; those of its git tree are checked against it there.
 func TestABoxWithoutABaselineSendsAllItHas(t *testing.T) {
 	p := newPair(t)
 	if err := os.Remove(filepath.Join(p.boostDir(p.box), "baseline.manifest")); err != nil {
 		t.Fatal(err)
 	}
-	m, _ := p.send(t, false)
-	// a.txt, b.txt, d/c.txt, run.sh, .gitignore, node_modules' index.js.
-	if m.Files != 6 {
-		t.Errorf("a first sync without a baseline: %+v, want every file", m)
+	m, a := p.send(t, false)
+	// node_modules' index.js, ignored; not a.txt, b.txt, d/c.txt, run.sh,
+	// .gitignore, whose content the boost's check finds the box's.
+	if m.Files != 1 || len(a.Mismatch) != 0 {
+		t.Errorf("a first sync without a baseline: %+v, %+v; want every ignored file", m, a)
 	}
 	if m, _ := p.send(t, false); m.Files != 0 {
 		t.Errorf("the next: %+v, want nothing", m)
@@ -1023,5 +1025,31 @@ func TestASyncsOwnTempFilesNeverTravel(t *testing.T) {
 	m, _ := p.send(t, false)
 	if m.Files != 0 || exists(filepath.Join(p.boost, "d", ".tower-boost-abc-c.txt")) {
 		t.Errorf("a sync's leftover was sent: %+v", m)
+	}
+}
+
+// TestAFirstSyncLeavesTrackedFilesToTheCheck: on a first sync, a file of
+// the box's git tree the box touched is not sent for being touched: one
+// whose content is the same stays, one whose content differs under the
+// same records is found by the boost's check, and sent again.
+func TestAFirstSyncLeavesTrackedFilesToTheCheck(t *testing.T) {
+	p := newPair(t)
+	rewrite := func(name, text string) {
+		f := filepath.Join(p.box, name)
+		at := mtime(t, f)
+		write(t, f, text, mode(t, f).Perm())
+		if err := os.Chtimes(f, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rewrite("b.txt", "b\n") // the same content, touched
+	rewrite("a.txt", "Z\n") // other content, the same size and mtime
+	m, a := p.send(t, false)
+	if m.Files != 0 || !slices.Equal(a.Mismatch, []string{"a.txt"}) {
+		t.Fatalf("a first sync after touching tracked files: %+v, %+v; want none sent, a.txt found by the check", m, a)
+	}
+	m, a = p.send(t, false, "--force", "a.txt")
+	if m.Files != 1 || len(a.Mismatch) != 0 || read(t, filepath.Join(p.boost, "a.txt")) != "Z\n" {
+		t.Errorf("a.txt sent again: %+v, %+v, the boost's %q", m, a, read(t, filepath.Join(p.boost, "a.txt")))
 	}
 }
