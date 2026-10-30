@@ -107,7 +107,12 @@ What is accepted and built, in the API's terms:
   (`cancel`); asking again keeps the ticket's place. A ticket not asked
   about for five minutes is dropped; while one waits for its boost to
   start, the boost is not reclaimed. A boost that cannot fit the Plan
-  even with no boost held is refused at once (`FAILED_PRECONDITION`).
+  even with no boost held is refused at once (`FAILED_PRECONDITION`):
+  the Plan's quota left as reported, plus every boost the report may
+  count (each whose instance is there), up to the Plan's whole
+  (`cpus`, `memory_total`). A start on a box whose boost is there or
+  being made, of a size that suffices, holds its room already: it is
+  never refused so, nor queued again, whatever the Plan says since.
 - **Every process call on the box reaches its boost.** A process started
   on a boost has an id of tower's, `boost-<instance uid end>-<id there>`,
   so no id is used twice, a boost's instance made again included; tower
@@ -130,8 +135,13 @@ What is accepted and built, in the API's terms:
   (so a budget below one boost lets one at a time), and when it fits the
   Plan's quota left as the target reports it (`Capacity.memory_free`,
   and `cpu_free`, which the hangar provider reports from the project's
-  limits and usage), less the boosts its last report does not count: all
-  but those whose instance was RUNNING before `last_report_time`.
+  limits and usage), less the boosts its last report does not count for
+  sure: all but those whose instance was RUNNING before
+  `last_report_time`. hangar counts a machine from when it is made, not
+  when it boots, so a boost made is taken off the quota left twice
+  until the first report after it booted (its image pulled): a start
+  queued meanwhile may wait that long for room it could have had, and
+  never takes room the Plan does not have.
 - **The queue is in the apiserver's memory**, per target, admitted in
   order and stopping at the first that does not fit, so a large boost is
   not passed forever. An apiserver restarted loses it: a ticket it no

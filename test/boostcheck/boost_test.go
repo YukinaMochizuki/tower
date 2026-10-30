@@ -154,8 +154,11 @@ func (r *run) env(box string) *envv1alpha1.Environment {
 // seconds until it starts, logging each pending answer.
 func (r *run) start(box, line string, wait bool) *envv1alpha1.StartProcessResponse {
 	r.t.Helper()
+	// In the checkout, as workstream starts every job: a process given no
+	// dir runs in its image's WORKDIR, on a box and its boost alike.
 	req := &envv1alpha1.StartProcessRequest{
 		Environment: r.env(box), Command: &envv1alpha1.StartProcessRequest_Shell{Shell: line},
+		Dir:   "/workspace",
 		Boost: &envv1alpha1.BoostIntent{Size: &envv1alpha1.BoostIntent_On{On: true}},
 	}
 	// Paced as a client of a real tower asks again, not as

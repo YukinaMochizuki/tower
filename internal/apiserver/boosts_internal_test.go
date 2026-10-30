@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
@@ -140,6 +141,17 @@ func TestTheRoomOfATarget(t *testing.T) {
 	e := emptyRoomOf(tg, v)
 	if e.held != (boostSize{}) || e.quota != (boostSize{28000, 28 * gi}) {
 		t.Errorf("with no boost held: %v held, %v left; want none, and the report's plus the counted boosts, 28 vCPU and 28Gi", e.held, e.quota)
+	}
+	// One the report may count, made though not booted, is added back
+	// too, up to the Plan's whole.
+	v.mayCount = map[string]bool{"starting": true}
+	if e := emptyRoomOf(tg, v); e.quota != (boostSize{32000, 32 * gi}) {
+		t.Errorf("with no boost held, one made but not booted: %v left, want 32 vCPU and 32Gi", e.quota)
+	}
+	whole := proto.Clone(tg).(*targetsv1alpha1.Target)
+	whole.Status.Capacity.Cpus, whole.Status.Capacity.MemoryTotal = 30, "24Gi"
+	if e := emptyRoomOf(whole, v); e.quota != (boostSize{30000, 24 * gi}) {
+		t.Errorf("with no boost held, on a Plan of 30 vCPU and 24Gi: %v left, want its whole", e.quota)
 	}
 	if r := roomOf(&targetsv1alpha1.Target{}, v); r.hasCPU || r.hasMemory || !r.fits(boostSize{8000, 8 * gi}) {
 		t.Error("a target that reports no quota bounds a boost by it")

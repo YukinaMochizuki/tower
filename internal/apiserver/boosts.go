@@ -292,11 +292,14 @@ func (r *boostRoom) give(size boostSize) {
 	r.held, r.quota = r.held.minus(size), r.quota.plus(size)
 }
 
-// boostsNow are the boosts on a target as admission reads them, and
-// which of them its Plan's last report counts (countedByReport).
+// boostsNow are the boosts on a target as admission reads them, which of
+// them its Plan's last report counts for sure (countedByReport), and which
+// it may count: each whose instance is there, as hangar counts a machine
+// from when it is made, booted or not.
 type boostsNow struct {
-	boosts  []*envv1alpha1.Boost
-	counted map[string]bool
+	boosts   []*envv1alpha1.Boost
+	counted  map[string]bool
+	mayCount map[string]bool
 }
 
 // holds says b holds room: a FAILED boost's instance is let go, and its
@@ -313,7 +316,7 @@ func (s *Server) boostsOnTargetNow(ctx context.Context, t *targetsv1alpha1.Targe
 	if err != nil {
 		return boostsNow{}, err
 	}
-	v := boostsNow{counted: map[string]bool{}}
+	v := boostsNow{counted: map[string]bool{}, mayCount: map[string]bool{}}
 	for _, b := range all {
 		if b.GetSpec().GetTarget() != target {
 			continue
@@ -323,16 +326,22 @@ func (s *Server) boostsOnTargetNow(ctx context.Context, t *targetsv1alpha1.Targe
 		if err != nil {
 			return boostsNow{}, err
 		}
-		v.counted[b.GetMetadata().GetUid()] = ok && owns(registry.Boost, b, in) && countedByReport(in, reported)
+		mine := ok && owns(registry.Boost, b, in)
+		v.counted[b.GetMetadata().GetUid()] = mine && countedByReport(in, reported)
+		v.mayCount[b.GetMetadata().GetUid()] = mine
 	}
 	return v, nil
 }
 
 // countedByReport says the target's report of its Plan's usage, made at
-// reported, counts the instance in: hangar counts a machine's cpu and
-// memory once it runs, so the instance ran before the report was made.
-// One that started since, or whose start is not known, is not counted
-// yet.
+// reported, counts the instance in for sure: hangar counts a machine's
+// cpu and memory from when it is made, not stopped (hangar's
+// internal/apiserver/quota.go), and tower knows only when it booted, so
+// one that ran before the report was made. One made but not booted by
+// then, or whose start is not known, may be counted already: admission
+// (roomOf) takes it as not, and waits for the next report rather than
+// take room the Plan may not have; the never-fits refusal (emptyRoomOf)
+// takes it as counted.
 func countedByReport(in *envv1alpha1.Instance, reported *timestamppb.Timestamp) bool {
 	started := in.GetStatus().GetStartTime()
 	return in.GetStatus().GetPhase() == envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING &&
@@ -375,12 +384,25 @@ func roomOf(t *targetsv1alpha1.Target, v boostsNow) boostRoom {
 }
 
 // emptyRoomOf is what t would have with none of v's boosts: what a boost
-// that does not fit even then waits for in vain.
+// that does not fit even then waits for in vain. It refuses a start for
+// good, so it is never less than the room may be: each boost the report
+// may count is added back, not only those it counts for sure, or a boost
+// just made on a nearly full Plan would make every later start "never
+// fits"; up to the Plan's whole, where the report says it.
 func emptyRoomOf(t *targetsv1alpha1.Target, v boostsNow) boostRoom {
 	r := quotaOf(t)
 	for _, b := range v.boosts {
-		if v.counted[b.GetMetadata().GetUid()] {
+		if v.mayCount[b.GetMetadata().GetUid()] || v.counted[b.GetMetadata().GetUid()] {
 			r.quota = r.quota.plus(boostSizeOf(b.GetSpec().GetResources()))
+		}
+	}
+	capacity := t.GetStatus().GetCapacity()
+	if n := capacity.GetCpus(); n > 0 && r.hasCPU {
+		r.quota.milliCPU = min(r.quota.milliCPU, int64(n)*1000)
+	}
+	if v := capacity.GetMemoryTotal(); v != "" && r.hasMemory {
+		if total, err := quantity.Bytes(v); err == nil {
+			r.quota.memory = min(r.quota.memory, total)
 		}
 	}
 	return r
