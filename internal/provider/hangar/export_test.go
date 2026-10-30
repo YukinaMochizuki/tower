@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	hangarcompute "github.com/YukinaMochizuki/hangar/gen/go/hangar/compute/v1alpha1"
+
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/guest/guestbin"
 	"github.com/YukinaMochizuki/tower/internal/guest/guestops"
@@ -34,6 +36,13 @@ func ApplyRefused(err error) (reason string, waits bool) {
 // SetDial has f open its TCP connections with dial, before it is used.
 func (f *Front) SetDial(dial func(ctx context.Context, network, addr string) (net.Conn, error)) {
 	f.dialNet = dial
+}
+
+// WaitsForRoom reports whether the provider takes the container as
+// waiting for room on its node.
+func WaitsForRoom(ct *hangarcompute.Container) bool {
+	_, ok := waitsForRoom(containerObj(ct))
+	return ok
 }
 
 // ProviderError is what an error of hangar's is to tower.

@@ -390,6 +390,78 @@ func TestAnImageThatCannotBePulledFailsTheInstance(t *testing.T) {
 	}
 }
 
+// TestAnInstanceWaitsForRoomOnItsNode: a stopped instance started again on
+// a node with too little memory free (hangar's StartDoesNotFit), and a new
+// one no node has the memory for (Unschedulable, naming it), are PENDING,
+// their Ready WaitingForRoom with hangar's words, and run once there is
+// room; a cordoned node is no wait for room.
+func TestAnInstanceWaitsForRoomOnItsNode(t *testing.T) {
+	w, f := newWorld(t, nil)
+	h := w.Harness()
+	ref, _ := h.Start(t, "box", container("ws1"))
+	h.Stop(t, ref)
+	f.FillNode("512Mi")
+	setRunState(t, w, "box", envv1alpha1.RunState_RUN_STATE_RUNNING)
+	waitReady(t, w, "box", provider.ReasonWaitingForRoom, "node n1 has 512Mi of memory free for this machine, not 1Gi; it starts once there is room")
+	if _, err := w.Env.AsSystem().Apply(t.Context(), registry.Instance, &envv1alpha1.Instance{
+		Metadata: &metav1.ObjectMeta{Project: apiservertest.Project, Name: "new"}, Spec: container("ws2"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitReady(t, w, "new", provider.ReasonWaitingForRoom, "no ready node has 1Gi of memory free")
+	f.FreeRoom()
+	w.WaitPhase(t, "box", envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING)
+	w.WaitPhase(t, "new", envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING)
+
+	// What only looks like it, of an older generation or not for room, is
+	// not a wait for room.
+	for _, tt := range []struct {
+		name       string
+		reason     string
+		msg        string
+		generation int64
+	}{
+		{"older", "StartDoesNotFit", "node n1 has 0Mi of memory free for this machine, not 1Gi; it starts once there is room", 1},
+		{"cordoned", "Unschedulable", "every ready node is cordoned", 2},
+	} {
+		ct := &hangarcompute.Container{
+			Metadata: &hangarmeta.ObjectMeta{Generation: 2},
+			Spec:     &hangarcompute.ContainerSpec{RunState: hangarcompute.ContainerRunState_CONTAINER_RUN_STATE_RUNNING},
+			Status: &hangarcompute.ContainerStatus{Conditions: []*hangarmeta.Condition{{
+				Type: "Ready", Status: hangarmeta.ConditionStatus_CONDITION_STATUS_FALSE, Reason: tt.reason, Message: tt.msg, ObservedGeneration: tt.generation,
+			}}},
+		}
+		if hangar.WaitsForRoom(ct) {
+			t.Errorf("%s: %s %q is taken for a wait for room", tt.name, tt.reason, tt.msg)
+		}
+	}
+}
+
+// setRunState sets the instance's run_state.
+func setRunState(t *testing.T, w *hangartest.World, name string, rs envv1alpha1.RunState) {
+	t.Helper()
+	testutil.Eventually(t, "the instance's run_state set "+rs.String(), func() (bool, string) {
+		in := proto.Clone(w.Instance(t, name)).(*envv1alpha1.Instance)
+		in.Spec.RunState = rs
+		_, err := w.Env.AsSystem().Apply(t.Context(), registry.Instance, in)
+		if err != nil && connect.CodeOf(err) != connect.CodeAborted {
+			t.Fatal(err)
+		}
+		return err == nil, fmt.Sprint(err)
+	})
+}
+
+// waitReady waits until the instance is PENDING, its Ready of reason and
+// message.
+func waitReady(t *testing.T, w *hangartest.World, name, reason, msg string) {
+	t.Helper()
+	testutil.Eventually(t, fmt.Sprintf("instance %s %s", name, reason), func() (bool, string) {
+		in := w.Instance(t, name)
+		c := conditions.Find(in.GetStatus().GetConditions(), hangar.InstanceReady)
+		return in.GetStatus().GetPhase() == envv1alpha1.InstancePhase_INSTANCE_PHASE_PENDING && c.GetReason() == reason && c.GetMessage() == msg, in.GetStatus().String()
+	})
+}
+
 // TestAnInstanceWaitsOnlyForTheAliasOfAnEarlierOneOfItsName: an Instance
 // made again under a name whose earlier one hangar is still deleting
 // waits only for its alias, which hangar holds until the earlier one is

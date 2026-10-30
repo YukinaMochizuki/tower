@@ -366,6 +366,9 @@ func (t *Target) observe(ctx context.Context, in *envv1alpha1.Instance, obj mach
 		// login, which is a new instance: tower decides.
 		return observed{phase: envv1alpha1.InstancePhase_INSTANCE_PHASE_FAILED, reason: "PullFailed", msg: ready.GetMessage()}, nil
 	}
+	if o, ok := waitsForRoom(obj); ok {
+		return o, nil
+	}
 	if errors.Is(err, ErrNotFound) || (err == nil && !ownedBy(m, obj.uid)) {
 		if ready.GetMessage() != "" {
 			return pending(ready.GetReason(), ready.GetMessage()), nil
@@ -413,6 +416,36 @@ func (t *Target) observe(ctx context.Context, in *envv1alpha1.Instance, obj mach
 	}
 	return pending("Booting", "hangar is booting its machine"), nil
 }
+
+// waitsForRoom is what hangar says of an object asked to run that waits
+// for room on its node, with hangar's words: a stopped machine started
+// again on a node with too little memory free (StartDoesNotFit), or a new
+// one no ready node has the memory or disk for (Unschedulable, naming the
+// shortfall). It starts by itself once there is room (hangar:
+// docs/decisions/machine-model.md). A Ready of an older generation says
+// nothing of the spec as it is, and is not believed.
+func waitsForRoom(obj machineObj) (observed, bool) {
+	r := obj.ready
+	if obj.stopped || r.GetObservedGeneration() != obj.generation {
+		return observed{}, false
+	}
+	if r.GetReason() == reasonStartDoesNotFit || (r.GetReason() == reasonUnschedulable && noRoom.MatchString(r.GetMessage())) {
+		return pending(provider.ReasonWaitingForRoom, r.GetMessage()), true
+	}
+	return observed{}, false
+}
+
+// The reasons of hangar's Ready that waitsForRoom reads (hangar:
+// internal/computeapi/computeapi.go, internal/apiserver/controllers.go).
+const (
+	reasonStartDoesNotFit = "StartDoesNotFit"
+	reasonUnschedulable   = "Unschedulable"
+)
+
+// noRoom matches hangar's Unschedulable for want of room, not of a ready
+// or uncordoned node (hangar: internal/apiserver/controllers.go,
+// pickNodeAmong), which carries no reason of its own but its words.
+var noRoom = regexp.MustCompile(`^no ready node has [^;]* free`)
 
 // pullFailed are the reasons of a container's Ready that say its image
 // cannot be pulled as it is asked (hangar: internal/node/images.go,
