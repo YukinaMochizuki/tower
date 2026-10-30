@@ -129,7 +129,19 @@ func (w *workspaces) checkout(in provider.Instance, mirror string, m *repo, comm
 		return "", err
 	}
 	if _, err := os.Stat(filepath.Join(to, ".git")); err != nil {
-		if _, err := gitIn(filepath.Dir(to), "clone", "-q", repoDir, to); err != nil {
+		// Each instance's checkout is the mirror's golden's, copied with
+		// its files' mtimes, as hangar clones a box and its boost from
+		// one warm golden; then checked out at the commit.
+		golden := filepath.Join(w.root, "goldens", mirror)
+		if _, err := os.Stat(golden); err != nil {
+			if _, err := gitIn(w.root, "clone", "-q", repoDir, golden); err != nil {
+				return "", err
+			}
+		}
+		if err := copyPath(golden, to); err != nil {
+			return "", err
+		}
+		if _, err := gitIn(to, "fetch", "-q", "origin"); err != nil {
 			return "", err
 		}
 	} else if _, err := gitIn(to, "fetch", "-q", "origin"); err != nil {
@@ -164,14 +176,16 @@ func plainGuest(w *workspaces, command []string) (string, bool) {
 		return "", false
 	}
 	switch command[1] {
+	case "boost-manifest", "boost-baseline":
+		return `{"paths":0}` + "\n", true
 	case "boost-pack":
-		return `{"tree":"fake-tree","full":true}` + "\n", true
+		return `{"tree":"fake-tree","sent":"sent-fake"}` + "\n", true
 	case "boost-apply":
 		return `{"tree":"fake-tree"}` + "\n", true
-	case "boost-clean":
+	case "boost-back":
+		return `{"moved":[],"total":0}` + "\n", true
+	case "boost-writeback", "boost-clean":
 		return "{}\n", true
-	case "boost-measure":
-		return "[]\n", true
 	}
 	return "", false
 }

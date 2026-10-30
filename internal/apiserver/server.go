@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -162,11 +163,17 @@ type Server struct {
 	boostBackoffs boostBackoffs
 	// boostSettling settles each ended boost process once (boostsync.go).
 	boostSettling settling
-	// syncWait and artifactsMax are boostSyncWait and boostArtifactsMax
+	// deferWriteBack, set by a test, defers the write-back of the
+	// processes it says, as for a box not ready.
+	deferWriteBack atomic.Pointer[func(id string) bool]
+	// stopWrittenBack is, by box, the boost instance whose ended
+	// processes were written back before the box stopped.
+	stopWrittenBack sync.Map
+	// syncWait and backMax are boostSyncWait and boostBackMax
 	// unless a test sets them.
-	syncWait     atomic.Int64
-	artifactsMax int64
-	jobs         jobs
+	syncWait atomic.Int64
+	backMax  int64
+	jobs     jobs
 	// jobErrs are the jobs' last failures by target, for last_error.
 	jobErrs jobErrors
 	// teardowns are the last teardown passes of Targets being deleted.
@@ -363,6 +370,7 @@ func (s *Server) Run(ctx context.Context) error {
 	defer s.jobs.wg.Wait()
 	defer s.hangar.wg.Wait()
 	g.Go(func() error { return s.runCompaction(gctx) })
+	g.Go(func() error { return s.runTicketPrune(gctx) })
 	if s.sessions != nil {
 		g.Go(func() error { return s.sessions.Run(gctx) })
 		g.Go(func() error { return s.recordTokenUses(gctx) })

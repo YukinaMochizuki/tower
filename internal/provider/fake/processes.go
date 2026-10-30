@@ -106,6 +106,15 @@ func (w processWriter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
+// GuestProcessesInBackground makes a process tower-guest runs with
+// RealWorkspaces, a boosted one, run on after StartProcess answers, as a
+// real one does; by default it has ended by then.
+func (f *Fake) GuestProcessesInBackground() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.guestInBackground = true
+}
+
 func (f *Fake) StartProcess(_ context.Context, req provider.ProcessRequest) (string, error) {
 	f.mu.Lock()
 	local, err := f.running(req.Instance)
@@ -145,12 +154,22 @@ func (f *Fake) StartProcess(_ context.Context, req provider.ProcessRequest) (str
 	}
 	f.mu.Unlock()
 	if guestRun {
-		code := guest(args, processWriter{f, p, provider.Stdout}, processWriter{f, p, provider.Stderr})
+		run := func() {
+			code := guest(args, processWriter{f, p, provider.Stdout}, processWriter{f, p, provider.Stderr})
+			f.mu.Lock()
+			p.end(&provider.ProcessExit{Code: code})
+			f.pruneProcesses(local)
+			f.mu.Unlock()
+			f.enqueue(req.Instance)
+		}
 		f.mu.Lock()
-		p.end(&provider.ProcessExit{Code: code})
-		f.pruneProcesses(local)
+		background := f.guestInBackground
 		f.mu.Unlock()
-		f.enqueue(req.Instance)
+		if background {
+			go run()
+		} else {
+			run()
+		}
 		return p.id, nil
 	}
 	code := cmd.run(provider.ExecRequest{

@@ -324,29 +324,78 @@ func TestASecondJobSendsOnlyWhatChanged(t *testing.T) {
 	}
 }
 
-// TestAGenJobListsWhatItChanged: a boosted job that rewrites tracked
-// files lists them in its exit, and the box's are as they were.
-func TestAGenJobListsWhatItChanged(t *testing.T) {
+// TestAGenJobsChangesComeBack: a boosted job that rewrites a tracked file
+// leaves the box's as it wrote it, and its exit says what came back.
+func TestAGenJobsChangesComeBack(t *testing.T) {
 	r := setup(t)
 	file := envOr("TOWER_SYNC_FILE", "README.md")
 	gen := envOr("TOWER_GEN_CMD", "echo boostcheck-generated >> "+file)
-	res := r.start(r.boxA, "true", true)
-	r.output(r.boxA, res.GetProcess())
-	res = r.start(r.boxA, gen, true)
+	// Put back as it is once the test ends.
+	r.setFile(r.boxA, file, r.text(r.boxA, file))
+	res := r.start(r.boxA, gen, true)
 	_, exit := r.output(r.boxA, res.GetProcess())
-	changed := exit.GetBoost().GetChanged()
-	t.Logf("%q changed %d files: %v", gen, changed.GetTotal(), changed.GetFiles())
-	if exit.GetCode() != 0 || changed.GetTotal() == 0 {
-		t.Fatalf("it exited %v, changing %d files, want some", exit, changed.GetTotal())
+	back := exit.GetBoost().GetBack()
+	t.Logf("%q: %d files back, %d deleted, %d bytes in %s; moved %v; conflicts %v; over the cap %v; error %q",
+		gen, back.GetFiles(), back.GetDeleted(), back.GetBytes(), back.GetTook().AsDuration(), back.GetMoved(), back.GetConflicts(), back.GetOverCap(), back.GetError())
+	if exit.GetCode() != 0 || back.GetTotal() == 0 || back.GetError() != "" {
+		t.Fatalf("it exited %v, its write-back %v, want what it changed back", exit, back)
 	}
-	// What it changed on the boost is not in the box.
-	for _, f := range changed.GetFiles() {
-		if _, there := r.file(r.boxA, f.GetPath()); f.GetStatus() == "A" && there {
-			t.Errorf("%s, which it added on the boost, is in the box", f.GetPath())
+	if os.Getenv("TOWER_GEN_CMD") == "" && !strings.Contains(r.text(r.boxA, file), "boostcheck-generated") {
+		t.Errorf("%s, which it rewrote on the boost, is not the job's in the box", file)
+	}
+}
+
+// TestABuiltExecutableRunsInTheBox: a boosted job builds an executable in
+// a path the box ignores; once it ends, a plain exec in the box, as
+// bash_box runs one, runs it.
+func TestABuiltExecutableRunsInTheBox(t *testing.T) {
+	r := setup(t)
+	exec := func(args ...string) (string, int32) {
+		t.Helper()
+		stream, err := r.envs.Exec(context.Background(), connect.NewRequest(&envv1alpha1.ExecRequest{
+			Environment: r.env(r.boxA), Command: &envv1alpha1.ExecRequest_Argv{Argv: &envv1alpha1.Argv{Args: args}}, Dir: "/workspace",
+		}))
+		if err != nil {
+			t.Fatal(err)
 		}
+		defer func() { _ = stream.Close() }()
+		var out strings.Builder
+		code := int32(-1)
+		for stream.Receive() {
+			switch m := stream.Msg().GetResponse().(type) {
+			case *envv1alpha1.ExecResponse_Stdout:
+				out.Write(m.Stdout)
+			case *envv1alpha1.ExecResponse_Stderr:
+				out.Write(m.Stderr)
+			case *envv1alpha1.ExecResponse_Exit:
+				code = m.Exit.GetCode()
+			}
+		}
+		if err := stream.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return out.String(), code
 	}
-	if f := envOr("TOWER_SYNC_FILE", "README.md"); os.Getenv("TOWER_GEN_CMD") == "" && strings.Contains(r.text(r.boxA, f), "boostcheck-generated") {
-		t.Errorf("%s, which it rewrote on the boost, changed in the box", f)
+	// Ignored in the box, by its own exclude file.
+	if out, code := exec("sh", "-c", "echo /boostcheck-out/ >> .git/info/exclude"); code != 0 {
+		t.Fatalf("ignoring boostcheck-out in the box: %d %s", code, out)
+	}
+	t.Cleanup(func() {
+		exec("sh", "-c", "grep -vx /boostcheck-out/ .git/info/exclude > .git/info/exclude.boostcheck; mv .git/info/exclude.boostcheck .git/info/exclude; rm -rf boostcheck-out")
+	})
+	if out, _ := exec("git", "check-ignore", "boostcheck-out/app"); strings.TrimSpace(out) != "boostcheck-out/app" {
+		t.Fatalf("boostcheck-out/app is not ignored in the box: %q", out)
+	}
+	res := r.start(r.boxA, `mkdir -p boostcheck-out && printf '#!/bin/sh\necho boostcheck-built on %s\n' "$(nproc)" > boostcheck-out/app && chmod +x boostcheck-out/app`, true)
+	_, exit := r.output(r.boxA, res.GetProcess())
+	t.Logf("its write-back: %v", exit.GetBoost().GetBack())
+	if exit.GetCode() != 0 {
+		t.Fatalf("it exited %v", exit)
+	}
+	out, code := exec("./boostcheck-out/app")
+	t.Logf("run in the box: %q", out)
+	if code != 0 || !strings.HasPrefix(out, "boostcheck-built on ") {
+		t.Errorf("the job's executable run in the box: exit %d, %q", code, out)
 	}
 }
 

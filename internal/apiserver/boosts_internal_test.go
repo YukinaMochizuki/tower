@@ -186,15 +186,37 @@ func TestTheReportCountsWhatRanBeforeIt(t *testing.T) {
 }
 
 // TestOnlyTheLastProcessesKeepTheirChangedFiles: a box's processes past
-// the last ten keep how many files they changed, not the list.
+// the last ten keep how many paths were written back, not the list.
 func TestOnlyTheLastProcessesKeepTheirChangedFiles(t *testing.T) {
 	var r boxProcesses
 	for i := range 12 {
-		r.add(boostProcess{ID: string(rune('a' + i)), Run: &runResult{Total: 1, Changed: []guestbin.Changed{{Path: "x", Status: "M"}}}})
+		r.add(boostProcess{ID: string(rune('a' + i)), Run: &runResult{Back: &writeBack{Total: 1, Moved: []guestbin.Moved{{Path: "x", Status: "M"}}}}})
 	}
 	for i, p := range r.Boost {
-		if keep := i >= 2; (p.Run.Changed != nil) != keep || p.Run.Total != 1 {
+		if keep := i >= 2; (p.Run.Back.Moved != nil) != keep || p.Run.Back.Total != 1 {
 			t.Errorf("process %d of 12: %+v", i, p.Run)
 		}
+	}
+}
+
+// TestStartedTicketsArePrunedWithoutAStart: a started ticket's answer is
+// dropped once its TTL passed, by the prune each minute, whether or not
+// a start comes.
+func TestStartedTicketsArePrunedWithoutAStart(t *testing.T) {
+	t0 := time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC)
+	var q boostQueues
+	tq := q.of("t1")
+	tq.started["old"] = &startedTicket{at: t0, res: &envv1alpha1.StartProcessResponse{Process: "p"}}
+	tq.started["new"] = &startedTicket{at: t0.Add(4 * time.Minute), res: &envv1alpha1.StartProcessResponse{Process: "q"}}
+	tq.started["starting"] = &startedTicket{at: t0}
+	q.pruneAll(t0.Add(6 * time.Minute))
+	if _, ok := tq.started["old"]; ok {
+		t.Error("a started ticket past its TTL was kept")
+	}
+	if _, ok := tq.started["new"]; !ok {
+		t.Error("a started ticket within its TTL was dropped")
+	}
+	if _, ok := tq.started["starting"]; !ok {
+		t.Error("a start under way was dropped")
 	}
 }

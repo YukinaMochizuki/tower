@@ -159,10 +159,15 @@ boosts follow them meanwhile), waits for boosts to go idle, and edits
 box A. A run killed before it ends leaves what its cleanups would have
 put back: the target's boost settings as the run set them (put them
 back by hand from a copy taken before), `TOWER_SYNC_FILE` edited and
-`boostcheck.tmp` in box A, and the boxes' boosts until they go idle.
+`boostcheck.tmp` in box A, the line `/boostcheck-out/` in box A's
+`.git/info/exclude` and its `boostcheck-out/`, and the boxes' boosts
+until they go idle.
 
 Each check logs what it saw, the boost's output among it. The sync's
 checks edit `TOWER_SYNC_FILE` in box A (README.md unless given) and put
 it back; `TOWER_SYNC_CMD` adds a command to the first boosted job (such
 as `go test ./pkg`), and `TOWER_GEN_CMD` is the job that rewrites
-tracked files (such as `make gen`).
+tracked files (such as `make gen`), whose changes come back to box A;
+`TOWER_SYNC_FILE` is put back once the check ends. A check builds an
+executable in `boostcheck-out/`, ignored in box A by a line it adds to
+the box's `.git/info/exclude`, runs it in the box, and removes both.

@@ -27,10 +27,11 @@ func (s *Server) SetBeforeBoostRetire(fn func(project, box string)) {
 }
 
 // SetBoostSync sets how long a boosted start waits for its sync, a
-// negative wait none, and the most artifacts copy back, for tests.
-func (s *Server) SetBoostSync(wait time.Duration, artifactsMax int64) {
+// negative wait none, and the most one process's changes bring back,
+// for tests.
+func (s *Server) SetBoostSync(wait time.Duration, backMax int64) {
 	s.syncWait.Store(int64(wait))
-	s.artifactsMax = artifactsMax
+	s.backMax = backMax
 }
 
 // SetNoSettleJob keeps the boost controller from settling ended
@@ -77,3 +78,22 @@ func (s *Server) RecordExits(ctx context.Context, project, box string, ps []prov
 	s.exitsListed(ctx, e, listed, true)
 	return nil
 }
+
+// SettleBoostProcess settles the box's boost process id, on its boost's
+// instance, as reading its exit does; ErrWriteBackLater if its box is not
+// ready for its changes yet.
+func (s *Server) SettleBoostProcess(ctx context.Context, target, project, box, instance, id string) error {
+	p, err := s.providerFor(target)
+	if err != nil {
+		return err
+	}
+	_, err = s.settleBoostProcess(ctx, p, controller.Key{Project: project, Name: box}, provider.Instance{Project: project, Name: instance}, id)
+	return err
+}
+
+// ErrWriteBackLater is errWriteBackLater, for tests.
+var ErrWriteBackLater = errWriteBackLater
+
+// SetDeferWriteBack defers the write-back of each boost process defer
+// says, as for a box not ready, until it says otherwise.
+func (s *Server) SetDeferWriteBack(deferred func(id string) bool) { s.deferWriteBack.Store(&deferred) }

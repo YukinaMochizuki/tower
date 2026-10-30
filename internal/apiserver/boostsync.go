@@ -30,73 +30,98 @@ import (
 )
 
 // A boost's sync (docs/decisions/boost.md): before a boosted process
-// starts, the box's work tree is packed in the box (tower-guest
-// boost-pack), copied to the boost through Provider.Copy, and applied
-// there (boost-apply); the process runs under boost-job, whose report and
-// artifacts tower reads once it ends.
+// starts, the boost's /workspace is made the box's: tower-guest walks the
+// boost's (boost-manifest), the manifest is copied to the box, where what
+// differs is packed (boost-pack), copied to the boost through
+// Provider.Copy, and applied there (boost-apply). The process runs under
+// boost-job, which says what it changed; once it ends, that is packed on
+// the boost (boost-back), copied to the box, and written back there
+// (boost-writeback), the box winning a conflict.
 
 const (
 	// boostSyncMax is the most one sync sends.
 	boostSyncMax = 2 << 30
+	// boostBackMax is the most one process's changes bring back.
+	boostBackMax = 2 << 30
 	// boostSyncWait is how long a boosted start waits for its sync before
 	// it answers pending SYNCING.
 	boostSyncWait = 10 * time.Second
-	// boostArtifactsMax is the most a process's artifacts copy back,
-	// together.
-	boostArtifactsMax = 1 << 30
-	// boostSyncKind keeps, per box, the tree last sent to its boost.
+	// boostSyncKind keeps, per box, its last sync to its boost.
 	boostSyncKind = "BoostSync"
 	// checkoutCommitAnnotation is, on a boost's instance, the commit its
-	// first repository was checked out at: the base of its first sync.
+	// first repository was checked out at.
 	checkoutCommitAnnotation = registry.Domain + "/checkout-commit"
 	// workspace is where a box's first repository is, and its boost's.
 	workspace = "/workspace"
+	// forcedKept bounds the paths a sync sends again whatever their
+	// records say.
+	forcedKept = 1000
 )
 
 // boostDir is where the boost subcommands keep their files, in a
 // checkout's git directory.
 var boostDir = path.Join(workspace, ".git", guestbin.BoostDir)
 
-// boostSyncRecord is what boostSyncKind holds: the tree last sent to the
-// box's boost, which a later sync sends what changed since; it counts for
-// that boost's instance alone.
+// boostSyncRecord is what boostSyncKind holds: the box's last sync to its
+// boost, for that boost's instance alone: the tree and HEAD sent, and the
+// box's manifest as sent (LastSent, kept in the box), which a shared sync
+// sends what changed since.
 type boostSyncRecord struct {
 	BoostUID    string `json:"boostUid"`
 	InstanceUID string `json:"instanceUid"`
 	Tree        string `json:"tree"`
 	Head        string `json:"head"`
+	LastSent    string `json:"lastSent,omitempty"`
 }
 
 func boostSyncKey(box controller.Key) store.Key {
 	return store.Key{Kind: boostSyncKind, Project: box.Project, Name: box.Name}
 }
 
-// syncStats are what a sync did, as a process's exit says them.
+// syncStats are what a sync did, as a process's exit says them. Sent
+// names the box's manifest as sent, which the process's write-back
+// compares the box with.
 type syncStats struct {
-	Tree       string        `json:"tree,omitempty"`
-	Took       time.Duration `json:"took"`
-	Bytes      int64         `json:"bytes"`
-	Files      int           `json:"files"`
-	Deleted    int           `json:"deleted"`
-	Full       bool          `json:"full,omitempty"`
-	Shared     bool          `json:"shared,omitempty"`
-	Submodules []string      `json:"submodules,omitempty"`
+	Tree       string             `json:"tree,omitempty"`
+	Sent       string             `json:"sent,omitempty"`
+	Took       time.Duration      `json:"took"`
+	Bytes      int64              `json:"bytes"`
+	Files      int                `json:"files"`
+	Deleted    int                `json:"deleted"`
+	Full       bool               `json:"full,omitempty"`
+	Shared     bool               `json:"shared,omitempty"`
+	Submodules []string           `json:"submodules,omitempty"`
+	Over       []guestbin.OverCap `json:"over,omitempty"`
 }
 
-// runResult is what a boosted process's run left once it ended: what it
-// changed on the boost, and its artifacts.
+// runResult is what a boosted process's run left once it ended: what of
+// its changes was written back.
 type runResult struct {
-	Changed   []guestbin.Changed `json:"changed,omitempty"`
-	Total     int                `json:"total"`
-	Artifacts []artifactResult   `json:"artifacts,omitempty"`
-	Error     string             `json:"error,omitempty"`
+	Back  *writeBack `json:"back,omitempty"`
+	Error string     `json:"error,omitempty"`
 }
 
-type artifactResult struct {
-	Path   string `json:"path"`
-	Bytes  int64  `json:"bytes"`
-	Copied bool   `json:"copied"`
-	Error  string `json:"error,omitempty"`
+// writeBack is a process's write-back to the box.
+type writeBack struct {
+	Took         time.Duration      `json:"took"`
+	Files        int                `json:"files"`
+	Deleted      int                `json:"deleted"`
+	Bytes        int64              `json:"bytes"`
+	Moved        []guestbin.Moved   `json:"moved,omitempty"`
+	Total        int                `json:"total"`
+	Conflicts    []string           `json:"conflicts,omitempty"`
+	Over         []guestbin.OverCap `json:"over,omitempty"`
+	HeadMoved    bool               `json:"headMoved,omitempty"`
+	IndexChanged bool               `json:"indexChanged,omitempty"`
+	Error        string             `json:"error,omitempty"`
+}
+
+func overCaps(over []guestbin.OverCap) []*envv1alpha1.OverCap {
+	var out []*envv1alpha1.OverCap
+	for _, o := range over {
+		out = append(out, &envv1alpha1.OverCap{Path: o.Path, Bytes: o.Bytes})
+	}
+	return out
 }
 
 // boostRunOf is what the API says of a boost process's run.
@@ -107,16 +132,18 @@ func boostRunOf(bp boostProcess) *envv1alpha1.BoostRun {
 	r := &envv1alpha1.BoostRun{}
 	if s := bp.Sync; s != nil {
 		r.Sync, r.SyncBytes, r.SyncFiles, r.SyncDeleted = durationpb.New(s.Took), s.Bytes, int32(s.Files), int32(s.Deleted)
-		r.SyncFull, r.BaseShared, r.SubmodulesNotSynced = s.Full, s.Shared, s.Submodules
+		r.SyncFull, r.BaseShared, r.SubmodulesNotSynced, r.SyncOverCap = s.Full, s.Shared, s.Submodules, overCaps(s.Over)
 	}
 	if run := bp.Run; run != nil {
 		r.Error = run.Error
-		r.Changed = &envv1alpha1.ChangedFiles{Total: int32(run.Total), Truncated: run.Total > len(run.Changed)}
-		for _, c := range run.Changed {
-			r.Changed.Files = append(r.Changed.Files, &envv1alpha1.ChangedFile{Path: c.Path, Status: c.Status})
-		}
-		for _, a := range run.Artifacts {
-			r.Artifacts = append(r.Artifacts, &envv1alpha1.ArtifactResult{Path: a.Path, Bytes: a.Bytes, Copied: a.Copied, Error: a.Error})
+		if b := run.Back; b != nil {
+			r.Back = &envv1alpha1.WriteBack{
+				Took: durationpb.New(b.Took), Files: int32(b.Files), Deleted: int32(b.Deleted), Bytes: b.Bytes, Total: int32(b.Total),
+				Conflicts: b.Conflicts, OverCap: overCaps(b.Over), HeadMoved: b.HeadMoved, IndexChanged: b.IndexChanged, Error: b.Error,
+			}
+			for _, m := range b.Moved {
+				r.Back.Moved = append(r.Back.Moved, &envv1alpha1.MovedFile{Path: m.Path, Status: m.Status, Bytes: m.Bytes})
+			}
 		}
 	}
 	return r
@@ -136,15 +163,20 @@ func guestRun(ctx context.Context, p provider.Provider, ref provider.Instance, a
 	return code, out.Bytes(), strings.TrimSpace(strings.TrimPrefix(errOut.String(), "tower-guest: ")), err
 }
 
-// errSyncTooLarge is a sync past boostSyncMax, which no start sends.
-var errSyncTooLarge = errors.New("the box's changes are too large to sync")
+// errSyncTooLarge is git's state past boostSyncMax, which no sync sends.
+var errSyncTooLarge = errors.New("the box's staged changes and commits are too large to sync")
 
-// syncBoost sends the box's work tree to its boost's instance in: what
-// changed since the tree last sent to it (boostSyncKind), or since the
-// commit it was checked out at, or the whole tree; a send the boost has
-// no base for is sent again whole, once, in the call. shared says a
-// process of the box runs on the boost: what it wrote stays. A box with
-// no checkout has no work tree to send.
+// errSharedNoBase is a shared sync whose last sync is not known: what the
+// running process writes cannot be told from what the box changed.
+var errSharedNoBase = errors.New("another boosted process of the box runs, and the box's last sync is not known")
+
+// syncBoost makes the boost's instance in's /workspace the box's: what
+// differs between the boost's files and the box's is sent, ignored files
+// too, never .git or /.ws-cache; a tracked file whose content the boost's
+// check finds is not the box's is sent again, once. shared says a process
+// of the box runs on the boost: only what the box changed since its last
+// sync is sent, so what that one writes stays. A box with no checkout has
+// nothing to send.
 func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.Boost, in *envv1alpha1.Instance, tq *targetBoosts) (*syncStats, error) {
 	checkouts := e.box.GetSpec().GetCheckouts()
 	if len(checkouts) == 0 {
@@ -167,10 +199,15 @@ func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.B
 	shared = shared || tq.starting[boxKey] > 0
 	tq.mu.Unlock()
 	if !shared {
-		// What the ended ones changed and copied back, before the sync puts
-		// their writes back; if that fails, their writes stay.
-		if err := s.settleInstance(ctx, boxKey, b, in, e.p); err != nil {
+		// What the ended ones changed is written back before the sync undoes
+		// it on the boost; if that fails, their writes stay.
+		err := s.settleInstance(ctx, boxKey, b, in, e.p)
+		if err != nil && !errors.Is(err, errWriteBackLater) {
 			s.log.Warn("settling a boost's ended processes before a sync failed; what they wrote stays", "environment", e.String(), "error", err)
+			shared = true
+		} else if open, err := s.unsettled(ctx, boxKey, in); err != nil || open > 0 {
+			// One not settled yet keeps what it wrote: never undone before it
+			// is written back.
 			shared = true
 		}
 	}
@@ -178,61 +215,79 @@ func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.B
 	if _, err := s.getRecord(ctx, boostSyncKey(boxKey), &rec); err != nil {
 		return nil, err
 	}
-	known := rec.BoostUID == b.GetMetadata().GetUid() && rec.InstanceUID == in.GetMetadata().GetUid() && rec.Tree != ""
-	base := in.GetMetadata().GetAnnotations()[checkoutCommitAnnotation]
-	if known {
-		base = rec.Tree
+	known := rec.BoostUID == b.GetMetadata().GetUid() && rec.InstanceUID == in.GetMetadata().GetUid() && rec.LastSent != ""
+	if shared && !known {
+		return nil, errSharedNoBase
 	}
-	bundleAll, wholeTree := false, false
+	full := !known
+	bundleAll, checked := false, false
+	var forced []string
 	for {
-		id := "sync-" + randomID()
-		stage := path.Join(boostDir, id)
-		args := []string{"boost-pack", "--dir", workspace, "--base", base, "--out", stage, "--max", strconv.Itoa(boostSyncMax)}
-		if bundleAll {
-			args = append(args, "--bundle-all")
-		}
-		code, out, msg, err := guestRun(ctx, e.p, e.ref, args...)
-		clean := func() {
+		name := "sync-" + randomID()
+		stage := path.Join(boostDir, name)
+		clean := func(ref provider.Instance) {
 			// Removed whatever came of the sync; a crash's leftovers are
 			// swept by the next.
 			cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			defer cancel()
-			if _, _, msg, err := guestRun(cctx, e.p, e.ref, "boost-clean", "--dir", workspace, "--name", id); err != nil || msg != "" {
-				s.log.Warn("removing a box's sync staging failed", "environment", e.String(), "error", err, "stderr", msg)
+			if _, _, msg, err := guestRun(cctx, e.p, ref, "boost-clean", "--dir", workspace, "--name", name); err != nil || msg != "" {
+				s.log.Warn("removing a sync's staging failed", "environment", e.String(), "instance", ref.Name, "error", err, "stderr", msg)
 			}
 		}
+		args := []string{"boost-pack", "--dir", workspace, "--out", stage, "--max", strconv.Itoa(boostSyncMax)}
+		if shared {
+			args = append(args, "--shared")
+		} else {
+			// The boost's files, as its manifest says them, in the box.
+			mine := path.Join(stage, "boost.manifest")
+			code, _, msg, err := guestRun(ctx, e.p, boostRef, "boost-manifest", "--dir", workspace, "--out", mine)
+			switch {
+			case err != nil:
+				return nil, providerError(e, fmt.Errorf("reading the boost's files: %w", err))
+			case code != 0:
+				clean(boostRef)
+				return nil, providerError(e, fmt.Errorf("reading the boost's files: exit %d: %s: %w", code, msg, provider.ErrFailed))
+			}
+			err = e.p.Copy(ctx, boostRef, stage, e.ref, stage)
+			clean(boostRef)
+			if err != nil {
+				clean(e.ref)
+				return nil, providerError(e, fmt.Errorf("copying the boost's manifest to the box: %w", err))
+			}
+			args = append(args, "--boost", mine)
+		}
+		if known {
+			args = append(args, "--since", rec.LastSent)
+		}
+		if bundleAll {
+			args = append(args, "--bundle-all")
+		}
+		for _, f := range forced {
+			args = append(args, "--force", f)
+		}
+		code, out, msg, err := guestRun(ctx, e.p, e.ref, args...)
 		switch {
 		case err != nil:
-			clean()
-			return nil, providerError(e, fmt.Errorf("packing the box's work tree: %w", err))
+			clean(e.ref)
+			return nil, providerError(e, fmt.Errorf("packing the box's files: %w", err))
 		case code == guestbin.ExitTooLarge:
-			clean()
+			clean(e.ref)
 			return nil, failedPrecondition("%s: %s (%v)", e, msg, errSyncTooLarge)
+		case code == guestbin.ExitNoSince:
+			clean(e.ref)
+			return nil, fmt.Errorf("%w: %s", errSharedNoBase, msg)
 		case code != 0:
-			clean()
-			return nil, providerError(e, fmt.Errorf("packing the box's work tree: exit %d: %s: %w", code, msg, provider.ErrFailed))
+			clean(e.ref)
+			return nil, providerError(e, fmt.Errorf("packing the box's files: exit %d: %s: %w", code, msg, provider.ErrFailed))
 		}
 		var m guestbin.Manifest
 		if err := json.Unmarshal(out, &m); err != nil {
-			clean()
+			clean(e.ref)
 			return nil, fmt.Errorf("boost-pack's answer: %w", err)
 		}
-		_, err = s.applySync(ctx, e, boostRef, stage, &m, known && rec.Head == m.Head && !bundleAll, shared)
-		clean()
+		a, err := s.applySync(ctx, e, boostRef, stage, &m, known && rec.Head == m.Head && !bundleAll, shared)
+		clean(e.ref)
 		switch {
-		case (errors.Is(err, errNoBase) || errors.Is(err, errTreeMismatch)) && !wholeTree && !m.Full:
-			// The boost lacks the base, or made another tree: the whole
-			// tree, once.
-			s.log.Warn("a boost lacks its sync's base; sending the whole tree", "environment", e.String(), "base", base, "error", err)
-			if err := s.deleteRecord(ctx, boostSyncKey(boxKey)); err != nil {
-				return nil, err
-			}
-			base, known, wholeTree = "", false, true
-			continue
-		case errors.Is(err, errTreeMismatch):
-			// Even the whole tree made another: tower's fault, or the
-			// boost's checkout's, never the box's.
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("%s: syncing the box to its boost: the whole tree sent made another tree there: %w", e, err))
 		case errors.Is(err, errNoHead) && !bundleAll:
 			// The boost lacks what the bundle needs: HEAD's whole history,
 			// once.
@@ -242,18 +297,110 @@ func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.B
 		case err != nil:
 			return nil, err
 		}
-		if err := s.putRecord(ctx, boostSyncKey(boxKey), boostSyncRecord{
-			BoostUID: b.GetMetadata().GetUid(), InstanceUID: in.GetMetadata().GetUid(), Tree: m.Tree, Head: m.Head,
-		}); err != nil {
+		rec = boostSyncRecord{BoostUID: b.GetMetadata().GetUid(), InstanceUID: in.GetMetadata().GetUid(), Tree: m.Tree, Head: m.Head, LastSent: m.Sent}
+		if err := s.putRecord(ctx, boostSyncKey(boxKey), rec); err != nil {
 			return nil, err
 		}
-		st := &syncStats{Tree: m.Tree, Took: s.clock.Since(started), Bytes: m.Bytes, Files: m.Files, Deleted: m.Deleted, Full: m.Full, Shared: shared}
+		known = true
+		if len(a.Mismatch) > 0 {
+			if checked {
+				// Sent again, and still not the box's: tower's fault, or the
+				// boost's checkout's, never the box's.
+				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("%s: syncing the box to its boost: what the boost holds of %s is not the box's, sent again: %w",
+					e, strings.Join(a.Mismatch[:min(len(a.Mismatch), 5)], ", "), errTreeMismatch))
+			}
+			s.log.Warn("a boost holds other content than the box's under the same records; sending it again", "environment", e.String(), "paths", len(a.Mismatch))
+			forced, checked = a.Mismatch[:min(len(a.Mismatch), forcedKept)], true
+			continue
+		}
+		st := &syncStats{Tree: m.Tree, Sent: m.Sent, Took: s.clock.Since(started), Bytes: m.Bytes, Files: m.Files, Deleted: m.Deleted,
+			Full: full, Shared: shared, Over: m.Over}
 		for _, g := range m.Links {
 			st.Submodules = append(st.Submodules, g.Path)
 		}
+		s.pruneSent(ctx, e.p, e.ref, boxKey, m.Sent)
 		s.log.Info("synced a box to its boost", "environment", e.String(), "files", st.Files, "deleted", st.Deleted, "bytes", st.Bytes,
-			"full", st.Full, "shared", st.Shared, "took", st.Took)
+			"over", len(st.Over), "full", st.Full, "shared", st.Shared, "took", st.Took)
 		return st, nil
+	}
+}
+
+// writeBackBeforeStop writes back, before the box's instance stops, what
+// its boost's ended processes changed: as a job, once for the boost's
+// instance; done says it was, or there is nothing to. Those still running
+// are lost with the boost, which the stop deletes.
+func (s *Server) writeBackBeforeStop(ctx context.Context, boxKey controller.Key) (done bool, err error) {
+	// Its boost, READY or going (the stop deletes it), while its instance
+	// runs.
+	b, ok, err := getTyped[*envv1alpha1.Boost](ctx, s, registry.Boost, resource.Key{Project: boxKey.Project, Name: boxKey.Name})
+	if err != nil || !ok {
+		return true, err
+	}
+	in, ok, err := getTyped[*envv1alpha1.Instance](ctx, s, registry.Instance, resource.Key{Project: boxKey.Project, Name: boostInstanceName(b.GetMetadata().GetName())})
+	if err != nil || !ok || !owns(registry.Boost, b, in) || in.GetStatus().GetPhase() != envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING {
+		return true, err
+	}
+	uid := in.GetMetadata().GetUid()
+	if v, ok := s.stopWrittenBack.Load(boxKey.String()); ok && v == uid {
+		return true, nil
+	}
+	if n, err := s.unsettled(ctx, boxKey, in); err != nil || n == 0 {
+		return err == nil, err
+	}
+	p, err := s.providerFor(b.GetSpec().GetTarget())
+	if err != nil {
+		// Its target's provider is not there: nothing can be written back,
+		// and the stop does not wait on it.
+		s.log.Warn("writing a box's boosted processes back before it stops: no provider", "box", boxKey.String(), "error", err)
+		return true, nil //nolint:nilerr // the stop goes on; what is not written back says so once its boost goes
+	}
+	s.startJob(b.GetSpec().GetTarget(), "boost-stop-writeback/"+boxKey.String(), s.boxCtrl, boxKey, func(ctx context.Context) error {
+		if err := s.settleInstance(ctx, boxKey, b, in, p); err != nil {
+			// Its stop does not wait on a write-back that fails: what is not
+			// written back says so once its boost goes.
+			s.log.Warn("writing a box's boosted processes back before it stops failed", "box", boxKey.String(), "error", err)
+		}
+		s.stopWrittenBack.Store(boxKey.String(), uid)
+		return nil
+	})
+	return false, nil
+}
+
+// unsettled counts the box's processes on the boost's instance in whose
+// changes are not written back yet, running or ended.
+func (s *Server) unsettled(ctx context.Context, boxKey controller.Key, in *envv1alpha1.Instance) (int, error) {
+	var rec boxProcesses
+	if _, err := s.getRecord(ctx, boxProcessesKey(boxKey), &rec); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, bp := range rec.Boost {
+		if bp.InstanceUID == in.GetMetadata().GetUid() && bp.RunID != "" && !bp.Settled && !bp.Gone {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// pruneSent removes the box's sent manifests none needs: all but its last
+// sync's, and those of its processes not settled yet, whose write-backs
+// compare the box with them.
+func (s *Server) pruneSent(ctx context.Context, p provider.Provider, boxRef provider.Instance, boxKey controller.Key, last string) {
+	var procs boxProcesses
+	if _, err := s.getRecord(ctx, boxProcessesKey(boxKey), &procs); err != nil {
+		return
+	}
+	args := []string{"boost-clean", "--dir", workspace, "--prune-sent"}
+	if last != "" {
+		args = append(args, "--keep", last)
+	}
+	for _, bp := range procs.Boost {
+		if !bp.Settled && bp.SyncID != "" && !bp.Gone {
+			args = append(args, "--keep", bp.SyncID)
+		}
+	}
+	if code, _, msg, err := guestRun(ctx, p, boxRef, args...); err != nil || code != 0 {
+		s.log.Warn("removing a box's old sent manifests failed", "box", boxKey.String(), "error", err, "stderr", msg)
 	}
 }
 
@@ -270,10 +417,8 @@ func (s *Server) boostRunsSomething(ctx context.Context, p provider.Provider, bo
 // errNoHead is a boost lacking the box's HEAD, or what its bundle needs.
 var errNoHead = errors.New("the boost lacks the box's HEAD")
 
-// errNoBase is a sync's base the boost lacks.
-var errNoBase = errors.New("the boost lacks the sync's base")
-
-// errTreeMismatch is a tree the boost made that is not the one sent.
+// errTreeMismatch is content on the boost that is not the box's, under the
+// same records, sent again.
 var errTreeMismatch = errors.New("the boost made another tree than the one sent")
 
 // applySync brings the pack at stage in the box to the boost and applies
@@ -297,10 +442,6 @@ func (s *Server) applySync(ctx context.Context, e *environment, boostRef provide
 	switch {
 	case err != nil:
 		return nil, providerError(e, fmt.Errorf("applying the box's changes on its boost: %w", err))
-	case code == guestbin.ExitBaseMissing:
-		return nil, fmt.Errorf("%w: %s", errNoBase, msg)
-	case code == guestbin.ExitTreeMismatch:
-		return nil, fmt.Errorf("%w: %s", errTreeMismatch, msg)
 	case code == guestbin.ExitHeadMissing:
 		return nil, fmt.Errorf("%w: %s", errNoHead, msg)
 	case code != 0:
@@ -314,13 +455,9 @@ func (s *Server) applySync(ctx context.Context, e *environment, boostRef provide
 }
 
 // boostJobCommand is command run under boost-job: it says what it
-// changed relative to tree, and measures artifacts, once it ends.
-func boostJobCommand(tree, report string, artifacts, command []string) []string {
-	out := []string{provider.GuestBinary, "boost-job", "--dir", workspace, "--tree", tree, "--report", report}
-	for _, a := range artifacts {
-		out = append(out, "--artifact", a)
-	}
-	return append(append(out, "--"), command...)
+// changed, ignored files too, once it ends.
+func boostJobCommand(report string, command []string) []string {
+	return append([]string{provider.GuestBinary, "boost-job", "--dir", workspace, "--report", report, "--"}, command...)
 }
 
 // withoutBoostJob is command without the boost-job it runs under, if it
@@ -342,19 +479,6 @@ func withoutBoostJob(command []string) []string {
 // reportPath is where a boosted run's boost-job writes its report.
 func reportPath(runID string) string { return path.Join(boostDir, "job-"+runID+".json") }
 
-// checkArtifacts refuses artifacts that are no paths in /workspace, or
-// are in a .git directory, its own or a submodule's.
-func checkArtifacts(artifacts []string) error {
-	for _, a := range artifacts {
-		clean := path.Clean(a)
-		if a == "" || path.IsAbs(a) || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") ||
-			slices.Contains(strings.Split(clean, "/"), ".git") {
-			return invalid("artifact %q is no path in /workspace: one relative to it, not climbing out, not in a .git directory", a)
-		}
-	}
-	return nil
-}
-
 // settling holds the settling of each boost process, so it is done once.
 type settling struct{ m sync.Map }
 
@@ -371,9 +495,12 @@ func (st *settling) lock(id string) func() {
 	}
 }
 
-// settleBoostProcess, once, for an ended boost process: reads what it
-// changed and its artifacts from its report on boostRef, copies its
-// artifacts back to the box (up to boostArtifactsMax), removes the
+// legacyRun is what a process started under an earlier boost-job, whose
+// report says nothing to bring back, is said to have done.
+const legacyRun = "it started before this tower, which brings a boosted process's changes back: nothing was brought back"
+
+// settleBoostProcess, once, for an ended boost process: reads its report
+// on boostRef, writes what it changed back to the box, removes the
 // report, and keeps the result in boxProcesses. What fails is said in
 // the result, never in the process's exit code. It returns the process
 // as kept.
@@ -391,25 +518,30 @@ func (s *Server) settleBoostProcess(ctx context.Context, p provider.Provider, bo
 	var buf bytes.Buffer
 	switch err := p.ReadFile(ctx, boostRef, reportPath(bp.RunID), &buf); {
 	case errors.Is(err, fs.ErrNotExist) || errors.Is(err, provider.ErrNotFound):
-		run.Error = "it wrote no report: its wrapper was killed, or its boost went"
+		run.Error = "it wrote no report: its wrapper was killed, or its boost went; nothing was brought back"
 	case err != nil:
 		return bp, err
 	default:
 		var r guestbin.Report
-		if err := json.Unmarshal(buf.Bytes(), &r); err != nil {
+		switch err := json.Unmarshal(buf.Bytes(), &r); {
+		case err != nil:
 			run.Error = "its report could not be read: " + err.Error()
-		} else {
-			run.Changed, run.Total, run.Error = r.Changed, r.Total, r.Error
-			run.Artifacts = s.copyArtifacts(ctx, p, boxKey, boostRef, r.Artifacts)
-		}
-	}
-	for _, a := range bp.Artifacts {
-		if !slices.ContainsFunc(run.Artifacts, func(r artifactResult) bool { return r.Path == a }) {
-			run.Artifacts = append(run.Artifacts, artifactResult{Path: a, Error: "not measured: " + run.Error})
+		case r.Version < guestbin.ReportVersion || bp.SyncID == "":
+			run.Error = legacyRun
+		case r.Error != "":
+			run.Error = r.Error
+			run.Back = &writeBack{HeadMoved: r.HeadMoved, IndexChanged: r.IndexChanged, Error: "its changes could not be read: nothing was brought back"}
+		default:
+			back, err := s.writeBack(ctx, p, boxKey, boostRef, bp, r)
+			if err != nil {
+				// Not settled: settled again once its box is ready.
+				return bp, err
+			}
+			run.Back = back
 		}
 	}
 	// Settled before its report goes: one settled again after a crash
-	// reads the report, and copies its artifacts, again.
+	// writes back again, where what it wrote is the box's now, in conflict.
 	err := changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool {
 		for i := range r.Boost {
 			if r.Boost[i].ID == id && !r.Boost[i].Settled {
@@ -424,95 +556,123 @@ func (s *Server) settleBoostProcess(ctx context.Context, p provider.Provider, bo
 	if err != nil {
 		return bp, err
 	}
-	if code, _, msg, err := guestRun(ctx, p, boostRef, "boost-clean", "--dir", workspace, "--name", path.Base(reportPath(bp.RunID))); err != nil || code != 0 {
+	report := path.Base(reportPath(bp.RunID))
+	if code, _, msg, err := guestRun(ctx, p, boostRef, "boost-clean", "--dir", workspace, "--name", report,
+		"--name", strings.TrimSuffix(report, ".json")+".changes"); err != nil || code != 0 {
 		s.log.Warn("removing a boost process's report failed", "box", boxKey.String(), "process", id, "error", err, "stderr", msg)
 	}
 	return bp, nil
 }
 
-// copyArtifacts copies measured artifacts back to the box, in order, up
-// to boostArtifactsMax together.
-func (s *Server) copyArtifacts(ctx context.Context, prov provider.Provider, boxKey controller.Key, boostRef provider.Instance, measured []guestbin.Artifact) []artifactResult {
-	var out []artifactResult
-	if len(measured) == 0 {
-		return nil
+// writeBack writes what the process bp changed on boostRef back to its
+// box: packed on the boost (boost-back), copied, and applied in the box
+// (boost-writeback) against the box as the process's sync sent it, so a
+// path the box changed since stays the box's. A box not running gets
+// nothing; what fails is said in the result.
+func (s *Server) writeBack(ctx context.Context, p provider.Provider, boxKey controller.Key, boostRef provider.Instance, bp boostProcess, r guestbin.Report) (*writeBack, error) {
+	if hook := s.deferWriteBack.Load(); hook != nil && (*hook)(bp.ID) {
+		return nil, fmt.Errorf("process %s: deferred: %w", bp.ID, errWriteBackLater)
 	}
-	var boxRef provider.Instance
+	wb := &writeBack{HeadMoved: r.HeadMoved, IndexChanged: r.IndexChanged}
+	started := s.clock.Now()
+	defer func() { wb.Took = s.clock.Since(started) }()
 	box, ok, err := getTyped[*envv1alpha1.Box](ctx, s, registry.Box, resource.Key{Project: boxKey.Project, Name: boxKey.Name})
-	running := err == nil && ok && box.GetStatus().GetPhase() == envv1alpha1.BoxPhase_BOX_PHASE_READY
-	if running {
-		boxRef = provider.Instance{Project: boxKey.Project, Name: box.GetStatus().GetInstance()}
-	}
-	// Measured again right before they are copied: what the report says
-	// was measured when the process ended, and what is there now may have
-	// grown, or become a link out of /workspace.
-	var paths []string
-	for _, a := range measured {
-		if a.Error == "" && a.Exists {
-			paths = append(paths, a.Path)
-		}
-	}
-	now, merr := s.measureArtifacts(ctx, prov, boostRef, paths)
-	var total int64
-	for _, a := range measured {
-		if a.Error == "" && a.Exists {
-			switch m, ok := now[a.Path]; {
-			case merr != nil:
-				a.Error = "it could not be measured again: " + merr.Error()
-			case !ok:
-				a.Error = "it could not be measured again"
-			default:
-				a = m
-			}
-		}
-		r := artifactResult{Path: a.Path, Bytes: a.Bytes, Error: a.Error}
-		switch {
-		case a.Error != "" || !a.Exists:
-			r.Error = "not copied: " + cmp.Or(a.Error, "not there")
-		case total+a.Bytes > s.artifactsLimit():
-			r.Error = fmt.Sprintf("not copied: past the %d bytes artifacts copy back together", s.artifactsLimit())
-		case !running:
-			r.Error = "not copied: the box is not running"
-		default:
-			p := path.Join(workspace, path.Clean(a.Path))
-			pr := prov
-			if err := pr.Copy(ctx, boostRef, p, boxRef, p); err != nil {
-				r.Error = "not copied: " + err.Error()
-			} else {
-				r.Copied, total = true, total+a.Bytes
-			}
-		}
-		out = append(out, r)
-	}
-	return out
-}
-
-// measureArtifacts measures paths on the boost, as boost-job does.
-func (s *Server) measureArtifacts(ctx context.Context, p provider.Provider, boostRef provider.Instance, paths []string) (map[string]guestbin.Artifact, error) {
-	if len(paths) == 0 {
-		return nil, nil
-	}
-	args := []string{"boost-measure", "--dir", workspace}
-	for _, a := range paths {
-		args = append(args, "--artifact", a)
-	}
-	code, out, msg, err := guestRun(ctx, p, boostRef, args...)
 	if err != nil {
 		return nil, err
 	}
-	if code != 0 {
-		return nil, fmt.Errorf("exit %d: %s", code, msg)
+	switch phase := box.GetStatus().GetPhase(); {
+	case !ok || box.GetMetadata().GetDeleteTime() != nil:
+		wb.Error = "the box is gone: nothing was brought back"
+		return wb, nil
+	case phase == envv1alpha1.BoxPhase_BOX_PHASE_READY:
+		// Running, or about to stop once its boost's ended processes are
+		// written back (writeBackBeforeStop).
+	case phase == envv1alpha1.BoxPhase_BOX_PHASE_STOPPED || box.GetStatus().GetStoppedReason() != "" ||
+		box.GetSpec().GetRunState() == envv1alpha1.RunState_RUN_STATE_STOPPED:
+		// Stopped, its boost's ended processes written back before: this one
+		// ended after, or still ran.
+		wb.Error = "the box was stopped when it ended: nothing was brought back"
+		return wb, nil
+	case phase == envv1alpha1.BoxPhase_BOX_PHASE_FAILED:
+		wb.Error = "the box failed: nothing was brought back"
+		return wb, nil
+	default:
+		// Starting, or made again: written back once it is ready.
+		return nil, fmt.Errorf("box %s is %s: its boosted process's changes are written back once it is ready: %w",
+			boxKey, strings.TrimPrefix(phase.String(), "BOX_PHASE_"), errWriteBackLater)
 	}
-	var as []guestbin.Artifact
-	if err := json.Unmarshal(out, &as); err != nil {
-		return nil, err
+	boxRef := provider.Instance{Project: boxKey.Project, Name: box.GetStatus().GetInstance()}
+	name := "sync-back-" + bp.RunID
+	stage := path.Join(boostDir, name)
+	clean := func(ref provider.Instance) {
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		if _, _, msg, err := guestRun(cctx, p, ref, "boost-clean", "--dir", workspace, "--name", name); err != nil || msg != "" {
+			s.log.Warn("removing a write-back's staging failed", "box", boxKey.String(), "instance", ref.Name, "error", err, "stderr", msg)
+		}
 	}
-	m := map[string]guestbin.Artifact{}
-	for _, a := range as {
-		m[a.Path] = a
+	code, out, msg, err := guestRun(ctx, p, boostRef, "boost-back", "--dir", workspace, "--report", reportPath(bp.RunID),
+		"--out", stage, "--max", strconv.FormatInt(s.backLimit(), 10))
+	if err != nil || code != 0 {
+		clean(boostRef)
+		wb.Error = fmt.Sprintf("its changes could not be packed on the boost: %s", cmp.Or(msg, fmt.Sprint(err), fmt.Sprintf("exit %d", code)))
+		return wb, nil
 	}
-	return m, nil
+	var back guestbin.Back
+	if err := json.Unmarshal(out, &back); err != nil {
+		clean(boostRef)
+		wb.Error = "boost-back's answer: " + err.Error()
+		return wb, nil
+	}
+	wb.Moved, wb.Total, wb.Over = back.Moved, back.Total, back.Over
+	if back.Total == 0 {
+		clean(boostRef)
+		return wb, nil
+	}
+	err = p.Copy(ctx, boostRef, stage, boxRef, stage)
+	clean(boostRef)
+	if err != nil {
+		clean(boxRef)
+		wb.Error = "its changes could not be copied to the box: " + err.Error()
+		wb.Moved, wb.Total = nil, 0
+		return wb, nil
+	}
+	var sync boostSyncRecord
+	_, _ = s.getRecord(ctx, boostSyncKey(boxKey), &sync)
+	args := []string{"boost-writeback", "--dir", workspace, "--staging", stage, "--sent", bp.SyncID}
+	if sync.LastSent != "" {
+		args = append(args, "--last", sync.LastSent)
+	}
+	code, out, msg, err = guestRun(ctx, p, boxRef, args...)
+	if err != nil || code != 0 {
+		clean(boxRef)
+		wb.Error = fmt.Sprintf("its changes could not be written back: %s", cmp.Or(msg, fmt.Sprint(err), fmt.Sprintf("exit %d", code)))
+		wb.Moved, wb.Total = nil, 0
+		return wb, nil
+	}
+	var w guestbin.WroteBack
+	if err := json.Unmarshal(out, &w); err != nil {
+		wb.Error = "boost-writeback's answer: " + err.Error()
+		return wb, nil
+	}
+	wb.Files, wb.Deleted, wb.Bytes, wb.Conflicts = w.Files, w.Deleted, w.Bytes, w.Conflicts
+	// What moved is what was written: a conflict stayed the box's, and a
+	// path the box already had as the process left it, another process's
+	// write-back among them, moved nothing.
+	if skip := len(w.Conflicts) + len(w.Unchanged); skip > 0 {
+		wb.Moved = slices.DeleteFunc(wb.Moved, func(m guestbin.Moved) bool {
+			return slices.Contains(w.Conflicts, m.Path) || slices.Contains(w.Unchanged, m.Path)
+		})
+		wb.Total = max(wb.Total-skip, len(wb.Moved))
+	}
+	// The sent manifests none needs are pruned by the next sync, under the
+	// box's sync lock.
+	return wb, nil
 }
+
+// errWriteBackLater is a write-back for a box not ready yet: the process
+// stays unsettled, and is settled again.
+var errWriteBackLater = fmt.Errorf("written back once the box is ready: %w", controller.ErrWaiting)
 
 // syncRun is one boosted start's sync, run as a job: done once it ends.
 type syncRun struct {
@@ -563,7 +723,7 @@ func (s *Server) startSync(e *environment, b *envv1alpha1.Boost, in *envv1alpha1
 	return run
 }
 
-func (s *Server) artifactsLimit() int64 { return cmp.Or(s.artifactsMax, boostArtifactsMax) }
+func (s *Server) backLimit() int64 { return cmp.Or(s.backMax, boostBackMax) }
 
 func (s *Server) syncWaitFor() time.Duration {
 	return cmp.Or(time.Duration(s.syncWait.Load()), boostSyncWait)

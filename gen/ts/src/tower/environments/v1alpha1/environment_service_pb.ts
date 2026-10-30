@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tower/environments/v1alpha1/environment_service.proto.
  */
 export const file_tower_environments_v1alpha1_environment_service: GenFile = /*@__PURE__*/
-  fileDesc("CjV0b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTEvZW52aXJvbm1lbnRfc2VydmljZS5wcm90bxIbdG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExIkgKC0Vudmlyb25tZW50Eg8KB3Byb2plY3QYASABKAkSDQoDYm94GAIgASgJSAASEQoHbWFjaGluZRgDIAEoCUgAQgYKBGtpbmQiwAIKC0V4ZWNSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EjEKBGFyZ3YYAiABKAsyIS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXJndkgAEg8KBXNoZWxsGAMgASgJSAASCwoDZGlyGAQgASgJEj4KA2VudhgFIAMoCzIxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FeGVjUmVxdWVzdC5FbnZFbnRyeRIqCgd0aW1lb3V0GAYgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCCQoHY29tbWFuZCIUCgRBcmd2EgwKBGFyZ3MYASADKAkidQoMRXhlY1Jlc3BvbnNlEhAKBnN0ZG91dBgBIAEoDEgAEhAKBnN0ZGVychgCIAEoDEgAEjUKBGV4aXQYAyABKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRXhlY0V4aXRIAEIKCghyZXNwb25zZSIrCghFeGVjRXhpdBIMCgRjb2RlGAEgASgFEhEKCXRpbWVkX291dBgCIAEoCCJ9Cg9SZWFkRmlsZVJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSDAoEcGF0aBgCIAEoCRIOCgZvZmZzZXQYAyABKAMSDQoFbGltaXQYBCABKAMiZwoQUmVhZEZpbGVSZXNwb25zZRIOCgRkYXRhGAEgASgMSAASNwoDZW5kGAIgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJlYWRGaWxlRW5kSABCCgoIcmVzcG9uc2UiGgoLUmVhZEZpbGVFbmQSCwoDZW9mGAEgASgIIosBChBXcml0ZUZpbGVSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EgwKBHBhdGgYAiABKAkSDAoEZGF0YRgDIAEoDBIOCgZvZmZzZXQYBCABKAMSDAoEbW9kZRgFIAEoDSITChFXcml0ZUZpbGVSZXNwb25zZSKjAQoPQ29weUZpbGVSZXF1ZXN0EjYKBGZyb20YASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSEQoJZnJvbV9wYXRoGAIgASgJEjQKAnRvGAMgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50Eg8KB3RvX3BhdGgYBCABKAkiEgoQQ29weUZpbGVSZXNwb25zZSJTChJGZXRjaE9yaWdpblJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQiVgoTRmV0Y2hPcmlnaW5SZXNwb25zZRI/CgljaGVja291dHMYASADKAsyLC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRmV0Y2hlZENoZWNrb3V0IjMKD0ZldGNoZWRDaGVja291dBISCgpyZXBvc2l0b3J5GAEgASgJEgwKBGhlYWQYAiABKAkifwoLUHVzaFJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSEgoKcmVwb3NpdG9yeRgCIAEoCRIOCgZicmFuY2gYAyABKAkSDQoFbGVhc2UYBCABKAkiDgoMUHVzaFJlc3BvbnNlImEKEklzc3VlVGlja2V0UmVxdWVzdBI9CgtlbnZpcm9ubWVudBgBIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FbnZpcm9ubWVudBIMCgRwb3J0GAIgASgFIp8DChNTdGFydFByb2Nlc3NSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EjEKBGFyZ3YYAiABKAsyIS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXJndkgAEg8KBXNoZWxsGAMgASgJSAASCwoDZGlyGAQgASgJEkYKA2VudhgFIAMoCzI5LnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5TdGFydFByb2Nlc3NSZXF1ZXN0LkVudkVudHJ5EgwKBG5hbWUYBiABKAkSNwoFYm9vc3QYByABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm9vc3RJbnRlbnQSDwoHcGVuZGluZxgIIAEoCRIOCgZjYW5jZWwYCSABKAgSEQoJYXJ0aWZhY3RzGAogAygJGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCCQoHY29tbWFuZCJgCgtCb29zdEludGVudBIMCgJvbhgBIAEoCEgAEjsKCXJlc291cmNlcxgCIAEoCzImLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5SZXNvdXJjZXNIAEIGCgRzaXplIs0BChRTdGFydFByb2Nlc3NSZXNwb25zZRIPCgdwcm9jZXNzGAEgASgJEjoKB3BlbmRpbmcYAiABKAsyKS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUGVuZGluZ1N0YXJ0EjIKBnJhbl9vbhgDIAEoCzIiLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5SYW5PbhI0CgVib29zdBgEIAEoCzIlLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Cb29zdFJ1biLDAgoIQm9vc3RSdW4SJwoEc3luYxgBIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhISCgpzeW5jX2J5dGVzGAIgASgDEhIKCnN5bmNfZmlsZXMYAyABKAUSFAoMc3luY19kZWxldGVkGAQgASgFEhEKCXN5bmNfZnVsbBgFIAEoCBITCgtiYXNlX3NoYXJlZBgGIAEoCBIdChVzdWJtb2R1bGVzX25vdF9zeW5jZWQYByADKAkSOgoHY2hhbmdlZBgIIAEoCzIpLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5DaGFuZ2VkRmlsZXMSPgoJYXJ0aWZhY3RzGAkgAygLMisudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkFydGlmYWN0UmVzdWx0Eg0KBWVycm9yGAogASgJImkKDENoYW5nZWRGaWxlcxI3CgVmaWxlcxgBIAMoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5DaGFuZ2VkRmlsZRINCgV0b3RhbBgCIAEoBRIRCgl0cnVuY2F0ZWQYAyABKAgiKwoLQ2hhbmdlZEZpbGUSDAoEcGF0aBgBIAEoCRIOCgZzdGF0dXMYAiABKAkiTAoOQXJ0aWZhY3RSZXN1bHQSDAoEcGF0aBgBIAEoCRINCgVieXRlcxgCIAEoAxIOCgZjb3BpZWQYAyABKAgSDQoFZXJyb3IYBCABKAkisAEKDFBlbmRpbmdTdGFydBIOCgZ0aWNrZXQYASABKAkSOgoGcmVhc29uGAIgASgOMioudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlBlbmRpbmdSZWFzb24SDwoHbWVzc2FnZRgDIAEoCRIQCghwb3NpdGlvbhgEIAEoBRIxCg5lc3RpbWF0ZWRfd2FpdBgFIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbiJ4CgVSYW5PbhI0CgRraW5kGAEgASgOMiYudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJhbk9uS2luZBI5CglyZXNvdXJjZXMYAiABKAsyJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmVzb3VyY2VzIoYBChRBdHRhY2hQcm9jZXNzUmVxdWVzdBI9CgtlbnZpcm9ubWVudBgBIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FbnZpcm9ubWVudBIPCgdwcm9jZXNzGAIgASgJEg4KBm9mZnNldBgDIAEoAxIOCgZmb2xsb3cYBCABKAgimQEKFUF0dGFjaFByb2Nlc3NSZXNwb25zZRI8CgZvdXRwdXQYASABKAsyKi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUHJvY2Vzc091dHB1dEgAEjYKA2VuZBgCIAEoCzInLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Qcm9jZXNzRW5kSABCCgoIcmVzcG9uc2UiaAoNUHJvY2Vzc091dHB1dBI5CgZzdHJlYW0YASABKA4yKS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuT3V0cHV0U3RyZWFtEg4KBm9mZnNldBgCIAEoAxIMCgRkYXRhGAMgASgMImwKClByb2Nlc3NFbmQSEQoJaGVsZF9mcm9tGAEgASgDEhMKC25leHRfb2Zmc2V0GAIgASgDEjYKBGV4aXQYAyABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUHJvY2Vzc0V4aXQi9gIKC1Byb2Nlc3NFeGl0EgwKBGNvZGUYASABKAUSMwoGc2lnbmFsGAIgASgOMiMudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlNpZ25hbBIeChFtZW1vcnlfcGVha19ieXRlcxgDIAEoA0gAiAEBEhcKCm9vbV9raWxsZWQYBCABKAhIAYgBARIsCgljcHVfdXNhZ2UYBSABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24SKwoIY3B1X3dhaXQYBiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24SJwoEd2FsbBgHIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIMCgRsb3N0GAggASgIEjQKBWJvb3N0GAkgASgLMiUudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkJvb3N0UnVuQhQKEl9tZW1vcnlfcGVha19ieXRlc0INCgtfb29tX2tpbGxlZCKbAQoUU2lnbmFsUHJvY2Vzc1JlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSDwoHcHJvY2VzcxgCIAEoCRIzCgZzaWduYWwYAyABKA4yIy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuU2lnbmFsIhcKFVNpZ25hbFByb2Nlc3NSZXNwb25zZSJVChRMaXN0UHJvY2Vzc2VzUmVxdWVzdBI9CgtlbnZpcm9ubWVudBgBIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FbnZpcm9ubWVudCJUChVMaXN0UHJvY2Vzc2VzUmVzcG9uc2USOwoJcHJvY2Vzc2VzGAEgAygLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlByb2Nlc3NJbmZvIuoBCgtQcm9jZXNzSW5mbxIPCgdwcm9jZXNzGAEgASgJEgwKBG5hbWUYAiABKAkSDwoHY29tbWFuZBgDIAEoCRIuCgpzdGFydF90aW1lGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIPCgdydW5uaW5nGAUgASgIEjYKBGV4aXQYBiABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUHJvY2Vzc0V4aXQSMgoGcmFuX29uGAcgASgLMiIudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJhbk9uImMKE0lzc3VlVGlja2V0UmVzcG9uc2USCwoDdXJsGAEgASgJEg4KBnRpY2tldBgCIAEoCRIvCgtleHBpcmVfdGltZRgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAqzwEKDVBlbmRpbmdSZWFzb24SHgoaUEVORElOR19SRUFTT05fVU5TUEVDSUZJRUQQABIgChxQRU5ESU5HX1JFQVNPTl9RVUVVRURfQlVER0VUEAESIQodUEVORElOR19SRUFTT05fQk9PU1RfU1RBUlRJTkcQAhIdChlQRU5ESU5HX1JFQVNPTl9CT09TVF9CVVNZEAMSHgoaUEVORElOR19SRUFTT05fQk9PU1RfR09JTkcQBBIaChZQRU5ESU5HX1JFQVNPTl9TWU5DSU5HEAUqVAoJUmFuT25LaW5kEhsKF1JBTl9PTl9LSU5EX1VOU1BFQ0lGSUVEEAASEwoPUkFOX09OX0tJTkRfQk9YEAESFQoRUkFOX09OX0tJTkRfQk9PU1QQAiphCgxPdXRwdXRTdHJlYW0SHQoZT1VUUFVUX1NUUkVBTV9VTlNQRUNJRklFRBAAEhgKFE9VVFBVVF9TVFJFQU1fU1RET1VUEAESGAoUT1VUUFVUX1NUUkVBTV9TVERFUlIQAipSCgZTaWduYWwSFgoSU0lHTkFMX1VOU1BFQ0lGSUVEEAASDwoLU0lHTkFMX1RFUk0QARIPCgtTSUdOQUxfS0lMTBACEg4KClNJR05BTF9JTlQQAzLTCQoSRW52aXJvbm1lbnRTZXJ2aWNlEl0KBEV4ZWMSKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRXhlY1JlcXVlc3QaKS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRXhlY1Jlc3BvbnNlMAESaQoIUmVhZEZpbGUSLC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmVhZEZpbGVSZXF1ZXN0Gi0udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJlYWRGaWxlUmVzcG9uc2UwARJqCglXcml0ZUZpbGUSLS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuV3JpdGVGaWxlUmVxdWVzdBouLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Xcml0ZUZpbGVSZXNwb25zZRJnCghDb3B5RmlsZRIsLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Db3B5RmlsZVJlcXVlc3QaLS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQ29weUZpbGVSZXNwb25zZRJwCgtGZXRjaE9yaWdpbhIvLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5GZXRjaE9yaWdpblJlcXVlc3QaMC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRmV0Y2hPcmlnaW5SZXNwb25zZRJbCgRQdXNoEigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlB1c2hSZXF1ZXN0GikudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlB1c2hSZXNwb25zZRJwCgtJc3N1ZVRpY2tldBIvLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Jc3N1ZVRpY2tldFJlcXVlc3QaMC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSXNzdWVUaWNrZXRSZXNwb25zZRJzCgxTdGFydFByb2Nlc3MSMC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuU3RhcnRQcm9jZXNzUmVxdWVzdBoxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5TdGFydFByb2Nlc3NSZXNwb25zZRJ4Cg1BdHRhY2hQcm9jZXNzEjEudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkF0dGFjaFByb2Nlc3NSZXF1ZXN0GjIudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkF0dGFjaFByb2Nlc3NSZXNwb25zZTABEnYKDVNpZ25hbFByb2Nlc3MSMS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuU2lnbmFsUHJvY2Vzc1JlcXVlc3QaMi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuU2lnbmFsUHJvY2Vzc1Jlc3BvbnNlEnYKDUxpc3RQcm9jZXNzZXMSMS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuTGlzdFByb2Nlc3Nlc1JlcXVlc3QaMi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuTGlzdFByb2Nlc3Nlc1Jlc3BvbnNlQqICCh9jb20udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExQhdFbnZpcm9ubWVudFNlcnZpY2VQcm90b1ABWlhnaXRodWIuY29tL1l1a2luYU1vY2hpenVraS90b3dlci9nZW4vZ28vdG93ZXIvZW52aXJvbm1lbnRzL3YxYWxwaGExO2Vudmlyb25tZW50c3YxYWxwaGExogIDVEVYqgIbVG93ZXIuRW52aXJvbm1lbnRzLlYxYWxwaGExygIbVG93ZXJcRW52aXJvbm1lbnRzXFYxYWxwaGEx4gInVG93ZXJcRW52aXJvbm1lbnRzXFYxYWxwaGExXEdQQk1ldGFkYXRh6gIdVG93ZXI6OkVudmlyb25tZW50czo6VjFhbHBoYTFiBnByb3RvMw", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_tower_environments_v1alpha1_common]);
+  fileDesc("CjV0b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTEvZW52aXJvbm1lbnRfc2VydmljZS5wcm90bxIbdG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExIkgKC0Vudmlyb25tZW50Eg8KB3Byb2plY3QYASABKAkSDQoDYm94GAIgASgJSAASEQoHbWFjaGluZRgDIAEoCUgAQgYKBGtpbmQiwAIKC0V4ZWNSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EjEKBGFyZ3YYAiABKAsyIS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXJndkgAEg8KBXNoZWxsGAMgASgJSAASCwoDZGlyGAQgASgJEj4KA2VudhgFIAMoCzIxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FeGVjUmVxdWVzdC5FbnZFbnRyeRIqCgd0aW1lb3V0GAYgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCCQoHY29tbWFuZCIUCgRBcmd2EgwKBGFyZ3MYASADKAkidQoMRXhlY1Jlc3BvbnNlEhAKBnN0ZG91dBgBIAEoDEgAEhAKBnN0ZGVychgCIAEoDEgAEjUKBGV4aXQYAyABKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRXhlY0V4aXRIAEIKCghyZXNwb25zZSIrCghFeGVjRXhpdBIMCgRjb2RlGAEgASgFEhEKCXRpbWVkX291dBgCIAEoCCJ9Cg9SZWFkRmlsZVJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSDAoEcGF0aBgCIAEoCRIOCgZvZmZzZXQYAyABKAMSDQoFbGltaXQYBCABKAMiZwoQUmVhZEZpbGVSZXNwb25zZRIOCgRkYXRhGAEgASgMSAASNwoDZW5kGAIgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJlYWRGaWxlRW5kSABCCgoIcmVzcG9uc2UiGgoLUmVhZEZpbGVFbmQSCwoDZW9mGAEgASgIIosBChBXcml0ZUZpbGVSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EgwKBHBhdGgYAiABKAkSDAoEZGF0YRgDIAEoDBIOCgZvZmZzZXQYBCABKAMSDAoEbW9kZRgFIAEoDSITChFXcml0ZUZpbGVSZXNwb25zZSKjAQoPQ29weUZpbGVSZXF1ZXN0EjYKBGZyb20YASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSEQoJZnJvbV9wYXRoGAIgASgJEjQKAnRvGAMgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50Eg8KB3RvX3BhdGgYBCABKAkiEgoQQ29weUZpbGVSZXNwb25zZSJTChJGZXRjaE9yaWdpblJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQiVgoTRmV0Y2hPcmlnaW5SZXNwb25zZRI/CgljaGVja291dHMYASADKAsyLC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRmV0Y2hlZENoZWNrb3V0IjMKD0ZldGNoZWRDaGVja291dBISCgpyZXBvc2l0b3J5GAEgASgJEgwKBGhlYWQYAiABKAkifwoLUHVzaFJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSEgoKcmVwb3NpdG9yeRgCIAEoCRIOCgZicmFuY2gYAyABKAkSDQoFbGVhc2UYBCABKAkiDgoMUHVzaFJlc3BvbnNlImEKEklzc3VlVGlja2V0UmVxdWVzdBI9CgtlbnZpcm9ubWVudBgBIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FbnZpcm9ubWVudBIMCgRwb3J0GAIgASgFIp0DChNTdGFydFByb2Nlc3NSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EjEKBGFyZ3YYAiABKAsyIS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXJndkgAEg8KBXNoZWxsGAMgASgJSAASCwoDZGlyGAQgASgJEkYKA2VudhgFIAMoCzI5LnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5TdGFydFByb2Nlc3NSZXF1ZXN0LkVudkVudHJ5EgwKBG5hbWUYBiABKAkSNwoFYm9vc3QYByABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm9vc3RJbnRlbnQSDwoHcGVuZGluZxgIIAEoCRIOCgZjYW5jZWwYCSABKAgaKgoIRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4AUIJCgdjb21tYW5kSgQIChALUglhcnRpZmFjdHMiYAoLQm9vc3RJbnRlbnQSDAoCb24YASABKAhIABI7CglyZXNvdXJjZXMYAiABKAsyJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmVzb3VyY2VzSABCBgoEc2l6ZSLNAQoUU3RhcnRQcm9jZXNzUmVzcG9uc2USDwoHcHJvY2VzcxgBIAEoCRI6CgdwZW5kaW5nGAIgASgLMikudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlBlbmRpbmdTdGFydBIyCgZyYW5fb24YAyABKAsyIi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmFuT24SNAoFYm9vc3QYBCABKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm9vc3RSdW4i2gIKCEJvb3N0UnVuEicKBHN5bmMYASABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24SEgoKc3luY19ieXRlcxgCIAEoAxISCgpzeW5jX2ZpbGVzGAMgASgFEhQKDHN5bmNfZGVsZXRlZBgEIAEoBRIRCglzeW5jX2Z1bGwYBSABKAgSEwoLYmFzZV9zaGFyZWQYBiABKAgSHQoVc3VibW9kdWxlc19ub3Rfc3luY2VkGAcgAygJEg0KBWVycm9yGAogASgJEjsKDXN5bmNfb3Zlcl9jYXAYCyADKAsyJC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuT3ZlckNhcBI0CgRiYWNrGAwgASgLMiYudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLldyaXRlQmFja0oECAgQCUoECAkQClIHY2hhbmdlZFIJYXJ0aWZhY3RzIq4CCglXcml0ZUJhY2sSJwoEdG9vaxgBIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhINCgVmaWxlcxgCIAEoBRIPCgdkZWxldGVkGAMgASgFEg0KBWJ5dGVzGAQgASgDEjUKBW1vdmVkGAUgAygLMiYudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLk1vdmVkRmlsZRINCgV0b3RhbBgGIAEoBRIRCgljb25mbGljdHMYByADKAkSNgoIb3Zlcl9jYXAYCCADKAsyJC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuT3ZlckNhcBISCgpoZWFkX21vdmVkGAkgASgIEhUKDWluZGV4X2NoYW5nZWQYCiABKAgSDQoFZXJyb3IYCyABKAkiOAoJTW92ZWRGaWxlEgwKBHBhdGgYASABKAkSDgoGc3RhdHVzGAIgASgJEg0KBWJ5dGVzGAMgASgDIiYKB092ZXJDYXASDAoEcGF0aBgBIAEoCRINCgVieXRlcxgCIAEoAyKwAQoMUGVuZGluZ1N0YXJ0Eg4KBnRpY2tldBgBIAEoCRI6CgZyZWFzb24YAiABKA4yKi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUGVuZGluZ1JlYXNvbhIPCgdtZXNzYWdlGAMgASgJEhAKCHBvc2l0aW9uGAQgASgFEjEKDmVzdGltYXRlZF93YWl0GAUgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uIngKBVJhbk9uEjQKBGtpbmQYASABKA4yJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmFuT25LaW5kEjkKCXJlc291cmNlcxgCIAEoCzImLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5SZXNvdXJjZXMihgEKFEF0dGFjaFByb2Nlc3NSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50Eg8KB3Byb2Nlc3MYAiABKAkSDgoGb2Zmc2V0GAMgASgDEg4KBmZvbGxvdxgEIAEoCCKZAQoVQXR0YWNoUHJvY2Vzc1Jlc3BvbnNlEjwKBm91dHB1dBgBIAEoCzIqLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Qcm9jZXNzT3V0cHV0SAASNgoDZW5kGAIgASgLMicudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlByb2Nlc3NFbmRIAEIKCghyZXNwb25zZSJoCg1Qcm9jZXNzT3V0cHV0EjkKBnN0cmVhbRgBIAEoDjIpLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5PdXRwdXRTdHJlYW0SDgoGb2Zmc2V0GAIgASgDEgwKBGRhdGEYAyABKAwibAoKUHJvY2Vzc0VuZBIRCgloZWxkX2Zyb20YASABKAMSEwoLbmV4dF9vZmZzZXQYAiABKAMSNgoEZXhpdBgDIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Qcm9jZXNzRXhpdCL2AgoLUHJvY2Vzc0V4aXQSDAoEY29kZRgBIAEoBRIzCgZzaWduYWwYAiABKA4yIy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuU2lnbmFsEh4KEW1lbW9yeV9wZWFrX2J5dGVzGAMgASgDSACIAQESFwoKb29tX2tpbGxlZBgEIAEoCEgBiAEBEiwKCWNwdV91c2FnZRgFIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIrCghjcHVfd2FpdBgGIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhInCgR3YWxsGAcgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEgwKBGxvc3QYCCABKAgSNAoFYm9vc3QYCSABKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm9vc3RSdW5CFAoSX21lbW9yeV9wZWFrX2J5dGVzQg0KC19vb21fa2lsbGVkIpsBChRTaWduYWxQcm9jZXNzUmVxdWVzdBI9CgtlbnZpcm9ubWVudBgBIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FbnZpcm9ubWVudBIPCgdwcm9jZXNzGAIgASgJEjMKBnNpZ25hbBgDIAEoDjIjLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5TaWduYWwiFwoVU2lnbmFsUHJvY2Vzc1Jlc3BvbnNlIlUKFExpc3RQcm9jZXNzZXNSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50IlQKFUxpc3RQcm9jZXNzZXNSZXNwb25zZRI7Cglwcm9jZXNzZXMYASADKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUHJvY2Vzc0luZm8i6gEKC1Byb2Nlc3NJbmZvEg8KB3Byb2Nlc3MYASABKAkSDAoEbmFtZRgCIAEoCRIPCgdjb21tYW5kGAMgASgJEi4KCnN0YXJ0X3RpbWUYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB3J1bm5pbmcYBSABKAgSNgoEZXhpdBgGIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Qcm9jZXNzRXhpdBIyCgZyYW5fb24YByABKAsyIi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmFuT24iYwoTSXNzdWVUaWNrZXRSZXNwb25zZRILCgN1cmwYASABKAkSDgoGdGlja2V0GAIgASgJEi8KC2V4cGlyZV90aW1lGAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCrPAQoNUGVuZGluZ1JlYXNvbhIeChpQRU5ESU5HX1JFQVNPTl9VTlNQRUNJRklFRBAAEiAKHFBFTkRJTkdfUkVBU09OX1FVRVVFRF9CVURHRVQQARIhCh1QRU5ESU5HX1JFQVNPTl9CT09TVF9TVEFSVElORxACEh0KGVBFTkRJTkdfUkVBU09OX0JPT1NUX0JVU1kQAxIeChpQRU5ESU5HX1JFQVNPTl9CT09TVF9HT0lORxAEEhoKFlBFTkRJTkdfUkVBU09OX1NZTkNJTkcQBSpUCglSYW5PbktpbmQSGwoXUkFOX09OX0tJTkRfVU5TUEVDSUZJRUQQABITCg9SQU5fT05fS0lORF9CT1gQARIVChFSQU5fT05fS0lORF9CT09TVBACKmEKDE91dHB1dFN0cmVhbRIdChlPVVRQVVRfU1RSRUFNX1VOU1BFQ0lGSUVEEAASGAoUT1VUUFVUX1NUUkVBTV9TVERPVVQQARIYChRPVVRQVVRfU1RSRUFNX1NUREVSUhACKlIKBlNpZ25hbBIWChJTSUdOQUxfVU5TUEVDSUZJRUQQABIPCgtTSUdOQUxfVEVSTRABEg8KC1NJR05BTF9LSUxMEAISDgoKU0lHTkFMX0lOVBADMtMJChJFbnZpcm9ubWVudFNlcnZpY2USXQoERXhlYxIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FeGVjUmVxdWVzdBopLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FeGVjUmVzcG9uc2UwARJpCghSZWFkRmlsZRIsLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5SZWFkRmlsZVJlcXVlc3QaLS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmVhZEZpbGVSZXNwb25zZTABEmoKCVdyaXRlRmlsZRItLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Xcml0ZUZpbGVSZXF1ZXN0Gi4udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLldyaXRlRmlsZVJlc3BvbnNlEmcKCENvcHlGaWxlEiwudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkNvcHlGaWxlUmVxdWVzdBotLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Db3B5RmlsZVJlc3BvbnNlEnAKC0ZldGNoT3JpZ2luEi8udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkZldGNoT3JpZ2luUmVxdWVzdBowLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5GZXRjaE9yaWdpblJlc3BvbnNlElsKBFB1c2gSKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUHVzaFJlcXVlc3QaKS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUHVzaFJlc3BvbnNlEnAKC0lzc3VlVGlja2V0Ei8udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLklzc3VlVGlja2V0UmVxdWVzdBowLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Jc3N1ZVRpY2tldFJlc3BvbnNlEnMKDFN0YXJ0UHJvY2VzcxIwLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5TdGFydFByb2Nlc3NSZXF1ZXN0GjEudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlN0YXJ0UHJvY2Vzc1Jlc3BvbnNlEngKDUF0dGFjaFByb2Nlc3MSMS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXR0YWNoUHJvY2Vzc1JlcXVlc3QaMi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXR0YWNoUHJvY2Vzc1Jlc3BvbnNlMAESdgoNU2lnbmFsUHJvY2VzcxIxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5TaWduYWxQcm9jZXNzUmVxdWVzdBoyLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5TaWduYWxQcm9jZXNzUmVzcG9uc2USdgoNTGlzdFByb2Nlc3NlcxIxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5MaXN0UHJvY2Vzc2VzUmVxdWVzdBoyLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5MaXN0UHJvY2Vzc2VzUmVzcG9uc2VCogIKH2NvbS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTFCF0Vudmlyb25tZW50U2VydmljZVByb3RvUAFaWGdpdGh1Yi5jb20vWXVraW5hTW9jaGl6dWtpL3Rvd2VyL2dlbi9nby90b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTE7ZW52aXJvbm1lbnRzdjFhbHBoYTGiAgNURViqAhtUb3dlci5FbnZpcm9ubWVudHMuVjFhbHBoYTHKAhtUb3dlclxFbnZpcm9ubWVudHNcVjFhbHBoYTHiAidUb3dlclxFbnZpcm9ubWVudHNcVjFhbHBoYTFcR1BCTWV0YWRhdGHqAh1Ub3dlcjo6RW52aXJvbm1lbnRzOjpWMWFscGhhMWIGcHJvdG8z", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_tower_environments_v1alpha1_common]);
 
 /**
  * Environment names a box or a machine.
@@ -598,21 +598,15 @@ export type StartProcessRequest = Message<"tower.environments.v1alpha1.StartProc
 
   /**
    * With pending, gives the ticket up instead: nothing starts, and its
-   * place goes to the next.
+   * place goes to the next. A ticket that started its process, asked
+   * about again within five minutes of its start, after an apiserver's
+   * restart too, is answered that process, never a second start, so a
+   * caller that lost the answer asks again safely; cancelled, that
+   * process is sent TERM, and is answered.
    *
    * @generated from field: bool cancel = 9;
    */
   cancel: boolean;
-
-  /**
-   * A boosted process's artifacts: paths relative to /workspace, copied
-   * back to the same paths in the box once it ends, up to 1GiB together
-   * in the order given; what was not copied, and why, is in its exit
-   * (ProcessExit.boost). Only a boosted start takes them.
-   *
-   * @generated from field: repeated string artifacts = 10;
-   */
-  artifacts: string[];
 };
 
 /**
@@ -703,8 +697,11 @@ export const StartProcessResponseSchema: GenMessage<StartProcessResponse> = /*@_
 
 /**
  * BoostRun is what a boosted process's run did beside the process: the
- * sync of the box's work tree to the boost before it started, and, once
- * it ended, what it changed there and its artifacts copied back. See
+ * sync of the box's /workspace to the boost before it started, and, once
+ * it ended, what of its changes was written back to the box. To the
+ * caller there is one box: once a boosted process ended, the box's
+ * /workspace is as if it had run there, but for what is said here
+ * (conflicts, over the cap) and git's own state. See
  * docs/decisions/boost.md.
  *
  * @generated from message tower.environments.v1alpha1.BoostRun
@@ -712,8 +709,8 @@ export const StartProcessResponseSchema: GenMessage<StartProcessResponse> = /*@_
 export type BoostRun = Message<"tower.environments.v1alpha1.BoostRun"> & {
   /**
    * How long the sync took, and what it sent: files written, paths
-   * deleted, and their bytes. A whole tree is sent (sync_full) when the
-   * boost's last tree is not known or not there.
+   * deleted, and their bytes. sync_full: the boost's last sync is not
+   * known, so all that differs was sent.
    *
    * @generated from field: google.protobuf.Duration sync = 1;
    */
@@ -740,43 +737,43 @@ export type BoostRun = Message<"tower.environments.v1alpha1.BoostRun"> & {
   syncFull: boolean;
 
   /**
-   * Another process of the box ran on the boost as it synced: what that
-   * one wrote was left in place, so it is in this one's tree, and its
-   * changed files may list it.
+   * Another process of the box ran on the boost as it synced: only what
+   * the box changed since its last sync was sent, and what that one wrote
+   * was left in place.
    *
    * @generated from field: bool base_shared = 6;
    */
   baseShared: boolean;
 
   /**
-   * Submodules (and nested repositories) whose checkouts were not
-   * synced: the boost keeps its own.
+   * Submodules (and nested repositories) whose git state is the boost's
+   * own: their files are synced as any, their .git never.
    *
    * @generated from field: repeated string submodules_not_synced = 7;
    */
   submodulesNotSynced: string[];
 
   /**
-   * Once it ended: the files it changed on the boost relative to the
-   * tree synced, which are not copied back.
-   *
-   * @generated from field: tower.environments.v1alpha1.ChangedFiles changed = 8;
-   */
-  changed?: ChangedFiles | undefined;
-
-  /**
-   * Once it ended: each artifact, copied back or not.
-   *
-   * @generated from field: repeated tower.environments.v1alpha1.ArtifactResult artifacts = 9;
-   */
-  artifacts: ArtifactResult[];
-
-  /**
-   * Why its changed files or artifacts could not be read, if so.
+   * Why its changes could not be read or written back, if so.
    *
    * @generated from field: string error = 10;
    */
   error: string;
+
+  /**
+   * Files the sync did not send, past what one sync sends (2GiB): the
+   * process ran with the boost's.
+   *
+   * @generated from field: repeated tower.environments.v1alpha1.OverCap sync_over_cap = 11;
+   */
+  syncOverCap: OverCap[];
+
+  /**
+   * Once it ended: what of its changes was written back to the box.
+   *
+   * @generated from field: tower.environments.v1alpha1.WriteBack back = 12;
+   */
+  back?: WriteBack | undefined;
 };
 
 /**
@@ -787,66 +784,133 @@ export const BoostRunSchema: GenMessage<BoostRun> = /*@__PURE__*/
   messageDesc(file_tower_environments_v1alpha1_environment_service, 21);
 
 /**
- * ChangedFiles are the files a boosted process changed: at most 200,
- * with how many there were.
+ * WriteBack is what a boosted process changed in /workspace on its boost,
+ * written back to the box once it ended, before its exit was answered:
+ * every path it added, changed or deleted, ignored files too, with modes
+ * and links; never .git or /.ws-cache, nor a path through a link.
  *
- * @generated from message tower.environments.v1alpha1.ChangedFiles
+ * @generated from message tower.environments.v1alpha1.WriteBack
  */
-export type ChangedFiles = Message<"tower.environments.v1alpha1.ChangedFiles"> & {
+export type WriteBack = Message<"tower.environments.v1alpha1.WriteBack"> & {
   /**
-   * @generated from field: repeated tower.environments.v1alpha1.ChangedFile files = 1;
+   * @generated from field: google.protobuf.Duration took = 1;
    */
-  files: ChangedFile[];
+  took?: Duration | undefined;
 
   /**
-   * @generated from field: int32 total = 2;
+   * Files written, paths deleted, and the files' bytes.
+   *
+   * @generated from field: int32 files = 2;
+   */
+  files: number;
+
+  /**
+   * @generated from field: int32 deleted = 3;
+   */
+  deleted: number;
+
+  /**
+   * @generated from field: int64 bytes = 4;
+   */
+  bytes: bigint;
+
+  /**
+   * The paths this write-back wrote, the first 200, with how many there
+   * were: not those the box already had as the process left them, as
+   * another process's write-back made them.
+   *
+   * @generated from field: repeated tower.environments.v1alpha1.MovedFile moved = 5;
+   */
+  moved: MovedFile[];
+
+  /**
+   * @generated from field: int32 total = 6;
    */
   total: number;
 
   /**
-   * @generated from field: bool truncated = 3;
+   * Paths the box changed after the process's sync began, or whose
+   * directory it did: the box's stay, the process's are not written.
+   *
+   * @generated from field: repeated string conflicts = 7;
    */
-  truncated: boolean;
+  conflicts: string[];
+
+  /**
+   * Files not brought back, past what one process brings back (2GiB):
+   * they are only on the boost, and the next sync not beside a running
+   * process removes them there, an exception to "as if it had run in the
+   * box".
+   *
+   * @generated from field: repeated tower.environments.v1alpha1.OverCap over_cap = 8;
+   */
+  overCap: OverCap[];
+
+  /**
+   * The process moved git's HEAD (a commit), or changed its index (git
+   * add): neither comes back, an exception to "as if it had run in the
+   * box"; its files do.
+   *
+   * @generated from field: bool head_moved = 9;
+   */
+  headMoved: boolean;
+
+  /**
+   * @generated from field: bool index_changed = 10;
+   */
+  indexChanged: boolean;
+
+  /**
+   * Why nothing, or not all, came back: the box was not running, the
+   * process started before this tower, or the write-back failed.
+   *
+   * @generated from field: string error = 11;
+   */
+  error: string;
 };
 
 /**
- * Describes the message tower.environments.v1alpha1.ChangedFiles.
- * Use `create(ChangedFilesSchema)` to create a new message.
+ * Describes the message tower.environments.v1alpha1.WriteBack.
+ * Use `create(WriteBackSchema)` to create a new message.
  */
-export const ChangedFilesSchema: GenMessage<ChangedFiles> = /*@__PURE__*/
+export const WriteBackSchema: GenMessage<WriteBack> = /*@__PURE__*/
   messageDesc(file_tower_environments_v1alpha1_environment_service, 22);
 
 /**
- * @generated from message tower.environments.v1alpha1.ChangedFile
+ * MovedFile is a path written back: A added, M changed, D deleted.
+ *
+ * @generated from message tower.environments.v1alpha1.MovedFile
  */
-export type ChangedFile = Message<"tower.environments.v1alpha1.ChangedFile"> & {
+export type MovedFile = Message<"tower.environments.v1alpha1.MovedFile"> & {
   /**
    * @generated from field: string path = 1;
    */
   path: string;
 
   /**
-   * A added (new, and not ignored), M modified, D deleted, T its type
-   * changed (a file, a symlink).
-   *
    * @generated from field: string status = 2;
    */
   status: string;
+
+  /**
+   * @generated from field: int64 bytes = 3;
+   */
+  bytes: bigint;
 };
 
 /**
- * Describes the message tower.environments.v1alpha1.ChangedFile.
- * Use `create(ChangedFileSchema)` to create a new message.
+ * Describes the message tower.environments.v1alpha1.MovedFile.
+ * Use `create(MovedFileSchema)` to create a new message.
  */
-export const ChangedFileSchema: GenMessage<ChangedFile> = /*@__PURE__*/
+export const MovedFileSchema: GenMessage<MovedFile> = /*@__PURE__*/
   messageDesc(file_tower_environments_v1alpha1_environment_service, 23);
 
 /**
- * ArtifactResult is one artifact a boosted process named.
+ * OverCap is a file past a move's cap, not moved.
  *
- * @generated from message tower.environments.v1alpha1.ArtifactResult
+ * @generated from message tower.environments.v1alpha1.OverCap
  */
-export type ArtifactResult = Message<"tower.environments.v1alpha1.ArtifactResult"> & {
+export type OverCap = Message<"tower.environments.v1alpha1.OverCap"> & {
   /**
    * @generated from field: string path = 1;
    */
@@ -856,26 +920,13 @@ export type ArtifactResult = Message<"tower.environments.v1alpha1.ArtifactResult
    * @generated from field: int64 bytes = 2;
    */
   bytes: bigint;
-
-  /**
-   * @generated from field: bool copied = 3;
-   */
-  copied: boolean;
-
-  /**
-   * Why it was not copied: not there, outside /workspace, past the cap,
-   * or the copy failed.
-   *
-   * @generated from field: string error = 4;
-   */
-  error: string;
 };
 
 /**
- * Describes the message tower.environments.v1alpha1.ArtifactResult.
- * Use `create(ArtifactResultSchema)` to create a new message.
+ * Describes the message tower.environments.v1alpha1.OverCap.
+ * Use `create(OverCapSchema)` to create a new message.
  */
-export const ArtifactResultSchema: GenMessage<ArtifactResult> = /*@__PURE__*/
+export const OverCapSchema: GenMessage<OverCap> = /*@__PURE__*/
   messageDesc(file_tower_environments_v1alpha1_environment_service, 24);
 
 /**

@@ -36,7 +36,10 @@ func Main(args []string) int {
 	case "version":
 		fmt.Println(Version)
 		return 0
-	case "boost-pack", "boost-apply", "boost-job", "boost-clean":
+	}
+	if strings.HasPrefix(args[0], "boost-") {
+		// Every boost subcommand, the boost's own dispatch refusing one it
+		// has not.
 		return boostMain(args)
 	}
 	fmt.Fprintf(os.Stderr, "tower-guest: no command %q\n", args[0])

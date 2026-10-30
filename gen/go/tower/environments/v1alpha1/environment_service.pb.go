@@ -1412,13 +1412,12 @@ type StartProcessRequest struct {
 	// even with no boost held is refused at once (FAILED_PRECONDITION).
 	Pending string `protobuf:"bytes,8,opt,name=pending,proto3" json:"pending,omitempty"`
 	// With pending, gives the ticket up instead: nothing starts, and its
-	// place goes to the next.
-	Cancel bool `protobuf:"varint,9,opt,name=cancel,proto3" json:"cancel,omitempty"`
-	// A boosted process's artifacts: paths relative to /workspace, copied
-	// back to the same paths in the box once it ends, up to 1GiB together
-	// in the order given; what was not copied, and why, is in its exit
-	// (ProcessExit.boost). Only a boosted start takes them.
-	Artifacts     []string `protobuf:"bytes,10,rep,name=artifacts,proto3" json:"artifacts,omitempty"`
+	// place goes to the next. A ticket that started its process, asked
+	// about again within five minutes of its start, after an apiserver's
+	// restart too, is answered that process, never a second start, so a
+	// caller that lost the answer asks again safely; cancelled, that
+	// process is sent TERM, and is answered.
+	Cancel        bool `protobuf:"varint,9,opt,name=cancel,proto3" json:"cancel,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1525,13 +1524,6 @@ func (x *StartProcessRequest) GetCancel() bool {
 		return x.Cancel
 	}
 	return false
-}
-
-func (x *StartProcessRequest) GetArtifacts() []string {
-	if x != nil {
-		return x.Artifacts
-	}
-	return nil
 }
 
 type isStartProcessRequest_Command interface {
@@ -1714,33 +1706,36 @@ func (x *StartProcessResponse) GetBoost() *BoostRun {
 }
 
 // BoostRun is what a boosted process's run did beside the process: the
-// sync of the box's work tree to the boost before it started, and, once
-// it ended, what it changed there and its artifacts copied back. See
+// sync of the box's /workspace to the boost before it started, and, once
+// it ended, what of its changes was written back to the box. To the
+// caller there is one box: once a boosted process ended, the box's
+// /workspace is as if it had run there, but for what is said here
+// (conflicts, over the cap) and git's own state. See
 // docs/decisions/boost.md.
 type BoostRun struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// How long the sync took, and what it sent: files written, paths
-	// deleted, and their bytes. A whole tree is sent (sync_full) when the
-	// boost's last tree is not known or not there.
+	// deleted, and their bytes. sync_full: the boost's last sync is not
+	// known, so all that differs was sent.
 	Sync        *durationpb.Duration `protobuf:"bytes,1,opt,name=sync,proto3" json:"sync,omitempty"`
 	SyncBytes   int64                `protobuf:"varint,2,opt,name=sync_bytes,json=syncBytes,proto3" json:"sync_bytes,omitempty"`
 	SyncFiles   int32                `protobuf:"varint,3,opt,name=sync_files,json=syncFiles,proto3" json:"sync_files,omitempty"`
 	SyncDeleted int32                `protobuf:"varint,4,opt,name=sync_deleted,json=syncDeleted,proto3" json:"sync_deleted,omitempty"`
 	SyncFull    bool                 `protobuf:"varint,5,opt,name=sync_full,json=syncFull,proto3" json:"sync_full,omitempty"`
-	// Another process of the box ran on the boost as it synced: what that
-	// one wrote was left in place, so it is in this one's tree, and its
-	// changed files may list it.
+	// Another process of the box ran on the boost as it synced: only what
+	// the box changed since its last sync was sent, and what that one wrote
+	// was left in place.
 	BaseShared bool `protobuf:"varint,6,opt,name=base_shared,json=baseShared,proto3" json:"base_shared,omitempty"`
-	// Submodules (and nested repositories) whose checkouts were not
-	// synced: the boost keeps its own.
+	// Submodules (and nested repositories) whose git state is the boost's
+	// own: their files are synced as any, their .git never.
 	SubmodulesNotSynced []string `protobuf:"bytes,7,rep,name=submodules_not_synced,json=submodulesNotSynced,proto3" json:"submodules_not_synced,omitempty"`
-	// Once it ended: the files it changed on the boost relative to the
-	// tree synced, which are not copied back.
-	Changed *ChangedFiles `protobuf:"bytes,8,opt,name=changed,proto3" json:"changed,omitempty"`
-	// Once it ended: each artifact, copied back or not.
-	Artifacts []*ArtifactResult `protobuf:"bytes,9,rep,name=artifacts,proto3" json:"artifacts,omitempty"`
-	// Why its changed files or artifacts could not be read, if so.
-	Error         string `protobuf:"bytes,10,opt,name=error,proto3" json:"error,omitempty"`
+	// Why its changes could not be read or written back, if so.
+	Error string `protobuf:"bytes,10,opt,name=error,proto3" json:"error,omitempty"`
+	// Files the sync did not send, past what one sync sends (2GiB): the
+	// process ran with the boost's.
+	SyncOverCap []*OverCap `protobuf:"bytes,11,rep,name=sync_over_cap,json=syncOverCap,proto3" json:"sync_over_cap,omitempty"`
+	// Once it ended: what of its changes was written back to the box.
+	Back          *WriteBack `protobuf:"bytes,12,opt,name=back,proto3" json:"back,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1824,20 +1819,6 @@ func (x *BoostRun) GetSubmodulesNotSynced() []string {
 	return nil
 }
 
-func (x *BoostRun) GetChanged() *ChangedFiles {
-	if x != nil {
-		return x.Changed
-	}
-	return nil
-}
-
-func (x *BoostRun) GetArtifacts() []*ArtifactResult {
-	if x != nil {
-		return x.Artifacts
-	}
-	return nil
-}
-
 func (x *BoostRun) GetError() string {
 	if x != nil {
 		return x.Error
@@ -1845,191 +1826,275 @@ func (x *BoostRun) GetError() string {
 	return ""
 }
 
-// ChangedFiles are the files a boosted process changed: at most 200,
-// with how many there were.
-type ChangedFiles struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Files         []*ChangedFile         `protobuf:"bytes,1,rep,name=files,proto3" json:"files,omitempty"`
-	Total         int32                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
-	Truncated     bool                   `protobuf:"varint,3,opt,name=truncated,proto3" json:"truncated,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ChangedFiles) Reset() {
-	*x = ChangedFiles{}
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[22]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ChangedFiles) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ChangedFiles) ProtoMessage() {}
-
-func (x *ChangedFiles) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[22]
+func (x *BoostRun) GetSyncOverCap() []*OverCap {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ChangedFiles.ProtoReflect.Descriptor instead.
-func (*ChangedFiles) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{22}
-}
-
-func (x *ChangedFiles) GetFiles() []*ChangedFile {
-	if x != nil {
-		return x.Files
+		return x.SyncOverCap
 	}
 	return nil
 }
 
-func (x *ChangedFiles) GetTotal() int32 {
+func (x *BoostRun) GetBack() *WriteBack {
 	if x != nil {
-		return x.Total
+		return x.Back
+	}
+	return nil
+}
+
+// WriteBack is what a boosted process changed in /workspace on its boost,
+// written back to the box once it ended, before its exit was answered:
+// every path it added, changed or deleted, ignored files too, with modes
+// and links; never .git or /.ws-cache, nor a path through a link.
+type WriteBack struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Took  *durationpb.Duration   `protobuf:"bytes,1,opt,name=took,proto3" json:"took,omitempty"`
+	// Files written, paths deleted, and the files' bytes.
+	Files   int32 `protobuf:"varint,2,opt,name=files,proto3" json:"files,omitempty"`
+	Deleted int32 `protobuf:"varint,3,opt,name=deleted,proto3" json:"deleted,omitempty"`
+	Bytes   int64 `protobuf:"varint,4,opt,name=bytes,proto3" json:"bytes,omitempty"`
+	// The paths this write-back wrote, the first 200, with how many there
+	// were: not those the box already had as the process left them, as
+	// another process's write-back made them.
+	Moved []*MovedFile `protobuf:"bytes,5,rep,name=moved,proto3" json:"moved,omitempty"`
+	Total int32        `protobuf:"varint,6,opt,name=total,proto3" json:"total,omitempty"`
+	// Paths the box changed after the process's sync began, or whose
+	// directory it did: the box's stay, the process's are not written.
+	Conflicts []string `protobuf:"bytes,7,rep,name=conflicts,proto3" json:"conflicts,omitempty"`
+	// Files not brought back, past what one process brings back (2GiB):
+	// they are only on the boost, and the next sync not beside a running
+	// process removes them there, an exception to "as if it had run in the
+	// box".
+	OverCap []*OverCap `protobuf:"bytes,8,rep,name=over_cap,json=overCap,proto3" json:"over_cap,omitempty"`
+	// The process moved git's HEAD (a commit), or changed its index (git
+	// add): neither comes back, an exception to "as if it had run in the
+	// box"; its files do.
+	HeadMoved    bool `protobuf:"varint,9,opt,name=head_moved,json=headMoved,proto3" json:"head_moved,omitempty"`
+	IndexChanged bool `protobuf:"varint,10,opt,name=index_changed,json=indexChanged,proto3" json:"index_changed,omitempty"`
+	// Why nothing, or not all, came back: the box was not running, the
+	// process started before this tower, or the write-back failed.
+	Error         string `protobuf:"bytes,11,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WriteBack) Reset() {
+	*x = WriteBack{}
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WriteBack) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WriteBack) ProtoMessage() {}
+
+func (x *WriteBack) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WriteBack.ProtoReflect.Descriptor instead.
+func (*WriteBack) Descriptor() ([]byte, []int) {
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *WriteBack) GetTook() *durationpb.Duration {
+	if x != nil {
+		return x.Took
+	}
+	return nil
+}
+
+func (x *WriteBack) GetFiles() int32 {
+	if x != nil {
+		return x.Files
 	}
 	return 0
 }
 
-func (x *ChangedFiles) GetTruncated() bool {
+func (x *WriteBack) GetDeleted() int32 {
 	if x != nil {
-		return x.Truncated
+		return x.Deleted
 	}
-	return false
+	return 0
 }
 
-type ChangedFile struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Path  string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	// A added (new, and not ignored), M modified, D deleted, T its type
-	// changed (a file, a symlink).
-	Status        string `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ChangedFile) Reset() {
-	*x = ChangedFile{}
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[23]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ChangedFile) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ChangedFile) ProtoMessage() {}
-
-func (x *ChangedFile) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[23]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ChangedFile.ProtoReflect.Descriptor instead.
-func (*ChangedFile) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{23}
-}
-
-func (x *ChangedFile) GetPath() string {
-	if x != nil {
-		return x.Path
-	}
-	return ""
-}
-
-func (x *ChangedFile) GetStatus() string {
-	if x != nil {
-		return x.Status
-	}
-	return ""
-}
-
-// ArtifactResult is one artifact a boosted process named.
-type ArtifactResult struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	Path   string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	Bytes  int64                  `protobuf:"varint,2,opt,name=bytes,proto3" json:"bytes,omitempty"`
-	Copied bool                   `protobuf:"varint,3,opt,name=copied,proto3" json:"copied,omitempty"`
-	// Why it was not copied: not there, outside /workspace, past the cap,
-	// or the copy failed.
-	Error         string `protobuf:"bytes,4,opt,name=error,proto3" json:"error,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ArtifactResult) Reset() {
-	*x = ArtifactResult{}
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[24]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ArtifactResult) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ArtifactResult) ProtoMessage() {}
-
-func (x *ArtifactResult) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[24]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ArtifactResult.ProtoReflect.Descriptor instead.
-func (*ArtifactResult) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{24}
-}
-
-func (x *ArtifactResult) GetPath() string {
-	if x != nil {
-		return x.Path
-	}
-	return ""
-}
-
-func (x *ArtifactResult) GetBytes() int64 {
+func (x *WriteBack) GetBytes() int64 {
 	if x != nil {
 		return x.Bytes
 	}
 	return 0
 }
 
-func (x *ArtifactResult) GetCopied() bool {
+func (x *WriteBack) GetMoved() []*MovedFile {
 	if x != nil {
-		return x.Copied
+		return x.Moved
+	}
+	return nil
+}
+
+func (x *WriteBack) GetTotal() int32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *WriteBack) GetConflicts() []string {
+	if x != nil {
+		return x.Conflicts
+	}
+	return nil
+}
+
+func (x *WriteBack) GetOverCap() []*OverCap {
+	if x != nil {
+		return x.OverCap
+	}
+	return nil
+}
+
+func (x *WriteBack) GetHeadMoved() bool {
+	if x != nil {
+		return x.HeadMoved
 	}
 	return false
 }
 
-func (x *ArtifactResult) GetError() string {
+func (x *WriteBack) GetIndexChanged() bool {
+	if x != nil {
+		return x.IndexChanged
+	}
+	return false
+}
+
+func (x *WriteBack) GetError() string {
 	if x != nil {
 		return x.Error
 	}
 	return ""
+}
+
+// MovedFile is a path written back: A added, M changed, D deleted.
+type MovedFile struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Bytes         int64                  `protobuf:"varint,3,opt,name=bytes,proto3" json:"bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MovedFile) Reset() {
+	*x = MovedFile{}
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MovedFile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MovedFile) ProtoMessage() {}
+
+func (x *MovedFile) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MovedFile.ProtoReflect.Descriptor instead.
+func (*MovedFile) Descriptor() ([]byte, []int) {
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *MovedFile) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *MovedFile) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *MovedFile) GetBytes() int64 {
+	if x != nil {
+		return x.Bytes
+	}
+	return 0
+}
+
+// OverCap is a file past a move's cap, not moved.
+type OverCap struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Bytes         int64                  `protobuf:"varint,2,opt,name=bytes,proto3" json:"bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OverCap) Reset() {
+	*x = OverCap{}
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OverCap) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OverCap) ProtoMessage() {}
+
+func (x *OverCap) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_environments_v1alpha1_environment_service_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OverCap.ProtoReflect.Descriptor instead.
+func (*OverCap) Descriptor() ([]byte, []int) {
+	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *OverCap) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *OverCap) GetBytes() int64 {
+	if x != nil {
+		return x.Bytes
+	}
+	return 0
 }
 
 // PendingStart is a boosted start that has not started yet, as tower
@@ -3008,7 +3073,7 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\fPushResponse\"t\n" +
 	"\x12IssueTicketRequest\x12J\n" +
 	"\venvironment\x18\x01 \x01(\v2(.tower.environments.v1alpha1.EnvironmentR\venvironment\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\"\xf8\x03\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\"\xeb\x03\n" +
 	"\x13StartProcessRequest\x12J\n" +
 	"\venvironment\x18\x01 \x01(\v2(.tower.environments.v1alpha1.EnvironmentR\venvironment\x127\n" +
 	"\x04argv\x18\x02 \x01(\v2!.tower.environments.v1alpha1.ArgvH\x00R\x04argv\x12\x16\n" +
@@ -3018,13 +3083,12 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\x04name\x18\x06 \x01(\tR\x04name\x12>\n" +
 	"\x05boost\x18\a \x01(\v2(.tower.environments.v1alpha1.BoostIntentR\x05boost\x12\x18\n" +
 	"\apending\x18\b \x01(\tR\apending\x12\x16\n" +
-	"\x06cancel\x18\t \x01(\bR\x06cancel\x12\x1c\n" +
-	"\tartifacts\x18\n" +
-	" \x03(\tR\tartifacts\x1a6\n" +
+	"\x06cancel\x18\t \x01(\bR\x06cancel\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\t\n" +
-	"\acommand\"o\n" +
+	"\acommandJ\x04\b\n" +
+	"\x10\vR\tartifacts\"o\n" +
 	"\vBoostIntent\x12\x10\n" +
 	"\x02on\x18\x01 \x01(\bH\x00R\x02on\x12F\n" +
 	"\tresources\x18\x02 \x01(\v2&.tower.environments.v1alpha1.ResourcesH\x00R\tresourcesB\x06\n" +
@@ -3033,7 +3097,7 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\aprocess\x18\x01 \x01(\tR\aprocess\x12C\n" +
 	"\apending\x18\x02 \x01(\v2).tower.environments.v1alpha1.PendingStartR\apending\x129\n" +
 	"\x06ran_on\x18\x03 \x01(\v2\".tower.environments.v1alpha1.RanOnR\x05ranOn\x12;\n" +
-	"\x05boost\x18\x04 \x01(\v2%.tower.environments.v1alpha1.BoostRunR\x05boost\"\xb2\x03\n" +
+	"\x05boost\x18\x04 \x01(\v2%.tower.environments.v1alpha1.BoostRunR\x05boost\"\xc8\x03\n" +
 	"\bBoostRun\x12-\n" +
 	"\x04sync\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x04sync\x12\x1d\n" +
 	"\n" +
@@ -3044,23 +3108,33 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\tsync_full\x18\x05 \x01(\bR\bsyncFull\x12\x1f\n" +
 	"\vbase_shared\x18\x06 \x01(\bR\n" +
 	"baseShared\x122\n" +
-	"\x15submodules_not_synced\x18\a \x03(\tR\x13submodulesNotSynced\x12C\n" +
-	"\achanged\x18\b \x01(\v2).tower.environments.v1alpha1.ChangedFilesR\achanged\x12I\n" +
-	"\tartifacts\x18\t \x03(\v2+.tower.environments.v1alpha1.ArtifactResultR\tartifacts\x12\x14\n" +
+	"\x15submodules_not_synced\x18\a \x03(\tR\x13submodulesNotSynced\x12\x14\n" +
 	"\x05error\x18\n" +
-	" \x01(\tR\x05error\"\x82\x01\n" +
-	"\fChangedFiles\x12>\n" +
-	"\x05files\x18\x01 \x03(\v2(.tower.environments.v1alpha1.ChangedFileR\x05files\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x05R\x05total\x12\x1c\n" +
-	"\ttruncated\x18\x03 \x01(\bR\ttruncated\"9\n" +
-	"\vChangedFile\x12\x12\n" +
+	" \x01(\tR\x05error\x12H\n" +
+	"\rsync_over_cap\x18\v \x03(\v2$.tower.environments.v1alpha1.OverCapR\vsyncOverCap\x12:\n" +
+	"\x04back\x18\f \x01(\v2&.tower.environments.v1alpha1.WriteBackR\x04backJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	"R\achangedR\tartifacts\"\x8d\x03\n" +
+	"\tWriteBack\x12-\n" +
+	"\x04took\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x04took\x12\x14\n" +
+	"\x05files\x18\x02 \x01(\x05R\x05files\x12\x18\n" +
+	"\adeleted\x18\x03 \x01(\x05R\adeleted\x12\x14\n" +
+	"\x05bytes\x18\x04 \x01(\x03R\x05bytes\x12<\n" +
+	"\x05moved\x18\x05 \x03(\v2&.tower.environments.v1alpha1.MovedFileR\x05moved\x12\x14\n" +
+	"\x05total\x18\x06 \x01(\x05R\x05total\x12\x1c\n" +
+	"\tconflicts\x18\a \x03(\tR\tconflicts\x12?\n" +
+	"\bover_cap\x18\b \x03(\v2$.tower.environments.v1alpha1.OverCapR\aoverCap\x12\x1d\n" +
+	"\n" +
+	"head_moved\x18\t \x01(\bR\theadMoved\x12#\n" +
+	"\rindex_changed\x18\n" +
+	" \x01(\bR\findexChanged\x12\x14\n" +
+	"\x05error\x18\v \x01(\tR\x05error\"M\n" +
+	"\tMovedFile\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\"h\n" +
-	"\x0eArtifactResult\x12\x12\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x14\n" +
+	"\x05bytes\x18\x03 \x01(\x03R\x05bytes\"3\n" +
+	"\aOverCap\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
-	"\x05bytes\x18\x02 \x01(\x03R\x05bytes\x12\x16\n" +
-	"\x06copied\x18\x03 \x01(\bR\x06copied\x12\x14\n" +
-	"\x05error\x18\x04 \x01(\tR\x05error\"\xe2\x01\n" +
+	"\x05bytes\x18\x02 \x01(\x03R\x05bytes\"\xe2\x01\n" +
 	"\fPendingStart\x12\x16\n" +
 	"\x06ticket\x18\x01 \x01(\tR\x06ticket\x12B\n" +
 	"\x06reason\x18\x02 \x01(\x0e2*.tower.environments.v1alpha1.PendingReasonR\x06reason\x12\x18\n" +
@@ -3202,9 +3276,9 @@ var file_tower_environments_v1alpha1_environment_service_proto_goTypes = []any{
 	(*BoostIntent)(nil),           // 23: tower.environments.v1alpha1.BoostIntent
 	(*StartProcessResponse)(nil),  // 24: tower.environments.v1alpha1.StartProcessResponse
 	(*BoostRun)(nil),              // 25: tower.environments.v1alpha1.BoostRun
-	(*ChangedFiles)(nil),          // 26: tower.environments.v1alpha1.ChangedFiles
-	(*ChangedFile)(nil),           // 27: tower.environments.v1alpha1.ChangedFile
-	(*ArtifactResult)(nil),        // 28: tower.environments.v1alpha1.ArtifactResult
+	(*WriteBack)(nil),             // 26: tower.environments.v1alpha1.WriteBack
+	(*MovedFile)(nil),             // 27: tower.environments.v1alpha1.MovedFile
+	(*OverCap)(nil),               // 28: tower.environments.v1alpha1.OverCap
 	(*PendingStart)(nil),          // 29: tower.environments.v1alpha1.PendingStart
 	(*RanOn)(nil),                 // 30: tower.environments.v1alpha1.RanOn
 	(*AttachProcessRequest)(nil),  // 31: tower.environments.v1alpha1.AttachProcessRequest
@@ -3248,58 +3322,60 @@ var file_tower_environments_v1alpha1_environment_service_proto_depIdxs = []int32
 	30, // 20: tower.environments.v1alpha1.StartProcessResponse.ran_on:type_name -> tower.environments.v1alpha1.RanOn
 	25, // 21: tower.environments.v1alpha1.StartProcessResponse.boost:type_name -> tower.environments.v1alpha1.BoostRun
 	44, // 22: tower.environments.v1alpha1.BoostRun.sync:type_name -> google.protobuf.Duration
-	26, // 23: tower.environments.v1alpha1.BoostRun.changed:type_name -> tower.environments.v1alpha1.ChangedFiles
-	28, // 24: tower.environments.v1alpha1.BoostRun.artifacts:type_name -> tower.environments.v1alpha1.ArtifactResult
-	27, // 25: tower.environments.v1alpha1.ChangedFiles.files:type_name -> tower.environments.v1alpha1.ChangedFile
-	0,  // 26: tower.environments.v1alpha1.PendingStart.reason:type_name -> tower.environments.v1alpha1.PendingReason
-	44, // 27: tower.environments.v1alpha1.PendingStart.estimated_wait:type_name -> google.protobuf.Duration
-	1,  // 28: tower.environments.v1alpha1.RanOn.kind:type_name -> tower.environments.v1alpha1.RanOnKind
-	45, // 29: tower.environments.v1alpha1.RanOn.resources:type_name -> tower.environments.v1alpha1.Resources
-	4,  // 30: tower.environments.v1alpha1.AttachProcessRequest.environment:type_name -> tower.environments.v1alpha1.Environment
-	33, // 31: tower.environments.v1alpha1.AttachProcessResponse.output:type_name -> tower.environments.v1alpha1.ProcessOutput
-	34, // 32: tower.environments.v1alpha1.AttachProcessResponse.end:type_name -> tower.environments.v1alpha1.ProcessEnd
-	2,  // 33: tower.environments.v1alpha1.ProcessOutput.stream:type_name -> tower.environments.v1alpha1.OutputStream
-	35, // 34: tower.environments.v1alpha1.ProcessEnd.exit:type_name -> tower.environments.v1alpha1.ProcessExit
-	3,  // 35: tower.environments.v1alpha1.ProcessExit.signal:type_name -> tower.environments.v1alpha1.Signal
-	44, // 36: tower.environments.v1alpha1.ProcessExit.cpu_usage:type_name -> google.protobuf.Duration
-	44, // 37: tower.environments.v1alpha1.ProcessExit.cpu_wait:type_name -> google.protobuf.Duration
-	44, // 38: tower.environments.v1alpha1.ProcessExit.wall:type_name -> google.protobuf.Duration
-	25, // 39: tower.environments.v1alpha1.ProcessExit.boost:type_name -> tower.environments.v1alpha1.BoostRun
-	4,  // 40: tower.environments.v1alpha1.SignalProcessRequest.environment:type_name -> tower.environments.v1alpha1.Environment
-	3,  // 41: tower.environments.v1alpha1.SignalProcessRequest.signal:type_name -> tower.environments.v1alpha1.Signal
-	4,  // 42: tower.environments.v1alpha1.ListProcessesRequest.environment:type_name -> tower.environments.v1alpha1.Environment
-	40, // 43: tower.environments.v1alpha1.ListProcessesResponse.processes:type_name -> tower.environments.v1alpha1.ProcessInfo
-	46, // 44: tower.environments.v1alpha1.ProcessInfo.start_time:type_name -> google.protobuf.Timestamp
-	35, // 45: tower.environments.v1alpha1.ProcessInfo.exit:type_name -> tower.environments.v1alpha1.ProcessExit
-	30, // 46: tower.environments.v1alpha1.ProcessInfo.ran_on:type_name -> tower.environments.v1alpha1.RanOn
-	46, // 47: tower.environments.v1alpha1.IssueTicketResponse.expire_time:type_name -> google.protobuf.Timestamp
-	5,  // 48: tower.environments.v1alpha1.EnvironmentService.Exec:input_type -> tower.environments.v1alpha1.ExecRequest
-	9,  // 49: tower.environments.v1alpha1.EnvironmentService.ReadFile:input_type -> tower.environments.v1alpha1.ReadFileRequest
-	12, // 50: tower.environments.v1alpha1.EnvironmentService.WriteFile:input_type -> tower.environments.v1alpha1.WriteFileRequest
-	14, // 51: tower.environments.v1alpha1.EnvironmentService.CopyFile:input_type -> tower.environments.v1alpha1.CopyFileRequest
-	16, // 52: tower.environments.v1alpha1.EnvironmentService.FetchOrigin:input_type -> tower.environments.v1alpha1.FetchOriginRequest
-	19, // 53: tower.environments.v1alpha1.EnvironmentService.Push:input_type -> tower.environments.v1alpha1.PushRequest
-	21, // 54: tower.environments.v1alpha1.EnvironmentService.IssueTicket:input_type -> tower.environments.v1alpha1.IssueTicketRequest
-	22, // 55: tower.environments.v1alpha1.EnvironmentService.StartProcess:input_type -> tower.environments.v1alpha1.StartProcessRequest
-	31, // 56: tower.environments.v1alpha1.EnvironmentService.AttachProcess:input_type -> tower.environments.v1alpha1.AttachProcessRequest
-	36, // 57: tower.environments.v1alpha1.EnvironmentService.SignalProcess:input_type -> tower.environments.v1alpha1.SignalProcessRequest
-	38, // 58: tower.environments.v1alpha1.EnvironmentService.ListProcesses:input_type -> tower.environments.v1alpha1.ListProcessesRequest
-	7,  // 59: tower.environments.v1alpha1.EnvironmentService.Exec:output_type -> tower.environments.v1alpha1.ExecResponse
-	10, // 60: tower.environments.v1alpha1.EnvironmentService.ReadFile:output_type -> tower.environments.v1alpha1.ReadFileResponse
-	13, // 61: tower.environments.v1alpha1.EnvironmentService.WriteFile:output_type -> tower.environments.v1alpha1.WriteFileResponse
-	15, // 62: tower.environments.v1alpha1.EnvironmentService.CopyFile:output_type -> tower.environments.v1alpha1.CopyFileResponse
-	17, // 63: tower.environments.v1alpha1.EnvironmentService.FetchOrigin:output_type -> tower.environments.v1alpha1.FetchOriginResponse
-	20, // 64: tower.environments.v1alpha1.EnvironmentService.Push:output_type -> tower.environments.v1alpha1.PushResponse
-	41, // 65: tower.environments.v1alpha1.EnvironmentService.IssueTicket:output_type -> tower.environments.v1alpha1.IssueTicketResponse
-	24, // 66: tower.environments.v1alpha1.EnvironmentService.StartProcess:output_type -> tower.environments.v1alpha1.StartProcessResponse
-	32, // 67: tower.environments.v1alpha1.EnvironmentService.AttachProcess:output_type -> tower.environments.v1alpha1.AttachProcessResponse
-	37, // 68: tower.environments.v1alpha1.EnvironmentService.SignalProcess:output_type -> tower.environments.v1alpha1.SignalProcessResponse
-	39, // 69: tower.environments.v1alpha1.EnvironmentService.ListProcesses:output_type -> tower.environments.v1alpha1.ListProcessesResponse
-	59, // [59:70] is the sub-list for method output_type
-	48, // [48:59] is the sub-list for method input_type
-	48, // [48:48] is the sub-list for extension type_name
-	48, // [48:48] is the sub-list for extension extendee
-	0,  // [0:48] is the sub-list for field type_name
+	28, // 23: tower.environments.v1alpha1.BoostRun.sync_over_cap:type_name -> tower.environments.v1alpha1.OverCap
+	26, // 24: tower.environments.v1alpha1.BoostRun.back:type_name -> tower.environments.v1alpha1.WriteBack
+	44, // 25: tower.environments.v1alpha1.WriteBack.took:type_name -> google.protobuf.Duration
+	27, // 26: tower.environments.v1alpha1.WriteBack.moved:type_name -> tower.environments.v1alpha1.MovedFile
+	28, // 27: tower.environments.v1alpha1.WriteBack.over_cap:type_name -> tower.environments.v1alpha1.OverCap
+	0,  // 28: tower.environments.v1alpha1.PendingStart.reason:type_name -> tower.environments.v1alpha1.PendingReason
+	44, // 29: tower.environments.v1alpha1.PendingStart.estimated_wait:type_name -> google.protobuf.Duration
+	1,  // 30: tower.environments.v1alpha1.RanOn.kind:type_name -> tower.environments.v1alpha1.RanOnKind
+	45, // 31: tower.environments.v1alpha1.RanOn.resources:type_name -> tower.environments.v1alpha1.Resources
+	4,  // 32: tower.environments.v1alpha1.AttachProcessRequest.environment:type_name -> tower.environments.v1alpha1.Environment
+	33, // 33: tower.environments.v1alpha1.AttachProcessResponse.output:type_name -> tower.environments.v1alpha1.ProcessOutput
+	34, // 34: tower.environments.v1alpha1.AttachProcessResponse.end:type_name -> tower.environments.v1alpha1.ProcessEnd
+	2,  // 35: tower.environments.v1alpha1.ProcessOutput.stream:type_name -> tower.environments.v1alpha1.OutputStream
+	35, // 36: tower.environments.v1alpha1.ProcessEnd.exit:type_name -> tower.environments.v1alpha1.ProcessExit
+	3,  // 37: tower.environments.v1alpha1.ProcessExit.signal:type_name -> tower.environments.v1alpha1.Signal
+	44, // 38: tower.environments.v1alpha1.ProcessExit.cpu_usage:type_name -> google.protobuf.Duration
+	44, // 39: tower.environments.v1alpha1.ProcessExit.cpu_wait:type_name -> google.protobuf.Duration
+	44, // 40: tower.environments.v1alpha1.ProcessExit.wall:type_name -> google.protobuf.Duration
+	25, // 41: tower.environments.v1alpha1.ProcessExit.boost:type_name -> tower.environments.v1alpha1.BoostRun
+	4,  // 42: tower.environments.v1alpha1.SignalProcessRequest.environment:type_name -> tower.environments.v1alpha1.Environment
+	3,  // 43: tower.environments.v1alpha1.SignalProcessRequest.signal:type_name -> tower.environments.v1alpha1.Signal
+	4,  // 44: tower.environments.v1alpha1.ListProcessesRequest.environment:type_name -> tower.environments.v1alpha1.Environment
+	40, // 45: tower.environments.v1alpha1.ListProcessesResponse.processes:type_name -> tower.environments.v1alpha1.ProcessInfo
+	46, // 46: tower.environments.v1alpha1.ProcessInfo.start_time:type_name -> google.protobuf.Timestamp
+	35, // 47: tower.environments.v1alpha1.ProcessInfo.exit:type_name -> tower.environments.v1alpha1.ProcessExit
+	30, // 48: tower.environments.v1alpha1.ProcessInfo.ran_on:type_name -> tower.environments.v1alpha1.RanOn
+	46, // 49: tower.environments.v1alpha1.IssueTicketResponse.expire_time:type_name -> google.protobuf.Timestamp
+	5,  // 50: tower.environments.v1alpha1.EnvironmentService.Exec:input_type -> tower.environments.v1alpha1.ExecRequest
+	9,  // 51: tower.environments.v1alpha1.EnvironmentService.ReadFile:input_type -> tower.environments.v1alpha1.ReadFileRequest
+	12, // 52: tower.environments.v1alpha1.EnvironmentService.WriteFile:input_type -> tower.environments.v1alpha1.WriteFileRequest
+	14, // 53: tower.environments.v1alpha1.EnvironmentService.CopyFile:input_type -> tower.environments.v1alpha1.CopyFileRequest
+	16, // 54: tower.environments.v1alpha1.EnvironmentService.FetchOrigin:input_type -> tower.environments.v1alpha1.FetchOriginRequest
+	19, // 55: tower.environments.v1alpha1.EnvironmentService.Push:input_type -> tower.environments.v1alpha1.PushRequest
+	21, // 56: tower.environments.v1alpha1.EnvironmentService.IssueTicket:input_type -> tower.environments.v1alpha1.IssueTicketRequest
+	22, // 57: tower.environments.v1alpha1.EnvironmentService.StartProcess:input_type -> tower.environments.v1alpha1.StartProcessRequest
+	31, // 58: tower.environments.v1alpha1.EnvironmentService.AttachProcess:input_type -> tower.environments.v1alpha1.AttachProcessRequest
+	36, // 59: tower.environments.v1alpha1.EnvironmentService.SignalProcess:input_type -> tower.environments.v1alpha1.SignalProcessRequest
+	38, // 60: tower.environments.v1alpha1.EnvironmentService.ListProcesses:input_type -> tower.environments.v1alpha1.ListProcessesRequest
+	7,  // 61: tower.environments.v1alpha1.EnvironmentService.Exec:output_type -> tower.environments.v1alpha1.ExecResponse
+	10, // 62: tower.environments.v1alpha1.EnvironmentService.ReadFile:output_type -> tower.environments.v1alpha1.ReadFileResponse
+	13, // 63: tower.environments.v1alpha1.EnvironmentService.WriteFile:output_type -> tower.environments.v1alpha1.WriteFileResponse
+	15, // 64: tower.environments.v1alpha1.EnvironmentService.CopyFile:output_type -> tower.environments.v1alpha1.CopyFileResponse
+	17, // 65: tower.environments.v1alpha1.EnvironmentService.FetchOrigin:output_type -> tower.environments.v1alpha1.FetchOriginResponse
+	20, // 66: tower.environments.v1alpha1.EnvironmentService.Push:output_type -> tower.environments.v1alpha1.PushResponse
+	41, // 67: tower.environments.v1alpha1.EnvironmentService.IssueTicket:output_type -> tower.environments.v1alpha1.IssueTicketResponse
+	24, // 68: tower.environments.v1alpha1.EnvironmentService.StartProcess:output_type -> tower.environments.v1alpha1.StartProcessResponse
+	32, // 69: tower.environments.v1alpha1.EnvironmentService.AttachProcess:output_type -> tower.environments.v1alpha1.AttachProcessResponse
+	37, // 70: tower.environments.v1alpha1.EnvironmentService.SignalProcess:output_type -> tower.environments.v1alpha1.SignalProcessResponse
+	39, // 71: tower.environments.v1alpha1.EnvironmentService.ListProcesses:output_type -> tower.environments.v1alpha1.ListProcessesResponse
+	61, // [61:72] is the sub-list for method output_type
+	50, // [50:61] is the sub-list for method input_type
+	50, // [50:50] is the sub-list for extension type_name
+	50, // [50:50] is the sub-list for extension extendee
+	0,  // [0:50] is the sub-list for field type_name
 }
 
 func init() { file_tower_environments_v1alpha1_environment_service_proto_init() }

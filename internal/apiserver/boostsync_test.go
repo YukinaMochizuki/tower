@@ -1,20 +1,27 @@
 package apiserver_test
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"os"
-	osexec "os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
+	"github.com/YukinaMochizuki/tower/internal/apiserver"
 	"github.com/YukinaMochizuki/tower/internal/guest/guestbin"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/store"
@@ -72,11 +79,9 @@ func (w *syncWorld) read(in provider.Instance, p string) string {
 
 // run starts a boosted shell line in dev, follows it to its end, and
 // returns its start, output and exit.
-func (w *syncWorld) run(line string, artifacts ...string) (*envv1alpha1.StartProcessResponse, string, *envv1alpha1.ProcessExit) {
+func (w *syncWorld) run(line string) (*envv1alpha1.StartProcessResponse, string, *envv1alpha1.ProcessExit) {
 	w.t.Helper()
-	req := boostOn("dev", "sh", "-c", line)
-	req.Artifacts = artifacts
-	res := w.startBoosted(req)
+	res := w.startBoosted(boostOn("dev", "sh", "-c", line))
 	out, end, err := attachProcess(w.t.Context(), w.as(workstream).envs, &envv1alpha1.AttachProcessRequest{Environment: boxEnv("dev"), Process: res.GetProcess(), Follow: true})
 	if err != nil {
 		w.t.Fatal(err)
@@ -84,9 +89,10 @@ func (w *syncWorld) run(line string, artifacts ...string) (*envv1alpha1.StartPro
 	return res, out, end.GetExit()
 }
 
-func changed(x *envv1alpha1.ProcessExit) map[string]string {
+// moved are the paths a process's write-back moved, with their status.
+func moved(x *envv1alpha1.ProcessExit) map[string]string {
 	out := map[string]string{}
-	for _, f := range x.GetBoost().GetChanged().GetFiles() {
+	for _, f := range x.GetBoost().GetBack().GetMoved() {
 		out[f.GetPath()] = f.GetStatus()
 	}
 	return out
@@ -105,159 +111,96 @@ func (w *syncWorld) leftovers(in provider.Instance) []string {
 	return out
 }
 
-// TestABoostedProcessRunsOnTheBoxsWorkTree: a boosted process sees the
-// box's work tree as it is, uncommitted and untracked files included and
-// ignored ones not; the first sync sends what changed since the commit
-// the boost was checked out at; a second, what changed since the first.
-// Its exit lists what it changed on the boost, which stays there, and
-// copies its artifacts back to the box. Nothing of the syncs is left in
-// either instance.
-func TestABoostedProcessRunsOnTheBoxsWorkTree(t *testing.T) {
+// TestABoostedJobIsAsIfItRanInTheBox: a boosted process sees the box's
+// files as they are, untracked and ignored ones too, never .ws-cache; the
+// first sync sends what the box changed since the golden both were made
+// of, the next what changed since. Once it ends, what it wrote, ignored
+// files too, an executable with its mode, and what it deleted are the
+// box's, and its exit says so. Nothing of the syncs is left in either
+// instance.
+func TestABoostedJobIsAsIfItRanInTheBox(t *testing.T) {
 	t.Parallel()
 	w := newSyncWorld(t)
 	w.write(w.box, "a.txt", "edited in the box\n")
 	w.write(w.box, "new.txt", "untracked\n")
 	w.write(w.box, "build.log", "ignored\n")
+	w.write(w.box, ".ws-cache/x", "the box's cache\n")
 
-	res, out, exit := w.run(`cat a.txt new.txt; ls build.log 2>/dev/null; cat a.txt > seen.txt; echo generated > b.txt; mkdir -p out; echo artifact > out/r`,
-		"out", "seen.txt", "nope")
+	res, out, exit := w.run(`cat a.txt new.txt build.log; ls .ws-cache/x 2>/dev/null; mkdir -p bin && printf '#!/bin/sh\necho built\n' > bin/app && chmod +x bin/app && echo generated > b.txt && rm new.txt`)
 	sync := res.GetBoost()
-	if sync.GetSyncFull() || sync.GetSyncFiles() != 2 || sync.GetSyncDeleted() != 0 || sync.GetSync() == nil {
-		t.Errorf("the first sync: %v, want the 2 files changed since the boost's checkout", sync)
+	if !sync.GetSyncFull() || sync.GetSyncFiles() != 3 || sync.GetSyncDeleted() != 0 || sync.GetSync() == nil {
+		t.Errorf("the first sync: %v, want the 3 files the box changed", sync)
 	}
-	if out != "edited in the box\nuntracked\n" {
+	if out != "edited in the box\nuntracked\nignored\n" {
 		t.Errorf("the boosted process saw %q", out)
 	}
 	if exit.GetCode() != 0 {
 		t.Fatalf("it exited %v", exit)
 	}
-	if got := changed(exit); len(got) != 3 || got["seen.txt"] != "A" || got["b.txt"] != "M" || got["out/r"] != "A" ||
-		exit.GetBoost().GetChanged().GetTotal() != 3 {
-		t.Errorf("its changed files: %v", exit.GetBoost().GetChanged())
+	back := exit.GetBoost().GetBack()
+	if got := moved(exit); len(got) != 3 || got["bin/app"] != "A" || got["b.txt"] != "M" || got["new.txt"] != "D" ||
+		back.GetTotal() != 3 || back.GetFiles() != 2 || back.GetDeleted() != 1 || back.GetError() != "" || len(back.GetConflicts()) != 0 {
+		t.Errorf("its write-back: %v", back)
 	}
-	arts := map[string]*envv1alpha1.ArtifactResult{}
-	for _, a := range exit.GetBoost().GetArtifacts() {
-		arts[a.GetPath()] = a
+	if got := w.read(w.box, "b.txt"); got != "generated\n" {
+		t.Errorf("b.txt the job wrote is %q in the box", got)
 	}
-	if a := arts["out"]; !a.GetCopied() || a.GetBytes() != 9 {
-		t.Errorf("artifact out: %v", a)
+	if info, err := os.Stat(w.file(w.box, "bin/app")); err != nil || info.Mode().Perm()&0o111 == 0 {
+		t.Errorf("bin/app in the box: %v, %v; want it executable", info, err)
 	}
-	if a := arts["nope"]; a.GetCopied() || a.GetError() == "" {
-		t.Errorf("artifact nope, not there: %v", a)
+	if _, err := os.Stat(w.file(w.box, "new.txt")); err == nil {
+		t.Error("new.txt the job deleted is still in the box")
 	}
-	if got := w.read(w.box, "out/r"); got != "artifact\n" {
-		t.Errorf("the artifact in the box: %q", got)
-	}
-	if got := w.read(w.box, "seen.txt"); got != "edited in the box\n" {
-		t.Errorf("the artifact seen.txt in the box: %q", got)
-	}
-	if got := w.read(w.box, "b.txt"); got != "b\n" {
-		t.Errorf("b.txt, which the job changed on the boost, is %q in the box: changed files are not copied back", got)
-	}
-	if _, err := os.Stat(w.file(w.boost, "build.log")); err == nil {
-		t.Error("an ignored file reached the boost")
+	if _, err := os.Stat(w.file(w.boost, ".ws-cache/x")); err == nil {
+		t.Error(".ws-cache reached the boost")
 	}
 	list := w.listed("dev")
-	if p := list[res.GetProcess()]; !strings.HasPrefix(p.GetCommand(), "sh -c cat a.txt") || p.GetExit().GetBoost().GetChanged().GetTotal() != 3 {
+	if p := list[res.GetProcess()]; !strings.HasPrefix(p.GetCommand(), "sh -c cat a.txt") || p.GetExit().GetBoost().GetBack().GetTotal() != 3 {
 		t.Errorf("the box lists %v", p)
 	}
 	// Read again, it says the same: settled once, its report gone.
 	_, end, err := attachProcess(t.Context(), w.as(workstream).envs, &envv1alpha1.AttachProcessRequest{Environment: boxEnv("dev"), Process: res.GetProcess()})
-	if b := end.GetExit().GetBoost(); err != nil || b.GetChanged().GetTotal() != 3 || b.GetError() != "" || len(b.GetArtifacts()) != 3 {
+	if b := end.GetExit().GetBoost().GetBack(); err != nil || b.GetTotal() != 3 || b.GetError() != "" {
 		t.Errorf("its exit read again: %v, %v", b, err)
 	}
 
-	// A second job: only what changed since; what the first wrote on the
-	// boost is put back first. The artifacts copied back go from the box,
-	// which would send them again.
-	for _, p := range []string{"out", "seen.txt"} {
-		if err := os.RemoveAll(w.file(w.box, p)); err != nil {
-			t.Fatal(err)
-		}
+	// A second job: only what the box changed since; what the first wrote
+	// is the box's, so not sent again.
+	w.write(w.box, "a.txt", "a, edited again\n")
+	res, out, _ = w.run(`cat a.txt; ls bin/app`)
+	if s := res.GetBoost(); s.GetSyncFull() || s.GetSyncFiles() != 1 || s.GetSyncDeleted() != 0 {
+		t.Errorf("the second sync: %v, want only a.txt", s)
 	}
-	w.write(w.box, "b.txt", "b, edited\n")
-	res, out, _ = w.run(`cat b.txt; ls seen.txt out 2>&1 | head -1`)
-	if s := res.GetBoost(); s.GetSyncFull() || s.GetSyncFiles() != 1 {
-		t.Errorf("the second sync: %v, want only b.txt", s)
-	}
-	if !strings.HasPrefix(out, "b, edited\n") || strings.Contains(out, "seen.txt\n") {
-		t.Errorf("the second job saw %q: the box's b.txt, and none of the first job's files", out)
+	if out != "a, edited again\nbin/app\n" {
+		t.Errorf("the second job saw %q", out)
 	}
 	if l := append(w.leftovers(w.box), w.leftovers(w.boost)...); len(l) != 0 {
 		t.Errorf("left after the syncs and jobs: %v", l)
 	}
 }
 
-// TestABoostLackingTheBaseGetsTheWholeTree: a sync whose base the boost
-// lacks is sent again, whole, in the same start.
-func TestABoostLackingTheBaseGetsTheWholeTree(t *testing.T) {
-	t.Parallel()
-	w := newSyncWorld(t)
-	w.run(`true`)
-	w.baseTheBoostLacks()
-	w.write(w.box, "a.txt", "after\n")
-	res, out, _ := w.run(`cat a.txt`)
-	if !res.GetBoost().GetSyncFull() || out != "after\n" {
-		t.Errorf("a sync whose base the boost lacks: %v, saw %q; want the whole tree sent", res.GetBoost(), out)
-	}
-}
-
-// baseTheBoostLacks makes the last tree sent, as tower keeps it, one the
-// box has and the boost does not: the next sync sends the whole tree.
-func (w *syncWorld) baseTheBoostLacks() {
-	t := w.t
-	t.Helper()
-	cmd := osexec.Command("sh", "-c", `git hash-object -w --stdin <<EOF | xargs -I{} printf '100644 blob {}\tonly-in-the-box\n' | git mktree
-only in the box
-EOF`)
-	cmd.Dir = w.file(w.box, "")
-	tree, err := cmd.Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	key := store.Key{Kind: "BoostSync", Project: "web", Name: "dev"}
-	o, err := w.store.Get(t.Context(), key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var rec map[string]string
-	if err := json.Unmarshal(o.Data, &rec); err != nil {
-		t.Fatal(err)
-	}
-	rec["tree"] = strings.TrimSpace(string(tree))
-	b, _ := json.Marshal(rec)
-	if _, err := w.store.Update(t.Context(), key, b, o.Revision); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // TestATrackedFileAnIgnoreRuleMatchesIsSynced: a file the repository
-// tracks though its .gitignore matches it reaches the boost, in a delta
-// and a whole tree; a job's change to it is listed in its exit and put
-// back before the next sync. One ignored and untracked never travels.
+// tracks though its .gitignore matches it reaches the boost; a job's
+// change to it comes back, and the box's next change to it reaches the
+// boost. One ignored and untracked travels as any file now.
 func TestATrackedFileAnIgnoreRuleMatchesIsSynced(t *testing.T) {
 	t.Parallel()
 	w := newSyncWorldOf(t, map[string]string{"a.txt": "a\n", ".gitignore": "*.log\n*.toml\n", ".devcontainer/mise.toml": "[tools]\n"})
 	w.write(w.box, "a.txt", "edited\n")
-	w.write(w.box, "local.toml", "ignored, untracked\n")
-	res, out, exit := w.run(`cat .devcontainer/mise.toml a.txt; test -e local.toml && echo leaked; echo job >> .devcontainer/mise.toml`)
-	if res.GetBoost().GetSyncFull() || out != "[tools]\nedited\n" || exit.GetCode() != 0 {
-		t.Errorf("a delta: %v, saw %q, exit %v", res.GetBoost(), out, exit)
+	res, out, exit := w.run(`cat .devcontainer/mise.toml a.txt; echo job >> .devcontainer/mise.toml`)
+	if out != "[tools]\nedited\n" || exit.GetCode() != 0 || res.GetBoost().GetSyncFiles() != 1 {
+		t.Errorf("a sync: %v, saw %q, exit %v", res.GetBoost(), out, exit)
 	}
-	if got := changed(exit); len(got) != 1 || got[".devcontainer/mise.toml"] != "M" {
-		t.Errorf("a job that edited mise.toml changed %v", exit.GetBoost().GetChanged())
+	if got := moved(exit); len(got) != 1 || got[".devcontainer/mise.toml"] != "M" {
+		t.Errorf("a job that edited mise.toml moved %v", exit.GetBoost().GetBack())
 	}
-
+	if got := w.read(w.box, ".devcontainer/mise.toml"); got != "[tools]\njob\n" {
+		t.Errorf("mise.toml in the box: %q", got)
+	}
 	w.write(w.box, ".devcontainer/mise.toml", "[tools]\ngo = \"1.25\"\n")
 	res, out, _ = w.run(`cat .devcontainer/mise.toml`)
-	if s := res.GetBoost(); s.GetSyncFull() || s.GetSyncFiles() != 1 || out != "[tools]\ngo = \"1.25\"\n" {
-		t.Errorf("the box's change, after a job's: %v, saw %q", s, out)
-	}
-
-	w.baseTheBoostLacks()
-	res, out, _ = w.run(`cat .devcontainer/mise.toml; test -e local.toml && echo leaked`)
-	if !res.GetBoost().GetSyncFull() || out != "[tools]\ngo = \"1.25\"\n" {
-		t.Errorf("a whole tree: %v, saw %q", res.GetBoost(), out)
+	if s := res.GetBoost(); s.GetSyncFiles() != 1 || out != "[tools]\ngo = \"1.25\"\n" {
+		t.Errorf("the box's change: %v, saw %q", s, out)
 	}
 }
 
@@ -324,49 +267,26 @@ func TestASlowSyncAnswersPending(t *testing.T) {
 	}
 }
 
-// TestArtifactsPastTheCapStay: artifacts copy back in their order until
-// the cap; one past it is not copied, and says why.
-func TestArtifactsPastTheCapStay(t *testing.T) {
+// TestWhatIsPastTheCapStays: a file past what one process brings back
+// stays on the boost, and is said; the rest comes back; the process does
+// not fail.
+func TestWhatIsPastTheCapStays(t *testing.T) {
 	t.Parallel()
 	w := newSyncWorld(t)
 	w.srv.SetBoostSync(0, 10)
-	_, _, exit := w.run(`echo 1234 > small; echo 0123456789 > big`, "small", "big")
-	arts := exit.GetBoost().GetArtifacts()
-	if len(arts) != 2 || !arts[0].GetCopied() || arts[1].GetCopied() || !strings.Contains(arts[1].GetError(), "past the 10 bytes") {
-		t.Errorf("artifacts under a cap of 10 bytes: %v", arts)
+	_, _, exit := w.run(`echo 1234 > small; echo 0123456789 > big`)
+	back := exit.GetBoost().GetBack()
+	if over := back.GetOverCap(); len(over) != 1 || over[0].GetPath() != "big" || over[0].GetBytes() != 11 || back.GetFiles() != 1 {
+		t.Errorf("a write-back under a cap of 10 bytes: %v", back)
 	}
 	if _, err := os.Stat(w.file(w.box, "big")); err == nil {
-		t.Error("an artifact past the cap was copied")
+		t.Error("a file past the cap came back")
+	}
+	if w.read(w.box, "small") != "1234\n" {
+		t.Error("a file under the cap did not come back")
 	}
 	if exit.GetCode() != 0 {
-		t.Errorf("an artifact not copied changed the exit: %v", exit)
-	}
-}
-
-// TestArtifactsAreRefused: artifacts are a boosted start's, of paths in
-// /workspace.
-func TestArtifactsAreRefused(t *testing.T) {
-	t.Parallel()
-	w := boostWorld(t, nil)
-	w.readyBox("dev")
-	envs := w.as(workstream).envs
-	plain := &envv1alpha1.StartProcessRequest{Environment: boxEnv("dev"), Command: &envv1alpha1.StartProcessRequest_Argv{Argv: &envv1alpha1.Argv{Args: []string{"true"}}}, Artifacts: []string{"out"}}
-	if _, err := envs.StartProcess(t.Context(), connect.NewRequest(plain)); connect.CodeOf(err) != connect.CodeInvalidArgument {
-		t.Errorf("artifacts on a start not boosted: %v", err)
-	}
-	for _, bad := range []string{"/etc/passwd", "../up", ".git/config", "sub/.git/config", ""} {
-		req := boostOn("dev", "true")
-		req.Artifacts = []string{bad}
-		if _, err := envs.StartProcess(t.Context(), connect.NewRequest(req)); connect.CodeOf(err) != connect.CodeInvalidArgument {
-			t.Errorf("artifact %q: %v", bad, err)
-		}
-	}
-	for _, good := range []string{".github/out", ".gitignore", "dist/.gitkeep"} {
-		req := boostOn("dev", "true")
-		req.Artifacts = []string{good}
-		if _, err := envs.StartProcess(t.Context(), connect.NewRequest(req)); err != nil {
-			t.Errorf("artifact %q: %v", good, err)
-		}
+		t.Errorf("a file not brought back changed the exit: %v", exit)
 	}
 }
 
@@ -489,21 +409,19 @@ func TestAStaleSyncIsMadeAgain(t *testing.T) {
 	}
 }
 
-// TestArtifactsOutliveTheNextSync: a process's artifacts reach the box
+// TestAJobsWritesOutliveTheNextSync: what a process wrote reaches the box
 // even if nobody reads its exit before the next boosted start, whose sync
-// puts back what the first wrote on the boost.
-func TestArtifactsOutliveTheNextSync(t *testing.T) {
+// would undo it on the boost.
+func TestAJobsWritesOutliveTheNextSync(t *testing.T) {
 	t.Parallel()
 	w := newSyncWorld(t)
 	// The sync settles it, not the controller once it ends.
 	w.srv.SetNoSettleJob()
-	req := boostOn("dev", "sh", "-c", "mkdir -p out && echo kept > out/r")
-	req.Artifacts = []string{"out"}
-	w.startBoosted(req)
+	w.startBoosted(boostOn("dev", "sh", "-c", "mkdir -p out && echo kept > out/r"))
 	w.write(w.box, "a.txt", "changed\n")
-	w.run(`ls out 2>&1`)
-	if got := w.read(w.box, "out/r"); got != "kept\n" {
-		t.Errorf("the first job's artifact in the box: %q", got)
+	_, out, _ := w.run(`cat out/r 2>&1`)
+	if got := w.read(w.box, "out/r"); got != "kept\n" || out != "kept\n" {
+		t.Errorf("the first job's write in the box: %q; the second job saw %q", got, out)
 	}
 }
 
@@ -670,32 +588,402 @@ func TestASyncStaysGoodForAReask(t *testing.T) {
 	}
 }
 
-// TestAWholeTreeThatMakesAnotherIsSaidSo: a sync whose tree the boost
-// does not make is sent once more, whole; if that makes another too, the
-// start fails saying so, not that the boost lacks a base.
-func TestAWholeTreeThatMakesAnotherIsSaidSo(t *testing.T) {
+// TestContentStillNotTheBoxsIsSaidSo: a tracked file whose content on the
+// boost is not the box's, under the same records, is sent again; if it
+// still is not, the start fails saying so.
+func TestContentStillNotTheBoxsIsSaidSo(t *testing.T) {
 	t.Parallel()
 	w := newSyncWorld(t)
-	w.startBoosted(boostOn("dev", "true"))
-	before := len(w.fake.Execs())
+	w.run(`true`)
+	// a.txt on the boost: other content, the same size and mtime.
+	f := w.file(w.boost, "a.txt")
+	info, err := os.Stat(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f, []byte("B\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(f, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	// Each apply that sends a.txt again sends the boost's content.
 	w.fake.OnExec(func(req provider.ExecRequest) (int, bool) {
 		if len(req.Command) > 1 && req.Command[0] == provider.GuestBinary && req.Command[1] == "boost-apply" {
-			return guestbin.ExitTreeMismatch, true
+			i := slices.Index(req.Command, "--staging")
+			corrupt(t, w.fake.WorkspaceDir(req.Instance, req.Command[i+1]+"/files.tar"), "a.txt", "B\n")
 		}
 		return 0, false
 	})
-	w.write(w.box, "a.txt", "edited\n")
-	_, err := w.as(workstream).envs.StartProcess(t.Context(), connect.NewRequest(boostOn("dev", "true")))
-	if connect.CodeOf(err) != connect.CodeInternal || !strings.Contains(err.Error(), "the whole tree sent made another tree") || strings.Contains(err.Error(), "lacks the sync's base") {
-		t.Errorf("a whole tree that makes another: %v", err)
+	w.write(w.box, "b.txt", "b, edited\n")
+	_, err = w.as(workstream).envs.StartProcess(t.Context(), connect.NewRequest(boostOn("dev", "true")))
+	if connect.CodeOf(err) != connect.CodeInternal || !strings.Contains(err.Error(), "a.txt is not the box's, sent again") {
+		t.Errorf("content still not the box's: %v", err)
 	}
-	var bases []string
-	for _, x := range w.fake.Execs()[before:] {
-		if i := slices.Index(x.Command, "--base"); len(x.Command) > 1 && x.Command[1] == "boost-pack" && i > 0 {
-			bases = append(bases, x.Command[i+1])
+	forced := 0
+	for _, x := range w.fake.Execs() {
+		if len(x.Command) > 1 && x.Command[1] == "boost-pack" && slices.Contains(x.Command, "--force") {
+			forced++
 		}
 	}
-	if len(bases) != 2 || bases[0] == "" || bases[1] != "" {
-		t.Errorf("the syncs' bases: %q, want a delta's, then one whole tree", bases)
+	if forced != 1 {
+		t.Errorf("%d syncs sent a.txt again, want 1", forced)
+	}
+}
+
+// corrupt rewrites the tar file's entry of name, if it holds one, to
+// content of its size.
+func corrupt(t *testing.T, file, name, content string) {
+	t.Helper()
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return
+	}
+	var out bytes.Buffer
+	tr, tw := tar.NewReader(bytes.NewReader(b)), tar.NewWriter(&out)
+	for {
+		hdr, err := tr.Next()
+		if err != nil {
+			break
+		}
+		body, _ := io.ReadAll(tr)
+		if hdr.Name == name && len(body) == len(content) {
+			body = []byte(content)
+		}
+		_ = tw.WriteHeader(hdr)
+		_, _ = tw.Write(body)
+	}
+	_ = tw.Close()
+	if err := os.WriteFile(file, out.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestASharedSyncWithoutItsLastWaits: a boosted start beside a running
+// process of the box, whose last sync tower does not know, is not synced
+// over what that one writes: it waits, SYNCING, and starts once that one
+// ended.
+func TestASharedSyncWithoutItsLastWaits(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	w.readyBox("dev")
+	id := w.startBoosted(boostOn("dev", "sleep")).GetProcess()
+	testutil.Eventually(t, "the boost's process running", func() bool {
+		b, _ := w.boost("dev")
+		return b.GetStatus().GetProcessesRunning() == 1
+	})
+	key := store.Key{Kind: "BoostSync", Project: "web", Name: "dev"}
+	o, err := w.store.Get(t.Context(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := w.store.Delete(t.Context(), key, o.Revision); err != nil {
+		t.Fatal(err)
+	}
+	req := boostOn("dev", "true")
+	res := w.start(req)
+	if res.GetProcess() != "" || !strings.Contains(res.GetPending().GetMessage(), "last sync is not known") {
+		t.Fatalf("a start beside a running one, its last sync unknown: %v, want pending SYNCING", res)
+	}
+	b, _ := w.boost("dev")
+	bref := provider.Instance{Project: "web", Name: b.GetStatus().GetInstance()}
+	ps, _ := w.fake.ListProcesses(t.Context(), bref)
+	for _, p := range ps {
+		if p.Exit == nil {
+			if err := w.fake.EndProcessWith(bref, p.ID, provider.ProcessExit{}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	req.Pending = res.GetPending().GetTicket()
+	if res := w.startBoosted(req); res.GetProcess() == "" || res.GetProcess() == id || res.GetBoost().GetBaseShared() {
+		t.Errorf("asked again once it ended: %v", res)
+	}
+}
+
+// TestAProcessStartedBeforeTheUpgradeSaysSo: a boosted process started
+// under an earlier tower, which kept no sync's manifest for it, is
+// settled saying nothing was brought back.
+func TestAProcessStartedBeforeTheUpgradeSaysSo(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	w.srv.SetNoSettleJob()
+	res := w.startBoosted(boostOn("dev", "sh", "-c", "echo x > x.txt"))
+	key := store.Key{Kind: "BoxProcesses", Project: "web", Name: "dev"}
+	o, err := w.store.Get(t.Context(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec map[string]any
+	if err := json.Unmarshal(o.Data, &rec); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range rec["boost"].([]any) {
+		delete(p.(map[string]any), "syncId")
+		delete(p.(map[string]any), "settled")
+		delete(p.(map[string]any), "run")
+	}
+	b, _ := json.Marshal(rec)
+	if _, err := w.store.Update(t.Context(), key, b, o.Revision); err != nil {
+		t.Fatal(err)
+	}
+	_, end, err := attachProcess(t.Context(), w.as(workstream).envs, &envv1alpha1.AttachProcessRequest{Environment: boxEnv("dev"), Process: res.GetProcess(), Follow: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := end.GetExit().GetBoost(); !strings.Contains(r.GetError(), "started before this tower") || r.GetBack() != nil {
+		t.Errorf("a process started before the upgrade: %v", r)
+	}
+	if _, err := os.Stat(w.file(w.box, "x.txt")); err == nil {
+		t.Error("its write came back")
+	}
+}
+
+// TestAStartedTicketIsAnsweredItsStart: a ticket asked about again after
+// its process started, as by a caller that lost the answer, is answered
+// that process and where it ran, never a second start; while its start is
+// under way, pending; once dropped, a start anew.
+func TestAStartedTicketIsAnsweredItsStart(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	w.readyBox("dev")
+	req := boostOn("dev", "sleep")
+	req.Pending = w.start(req).GetPending().GetTicket()
+	w.waitBoost("dev", envv1alpha1.BoostPhase_BOOST_PHASE_READY)
+	var during *envv1alpha1.StartProcessResponse
+	var once sync.Once
+	w.srv.SetBeforeBoostStart(func(_, _ string) {
+		once.Do(func() {
+			res, err := w.as(workstream).envs.StartProcess(context.Background(), connect.NewRequest(req))
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			during = res.Msg
+		})
+	})
+	started := w.start(req) // its answer lost
+	if started.GetProcess() == "" {
+		t.Fatalf("the start: %v", started)
+	}
+	if during.GetProcess() != "" || during.GetPending().GetTicket() != req.Pending {
+		t.Errorf("asked again while its start was under way: %v, want pending with its ticket", during)
+	}
+	again := w.start(req)
+	if again.GetProcess() != started.GetProcess() || !proto.Equal(again.GetRanOn(), started.GetRanOn()) {
+		t.Errorf("asked again once started: %v, want its start %v", again, started)
+	}
+	if n := boostProcessesStarted(w); n != 1 {
+		t.Errorf("%d processes started on the boost for one ticket asked three times, want 1", n)
+	}
+	w.clock.Advance(6 * time.Minute)
+	if res := w.start(req); res.GetProcess() == started.GetProcess() {
+		t.Errorf("a ticket asked again past its life: %v, want a start anew", res)
+	}
+}
+
+// boostProcessesStarted counts the processes started on dev's boost.
+func boostProcessesStarted(w *world) int {
+	n := 0
+	for _, x := range w.fake.Execs() {
+		if x.Instance.Name == "boost-dev" && x.Process {
+			n++
+		}
+	}
+	return n
+}
+
+// TestAJobsWriteBackOutlivesALaterSync: a process still running when the
+// box syncs for another keeps what it wrote so far, which that sync,
+// beside it, leaves; and what its write-back compares the box with: all
+// it wrote comes back once it ends.
+func TestAJobsWriteBackOutlivesALaterSync(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	w.fake.GuestProcessesInBackground()
+	first := w.startBoosted(boostOn("dev", "sh", "-c", `echo early > early.out; while [ ! -e go ]; do sleep 0.05; done; echo first > first.out`))
+	testutil.Eventually(t, "the first process running, early.out written", func() bool {
+		b, _ := w.world.boost("dev")
+		_, err := os.Stat(w.file(w.boost, "early.out"))
+		return b.GetStatus().GetProcessesRunning() == 1 && err == nil
+	})
+	w.write(w.box, "a.txt", "for the second\n")
+	_, out, _ := w.run(`cat a.txt`)
+	if out != "for the second\n" {
+		t.Fatalf("the second saw %q", out)
+	}
+	w.write(w.boost, "go", "")
+	_, end, err := attachProcess(t.Context(), w.as(workstream).envs, &envv1alpha1.AttachProcessRequest{Environment: boxEnv("dev"), Process: first.GetProcess(), Follow: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back := end.GetExit().GetBoost().GetBack(); back.GetError() != "" || moved(end.GetExit())["first.out"] != "A" {
+		t.Errorf("the first's write-back: %v", back)
+	}
+	if got, early := w.read(w.box, "first.out"), w.read(w.box, "early.out"); got != "first\n" || early != "early\n" {
+		t.Errorf("first.out in the box: %q, early.out %q", got, early)
+	}
+}
+
+// TestAWriteBackWaitsForItsBox: a boosted process that ended while its box
+// is being made again is not settled without its changes: it stays
+// unsettled, its boost is kept, and once the box is ready what it wrote
+// comes back.
+func TestAWriteBackWaitsForItsBox(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	w.fake.GuestProcessesInBackground()
+	res := w.startBoosted(boostOn("dev", "sh", "-c", `while [ ! -e go ]; do sleep 0.05; done; echo x > x.out`))
+	w.fake.FailCheckouts(fmt.Errorf("the mirror does not answer: %w", provider.ErrUnavailable))
+	w.fake.Vanish(w.box)
+	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_STARTING)
+	w.write(w.boost, "go", "")
+	settled := func() (bool, bool) {
+		o, err := w.store.Get(t.Context(), store.Key{Kind: "BoxProcesses", Project: "web", Name: "dev"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rec struct {
+			Boost []struct {
+				ID      string          `json:"id"`
+				Exit    json.RawMessage `json:"exit"`
+				Settled bool            `json:"settled"`
+			} `json:"boost"`
+		}
+		if err := json.Unmarshal(o.Data, &rec); err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range rec.Boost {
+			if p.ID == res.GetProcess() {
+				return len(p.Exit) > 0 && string(p.Exit) != "null", p.Settled
+			}
+		}
+		return false, false
+	}
+	testutil.Eventually(t, "its process ended, its exit kept", func() bool { ended, _ := settled(); return ended })
+	if err := w.srv.SettleBoostProcess(t.Context(), "t1", "web", "dev", "boost-dev", res.GetProcess()); !errors.Is(err, apiserver.ErrWriteBackLater) {
+		t.Fatalf("settled while its box starts: %v, want written back later", err)
+	}
+	if _, done := settled(); done {
+		t.Fatal("a process settled while its box was not ready")
+	}
+	// Long past boost_idle: its boost is kept, holding what it wrote.
+	w.clock.Advance(11 * time.Minute)
+	w.fake.FailCheckouts(nil)
+	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_READY)
+	_, end, err := attachProcess(t.Context(), w.as(workstream).envs, &envv1alpha1.AttachProcessRequest{Environment: boxEnv("dev"), Process: res.GetProcess(), Follow: true})
+	if err != nil || moved(end.GetExit())["x.out"] != "A" || w.read(w.box, "x.out") != "x\n" {
+		t.Errorf("once its box is ready: %v, %v; x.out in the box %q", end.GetExit().GetBoost(), err, w.read(w.box, "x.out"))
+	}
+}
+
+// TestAStopWritesBackFirst: a box stopped at workstream's request gets
+// what its boost's ended processes wrote before its instance stops.
+func TestAStopWritesBackFirst(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	w.srv.SetNoSettleJob()
+	res := w.startBoosted(boostOn("dev", "sh", "-c", "echo y > y.out"))
+	w.setRunState("dev", envv1alpha1.RunState_RUN_STATE_STOPPED)
+	testutil.Eventually(t, "the stopped box's boost gone", func() bool { _, ok := w.world.boost("dev"); return !ok })
+	if got := w.read(w.box, "y.out"); got != "y\n" {
+		t.Errorf("y.out in the stopped box: %q", got)
+	}
+	w.setRunState("dev", envv1alpha1.RunState_RUN_STATE_RUNNING)
+	w.waitBox("dev", envv1alpha1.BoxPhase_BOX_PHASE_READY)
+	if p := w.listed("dev")[res.GetProcess()]; moved(p.GetExit())["y.out"] != "A" {
+		t.Errorf("its exit: %v", p.GetExit().GetBoost())
+	}
+}
+
+// TestAStartedTicketSurvivesARestart: a ticket that started its process,
+// asked again after the apiserver restarted, is answered that process;
+// given up, its process is sent TERM.
+func TestAStartedTicketSurvivesARestart(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	w.readyBox("dev")
+	req := boostOn("dev", "sleep")
+	req.Pending = w.start(req).GetPending().GetTicket()
+	w.waitBoost("dev", envv1alpha1.BoostPhase_BOOST_PHASE_READY)
+	started := w.start(req)
+	if started.GetProcess() == "" {
+		t.Fatalf("the start: %v", started)
+	}
+	w.restart()
+	again := w.start(req)
+	if again.GetProcess() != started.GetProcess() || !proto.Equal(again.GetRanOn(), started.GetRanOn()) {
+		t.Errorf("asked again after a restart: %v, want its start %v", again, started)
+	}
+	n := 0
+	for _, p := range w.listed("dev") {
+		if p.GetRanOn().GetKind() == envv1alpha1.RanOnKind_RAN_ON_KIND_BOOST {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d boost processes for one ticket, want 1", n)
+	}
+	cancel := proto.Clone(req).(*envv1alpha1.StartProcessRequest)
+	cancel.Cancel = true
+	if res := w.start(cancel); res.GetProcess() != started.GetProcess() {
+		t.Errorf("a started ticket given up: %v, want its process", res)
+	}
+	testutil.Eventually(t, "the given-up process ended", func() bool {
+		return !w.listed("dev")[started.GetProcess()].GetRunning()
+	})
+}
+
+// TestADeferredWriteBackKeepsItsWrites: a process whose write-back is
+// deferred is listed as running, not ended without it; a sync meanwhile
+// is shared, so what it wrote stays on the boost; once the write-back can
+// run, it comes back.
+func TestADeferredWriteBackKeepsItsWrites(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	w.srv.SetNoSettleJob()
+	first := w.startBoosted(boostOn("dev", "sh", "-c", "echo a > a.out"))
+	var deferring atomic.Bool
+	deferring.Store(true)
+	w.srv.SetDeferWriteBack(func(id string) bool { return id == first.GetProcess() && deferring.Load() })
+	if p := w.listed("dev")[first.GetProcess()]; !p.GetRunning() || p.GetExit() != nil {
+		t.Errorf("a process whose write-back is deferred is listed %v, want running", p)
+	}
+	res, out, _ := w.run(`cat a.out`)
+	if !res.GetBoost().GetBaseShared() || out != "a\n" {
+		t.Errorf("a sync beside a deferred write-back: %v, saw %q; want shared, a.out kept", res.GetBoost(), out)
+	}
+	deferring.Store(false)
+	_, end, err := attachProcess(t.Context(), w.as(workstream).envs, &envv1alpha1.AttachProcessRequest{Environment: boxEnv("dev"), Process: first.GetProcess(), Follow: true})
+	if err != nil || moved(end.GetExit())["a.out"] != "A" || w.read(w.box, "a.out") != "a\n" {
+		t.Errorf("once it can be written back: %v, %v; a.out in the box %q", end.GetExit().GetBoost(), err, w.read(w.box, "a.out"))
+	}
+	if p := w.listed("dev")[first.GetProcess()]; p.GetRunning() || moved(p.GetExit())["a.out"] != "A" {
+		t.Errorf("listed once written back: %v", p)
+	}
+}
+
+// TestABaselineIsABoostTargetsAlone: a box takes its baseline on a target
+// that makes boosts (hangar), and not on one that does not (hostd).
+func TestABaselineIsABoostTargetsAlone(t *testing.T) {
+	t.Parallel()
+	baselines := func(w *world) int {
+		n := 0
+		for _, x := range w.fake.Execs() {
+			if len(x.Command) > 1 && x.Command[0] == provider.GuestBinary && x.Command[1] == "boost-baseline" {
+				n++
+			}
+		}
+		return n
+	}
+	hangar := boostWorld(t, nil)
+	hangar.readyBox("dev")
+	if n := baselines(hangar); n != 1 {
+		t.Errorf("a hangar box took %d baselines, want 1", n)
+	}
+	hostd := newWorld(t)
+	hostd.readyBox("dev")
+	if n := baselines(hostd); n != 0 {
+		t.Errorf("a hostd box took %d baselines, want none", n)
 	}
 }

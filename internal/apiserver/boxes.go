@@ -295,6 +295,18 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		}
 	}
 	st.StoppedReason = reason
+	if desired == envv1alpha1.RunState_RUN_STATE_STOPPED && in.GetSpec().GetRunState() != desired {
+		// What its boost's ended processes changed reaches it before it
+		// stops.
+		done, err := s.writeBackBeforeStop(ctx, key)
+		if err != nil {
+			return err
+		}
+		if !done {
+			bs.cond(BoxReady, false, "Stopping", "stopping: its boosted processes' changes are written back first")
+			return fmt.Errorf("box %s: its boosted processes' changes are written back before it stops: %w", key, controller.ErrWaiting)
+		}
+	}
 	if in.GetSpec().GetRunState() != desired {
 		if err := s.setRunState(ctx, in, desired); err != nil {
 			return err
@@ -695,6 +707,16 @@ func (s *Server) materializeInstance(ctx context.Context, p provider.Provider, k
 			if err := s.mustRun(ctx, p, ref, nil, dir, excludeCaches...); err != nil {
 				return err
 			}
+			if !timed && s.targetHasBoosts(ctx, target) {
+				// The box's baseline: its files as its warm golden and its
+				// checkout made them, before its setup steps write, which a
+				// boost made of the same golden holds too. A sync to a boost
+				// it never synced to sends what the box touched since.
+				if code, _, msg, err := guestRun(ctx, p, ref, "boost-baseline", "--dir", workspace); err != nil || code != 0 {
+					s.log.Warn("taking a box's baseline failed; its first sync to each boost sends all its files", "project", key.Project,
+						"box", key.Name, "error", err, "stderr", msg)
+				}
+			}
 		}
 	}
 	if err := s.mustRun(ctx, p, ref, nil, "/", adoptToolDirs...); err != nil {
@@ -1010,4 +1032,11 @@ func (s *Server) idle(key controller.Key, box *envv1alpha1.Box, in *envv1alpha1.
 		last = maxTime(last, c.GetLastTransitionTime().AsTime())
 	}
 	return !last.IsZero() && s.clock.Since(last) >= settingsOf(target).idleStopAfter, epoch
+}
+
+// targetHasBoosts says the target makes boosts: a hangar target's. One not
+// read is taken to.
+func (s *Server) targetHasBoosts(ctx context.Context, target string) bool {
+	t, ok, err := getTyped[*targetsv1alpha1.Target](ctx, s, registry.Target, resource.Key{Name: target})
+	return err != nil || !ok || t.GetSpec().GetHangar() != nil
 }

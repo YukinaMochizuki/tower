@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -110,6 +111,20 @@ type targetBoosts struct {
 	lastSync map[controller.Key]string
 	// syncWaiting counts each box's syncs waiting for its sync lock.
 	syncWaiting map[controller.Key]int
+	// started are the tickets that started their process, until
+	// boostTicketTTL after: asked about again, each is answered its
+	// start, never a second one.
+	started map[string]*startedTicket
+}
+
+// startedTicket is a ticket's start: under way while res is nil; cancel
+// says it was given up meanwhile, so its process is sent TERM once it
+// starts.
+type startedTicket struct {
+	box    controller.Key
+	at     time.Time
+	res    *envv1alpha1.StartProcessResponse
+	cancel bool
 }
 
 // syncLock is a box's sync lock: a semaphore of one, so a start can give
@@ -166,17 +181,50 @@ func (q *boostQueues) of(target string) *targetBoosts {
 	t, ok := q.targets[target]
 	if !ok {
 		t = &targetBoosts{tickets: map[string]*boostTicket{}, starting: map[controller.Key]int{}, used: map[controller.Key]time.Time{}, starts: map[controller.Key]uint64{},
-			lastSync: map[controller.Key]string{}, syncWaiting: map[controller.Key]int{}}
+			lastSync: map[controller.Key]string{}, syncWaiting: map[controller.Key]int{}, started: map[string]*startedTicket{}}
 		q.targets[target] = t
 	}
 	return t
 }
 
-// prune drops the tickets not asked about for boostTicketTTL. Held mu.
+// pruneAll prunes each target's tickets, as prune does.
+func (q *boostQueues) pruneAll(now time.Time) {
+	q.mu.Lock()
+	targets := slices.Collect(maps.Values(q.targets))
+	q.mu.Unlock()
+	for _, t := range targets {
+		t.mu.Lock()
+		t.prune(now)
+		t.mu.Unlock()
+	}
+}
+
+// runTicketPrune prunes the targets' tickets each minute, whether or not
+// a start comes.
+func (s *Server) runTicketPrune(ctx context.Context) error {
+	ticker := s.clock.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.Chan():
+			s.boosts.pruneAll(s.clock.Now())
+		}
+	}
+}
+
+// prune drops the tickets not asked about for boostTicketTTL, and the
+// starts of tickets made longer ago. Held mu.
 func (t *targetBoosts) prune(now time.Time) {
 	for id, tk := range t.tickets {
 		if now.Sub(tk.seen) > boostTicketTTL {
 			delete(t.tickets, id)
+		}
+	}
+	for id, st := range t.started {
+		if st.res != nil && now.Sub(st.at) > boostTicketTTL {
+			delete(t.started, id)
 		}
 	}
 }
@@ -759,6 +807,13 @@ func (s *Server) boostSteps(ctx context.Context, key controller.Key, b *envv1alp
 	tq.mu.Lock()
 	used, busy := tq.used[boxKey], tq.busy(boxKey, now)
 	tq.mu.Unlock()
+	// A process whose changes are not written back yet keeps it: what it
+	// wrote is only there.
+	if open, err := s.unsettled(ctx, boxKey, in); err != nil {
+		return boostRetire{}, err
+	} else if open > int(in.GetStatus().GetProcessesRunning()) {
+		busy = true
+	}
 	st.ProcessesRunning = in.GetStatus().GetProcessesRunning()
 	last := st.GetLastUseTime().AsTime()
 	switch {
