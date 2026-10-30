@@ -61,29 +61,52 @@ picks, its services and its agent included.
   neither the measure nor a boost: its processes report no usage, and no
   rusage stands in for it. VMs (machines) are left out until a cgroup made
   beside systemd's own is decided on.
-- **The supervisor is root; the command runs as the container's user.**
-  Only root makes a cgroup under `/tower`, and a devcontainer's image
-  usually runs as a user of its own (`remoteUser`), as hangar's exec does
-  every command of the container: a supervisor run as that user measured
-  nothing, and said nothing of it. The hangar provider reads, once per
-  container, who a shim run as the container's user is (its uid, gid,
-  supplementary groups and HOME, as hangar's runtime gives them), and
-  whether a shim runs as root there. Where one does, every process
-  operation (start, signal, list, log) runs its shim as root, alike, so
-  each reads and signals what another made, and a start drops the command
-  to that user (`SysProcAttr.Credential`, its groups set, no capability
-  kept): the same uid, gid, groups and HOME, unless the start sets HOME,
-  and the rest of the environment, which hangar's exec gives root and the
-  user alike (USER, LOGNAME and SHELL as the image sets them, which is
-  unset unless it does). The user cannot move it out of its cgroup, which
-  is root's. What the command makes is the user's, and so is every file of
-  the process's directory under `/.tower/processes`, given to the user as
-  root makes it: an earlier tower, whose shim runs as the user, lists,
-  reads and prunes them still. Every other operation (exec, files,
-  copies, a boost's pack and apply) runs as the user, as before. A
-  container whose image runs as root drops to no one; one where no shim
-  runs as root runs its processes as before, as the user, unmeasured.
-  (`internal/guest/guestbin/runas.go`, `internal/provider/hangar/ops.go`.)
+- **A start alone runs as root; the command runs as the container's
+  user.** Only root makes a cgroup under `/tower`, and a devcontainer's
+  image usually runs as a user of its own (`remoteUser`), as hangar's exec
+  does every command of the container: a supervisor run as that user
+  measured nothing, and said nothing of it. At a container's first start,
+  and never for anything else, the hangar provider reads who a shim run as
+  the container's user is (its uid, gid, supplementary groups and HOME, as
+  hangar's runtime gives them) and whether a shim runs as root there. Where
+  one does, a start runs its shim as root, and the supervisor, root, drops
+  the command to that user (`SysProcAttr.Credential`, its groups set, no
+  capability kept): the same uid, gid, groups and HOME, unless the start
+  sets HOME, and the rest of the environment, which hangar's exec gives
+  root and the user alike (USER, LOGNAME and SHELL as the image sets them,
+  which is unset unless it does). A user who is the root shim, by uid, gid
+  and groups alike, drops to no one. The user cannot move the command out
+  of its cgroup, which is root's.
+- **Every other operation runs as the user**: exec, files, copies, a
+  boost's pack, apply and clean, and a process's signal, list and log. The
+  command's process group is the user's (`Setpgid`; the supervisor is in a
+  session of its own, outside it), so the user may signal it, and no
+  signal sent to the group reaches the supervisor, which writes the exit
+  however the command ended. A process's files are root's, `0755` and
+  `0644` (`proclog.Readable`), so the user reads them, lists them and
+  takes their lock shared, and writes none. Root never reads a file the
+  user may write to decide whom to signal: a pid the user forged is sent
+  with the user's own rights.
+- **The supervisor writes nothing by its path.** `/.tower/processes` is
+  the user's (an earlier tower's shim, run as the user, makes processes
+  there), so the user may rename or replace a process's directory under it.
+  The supervisor makes the directory, opens it, checks it is root's and
+  empty, and writes every file of it (meta, lock, pid, log, exit) through
+  that handle, each new (`O_EXCL`, `O_NOFOLLOW`): a renamed directory takes
+  the writes with it, and a symlink or a directory put in its place gets
+  none. It prunes the finished ones confined to `/.tower/processes`
+  (`os.Root`).
+- **No root, no measure, said.** A container where no shim runs as root,
+  or one asked for root runs as another, starts its processes as before,
+  as the user, unmeasured. It is logged once per container, said on its
+  Instance (`Measured` false, reason `NoRoot`, with why), and root is tried
+  again five minutes later, at a start, not before.
+- **The rollback limit.** A tower rolled back to one whose shim runs as
+  the user (rc.10) lists, reads, locks shared and signals the processes
+  this one started, but cannot prune their root-owned directories: they
+  stay until the instance goes, which is harmless.
+  (`internal/guest/guestbin/runas.go`, `supervise.go`,
+  `internal/guest/proclog`, `internal/provider/hangar/ops.go`.)
 - **Measuring never stops a process.** A guest where no cgroup can be made
   (not root, a read-only or v1 cgroupfs, a kernel without
   `CLONE_INTO_CGROUP`) runs the process as it would without one, its usage
