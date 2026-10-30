@@ -1034,11 +1034,18 @@ func TestASyncsOwnTempFilesNeverTravel(t *testing.T) {
 // same records is found by the boost's check, and sent again.
 func TestAFirstSyncLeavesTrackedFilesToTheCheck(t *testing.T) {
 	p := newPair(t)
+	// Written whole beside it and renamed on, as an editor saves: a new
+	// inode, which git's own stat check sees, as it may not a rewrite in
+	// place within the second it last looked.
 	rewrite := func(name, text string) {
 		f := filepath.Join(p.box, name)
 		at := mtime(t, f)
-		write(t, f, text, mode(t, f).Perm())
-		if err := os.Chtimes(f, at, at); err != nil {
+		tmp := f + ".new"
+		write(t, tmp, text, mode(t, f).Perm())
+		if err := os.Chtimes(tmp, at, at); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(tmp, f); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -201,9 +201,12 @@ What is accepted and built, in the API's terms:
   of the box's untouched copy with other content (as `npm ci` with
   fixed mtimes would, were the lockfile's content not the same), and
   one written unseen by a hand outside a job between a job's end and
-  the next sync on the boost, which nothing there does. The box also
-  sends git's state as before: its work tree's tree (as trees alone), what is
-  staged apart from it, and a bundle of HEAD's commits no `origin` ref
+  the next sync on the boost, which nothing there does. For a tracked
+  file, the check sees what git sees: one rewritten in place to its
+  size and mtime within the second git last looked at it, which `git
+  status` in the box also takes as unchanged, is not sent to a new
+  boost. The box also sends git's state as before: its work tree's
+  tree (as trees alone), what is staged apart from it, and a bundle of HEAD's commits no `origin` ref
   reaches. tower copies the pack to the boost (`Provider.Copy`),
   fetches the mirror there (`UpdateOrigin`), and `boost-apply` deletes,
   then writes each file whole beside its path and renames it on, with
