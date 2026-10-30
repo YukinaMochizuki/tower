@@ -102,7 +102,8 @@ func (w *workspaces) realCommit(mirror string, m *repo, commit string) (string, 
 			return "", "", err
 		}
 	}
-	if _, err := gitIn(repoDir, "add", "-A"); err != nil {
+	// What the remote holds, all of it, a file its .gitignore matches too.
+	if _, err := gitIn(repoDir, "add", "-A", "--force"); err != nil {
 		return "", "", err
 	}
 	if _, err := gitIn(repoDir, "commit", "-q", "--allow-empty", "-m", commit); err != nil {

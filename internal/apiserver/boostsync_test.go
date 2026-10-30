@@ -31,9 +31,16 @@ type syncWorld struct {
 
 func newSyncWorld(t *testing.T) *syncWorld {
 	t.Helper()
+	return newSyncWorldOf(t, map[string]string{"a.txt": "a\n", "b.txt": "b\n", ".gitignore": "*.log\n"})
+}
+
+// newSyncWorldOf is newSyncWorld whose repository holds files, every one
+// committed, one its .gitignore matches too.
+func newSyncWorldOf(t *testing.T, files map[string]string) *syncWorld {
+	t.Helper()
 	w := boostWorld(t, nil)
 	w.fake.RealWorkspaces(t.TempDir(), guestbin.Boost)
-	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{"a.txt": "a\n", "b.txt": "b\n", ".gitignore": "*.log\n"}, "c1")
+	w.fake.SetRemote("https://git.example.com/api.git", "main", files, "c1")
 	w.readyBox("dev")
 	return &syncWorld{world: w, box: provider.Instance{Project: "web", Name: "box-dev"}, boost: provider.Instance{Project: "web", Name: "boost-dev"}}
 }
@@ -187,8 +194,19 @@ func TestABoostLackingTheBaseGetsTheWholeTree(t *testing.T) {
 	t.Parallel()
 	w := newSyncWorld(t)
 	w.run(`true`)
-	// The last tree sent, as tower keeps it, is one the box has and the
-	// boost does not.
+	w.baseTheBoostLacks()
+	w.write(w.box, "a.txt", "after\n")
+	res, out, _ := w.run(`cat a.txt`)
+	if !res.GetBoost().GetSyncFull() || out != "after\n" {
+		t.Errorf("a sync whose base the boost lacks: %v, saw %q; want the whole tree sent", res.GetBoost(), out)
+	}
+}
+
+// baseTheBoostLacks makes the last tree sent, as tower keeps it, one the
+// box has and the boost does not: the next sync sends the whole tree.
+func (w *syncWorld) baseTheBoostLacks() {
+	t := w.t
+	t.Helper()
 	cmd := osexec.Command("sh", "-c", `git hash-object -w --stdin <<EOF | xargs -I{} printf '100644 blob {}\tonly-in-the-box\n' | git mktree
 only in the box
 EOF`)
@@ -211,10 +229,35 @@ EOF`)
 	if _, err := w.store.Update(t.Context(), key, b, o.Revision); err != nil {
 		t.Fatal(err)
 	}
-	w.write(w.box, "a.txt", "after\n")
-	res, out, _ := w.run(`cat a.txt`)
-	if !res.GetBoost().GetSyncFull() || out != "after\n" {
-		t.Errorf("a sync whose base the boost lacks: %v, saw %q; want the whole tree sent", res.GetBoost(), out)
+}
+
+// TestATrackedFileAnIgnoreRuleMatchesIsSynced: a file the repository
+// tracks though its .gitignore matches it reaches the boost, in a delta
+// and a whole tree; a job's change to it is listed in its exit and put
+// back before the next sync. One ignored and untracked never travels.
+func TestATrackedFileAnIgnoreRuleMatchesIsSynced(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorldOf(t, map[string]string{"a.txt": "a\n", ".gitignore": "*.log\n*.toml\n", ".devcontainer/mise.toml": "[tools]\n"})
+	w.write(w.box, "a.txt", "edited\n")
+	w.write(w.box, "local.toml", "ignored, untracked\n")
+	res, out, exit := w.run(`cat .devcontainer/mise.toml a.txt; test -e local.toml && echo leaked; echo job >> .devcontainer/mise.toml`)
+	if res.GetBoost().GetSyncFull() || out != "[tools]\nedited\n" || exit.GetCode() != 0 {
+		t.Errorf("a delta: %v, saw %q, exit %v", res.GetBoost(), out, exit)
+	}
+	if got := changed(exit); len(got) != 1 || got[".devcontainer/mise.toml"] != "M" {
+		t.Errorf("a job that edited mise.toml changed %v", exit.GetBoost().GetChanged())
+	}
+
+	w.write(w.box, ".devcontainer/mise.toml", "[tools]\ngo = \"1.25\"\n")
+	res, out, _ = w.run(`cat .devcontainer/mise.toml`)
+	if s := res.GetBoost(); s.GetSyncFull() || s.GetSyncFiles() != 1 || out != "[tools]\ngo = \"1.25\"\n" {
+		t.Errorf("the box's change, after a job's: %v, saw %q", s, out)
+	}
+
+	w.baseTheBoostLacks()
+	res, out, _ = w.run(`cat .devcontainer/mise.toml; test -e local.toml && echo leaked`)
+	if !res.GetBoost().GetSyncFull() || out != "[tools]\ngo = \"1.25\"\n" {
+		t.Errorf("a whole tree: %v, saw %q", res.GetBoost(), out)
 	}
 }
 
@@ -624,5 +667,35 @@ func TestASyncStaysGoodForAReask(t *testing.T) {
 	}
 	if packs := packsOf(w); packs != 1 {
 		t.Errorf("%d syncs, want 1", packs)
+	}
+}
+
+// TestAWholeTreeThatMakesAnotherIsSaidSo: a sync whose tree the boost
+// does not make is sent once more, whole; if that makes another too, the
+// start fails saying so, not that the boost lacks a base.
+func TestAWholeTreeThatMakesAnotherIsSaidSo(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	w.startBoosted(boostOn("dev", "true"))
+	before := len(w.fake.Execs())
+	w.fake.OnExec(func(req provider.ExecRequest) (int, bool) {
+		if len(req.Command) > 1 && req.Command[0] == provider.GuestBinary && req.Command[1] == "boost-apply" {
+			return guestbin.ExitTreeMismatch, true
+		}
+		return 0, false
+	})
+	w.write(w.box, "a.txt", "edited\n")
+	_, err := w.as(workstream).envs.StartProcess(t.Context(), connect.NewRequest(boostOn("dev", "true")))
+	if connect.CodeOf(err) != connect.CodeInternal || !strings.Contains(err.Error(), "the whole tree sent made another tree") || strings.Contains(err.Error(), "lacks the sync's base") {
+		t.Errorf("a whole tree that makes another: %v", err)
+	}
+	var bases []string
+	for _, x := range w.fake.Execs()[before:] {
+		if i := slices.Index(x.Command, "--base"); len(x.Command) > 1 && x.Command[1] == "boost-pack" && i > 0 {
+			bases = append(bases, x.Command[i+1])
+		}
+	}
+	if len(bases) != 2 || bases[0] == "" || bases[1] != "" {
+		t.Errorf("the syncs' bases: %q, want a delta's, then one whole tree", bases)
 	}
 }

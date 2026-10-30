@@ -220,7 +220,7 @@ func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.B
 		_, err = s.applySync(ctx, e, boostRef, stage, &m, known && rec.Head == m.Head && !bundleAll, shared)
 		clean()
 		switch {
-		case errors.Is(err, errNoBase) && !wholeTree && !m.Full:
+		case (errors.Is(err, errNoBase) || errors.Is(err, errTreeMismatch)) && !wholeTree && !m.Full:
 			// The boost lacks the base, or made another tree: the whole
 			// tree, once.
 			s.log.Warn("a boost lacks its sync's base; sending the whole tree", "environment", e.String(), "base", base, "error", err)
@@ -229,6 +229,10 @@ func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.B
 			}
 			base, known, wholeTree = "", false, true
 			continue
+		case errors.Is(err, errTreeMismatch):
+			// Even the whole tree made another: tower's fault, or the
+			// boost's checkout's, never the box's.
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("%s: syncing the box to its boost: the whole tree sent made another tree there: %w", e, err))
 		case errors.Is(err, errNoHead) && !bundleAll:
 			// The boost lacks what the bundle needs: HEAD's whole history,
 			// once.
@@ -266,9 +270,11 @@ func (s *Server) boostRunsSomething(ctx context.Context, p provider.Provider, bo
 // errNoHead is a boost lacking the box's HEAD, or what its bundle needs.
 var errNoHead = errors.New("the boost lacks the box's HEAD")
 
-// errNoBase is a sync's base the boost lacks, or a tree it made that is
-// not the one sent.
+// errNoBase is a sync's base the boost lacks.
 var errNoBase = errors.New("the boost lacks the sync's base")
+
+// errTreeMismatch is a tree the boost made that is not the one sent.
+var errTreeMismatch = errors.New("the boost made another tree than the one sent")
 
 // applySync brings the pack at stage in the box to the boost and applies
 // it there: the box's HEAD's commits first, from the mirror, unless the
@@ -291,8 +297,10 @@ func (s *Server) applySync(ctx context.Context, e *environment, boostRef provide
 	switch {
 	case err != nil:
 		return nil, providerError(e, fmt.Errorf("applying the box's changes on its boost: %w", err))
-	case code == guestbin.ExitBaseMissing || code == guestbin.ExitTreeMismatch:
+	case code == guestbin.ExitBaseMissing:
 		return nil, fmt.Errorf("%w: %s", errNoBase, msg)
+	case code == guestbin.ExitTreeMismatch:
+		return nil, fmt.Errorf("%w: %s", errTreeMismatch, msg)
 	case code == guestbin.ExitHeadMissing:
 		return nil, fmt.Errorf("%w: %s", errNoHead, msg)
 	case code != 0:
