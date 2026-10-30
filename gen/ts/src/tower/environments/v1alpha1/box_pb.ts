@@ -285,13 +285,16 @@ export type BoxStatus = Message<"tower.environments.v1alpha1.BoxStatus"> & {
   /**
    * Ready, with ImageBuilt and Materialized on the way to it; SetUp,
    * which says whether its devcontainer's setup steps passed: one that did
-   * not leaves the box READY; and DevcontainerFellBack, true when its image
-   * is the one to fall back to, saying why. Fallen back from an image that
-   * did not build, its reason is BuildFailed while that image's golden is
-   * FAILED, its message naming the golden, why it failed, when ("failed
-   * at") and when it is built again ("built again at"); Rebuilding while
-   * it is built again; and BuiltSince once it is built, when a box made
-   * now is made of it. The box itself stays on the image it fell back to.
+   * not leaves the box READY; KernelLimits, on a hangar target, which says
+   * whether its instance's inotify limits were raised at its last start,
+   * and leaves it READY when they were not; and DevcontainerFellBack, true
+   * when its image is the one to fall back to, saying why. Fallen back from
+   * an image that did not build, its reason is BuildFailed while that
+   * image's golden is FAILED, its message naming the golden, why it
+   * failed, when ("failed at") and when it is built again ("built again
+   * at"); Rebuilding while it is built again; and BuiltSince once it is
+   * built, when a box made now is made of it. The box itself stays on the
+   * image it fell back to.
    *
    * @generated from field: repeated tower.meta.v1.Condition conditions = 2;
    */

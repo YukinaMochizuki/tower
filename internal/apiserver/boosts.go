@@ -794,6 +794,24 @@ func (s *Server) boostSteps(ctx context.Context, key controller.Key, b *envv1alp
 			return s.annotateInstance(ctx, key.Project, ref.Name, secretFilesAnnotation, runOf(in))
 		})
 	}
+	// Its kernel limits, at each start, before its checkouts. The step
+	// failing does not fail the boost, which goes on, saying so.
+	if kernelLimitsDue(target, in) {
+		notRaised := false
+		run := runOf(in)
+		err := s.boostJob(ctx, key, b, in, bs, func(_, msg string) {
+			notRaised = true
+			bs.cond(BoostKernelLimits, false, "NotRaised", msg)
+		}, "kernellimits", "its kernel limits are being raised", func(ctx context.Context, ref provider.Instance) error {
+			return s.raiseKernelLimitsIn(ctx, p, key.Project, ref, run)
+		})
+		if err != nil || !notRaised {
+			return boostRetire{}, err
+		}
+	} else if raisesKernelLimits(target) {
+		ok, reason, msg := kernelLimitsCondition(in)
+		bs.cond(BoostKernelLimits, ok, reason, msg)
+	}
 	if in.GetMetadata().GetAnnotations()[materializedAnnotation] != "true" {
 		msg := "the box's repositories are being checked out"
 		if st.GetSetupStartTime() != nil {
