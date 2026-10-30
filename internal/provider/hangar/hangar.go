@@ -155,12 +155,15 @@ type Target struct {
 	mu    sync.RWMutex
 	guest guestBinary
 	// key is the target's key for its VMs' root, nil without one.
-	key     *vmssh.Key
-	vms     vmConns
-	limits  processLimits
-	procs   processCache
-	streams *streams.Server
-	sys     systemState
+	key    *vmssh.Key
+	vms    vmConns
+	limits processLimits
+	// rootRetry is how long a container no root shim ran in starts its
+	// processes unmeasured before root is tried there again.
+	rootRetry time.Duration
+	procs     processCache
+	streams   *streams.Server
+	sys       systemState
 	// ep is the system container's endpoint (endpoint.go); sgMu keeps its
 	// security group's writes apart.
 	ep   endpointState
@@ -198,6 +201,7 @@ func New(cfg Config) *Target {
 	t := &Target{
 		cfg: cfg, api: cfg.API, c: cfg.Client, clock: cfg.Clock, log: cfg.Log,
 		mirrorOps: make(chan struct{}, cfg.MirrorOps), backgroundOps: make(chan struct{}, cfg.MirrorOps-kept),
+		rootRetry: rootRetry,
 	}
 	if t.clock == nil {
 		t.clock = clockwork.NewRealClock()

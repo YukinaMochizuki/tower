@@ -27,6 +27,13 @@
 //     tracked files, such as `make gen` (unless given, one that appends
 //     to TOWER_SYNC_FILE on the boost).
 //
+// The measure's check (docs/decisions/process-usage.md),
+// TestANonRootBoxsProcessIsMeasuredAsItsUser, needs none of the above but
+// TOWER_URL, TOWER_TOKEN_FILE and TOWER_PROJECT, and TOWER_BOX_NONROOT, a
+// READY box of the project whose image runs as a user other than root,
+// such as a devcontainer's remoteUser; it changes no target, and writes
+// one file of its own under the box's /tmp, which it removes.
+//
 // Each check logs what it saw, the boost's output among it.
 package boostcheck
 
@@ -412,4 +419,87 @@ func TestASecondBoostWaitsForTheBudget(t *testing.T) {
 	}
 	out, _ := r.output(r.boxB, res.GetProcess())
 	t.Logf("%s's boost, %s after it asked: nproc %s", r.boxB, time.Since(asked).Round(time.Second), strings.TrimSpace(out))
+}
+
+// nonRootSetup is the measure's check's run, of the workstream's token
+// alone: no admin token, no boxes A and B, no target settings changed or
+// put back. It returns the box TOWER_BOX_NONROOT names.
+func nonRootSetup(t *testing.T) (*run, string) {
+	need := func(name string) string {
+		v := os.Getenv(name)
+		if v == "" {
+			t.Skipf("%s is not set: see the package's comment", name)
+		}
+		return v
+	}
+	box := need("TOWER_BOX_NONROOT")
+	url, project := need("TOWER_URL"), need("TOWER_PROJECT")
+	b, err := os.ReadFile(need("TOWER_TOKEN_FILE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hc := &http.Client{Transport: bearer{strings.TrimSpace(string(b))}}
+	return &run{t: t, envs: environmentsv1alpha1connect.NewEnvironmentServiceClient(hc, url), project: project}, box
+}
+
+// execOut runs argv in box through tower's exec, as the box's user, and
+// returns its stdout, failing the test unless it exits 0.
+func (r *run) execOut(box string, argv ...string) string {
+	r.t.Helper()
+	stream, err := r.envs.Exec(context.Background(), connect.NewRequest(&envv1alpha1.ExecRequest{
+		Environment: r.env(box), Command: &envv1alpha1.ExecRequest_Argv{Argv: &envv1alpha1.Argv{Args: argv}},
+	}))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	var out, errOut strings.Builder
+	var exit *envv1alpha1.ExecExit
+	for stream.Receive() {
+		switch m := stream.Msg().GetResponse().(type) {
+		case *envv1alpha1.ExecResponse_Stdout:
+			out.Write(m.Stdout)
+		case *envv1alpha1.ExecResponse_Stderr:
+			errOut.Write(m.Stderr)
+		case *envv1alpha1.ExecResponse_Exit:
+			exit = m.Exit
+		}
+	}
+	if err := stream.Err(); err != nil {
+		r.t.Fatal(err)
+	}
+	if exit.GetCode() != 0 {
+		r.t.Fatalf("%v in %s exited %d: %s", argv, box, exit.GetCode(), errOut.String())
+	}
+	return strings.TrimSpace(out.String())
+}
+
+// TestANonRootBoxsProcessIsMeasuredAsItsUser: a process started in a box
+// whose image runs as a user other than root runs as that user, as an
+// exec there does (`id -un`, `id -u`), what it writes is that user's, and
+// its exit reports its usage: tower measured it.
+func TestANonRootBoxsProcessIsMeasuredAsItsUser(t *testing.T) {
+	r, box := nonRootSetup(t)
+	user, uid := r.execOut(box, "id", "-un"), r.execOut(box, "id", "-u")
+	if uid == "0" {
+		t.Fatalf("%s runs as root: TOWER_BOX_NONROOT names a box whose image runs as another user", box)
+	}
+	// Under /tmp: the box's own work tree is left as it is.
+	file := "/tmp/.boostcheck-measured-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	t.Cleanup(func() { r.execOut(box, "rm", "-f", file) })
+	res, err := r.envs.StartProcess(context.Background(), connect.NewRequest(&envv1alpha1.StartProcessRequest{
+		Environment: r.env(box), Dir: "/tmp",
+		Command: &envv1alpha1.StartProcessRequest_Shell{Shell: "id -un; id -u; echo measured > " + file + " && stat -c %U " + file},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, exit := r.output(box, res.Msg.GetProcess())
+	t.Logf("%s: the exec runs as %s (%s); the process wrote %q and ended %v", box, user, uid, out, exit)
+	if got := strings.Fields(out); len(got) != 3 || got[0] != user || got[1] != uid || got[2] != user {
+		t.Errorf("the process said %q: want it run as %s (%s), its file %s's", out, user, uid, user)
+	}
+	if exit.GetCode() != 0 || exit.MemoryPeakBytes == nil || exit.GetWall() == nil {
+		t.Errorf("the process ended %v: want it measured, its memory peak and wall reported", exit)
+	}
 }

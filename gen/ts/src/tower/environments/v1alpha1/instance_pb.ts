@@ -222,6 +222,12 @@ export type InstanceStatus = Message<"tower.environments.v1alpha1.InstanceStatus
   observedGeneration: bigint;
 
   /**
+   * Ready; and, for a hangar target's container once it started a
+   * process, RootStart: whether a root supervisor starts its processes,
+   * each as its user, which measuring them needs (they are measured where
+   * the guest's cgroups allow it too), and, false (NoRoot), why not
+   * (docs/decisions/process-usage.md).
+   *
    * @generated from field: repeated tower.meta.v1.Condition conditions = 2;
    */
   conditions: Condition[];

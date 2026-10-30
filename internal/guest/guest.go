@@ -24,6 +24,16 @@ var (
 	ErrUnreachable = errors.New("guest: the server is not reached from the guest")
 )
 
+// Identity is who a command runs as in a guest, as its runtime gave it to
+// a command run there: its uid, gid and supplementary groups, and its
+// HOME, "" for none.
+type Identity struct {
+	UID    uint32   `json:"uid"`
+	GID    uint32   `json:"gid"`
+	Groups []uint32 `json:"groups,omitempty"`
+	Home   string   `json:"home,omitempty"`
+}
+
 // ExecSpec is one command run in a guest.
 type ExecSpec struct {
 	// Command is the program and its arguments, run without a shell.

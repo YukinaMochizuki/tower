@@ -73,6 +73,11 @@ func (t *Target) StartProcess(ctx context.Context, req provider.ProcessRequest) 
 	if err != nil {
 		return "", err
 	}
+	if !p.vm {
+		if o, err = t.startOps(ctx, o, p.uid); err != nil {
+			return "", err
+		}
+	}
 	logCap, keep := t.processLimits()
 	spec := guest.ProcessSpec{Name: req.Name, Command: req.Command, Env: req.Env, Dir: req.Dir, LogCap: logCap, Keep: keep}
 	if measures(p) {

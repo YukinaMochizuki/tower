@@ -17,6 +17,16 @@
 //
 // A process without exit.json whose lock is free has lost its supervisor,
 // as when its guest stopped: it reads as killed by SIGKILL.
+//
+// The supervisor makes a process's directory (Create) and writes every
+// file of it through that directory, opened, never by its path, and never
+// through a symlink: whoever may write the directory above it, a
+// container's user who owns /.tower/processes, may rename or replace the
+// directory, and redirects none of its writes. A root supervisor of a
+// command it runs as a user makes them root's, in the user's group, and
+// readable to that group alone (GroupReadable): the user reads, lists and
+// locks them shared, writes none, and no other user of the guest reads
+// them.
 package proclog
 
 import (
@@ -30,7 +40,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -120,25 +129,127 @@ func ValidID(id string) bool {
 	return err == nil
 }
 
+// Perm is the modes a supervisor makes a process's directory and its files
+// with, and their group, if Grouped: none, the supervisor's.
+type Perm struct {
+	Dir, File fs.FileMode
+	Grouped   bool
+	GID       int
+}
+
+// Private is a supervisor's own: one that runs as its command's user.
+var Private = Perm{Dir: 0o700, File: 0o600}
+
+// GroupReadable is a root supervisor's of a command it runs as a user of
+// group gid: the group reads them, writes none, and no one else reads
+// them. A process's output and command line are its user's alone, as a
+// supervisor run as the user keeps them (Private).
+func GroupReadable(gid int) Perm { return Perm{Dir: 0o750, File: 0o640, Grouped: true, GID: gid} }
+
+// set gives an open file or directory p's group, then mode m: in that
+// order, so it is never readable to a group but p's.
+func (p Perm) set(f *os.File, m fs.FileMode) error {
+	if p.Grouped {
+		if err := f.Chown(-1, p.GID); err != nil {
+			return err
+		}
+	}
+	return f.Chmod(m)
+}
+
+// Create makes the directory of a new process, id, under root with p, and
+// returns it, opened: every write to it goes through that (Lock,
+// NewWriter, WriteMeta, WritePID, WriteExit). One there already is no new
+// process's. The directory opened is the caller's own and empty, or
+// Create fails: one that replaced it under its name before it was opened
+// is not written to.
+func Create(root, id string, p Perm) (*os.Root, error) {
+	if !ValidID(id) {
+		return nil, fmt.Errorf("%q is no process id", id)
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = r.Close() }()
+	if err := r.Mkdir(id, p.Dir); err != nil {
+		return nil, err
+	}
+	if afterMkdir != nil {
+		afterMkdir(root, id)
+	}
+	dir, err := r.OpenRoot(id)
+	if err != nil {
+		return nil, err
+	}
+	if err := made(dir, p); err != nil {
+		_ = dir.Close()
+		return nil, fmt.Errorf("process directory %s: %w", id, err)
+	}
+	return dir, nil
+}
+
+// afterMkdir, a test's, runs between Create's making a process's directory
+// and its opening it: when one who may write root may put another there.
+var afterMkdir func(root, id string)
+
+// made checks a directory just made is the caller's and empty, and sets
+// its mode, whatever the umask took of it.
+func made(dir *os.Root, p Perm) error {
+	st, err := dir.Stat(".")
+	if err != nil {
+		return err
+	}
+	s, ok := st.Sys().(*syscall.Stat_t)
+	if !st.IsDir() || !ok || int(s.Uid) != os.Geteuid() {
+		return errors.New("not the directory made")
+	}
+	d, err := dir.Open(".")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = d.Close() }()
+	if names, err := d.Readdirnames(1); len(names) > 0 || (err != nil && !errors.Is(err, io.EOF)) {
+		return cmp.Or(err, errors.New("not the directory made: it holds files"))
+	}
+	return p.set(d, p.Dir)
+}
+
+// create makes a new file of dir with p: never over one there, so never
+// through a symlink either. It is made with no permission, and given p's
+// group and mode once open.
+func create(dir *os.Root, name string, flag int, p Perm) (*os.File, error) {
+	f, err := dir.OpenFile(name, flag|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.set(f, p.File); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
 // Writer appends a process's output to its log. It is not safe for
 // concurrent use.
 type Writer struct {
-	dir     string
+	dir     *os.Root
 	cap     int64
+	perm    Perm
 	seg     *os.File
 	segFrom int64 // the current segment's first offset
 	next    int64
 }
 
 // NewWriter starts the log of the process in dir, capped at logCap bytes
-// (none if 0).
-func NewWriter(dir string, logCap int64) (*Writer, error) {
-	w := &Writer{dir: dir, cap: logCap}
+// (none if 0), its segments made with p.
+func NewWriter(dir *os.Root, logCap int64, p Perm) (*Writer, error) {
+	w := &Writer{dir: dir, cap: logCap, perm: p}
 	return w, w.open(0)
 }
 
 func (w *Writer) open(from int64) error {
-	f, err := os.OpenFile(filepath.Join(w.dir, segName(from)), os.O_WRONLY|os.O_CREATE|os.O_APPEND|os.O_EXCL, 0o600)
+	f, err := create(w.dir, segName(from), os.O_WRONLY|os.O_APPEND, w.perm)
 	if err != nil {
 		return err
 	}
@@ -180,12 +291,7 @@ func (w *Writer) Write(stderr bool, p []byte) error {
 
 // prune removes the segments wholly older than the last cap bytes.
 func (w *Writer) prune() {
-	dir, err := os.OpenRoot(w.dir)
-	if err != nil {
-		return
-	}
-	segs, err := segments(dir)
-	_ = dir.Close()
+	segs, err := segments(w.dir)
 	if err != nil {
 		return
 	}
@@ -195,7 +301,7 @@ func (w *Writer) prune() {
 			end = segs[i+1]
 		}
 		if end <= w.next-w.cap {
-			_ = os.Remove(filepath.Join(w.dir, segName(s)))
+			_ = w.dir.Remove(segName(s))
 		}
 	}
 }
@@ -227,32 +333,51 @@ func segments(dir *os.Root) ([]int64, error) {
 	return out, nil
 }
 
-// WriteMeta writes a process's meta.json.
-func WriteMeta(dir string, m Meta) error {
-	return writeJSON(filepath.Join(dir, MetaFile), m)
+// WriteMeta writes a process's meta.json with p.
+func WriteMeta(dir *os.Root, m Meta, p Perm) error {
+	return writeJSON(dir, MetaFile, m, p)
 }
 
-// WriteExit writes how a process ended, atomically.
-func WriteExit(dir string, e Exit) error {
-	return writeJSON(filepath.Join(dir, ExitFile), e)
+// WriteExit writes how a process ended, atomically, with p.
+func WriteExit(dir *os.Root, e Exit, p Perm) error {
+	return writeJSON(dir, ExitFile, e, p)
 }
 
-func writeJSON(path string, v any) error {
+// WritePID writes the process's pid with p.
+func WritePID(dir *os.Root, pid int, p Perm) error {
+	f, err := create(dir, PIDFile, os.O_WRONLY, p)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(strconv.Itoa(pid))
+	return errors.Join(err, f.Close())
+}
+
+func writeJSON(dir *os.Root, name string, v any, p Perm) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	tmp := name + ".tmp"
+	// One left by a write cut short.
+	_ = dir.Remove(tmp)
+	f, err := create(dir, tmp, os.O_WRONLY, p)
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	_, err = f.Write(b)
+	if err = errors.Join(err, f.Close()); err != nil {
+		_ = dir.Remove(tmp)
+		return err
+	}
+	return dir.Rename(tmp, name)
 }
 
 // Lock takes the lock of a process's directory, which its supervisor holds
-// while it lives, and returns the file holding it.
-func Lock(dir string) (*os.File, error) {
-	f, err := os.OpenFile(filepath.Join(dir, LockFile), os.O_RDWR|os.O_CREATE|syscall.O_CLOEXEC, 0o600)
+// while it lives, and returns the file holding it, made with p: its reader
+// takes it shared to see whether the supervisor lives.
+func Lock(dir *os.Root, p Perm) (*os.File, error) {
+	f, err := create(dir, LockFile, os.O_RDWR, p)
 	if err != nil {
 		return nil, err
 	}
@@ -441,7 +566,10 @@ func List(root string) ([]Info, error) {
 	return out, nil
 }
 
-// Prune removes the oldest finished processes of root beyond keep.
+// Prune removes the finished processes of root beyond the keep newest,
+// the oldest first. One it cannot remove (an earlier supervisor's, of
+// another user, say) is left, and the rest are removed all the same: one
+// stuck never keeps the others; the errors are returned together.
 func Prune(root string, keep int) error {
 	list, err := List(root)
 	if err != nil {
@@ -461,14 +589,17 @@ func Prune(root string, keep int) error {
 		return err
 	}
 	defer func() { _ = r.Close() }()
-	for len(finished) > keep {
-		if err := r.RemoveAll(finished[0]); err != nil {
-			return err
+	var errs []error
+	for _, id := range finished[:len(finished)-keep] {
+		if err := removeAll(r, id); err != nil {
+			errs = append(errs, err)
 		}
-		finished = finished[1:]
 	}
-	return nil
+	return errors.Join(errs...)
 }
+
+// removeAll removes a process's directory of root; a test's may fail.
+var removeAll = (*os.Root).RemoveAll
 
 // FollowPoll is how often a followed log is read again.
 var FollowPoll = 20 * time.Millisecond

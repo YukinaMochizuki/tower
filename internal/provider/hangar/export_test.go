@@ -116,3 +116,7 @@ func (t *Target) Present(ctx context.Context, from provider.Instance, cred strin
 		URL: r.base + system.PathPrefix + system.GrantCheckout, Probe: r.base + system.PathPing + "?network=" + r.src.Network, Credential: cred,
 	}, "/tmp/presented")
 }
+
+// SetRootRetry sets how long a container no root shim ran in starts its
+// processes unmeasured before root is tried there again.
+func (t *Target) SetRootRetry(d time.Duration) { t.rootRetry = d }

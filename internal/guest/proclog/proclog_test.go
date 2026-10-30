@@ -35,10 +35,11 @@ func guest(t *testing.T) (root, id, hostFile string) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := proclog.WriteMeta(dir, proclog.Meta{ID: id, Command: []string{"x"}, LogCap: 1 << 20}); err != nil {
+	d := openDir(t, dir)
+	if err := proclog.WriteMeta(d, proclog.Meta{ID: id, Command: []string{"x"}, LogCap: 1 << 20}, proclog.Private); err != nil {
 		t.Fatal(err)
 	}
-	w, err := proclog.NewWriter(dir, 1<<20)
+	w, err := proclog.NewWriter(d, 1<<20, proclog.Private)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,10 +47,21 @@ func guest(t *testing.T) (root, id, hostFile string) {
 		t.Fatal(err)
 	}
 	_ = w.Close()
-	if err := proclog.WriteExit(dir, proclog.Exit{Code: 0}); err != nil {
+	if err := proclog.WriteExit(d, proclog.Exit{Code: 0}, proclog.Private); err != nil {
 		t.Fatal(err)
 	}
 	return root, id, hostFile
+}
+
+// openDir opens a process's directory, as its supervisor holds it.
+func openDir(t *testing.T, dir string) *os.Root {
+	t.Helper()
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+	return r
 }
 
 // readAll reads the log, failing the test if it takes over a few seconds.
@@ -190,7 +202,7 @@ func TestOddSegmentsEndTheRead(t *testing.T) {
 		root, id, _ := guest(t)
 		_ = os.Remove(filepath.Join(root, id, "exit.json"))
 		// Its lock held, as a supervisor alive holds it.
-		lock, err := proclog.Lock(filepath.Join(root, id))
+		lock, err := proclog.Lock(openDir(t, filepath.Join(root, id)), proclog.Private)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -217,10 +229,11 @@ func TestAnExitsUsageIsReadBack(t *testing.T) {
 		if err := os.Mkdir(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := proclog.WriteMeta(dir, proclog.Meta{ID: tc.id, Command: []string{"go", "test"}, Dir: "/workspace"}); err != nil {
+		d := openDir(t, dir)
+		if err := proclog.WriteMeta(d, proclog.Meta{ID: tc.id, Command: []string{"go", "test"}, Dir: "/workspace"}, proclog.Private); err != nil {
 			t.Fatal(err)
 		}
-		if err := proclog.WriteExit(dir, tc.exit); err != nil {
+		if err := proclog.WriteExit(d, tc.exit, proclog.Private); err != nil {
 			t.Fatal(err)
 		}
 		in, err := proclog.Read(root, tc.id)
@@ -232,6 +245,138 @@ func TestAnExitsUsageIsReadBack(t *testing.T) {
 		}
 		if u := in.Exit.Usage; u != nil && (*u.MemoryPeak != peak || !*u.OOMKilled || *u.CPUUsage != cpu || u.CPUWait != nil || u.Wall != time.Minute) {
 			t.Errorf("read usage %+v", u)
+		}
+	}
+}
+
+// TestCreateRefusesADirectoryPutInPlaceOfItsOwn: one who may write the
+// processes' root and puts a directory of its own, or a symlink, in place
+// of the one Create made, before Create opens it, is refused: nothing is
+// written to it. As root, one of another's is refused too.
+func TestCreateRefusesADirectoryPutInPlaceOfItsOwn(t *testing.T) {
+	cases := map[string]func(t *testing.T, dir string){
+		"a directory holding a file": func(t *testing.T, dir string) {
+			if err := os.Mkdir(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "planted"), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"a symlink to a directory holding a file": func(t *testing.T, dir string) {
+			other := t.TempDir()
+			if err := os.WriteFile(filepath.Join(other, "planted"), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(other, dir); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	if os.Geteuid() == 0 {
+		cases["an empty directory of another's"] = func(t *testing.T, dir string) {
+			if err := os.Mkdir(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chown(dir, 65534, 65534); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for what, put := range cases {
+		t.Run(what, func(t *testing.T) {
+			root := t.TempDir()
+			proclog.SetAfterMkdir(func(root, id string) {
+				dir := filepath.Join(root, id)
+				if err := os.Rename(dir, dir+".made"); err != nil {
+					t.Fatal(err)
+				}
+				put(t, dir)
+			})
+			defer proclog.SetAfterMkdir(nil)
+			if dir, err := proclog.Create(root, proclog.NewID(time.Now()), proclog.Private); err == nil {
+				_ = dir.Close()
+				t.Fatal("Create opened what was put in its directory's place")
+			}
+		})
+	}
+}
+
+// TestASupervisorsWritesFollowNoSymlink: a symlink in a process's
+// directory, even to a file of the same directory, under a name its
+// supervisor writes, is never written through: each write makes a file
+// of its own, or fails.
+func TestASupervisorsWritesFollowNoSymlink(t *testing.T) {
+	for _, name := range []string{proclog.PIDFile, proclog.LockFile, "log-00000000000000000000", proclog.ExitFile + ".tmp", proclog.MetaFile} {
+		t.Run(name, func(t *testing.T) {
+			path := t.TempDir()
+			if err := os.WriteFile(filepath.Join(path, "victim"), []byte("untouched"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("victim", filepath.Join(path, name)); err != nil {
+				t.Fatal(err)
+			}
+			d := openDir(t, path)
+			switch name {
+			case proclog.PIDFile:
+				_ = proclog.WritePID(d, 42, proclog.Private)
+			case proclog.LockFile:
+				if f, err := proclog.Lock(d, proclog.Private); err == nil {
+					_ = f.Close()
+				}
+			case proclog.MetaFile:
+				_ = proclog.WriteMeta(d, proclog.Meta{ID: "p0000000000000001"}, proclog.Private)
+			case proclog.ExitFile + ".tmp":
+				_ = proclog.WriteExit(d, proclog.Exit{Code: 3}, proclog.Private)
+			default:
+				if w, err := proclog.NewWriter(d, 1<<20, proclog.Private); err == nil {
+					_ = w.Write(false, []byte("written"))
+					_ = w.Close()
+				}
+			}
+			if b, err := os.ReadFile(filepath.Join(path, "victim")); err != nil || string(b) != "untouched" {
+				t.Errorf("the file %s linked to holds %q, %v", name, b, err)
+			}
+		})
+	}
+}
+
+// TestPruneGoesOnPastOneItCannotRemove: a finished process Prune cannot
+// remove, such as one root's an earlier supervisor run as the user meets,
+// is left, and the others beyond those kept are removed all the same.
+func TestPruneGoesOnPastOneItCannotRemove(t *testing.T) {
+	root := t.TempDir()
+	var ids []string
+	for i := range 4 {
+		id := proclog.NewID(time.Unix(int64(100+i), 0))
+		ids = append(ids, id)
+		dir := filepath.Join(root, id)
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		d := openDir(t, dir)
+		if err := proclog.WriteMeta(d, proclog.Meta{ID: id, Command: []string{"x"}}, proclog.Private); err != nil {
+			t.Fatal(err)
+		}
+		if err := proclog.WriteExit(d, proclog.Exit{}, proclog.Private); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stuck := ids[0]
+	proclog.SetRemoveAll(func(r *os.Root, name string) error {
+		if name == stuck {
+			return os.ErrPermission
+		}
+		return r.RemoveAll(name)
+	})
+	defer proclog.SetRemoveAll(nil)
+	if err := proclog.Prune(root, 1); !errors.Is(err, os.ErrPermission) {
+		t.Errorf("Prune said %v, want the one it could not remove", err)
+	}
+	for i, id := range ids {
+		_, err := os.Stat(filepath.Join(root, id))
+		if kept := i == 0 || i == len(ids)-1; kept != (err == nil) {
+			t.Errorf("process %d of 4, the oldest first: there %v, want %v (the one stuck and the newest kept)", i+1, err == nil, kept)
 		}
 	}
 }
