@@ -286,8 +286,13 @@ func TestRealCgroup(t *testing.T) {
 
 	// (2) One past the limit is OOM-killed, and says so.
 	hog := start(helperEnv+"="+helperAlloc, allocEnv+"="+strconv.Itoa(4*realLimit))
+	// A start sweeps no cgroup of a process that runs: its supervisor's
+	// command line names it (cgroup.Sweep).
+	if now := cgroupOf(pidOf(sibling)); now != line {
+		t.Errorf("the sibling ran in %q, and in %q once the allocator started: its cgroup was swept with its supervisor alive", line, now)
+	}
 	exit := wait(hog)
-	t.Logf("the allocator, under a limit of %d bytes, ended %+v", realLimit, exit)
+	t.Logf("the allocator, under a limit of %d bytes, ended %s", realLimit, exitString(exit))
 	u := exit.Usage
 	switch {
 	case u == nil:
@@ -298,7 +303,7 @@ func TestRealCgroup(t *testing.T) {
 		t.Errorf("the allocator ended by signal %d, not SIGKILL", exit.Signal)
 	}
 	if u != nil && (u.MemoryPeak == nil || *u.MemoryPeak < realLimit*3/4 || *u.MemoryPeak > realLimit) {
-		t.Errorf("the allocator's memory peak is %v, want near %d", u.MemoryPeak, realLimit)
+		t.Errorf("the allocator's memory peak is %s, want near %d", exitString(exit), realLimit)
 	}
 
 	// (3) Its sibling runs on.
@@ -312,13 +317,13 @@ func TestRealCgroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	if e := wait(sibling); e.Signal != int(syscall.SIGTERM) || e.Usage == nil {
-		t.Errorf("the sibling sent TERM ended %+v", e)
+		t.Errorf("the sibling sent TERM ended %s: want ended by SIGTERM, measured", exitString(e))
 	}
 
 	// (4) A normal process reports what it used.
 	worker := start(helperEnv + "=" + helperWork)
 	exit = wait(worker)
-	t.Logf("the worker ended %+v", exit)
+	t.Logf("the worker ended %s", exitString(exit))
 	u = exit.Usage
 	switch {
 	case exit.Code != 0:
@@ -355,7 +360,11 @@ func TestRealCgroup(t *testing.T) {
 	}
 	first := hold()
 	testutil.EventuallyWithin(t, time.Minute, "the first holder's memory held", func() bool { return strings.Contains(logOf(first), "held") })
+	firstGroup := cgroupOf(pidOf(first))
 	second := hold()
+	if now := cgroupOf(pidOf(first)); now != firstGroup || !strings.HasPrefix(now, "0::/"+cgroup.Parent+"/"+first+"-") {
+		t.Errorf("the first holder ran in %q, and in %q once the second started: want its own cgroup kept", firstGroup, now)
+	}
 	children := map[string]int{first: childOf(first), second: childOf(second)}
 	var killed, survivor string
 	testutil.EventuallyWithin(t, 2*time.Minute, "one holder ended", func() bool {
@@ -371,9 +380,9 @@ func TestRealCgroup(t *testing.T) {
 		survivor = second
 	}
 	exit = wait(killed)
-	t.Logf("the holder killed ended %+v", exit)
+	t.Logf("the holder killed ended %s", exitString(exit))
 	if exit.Usage == nil || exit.Usage.OOMKilled == nil || !*exit.Usage.OOMKilled || exit.Signal != int(syscall.SIGKILL) {
-		t.Errorf("the holder that ended says %+v, want OOM-killed", exit)
+		t.Errorf("the holder that ended says %s: want SIGKILL, measured, oom_killed true", exitString(exit))
 	}
 	testutil.Eventually(t, "the killed holder's child killed with it", func() bool { return !alive(children[killed]) })
 	if !alive(outside.Process.Pid) {
@@ -384,8 +393,9 @@ func TestRealCgroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	exit = wait(survivor)
+	t.Logf("the surviving holder ended %s", exitString(exit))
 	if exit.Code != 0 || exit.Usage == nil || exit.Usage.OOMKilled == nil || *exit.Usage.OOMKilled {
-		t.Errorf("the surviving holder ended %+v", exit)
+		t.Errorf("the surviving holder ended %s: want exit 0, measured, oom_killed false", exitString(exit))
 	}
 	left := children[survivor]
 	testutil.Eventually(t, "the survivor's child moved to the supervisor's cgroup", func() bool {
@@ -439,4 +449,35 @@ func TestRealCgroup(t *testing.T) {
 			t.Errorf("removing %s, which the test made: %v", tower, err)
 		}
 	}
+}
+
+// exitString says an exit with its usage's values, which %+v gives as
+// pointers.
+func exitString(e *proclog.Exit) string {
+	if e == nil {
+		return "no exit"
+	}
+	out := fmt.Sprintf("code %d signal %d", e.Code, e.Signal)
+	u := e.Usage
+	if u == nil {
+		return out + ", unmeasured"
+	}
+	val := func(p any) string {
+		switch v := p.(type) {
+		case *int64:
+			if v != nil {
+				return strconv.FormatInt(*v, 10)
+			}
+		case *bool:
+			if v != nil {
+				return strconv.FormatBool(*v)
+			}
+		case *time.Duration:
+			if v != nil {
+				return v.String()
+			}
+		}
+		return "unset"
+	}
+	return out + fmt.Sprintf(", memory peak %s, oom_killed %s, cpu %s, cpu wait %s, wall %s", val(u.MemoryPeak), val(u.OOMKilled), val(u.CPUUsage), val(u.CPUWait), u.Wall)
 }

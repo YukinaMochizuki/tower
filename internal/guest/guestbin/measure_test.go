@@ -1,11 +1,17 @@
 package guestbin
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
+
+	"github.com/YukinaMochizuki/tower/internal/guest/cgroup"
+	"github.com/YukinaMochizuki/tower/internal/guest/proclog"
+	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
 func newTrue() *exec.Cmd {
@@ -86,4 +92,52 @@ func TestStartMeasuredOfACommandNotThere(t *testing.T) {
 	if err == nil {
 		t.Fatal("a command not there started")
 	}
+}
+
+// TestALiveSupervisorsCgroupIsNotSwept: a supervisor's command line names
+// its process, as cgroup.Sweep reads it to tell a live supervisor from a
+// dead one: a cgroup named for a running process and its supervisor is
+// not swept as another process starts; once the supervisor is gone, it is.
+// Without it, every start swept every running process's cgroup, moving it
+// out of /tower, unmeasured.
+func TestALiveSupervisorsCgroupIsNotSwept(t *testing.T) {
+	t.Setenv(mainEnv, "1")
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	id, err := startSupervised(Header{Root: root, Command: []string{self}, Env: map[string]string{helperEnv: helperSleep}, LogCap: 1 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid := pidIn(t, filepath.Join(root, id))
+	t.Cleanup(func() { endProcess(t, root, id, pid) })
+	supervisor, _ := statOf(t, pid)
+	// A parent standing in for /tower, holding the cgroup Name gives the
+	// process: a directory alone, which Sweep reads by its name.
+	parent := t.TempDir()
+	group := filepath.Join(parent, cgroup.Name(id, supervisor))
+	if err := os.Mkdir(group, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if swept := cgroup.Sweep(parent, t.TempDir()); len(swept) != 0 {
+		b, _ := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", supervisor))
+		t.Fatalf("the cgroup of process %s, its supervisor %d alive (command line %q), was swept: %v", id, supervisor, b, swept)
+	}
+	if _, err := os.Stat(group); err != nil {
+		t.Fatalf("the live process's cgroup is gone: %v", err)
+	}
+}
+
+// endProcess kills a process's group and waits for its supervisor to write
+// its exit, before the test's directories go: one still writing it makes
+// their removal fail.
+func endProcess(t *testing.T, root, id string, pid int) {
+	t.Helper()
+	_ = syscall.Kill(-pid, syscall.SIGKILL)
+	testutil.EventuallyWithin(t, time.Minute, "process "+id+"'s exit written", func() bool {
+		in, err := proclog.Read(root, id)
+		return err == nil && in.Exit != nil
+	})
 }

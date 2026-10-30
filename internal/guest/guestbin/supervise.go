@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -20,12 +19,22 @@ import (
 // startSupervised starts a process's supervisor, tower-guest supervise,
 // in a session of its own, so it outlives the call and the shim; the
 // command, its environment and directory go to it through a pipe, never a
-// file or a command line. The supervisor makes the process's directory
-// under h.Root. It returns the process's id once the supervisor says the
-// command runs.
+// file or a command line. The supervisor makes the process's directory,
+// h.Root/ID, which its command line names: cgroup.Sweep reads it there
+// to tell a supervisor that lives from one that died. It returns the
+// process's id once the supervisor says the command runs.
 func startSupervised(h Header) (string, error) {
 	if err := os.MkdirAll(h.Root, 0o700); err != nil {
 		return "", err
+	}
+	// A new id: not one of a process there; the supervisor makes none
+	// over one there either.
+	var id string
+	for i := 0; ; i++ {
+		id = proclog.NewID(time.Now().Add(time.Duration(i)))
+		if _, err := os.Lstat(filepath.Join(h.Root, id)); errors.Is(err, os.ErrNotExist) {
+			break
+		}
 	}
 	specR, specW, err := os.Pipe()
 	if err != nil {
@@ -39,7 +48,7 @@ func startSupervised(h Header) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command(self, "supervise", h.Root)
+	cmd := exec.Command(self, "supervise", filepath.Join(h.Root, id))
 	cmd.ExtraFiles = []*os.File{specR, readyW} // fds 3 and 4
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
@@ -57,8 +66,7 @@ func startSupervised(h Header) (string, error) {
 	if err := errors.Join(werr, rerr); err != nil {
 		return "", err
 	}
-	id, ok := strings.CutPrefix(string(msg), "ok ")
-	if !ok || !proclog.ValidID(id) {
+	if string(msg) != "ok" {
 		return "", fmt.Errorf("starting %s: %s", h.Command[0], msg)
 	}
 	return id, nil
@@ -78,9 +86,9 @@ func workingDir(dir string) string {
 	return filepath.Join(wd, dir)
 }
 
-// supervise is tower-guest supervise ROOT: it makes the process's
-// directory under ROOT, holds its lock, runs its command in a process
-// group of its own with what fd 3 says, tells fd 4 its id once it runs,
+// supervise is tower-guest supervise DIR: it makes the process's
+// directory, DIR, ROOT/ID, holds its lock, runs its command in a process
+// group of its own with what fd 3 says, tells fd 4 once it runs,
 // keeps its output in its capped log, and writes how it ended. A command
 // that drops to a user (runas.go) starts as that user, the supervisor
 // staying root, outside the command's process group: its files are
@@ -89,7 +97,7 @@ func supervise(args []string) int {
 	if len(args) != 1 {
 		return 2
 	}
-	root := args[0]
+	root, id := filepath.Dir(args[0]), filepath.Base(args[0])
 	// Neither pipe reaches the command: the ready pipe open in it would
 	// keep the starting call waiting for its end.
 	syscall.CloseOnExec(3)
@@ -118,7 +126,7 @@ func supervise(args []string) int {
 		perm = proclog.Readable
 	}
 	now := time.Now()
-	id, dir, err := proclog.Create(root, now, perm)
+	dir, err := proclog.Create(root, id, perm)
 	if err != nil {
 		return fail(err)
 	}
@@ -189,7 +197,7 @@ func supervise(args []string) int {
 		return fail(err)
 	}
 	started = true
-	_, _ = io.WriteString(ready, "ok "+id)
+	_, _ = io.WriteString(ready, "ok")
 	_ = ready.Close()
 
 	var mu sync.Mutex

@@ -139,40 +139,36 @@ var (
 	Readable = Perm{Dir: 0o755, File: 0o644}
 )
 
-// Create makes a new process's directory under root with p, and returns
-// its id and the directory, opened: every write to it goes through that
-// (Lock, NewWriter, WriteMeta, WritePID, WriteExit). The directory opened
-// is the caller's own and empty, or Create fails: one that replaced it
-// under its name before it was opened is not written to.
-func Create(root string, now time.Time, p Perm) (string, *os.Root, error) {
+// Create makes the directory of a new process, id, under root with p, and
+// returns it, opened: every write to it goes through that (Lock,
+// NewWriter, WriteMeta, WritePID, WriteExit). One there already is no new
+// process's. The directory opened is the caller's own and empty, or
+// Create fails: one that replaced it under its name before it was opened
+// is not written to.
+func Create(root, id string, p Perm) (*os.Root, error) {
+	if !ValidID(id) {
+		return nil, fmt.Errorf("%q is no process id", id)
+	}
 	r, err := os.OpenRoot(root)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	defer func() { _ = r.Close() }()
-	var id string
-	for i := int64(0); ; i++ {
-		id = NewID(now.Add(time.Duration(i)))
-		err := r.Mkdir(id, p.Dir)
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, fs.ErrExist) {
-			return "", nil, err
-		}
+	if err := r.Mkdir(id, p.Dir); err != nil {
+		return nil, err
 	}
 	if afterMkdir != nil {
 		afterMkdir(root, id)
 	}
 	dir, err := r.OpenRoot(id)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	if err := made(dir, p); err != nil {
 		_ = dir.Close()
-		return "", nil, fmt.Errorf("process directory %s: %w", id, err)
+		return nil, fmt.Errorf("process directory %s: %w", id, err)
 	}
-	return id, dir, nil
+	return dir, nil
 }
 
 // afterMkdir, a test's, runs between Create's making a process's directory

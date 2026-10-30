@@ -517,7 +517,7 @@ func TestRealCgroupAsAUser(t *testing.T) {
 		}
 	})
 	w, exit := waitWho(t, root, id)
-	t.Logf("the command said %+v and ended %+v", w, exit)
+	t.Logf("the command said %+v and ended %s", w, exitString(&exit))
 	if w.UID != nobody.UID || w.GID != nobody.GID || w.Home != work {
 		t.Errorf("the command ran as %+v, want %+v", w.Identity, nobody)
 	}
@@ -528,7 +528,7 @@ func TestRealCgroupAsAUser(t *testing.T) {
 		t.Errorf("the command moved itself into %v (refused %v): want it held in its own", w.Escaped, w.Refused)
 	}
 	if exit.Usage == nil || exit.Usage.MemoryPeak == nil {
-		t.Errorf("the command's exit has no usage: %+v", exit)
+		t.Errorf("the command ended %s: want it measured, its memory peak reported", exitString(&exit))
 	}
 	ownedBy(t, filepath.Join(work, "made"), nobody)
 }

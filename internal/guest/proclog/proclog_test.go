@@ -294,7 +294,7 @@ func TestCreateRefusesADirectoryPutInPlaceOfItsOwn(t *testing.T) {
 				put(t, dir)
 			})
 			defer proclog.SetAfterMkdir(nil)
-			if _, dir, err := proclog.Create(root, time.Now(), proclog.Private); err == nil {
+			if dir, err := proclog.Create(root, proclog.NewID(time.Now()), proclog.Private); err == nil {
 				_ = dir.Close()
 				t.Fatal("Create opened what was put in its directory's place")
 			}
