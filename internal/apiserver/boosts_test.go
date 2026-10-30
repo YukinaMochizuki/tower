@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
@@ -789,5 +790,111 @@ func TestABoostStepBacksOff(t *testing.T) {
 	// 25.5 and 51.1 seconds, not every 100ms.
 	if n := w.fake.Checkouts(in) - before; n > 15 {
 		t.Errorf("a step waiting on its target was tried %d times in a minute", n)
+	}
+}
+
+// setPlan writes the target's report of its Plan as hangar makes it, at
+// the world's now: cpu and memory left of a whole.
+func (w *world) setPlan(cpuFree, memoryFree string, cpus int32, memoryTotal string) {
+	w.t.Helper()
+	o, err := w.get(registry.Target, "", "t1")
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	st := proto.Clone(o.(*targetsv1alpha1.Target).GetStatus()).(*targetsv1alpha1.TargetStatus)
+	st.Capacity = &targetsv1alpha1.Capacity{CpuFree: cpuFree, MemoryFree: memoryFree, Cpus: cpus, MemoryTotal: memoryTotal}
+	st.LastReportTime = timestamppb.New(w.clock.Now())
+	if _, err := w.asSystem().generic.UpdateStatus(w.t.Context(), registry.Target, client.Key{Name: "t1"}, st, nil); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// ask is a start as workstream makes it, its error kept.
+func (w *world) ask(req *envv1alpha1.StartProcessRequest) (*envv1alpha1.StartProcessResponse, error) {
+	res, err := w.as(workstream).envs.StartProcess(w.t.Context(), connect.NewRequest(req))
+	if err != nil {
+		return nil, err
+	}
+	return res.Msg, nil
+}
+
+// planWithOneBoost is a target whose Plan has 12 of 24 vCPU left, boxes a
+// and b ready, and a's boost of 8 vCPU and 8Gi admitted; a's ticket.
+func planWithOneBoost(t *testing.T) (*world, *envv1alpha1.StartProcessRequest) {
+	t.Helper()
+	w := boostWorld(t, &targetsv1alpha1.TargetSettings{BoostBudget: &targetsv1alpha1.BoostSize{Cpu: "32", Memory: "64Gi"}})
+	w.readyBox("a")
+	w.readyBox("b")
+	w.setPlan("12", "44Gi", 24, "64Gi")
+	req := boostOf(boostOn("a", "true"), "8", "8Gi")
+	first := w.start(req)
+	if first.GetPending().GetReason() != envv1alpha1.PendingReason_PENDING_REASON_BOOST_STARTING {
+		t.Fatalf("a's start on a Plan with room: %v, want its boost made", first)
+	}
+	req.Pending = first.GetPending().GetTicket()
+	return w, req
+}
+
+// TestABoostTheReportCountsBeforeItBootsHoldsItsRoom: hangar counts a
+// boost in its Plan's usage from when it is made, before tower knows it
+// booted; its box's start asked again starts on it, and another box's
+// queues: neither is refused as never fitting, though the Plan has less
+// left than a boost.
+func TestABoostTheReportCountsBeforeItBootsHoldsItsRoom(t *testing.T) {
+	t.Parallel()
+	w, a := planWithOneBoost(t)
+	// Reported as hangar counts it: a's boost made, not booted before.
+	w.setPlan("4", "36Gi", 24, "64Gi")
+	res, err := w.ask(a)
+	if err != nil {
+		t.Fatalf("a's start asked again, its boost made: %v", err)
+	}
+	a.Pending = res.GetPending().GetTicket()
+	if res := w.startBoosted(a); res.GetProcess() == "" {
+		t.Errorf("a's start: %v", res)
+	}
+	res, err = w.ask(boostOf(boostOn("b", "true"), "8", "8Gi"))
+	if err != nil || res.GetPending().GetReason() != envv1alpha1.PendingReason_PENDING_REASON_QUEUED_BUDGET {
+		t.Errorf("b's start beside a's boost: %v, %v; want queued", res, err)
+	}
+}
+
+// TestABoostTheReportCaughtUpWithHoldsItsRoom: as above, once the
+// report is made after the boost booted.
+func TestABoostTheReportCaughtUpWithHoldsItsRoom(t *testing.T) {
+	t.Parallel()
+	w, a := planWithOneBoost(t)
+	w.waitBoost("a", envv1alpha1.BoostPhase_BOOST_PHASE_READY)
+	w.advance(time.Minute)
+	w.setPlan("4", "36Gi", 24, "64Gi")
+	if res := w.startBoosted(a); res.GetProcess() == "" {
+		t.Errorf("a's start asked again: %v", res)
+	}
+	res, err := w.ask(boostOf(boostOn("b", "true"), "8", "8Gi"))
+	if err != nil || res.GetPending().GetReason() != envv1alpha1.PendingReason_PENDING_REASON_QUEUED_BUDGET {
+		t.Errorf("b's start beside a's boost: %v, %v; want queued", res, err)
+	}
+}
+
+// TestABoostMadeHoldsItsRoomWhateverThePlan: a box whose boost is made,
+// of a size that suffices, starts on it whatever its Plan says since, a
+// Plan shrunk below one boost too; another box's start is refused.
+func TestABoostMadeHoldsItsRoomWhateverThePlan(t *testing.T) {
+	t.Parallel()
+	w, a := planWithOneBoost(t)
+	w.setPlan("0", "0", 4, "64Gi")
+	res, err := w.ask(a)
+	if err != nil {
+		t.Fatalf("a's start asked again, its ticket admitted: %v", err)
+	}
+	a.Pending = res.GetPending().GetTicket()
+	if res := w.startBoosted(a); res.GetProcess() == "" {
+		t.Errorf("a's start: %v", res)
+	}
+	if res := w.startBoosted(boostOf(boostOn("a", "true"), "8", "8Gi")); res.GetProcess() == "" {
+		t.Errorf("a's next start, on its boost: %v", res)
+	}
+	if _, err := w.ask(boostOf(boostOn("b", "true"), "8", "8Gi")); connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "even with no boost") {
+		t.Errorf("b's start on a Plan of 4 vCPU: %v, want refused", err)
 	}
 }

@@ -468,12 +468,24 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 			return nil, err
 		}
 	}
+	b, ok, err := getTyped[*envv1alpha1.Boost](ctx, s, registry.Boost, e.key)
+	if err != nil {
+		return nil, apiError(err)
+	}
+	// Its room is held already when the box's boost, of a size that
+	// suffices, is there or being made: neither the Plan's room nor the
+	// queue are its to ask again. A ticket admitted is one such (its boost
+	// is made as it is admitted, under tq.mu), until its boost goes, and
+	// its room with it.
+	held := ok && b.GetMetadata().GetDeleteTime() == nil &&
+		b.GetStatus().GetPhase() != envv1alpha1.BoostPhase_BOOST_PHASE_FAILED &&
+		boostSizeOf(b.GetSpec().GetResources()).covers(size)
 	v, err := s.boostsOnTargetNow(ctx, e.target)
 	if err != nil {
 		return nil, apiError(err)
 	}
 	// One that cannot fit even with no boost held is not queued.
-	if empty := emptyRoomOf(e.target, v); !empty.fits(size) {
+	if empty := emptyRoomOf(e.target, v); !held && !empty.fits(size) {
 		if tk != nil {
 			delete(tq.tickets, tk.id)
 		}
@@ -499,10 +511,6 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 		return &envv1alpha1.StartProcessResponse{Pending: p}
 	}
 
-	b, ok, err := getTyped[*envv1alpha1.Boost](ctx, s, registry.Boost, e.key)
-	if err != nil {
-		return nil, apiError(err)
-	}
 	if ok {
 		have := boostSizeOf(b.GetSpec().GetResources())
 		readyMsg := conditions.Find(b.GetStatus().GetConditions(), BoostReady).GetMessage()
