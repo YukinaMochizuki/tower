@@ -28,6 +28,25 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/provider"
 )
 
+// InstanceMeasured is the condition a container's Instance carries once it
+// started a process: whether its processes are started by a root shim, so
+// measured, and why not (ops.go's startOps).
+const InstanceMeasured = "Measured"
+
+// measuredCondition is a container's Measured condition, nil until its
+// first start learned it.
+func (t *Target) measuredCondition(uid string) *metav1.Condition {
+	w, ok := t.procs.whoRuns(uid)
+	if !ok {
+		return nil
+	}
+	if w.failed != "" {
+		return &metav1.Condition{Type: InstanceMeasured, Status: metav1.ConditionStatus_CONDITION_STATUS_FALSE, Reason: "NoRoot",
+			Message: w.failed + "; its processes run unmeasured, as its user; root is tried again every " + t.rootRetry.String()}
+	}
+	return &metav1.Condition{Type: InstanceMeasured, Status: metav1.ConditionStatus_CONDITION_STATUS_TRUE, Reason: "Measured"}
+}
+
 // InstanceReady is the condition an Instance's status carries: whether it
 // runs, or why not.
 const InstanceReady = "Ready"
@@ -109,6 +128,8 @@ type observed struct {
 	address   string
 	started   *timestamppb.Timestamp
 	processes int32
+	// measured is its Measured condition, nil while not known.
+	measured *metav1.Condition
 }
 
 func failed(reason string, err error) observed {
@@ -366,6 +387,9 @@ func (t *Target) observe(ctx context.Context, in *envv1alpha1.Instance, obj mach
 			t.log.Warn("counting an instance's processes failed", "project", ref.Project, "instance", ref.Name, "error", err)
 		}
 		o.processes = n
+		if !obj.vm {
+			o.measured = t.measuredCondition(obj.uid)
+		}
 		return o, nil
 	case hangarcompute.MachinePhase_MACHINE_PHASE_STOPPED:
 		if !stopped {
@@ -444,6 +468,10 @@ func (t *Target) report(ctx context.Context, in *envv1alpha1.Instance, o observe
 		ready.Status = metav1.ConditionStatus_CONDITION_STATUS_TRUE
 	}
 	st.Conditions = conditions.Set(slices.Clone(st.GetConditions()), ready, t.clock.Now())
+	if m := o.measured; m != nil {
+		m.ObservedGeneration = st.ObservedGeneration
+		st.Conditions = conditions.Set(st.Conditions, m, t.clock.Now())
+	}
 	if proto.Equal(st, in.GetStatus()) {
 		return nil
 	}

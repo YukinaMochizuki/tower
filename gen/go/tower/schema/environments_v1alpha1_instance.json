@@ -102,6 +102,7 @@
           "type": "string"
         },
         "conditions": {
+          "description": "Ready; and, for a hangar target's container once it started a process, Measured: whether its processes are started by a root shim, so measured, and, false (NoRoot), why not (docs/decisions/process-usage.md).",
           "items": {
             "$ref": "#/$defs/tower.meta.v1.Condition"
           },

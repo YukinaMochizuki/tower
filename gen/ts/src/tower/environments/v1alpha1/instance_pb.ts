@@ -222,6 +222,11 @@ export type InstanceStatus = Message<"tower.environments.v1alpha1.InstanceStatus
   observedGeneration: bigint;
 
   /**
+   * Ready; and, for a hangar target's container once it started a
+   * process, Measured: whether its processes are started by a root shim,
+   * so measured, and, false (NoRoot), why not
+   * (docs/decisions/process-usage.md).
+   *
    * @generated from field: repeated tower.meta.v1.Condition conditions = 2;
    */
   conditions: Condition[];

@@ -19,6 +19,7 @@ package fake
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -108,8 +109,9 @@ type Fake struct {
 	execsAs []ExecAs
 	noRoot  bool
 	// user, if set, is who a shim run as the container's user says it
-	// runs as.
-	user *guest.Identity
+	// runs as; rootAs, who one run as root does, fakeRoot if nil.
+	user   *guest.Identity
+	rootAs *guest.Identity
 	// built are the images the fake built, by reference, with the user
 	// each runs as.
 	built map[string]string
@@ -215,7 +217,8 @@ func (f *Fake) ReleaseDeletes() {
 
 // ExecAs is an operation tower-guest shim ran: its op, its command and
 // who a started one runs as, if any, and the user hangar's exec ran the
-// shim as: "" the container's, "0" root, as a VM's always is.
+// shim as: "" the container's, "0" root, as a VM's always is. One NoRoot
+// refused has no op.
 type ExecAs struct {
 	Op      string
 	Command []string
@@ -243,6 +246,14 @@ func (f *Fake) ContainerUser(id guest.Identity) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.user = &id
+}
+
+// RootRunsAs makes a shim run as root say it runs as id, as in a container
+// whose runtime maps root to another user; nil puts fakeRoot back.
+func (f *Fake) RootRunsAs(id *guest.Identity) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rootAs = id
 }
 
 // fakeRoot is who a shim run as root says it runs as: the fake runs it as
@@ -583,6 +594,9 @@ func (f *Fake) Exec(ctx context.Context, req hangar.ExecRequest) (hangar.ExecExi
 		noRoot := f.noRoot
 		f.mu.Unlock()
 		if noRoot && req.Start.GetUser() == "0" {
+			f.mu.Lock()
+			f.execsAs = append(f.execsAs, ExecAs{User: "0"})
+			f.mu.Unlock()
 			_, _ = fmt.Fprintln(stderr, "exec: unable to run as user 0")
 			return hangar.ExecExit{Code: 126}, nil
 		}
@@ -656,10 +670,10 @@ func (f *Fake) shim(ctx context.Context, root, user string, stdin io.Reader, std
 	f.execsAs = append(f.execsAs, ExecAs{Op: h.Op, Command: slices.Clone(h.Command), As: h.As, User: user})
 	f.mu.Unlock()
 	f.mu.Lock()
-	says := f.user
+	says, rootAs := f.user, f.rootAs
 	f.mu.Unlock()
 	if user == "0" {
-		says = &fakeRoot
+		says = cmp.Or(rootAs, &fakeRoot)
 	}
 	if h.Op == guestbin.OpIdentity && says != nil {
 		if err := json.NewEncoder(stdout).Encode(says); err != nil {

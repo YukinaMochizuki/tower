@@ -12,9 +12,11 @@ import (
 	"io/fs"
 	"net"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -160,7 +162,7 @@ func (t *Target) ops(ctx context.Context, container, uid string) (guestops.Ops, 
 	if err := t.install(ctx, r, uid); err != nil {
 		return guestops.Ops{}, err
 	}
-	return t.containerOps(ctx, r, uid)
+	return guestops.Ops{R: r, ProcRoot: procRoot}, nil
 }
 
 // install writes tower-guest into a container unless this tower's is in
@@ -180,45 +182,74 @@ func (t *Target) install(ctx context.Context, r runner, uid string) error {
 	return nil
 }
 
-// containerOps are the operations in a container whose tower-guest is
-// this tower's, r running as its user. Its process operations run as root
-// where they can, so its processes are measured, each started as that
-// user (guestbin's runas.go); who that user is, and whether root can run,
-// is learned once per container and kept.
-func (t *Target) containerOps(ctx context.Context, r runner, uid string) (guestops.Ops, error) {
-	o := guestops.Ops{R: r, ProcRoot: procRoot}
-	w, ok := t.procs.whoRuns(uid)
+// rootRetry is how long a container no root shim ran in starts its
+// processes unmeasured before root is tried there again (Target.rootRetry).
+const rootRetry = 5 * time.Minute
+
+// startOps are o, a running container's operations, with its starts run
+// by a root shim where one runs, so what they start is measured, each
+// started as the container's user (guestbin's runas.go). Who that user is,
+// and whether root runs there, is learned at the container's first start,
+// and kept while this tower runs; a root that did not run is asked again
+// after rootRetry, its failure logged once per container, and its starts
+// run meanwhile as they did before, as the user, unmeasured. Nothing but
+// a start pays for it, or fails with it.
+func (t *Target) startOps(ctx context.Context, o guestops.Ops, uid string) (guestops.Ops, error) {
+	r, ok := o.R.(runner)
 	if !ok {
+		return o, nil
+	}
+	now := t.clock.Now()
+	w, ok := t.procs.whoRuns(uid)
+	if !ok || w.due(now, t.rootRetry) {
 		unlock := t.procs.lockWho(uid)
 		defer unlock()
-		if w, ok = t.procs.whoRuns(uid); !ok {
-			var err error
-			if w, err = learnWho(ctx, r); err != nil {
+		if w, ok = t.procs.whoRuns(uid); !ok || w.due(now, t.rootRetry) {
+			learned, err := learnWho(ctx, r)
+			if err != nil {
 				return guestops.Ops{}, fmt.Errorf("container %s: reading who runs in it: %w", r.container, err)
 			}
+			if learned.failed != "" {
+				learned.failedAt = now
+				learned.logged = w.logged
+				if !learned.logged {
+					t.log.Warn("no root shim runs in a container: its processes run unmeasured", "container", r.container, "reason", learned.failed, "retry_every", t.rootRetry)
+					learned.logged = true
+				}
+			}
+			w = learned
 			t.procs.setWhoRuns(uid, w)
 		}
 	}
-	if w.root {
+	if w.failed == "" {
 		root := r
 		root.user = "0"
-		o.ProcR, o.As = root, w.as
+		o.StartR, o.As = root, w.as
 	}
 	return o, nil
 }
 
-// whoRuns is who a container's processes run as: whether its process
-// operations' shim runs as root, and the user a command started then
-// drops to, nil for root.
+// whoRuns is who a container's processes start as: the user a command
+// started drops to, nil for none; or, failed, why no root shim ran there,
+// when, and whether that was logged.
 type whoRuns struct {
-	root bool
-	as   *guest.Identity
+	as       *guest.Identity
+	failed   string
+	failedAt time.Time
+	logged   bool
+}
+
+// due reports whether a root shim is to be tried again, retry after it
+// failed.
+func (w whoRuns) due(now time.Time, retry time.Duration) bool {
+	return w.failed != "" && !now.Before(w.failedAt.Add(retry))
 }
 
 // learnWho reads who r, the container's user, runs as, and whether a
-// shim runs as root there. One that cannot leaves its processes as the
-// user runs them, unmeasured; only a target that did not answer is an
-// error.
+// shim runs as root there: one that does not, or runs as another, is a
+// failure kept, which leaves its starts as the user runs them; only a
+// target that did not answer is an error. A user who is the root shim, by
+// uid, gid and groups alike, drops to no one.
 func learnWho(ctx context.Context, r runner) (whoRuns, error) {
 	id, err := guestops.Identity(ctx, r)
 	if err != nil {
@@ -226,23 +257,44 @@ func learnWho(ctx context.Context, r runner) (whoRuns, error) {
 	}
 	root := r
 	root.user = "0"
-	rid, err := guestops.Identity(ctx, root)
+	rid, rootErr := guestops.Identity(ctx, root)
 	switch {
 	case ctx.Err() != nil:
 		return whoRuns{}, ctx.Err()
-	case errors.Is(err, provider.ErrUnavailable):
-		return whoRuns{}, err
+	case errors.Is(rootErr, provider.ErrUnavailable):
+		return whoRuns{}, rootErr
 	}
-	// A root shim that did not run, or ran as another: no failure, its
-	// processes run as before.
-	if rooted := err == nil && rid.UID == 0; !rooted {
+	// Not an error of the call: what is kept, its starts left as before.
+	if why := rootFailure(rid, rootErr); why != "" {
+		return whoRuns{failed: why}, nil
+	}
+	if sameIdentity(id, rid) {
 		return whoRuns{}, nil
 	}
-	w := whoRuns{root: true}
-	if id.UID != 0 {
-		w.as = &id
+	return whoRuns{as: &id}, nil
+}
+
+// rootFailure is why a shim asked for root is no root, rid being who it
+// said it runs as and err its failure; "" for root.
+func rootFailure(rid guest.Identity, err error) string {
+	switch {
+	case err != nil:
+		return "a shim as root did not run: " + err.Error()
+	case rid.UID != 0:
+		return fmt.Sprintf("a shim as root ran as uid %d", rid.UID)
 	}
-	return w, nil
+	return ""
+}
+
+// sameIdentity reports whether a and b are one user: uid, gid and groups,
+// in any order.
+func sameIdentity(a, b guest.Identity) bool {
+	set := func(g []uint32) []uint32 {
+		g = slices.Clone(g)
+		slices.Sort(g)
+		return slices.Compact(g)
+	}
+	return a.UID == b.UID && a.GID == b.GID && slices.Equal(set(a.Groups), set(b.Groups))
 }
 
 // errNoGuest is a container this tower's tower-guest is not in yet.
@@ -267,7 +319,7 @@ func (t *Target) opsIfInstalled(ctx context.Context, container, uid string) (gue
 		}
 		t.procs.setInstalled(uid, t.guest.hash)
 	}
-	return t.containerOps(ctx, r, uid)
+	return guestops.Ops{R: r, ProcRoot: procRoot}, nil
 }
 
 // guestHashLine says the sha256 of the tower-guest in a container: of the
