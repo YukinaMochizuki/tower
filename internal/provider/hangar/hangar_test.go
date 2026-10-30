@@ -452,6 +452,28 @@ func TestFirstUsesAtOnceWriteTowerGuestInOnce(t *testing.T) {
 	}
 }
 
+// TestACommandAsRootRunsAsRootInAContainer: a command asked to run as
+// root runs tower-guest as root in a container; any other as the
+// container's user.
+func TestACommandAsRootRunsAsRootInAContainer(t *testing.T) {
+	w, f := newWorld(t, nil)
+	ref, _ := w.Harness().Start(t, "box", container("ws1"))
+	for _, asRoot := range []bool{false, true} {
+		arg := fmt.Sprint(asRoot)
+		if _, err := w.Target.Exec(t.Context(), provider.ExecRequest{Instance: ref, Command: []string{"true", arg}, AsRoot: asRoot}); err != nil {
+			t.Fatal(err)
+		}
+		want := ""
+		if asRoot {
+			want = "0"
+		}
+		i := slices.IndexFunc(f.ExecsAs(), func(e fake.ExecAs) bool { return slices.Equal(e.Command, []string{"true", arg}) })
+		if i < 0 || f.ExecsAs()[i].User != want {
+			t.Errorf("as root %v: hangar ran %v; want the shim as user %q", asRoot, f.ExecsAs(), want)
+		}
+	}
+}
+
 // gitRemote makes a bare repository of files, two commits on main, and
 // returns its path and its head.
 func gitRemote(t *testing.T, files map[string]string) (string, string) {

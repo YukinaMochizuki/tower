@@ -301,11 +301,17 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		}
 	}
 	phase := in.GetStatus().GetPhase()
-	if phase != envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING && in.GetMetadata().GetAnnotations()[secretFilesAnnotation] != "" {
-		// Its secret files are written again when it next runs, whatever
-		// the start time its provider reports then.
-		if err := s.annotateInstance(ctx, key.Project, in.GetMetadata().GetName(), secretFilesAnnotation, ""); err != nil {
-			return err
+	if phase != envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING {
+		// Its secret files are written, and its kernel limits raised,
+		// again when it next runs, whatever the start time its provider
+		// reports then.
+		for _, a := range []string{secretFilesAnnotation, kernelLimitsAnnotation} {
+			if in.GetMetadata().GetAnnotations()[a] == "" {
+				continue
+			}
+			if err := s.annotateInstance(ctx, key.Project, in.GetMetadata().GetName(), a, ""); err != nil {
+				return err
+			}
 		}
 	}
 	if desired == envv1alpha1.RunState_RUN_STATE_STOPPED {
@@ -328,6 +334,15 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 	// Its secret files, at each start, before anything runs in it.
 	if len(spec.GetSecretFiles()) > 0 && in.GetMetadata().GetAnnotations()[secretFilesAnnotation] != runOf(in) {
 		return s.writeSecretFiles(ctx, key, box, in, p, bs)
+	}
+	// Its kernel limits, at each start, before its checkouts.
+	if kernelLimitsDue(target, in) {
+		if next, err := s.boxKernelLimits(ctx, key, box, in, p, bs); err != nil || !next {
+			return err
+		}
+	} else if raisesKernelLimits(target) {
+		ok, reason, msg := kernelLimitsCondition(in)
+		bs.cond(BoxKernelLimits, ok, reason, msg)
 	}
 	if in.GetMetadata().GetAnnotations()[materializedAnnotation] != "true" {
 		return s.materializeBox(ctx, key, box, in, p, bs)
@@ -840,6 +855,39 @@ func (s *Server) writeSecretFiles(ctx context.Context, key controller.Key, box *
 		return s.stepPassed(ctx, step)
 	})
 	return nil
+}
+
+// boxKernelLimits raises the kernel limits of the box's running instance,
+// in a job, once per run of it; next says the box goes on past them now.
+// The step failing does not fail the box, which goes on, saying so in its
+// KernelLimits condition until the step runs again.
+func (s *Server) boxKernelLimits(ctx context.Context, key controller.Key, box *envv1alpha1.Box, in *envv1alpha1.Instance, p provider.Provider, bs *boxState) (next bool, err error) {
+	job := "kernellimits/" + key.String()
+	step := boxStep(key, box, in, "kernellimits")
+	g, err := s.stepGate(ctx, job, step)
+	switch {
+	case err != nil:
+		return false, err
+	case g.Waiting != nil:
+		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", g.Waiting.Error())
+		return false, fmt.Errorf("box %s: %w: %w", key, controller.ErrWaiting, g.Waiting)
+	case g.Failed != "":
+		bs.cond(BoxKernelLimits, false, "NotRaised", g.Failed)
+		return true, nil
+	}
+	bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", "its kernel limits are being raised")
+	if g.Running {
+		return false, nil
+	}
+	ref := provider.Instance{Project: key.Project, Name: in.GetMetadata().GetName()}
+	run := runOf(in)
+	s.startJob(bs.st.GetTarget(), job, s.boxCtrl, key, func(ctx context.Context) error {
+		if err := s.raiseKernelLimitsIn(ctx, p, key.Project, ref, run); err != nil {
+			return err
+		}
+		return s.stepPassed(ctx, step)
+	})
+	return false, nil
 }
 
 // writeSecretFilesIn writes a box's secret files into ref, an instance of

@@ -117,7 +117,9 @@ export type BoostStatus = Message<"tower.environments.v1alpha1.BoostStatus"> & {
 
   /**
    * Ready, with Materialized on the way to it, and SetUp, which says
-   * whether the box's devcontainer setup steps passed in it. While it is
+   * whether the box's devcontainer setup steps passed in it; on a hangar
+   * target, KernelLimits, which says whether its inotify limits were
+   * raised, and leaves it READY when they were not. While it is
    * STARTING, Ready's message says what it waits for, and
    * setup_start_time since when its setup steps run: a slow setup is why
    * a boost is slow to start.

@@ -149,6 +149,20 @@ func TestStdinReachesTheCommand(t *testing.T) {
 	}
 }
 
+// TestNoCommandRunsAsRoot: hostd refuses a command as root, running
+// nothing, as tower asks it of no hostd instance.
+func TestNoCommandRunsAsRoot(t *testing.T) {
+	c := newCarried(t, nil)
+	in, _ := c.Harness(c.client).Start(t, "root", container())
+	before := len(c.Fake.Execs())
+	if _, err := c.client.Exec(t.Context(), provider.ExecRequest{Instance: in, Command: []string{"true"}, AsRoot: true}); !errors.Is(err, provider.ErrFailed) {
+		t.Errorf("a command as root: %v, want ErrFailed", err)
+	}
+	if n := len(c.Fake.Execs()) - before; n != 0 {
+		t.Errorf("%d commands ran", n)
+	}
+}
+
 // TestNoTunnelIsUnavailable: a target whose host has no tunnel open
 // answers ErrUnavailable, at once.
 func TestNoTunnelIsUnavailable(t *testing.T) {

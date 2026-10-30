@@ -253,16 +253,18 @@ func (t *Target) installGuest(ctx context.Context, r runner) error {
 	return nil
 }
 
-// runner runs tower-guest shim in a container by hangar's exec.
+// runner runs tower-guest shim in a container by hangar's exec, as user
+// ("" is the container's).
 type runner struct {
 	api       API
 	container string
+	user      string
 }
 
 func (r runner) RunShim(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
 	exit, err := r.api.Exec(ctx, ExecRequest{
 		Plural: PluralContainers, Name: r.container,
-		Start: &hangarcompute.MachineExecStart{Command: []string{guestPath, "shim"}},
+		Start: &hangarcompute.MachineExecStart{Command: []string{guestPath, "shim"}, User: r.user},
 		Stdin: stdin, Stdout: stdout, Stderr: stderr,
 	})
 	if err != nil {
@@ -313,6 +315,11 @@ func (t *Target) Exec(ctx context.Context, req provider.ExecRequest) (int, error
 	_, o, err := t.running(ctx, req.Instance)
 	if err != nil {
 		return 0, err
+	}
+	// A VM's runner is root already (vmRunner).
+	if r, ok := o.R.(runner); ok && req.AsRoot {
+		r.user = "0"
+		o.R = r
 	}
 	code, err := o.Exec(ctx, guest.ExecSpec{Command: req.Command, Env: req.Env, Dir: req.Dir, Stdin: req.Stdin, Stdout: req.Stdout, Stderr: req.Stderr})
 	return code, guestError(err)

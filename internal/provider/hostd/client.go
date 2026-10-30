@@ -114,6 +114,11 @@ func sendAll(r io.Reader, send func([]byte) error) error {
 }
 
 func (c *Client) Exec(ctx context.Context, req provider.ExecRequest) (int, error) {
+	if req.AsRoot {
+		// Not done: tower asks it of no hostd instance, whose kernel is
+		// the host's.
+		return 0, fmt.Errorf("hostd runs no command as root: %w", provider.ErrFailed)
+	}
 	k, err := c.begin(ctx, req.Instance)
 	if err != nil {
 		return 0, err
