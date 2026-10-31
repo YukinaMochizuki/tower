@@ -257,7 +257,9 @@ mostly full, so it grows later and by less: doubling it would count the
 image twice. A warm golden's builder grows as a box. hangar counts a
 grown disk at its grown size, so size the Plan for boxes at their max. A
 box made before this tower release keeps the disks it was made with, and
-how they grow, until it is made again.
+how they grow, until it is made again. Each box says how its own disks
+grow, and their sizes as hangar last reported them, in its
+`status.disks` (`docs/decisions/devcontainers.md`).
 
 A stopped box keeps its disks, so it counts.
 

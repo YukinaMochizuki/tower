@@ -291,6 +291,27 @@ func (f *Fake) FillNode(free string) {
 	f.nodeFree = free
 }
 
+// GrowDisks records the Disk of the name grown to workspace, in its
+// status.size, and the Container of the name's root grown to root, in its
+// status.disk, as hangar does as each grows by itself; "" leaves one as
+// it is.
+func (f *Fake) GrowDisks(name, workspace, root string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if d, ok := f.disks.objs[name]; ok && workspace != "" {
+		if d.Status == nil {
+			d.Status = &hangarstorage.DiskStatus{}
+		}
+		d.Status.Size = workspace
+	}
+	if ct, ok := f.containers.objs[name]; ok && root != "" {
+		if ct.Status == nil {
+			ct.Status = &hangarcompute.ContainerStatus{}
+		}
+		ct.Status.Disk = root
+	}
+}
+
 // FreeRoom gives the node room again, and starts every container that
 // waited for it, as hangar does once a machine on the node stops, shrinks
 // or goes.

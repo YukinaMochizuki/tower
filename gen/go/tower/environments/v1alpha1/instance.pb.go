@@ -485,7 +485,15 @@ type InstanceStatus struct {
 	// pins it so (a hangar target's): every later connection must present
 	// it, and one that does not is refused. A public key, not a secret. See
 	// docs/decisions/traffic.md.
-	SshHostKey    string `protobuf:"bytes,9,opt,name=ssh_host_key,json=sshHostKey,proto3" json:"ssh_host_key,omitempty"`
+	SshHostKey string `protobuf:"bytes,9,opt,name=ssh_host_key,json=sshHostKey,proto3" json:"ssh_host_key,omitempty"`
+	// The size a container's /workspace disk and root disk have, as its
+	// provider last read them, on a provider that grows disks (hangar's):
+	// hangar's Disk status.size, and its Container's status.disk, which
+	// hangar sets only once the root has grown past the size it was asked
+	// to start at. Empty while the provider reports none: not made yet, the
+	// root not grown, or a provider that does not grow disks.
+	WorkspaceDisk string `protobuf:"bytes,10,opt,name=workspace_disk,json=workspaceDisk,proto3" json:"workspace_disk,omitempty"`
+	RootDisk      string `protobuf:"bytes,11,opt,name=root_disk,json=rootDisk,proto3" json:"root_disk,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -579,6 +587,20 @@ func (x *InstanceStatus) GetStreamsOpen() int32 {
 func (x *InstanceStatus) GetSshHostKey() string {
 	if x != nil {
 		return x.SshHostKey
+	}
+	return ""
+}
+
+func (x *InstanceStatus) GetWorkspaceDisk() string {
+	if x != nil {
+		return x.WorkspaceDisk
+	}
+	return ""
+}
+
+func (x *InstanceStatus) GetRootDisk() string {
+	if x != nil {
+		return x.RootDisk
 	}
 	return ""
 }
@@ -1297,7 +1319,7 @@ const file_tower_environments_v1alpha1_instance_proto_rawDesc = "" +
 	"\tthreshold\x18\x04 \x01(\tR\tthreshold\x12\x12\n" +
 	"\x04step\x18\x05 \x01(\tR\x04step\x12%\n" +
 	"\x0eroot_threshold\x18\x06 \x01(\tR\rrootThreshold\x12\x1b\n" +
-	"\troot_step\x18\a \x01(\tR\brootStep\"\xa1\x03\n" +
+	"\troot_step\x18\a \x01(\tR\brootStep\"\xe5\x03\n" +
 	"\x0eInstanceStatus\x12/\n" +
 	"\x13observed_generation\x18\x01 \x01(\x03R\x12observedGeneration\x128\n" +
 	"\n" +
@@ -1311,7 +1333,10 @@ const file_tower_environments_v1alpha1_instance_proto_rawDesc = "" +
 	"\x11processes_running\x18\a \x01(\x05R\x10processesRunning\x12!\n" +
 	"\fstreams_open\x18\b \x01(\x05R\vstreamsOpen\x12 \n" +
 	"\fssh_host_key\x18\t \x01(\tR\n" +
-	"sshHostKey\"B\n" +
+	"sshHostKey\x12%\n" +
+	"\x0eworkspace_disk\x18\n" +
+	" \x01(\tR\rworkspaceDisk\x12\x1b\n" +
+	"\troot_disk\x18\v \x01(\tR\brootDisk\"B\n" +
 	"\x12GetInstanceRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"X\n" +

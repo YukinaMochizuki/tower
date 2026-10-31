@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package tower.environments.v1alpha1;
 
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "tower/environments/v1alpha1/common.proto";
 import "tower/environments/v1alpha1/machine.proto";
@@ -170,6 +171,36 @@ message BoxStatus {
   // an image of, or once the golden is built (DevcontainerFellBack
   // BuiltSince).
   string devcontainer_golden = 11;
+  // How its disks grow by themselves, on a target whose provider grows
+  // them (hangar's): its /workspace disk, then its container's root disk.
+  // Empty on any other target, and for a box made before its target grew
+  // disks, whose disks keep their size.
+  repeated BoxDisk disks = 12;
+}
+
+// BoxDisk is one of a box's disks and how it grows: once it is threshold
+// full, by step, up to max, as its target's settings said when the box was
+// made (TargetSettings box_workspace_disk and the like).
+message BoxDisk {
+  // Where the box mounts it: "/workspace", or "/" for its root disk.
+  string path = 1;
+  // Its size now, as the target last reported it (within the provider's
+  // report interval), such as "6Gi"; with size_is_start, the size it was
+  // asked to start at, the target reporting none it has grown to. A root
+  // disk not grown yet is so: hangar starts it at its image's size when
+  // that is larger, and does not report that size.
+  string size = 2;
+  bool size_is_start = 3;
+  // How full its filesystem is when it grows, such as "80%"; how much it
+  // grows by, a quantity such as "4Gi" or a factor such as "2x"; and the
+  // most it grows to, such as "30Gi".
+  string threshold = 4;
+  string step = 5;
+  string max = 6;
+  // How often the target checks how full it is: a disk past threshold
+  // grows within about this long, unless the quota or the node has no
+  // room for it.
+  google.protobuf.Duration check_interval = 7;
 }
 
 // BoxService manages boxes.

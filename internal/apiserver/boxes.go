@@ -2,6 +2,7 @@ package apiserver
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -14,16 +15,19 @@ import (
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/conditions"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/controller"
 	"github.com/YukinaMochizuki/tower/internal/devcontainer"
 	"github.com/YukinaMochizuki/tower/internal/provider"
+	"github.com/YukinaMochizuki/tower/internal/provider/hangar"
 )
 
 // A box's conditions, all the box controller's.
@@ -271,6 +275,7 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		return s.makeBoxInstance(ctx, key, box, p, target, img, name, bs)
 	}
 	st.Instance, st.Alias = name, key.Name
+	st.Disks = boxDiskStatus(in)
 
 	boosted, err := s.boostActivity(ctx, key)
 	if err != nil {
@@ -381,6 +386,47 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 	st.Phase = envv1alpha1.BoxPhase_BOX_PHASE_READY
 	bs.cond(BoxReady, true, "Ready", "")
 	return nil
+}
+
+// boxDiskStatus is how the disks of a box's instance in grow, as the
+// instance was made to (its spec's disk_growth, which tower set from its
+// target's settings), with their sizes as its provider last reported them;
+// none for an instance whose disks do not grow. Only hangar's provider
+// grows disks, so the check interval is hangar's.
+func boxDiskStatus(in *envv1alpha1.Instance) []*envv1alpha1.BoxDisk {
+	g := in.GetSpec().GetDiskGrowth()
+	if g == nil {
+		return nil
+	}
+	disk := func(path, start, reported, max, threshold, step string) *envv1alpha1.BoxDisk {
+		d := &envv1alpha1.BoxDisk{
+			Path: path, Size: reported, Threshold: threshold, Step: step,
+			Max: atLeastQuantity(max, cmp.Or(reported, start)), CheckInterval: durationpb.New(hangar.GrowthCheckEvery),
+		}
+		if reported == "" {
+			d.Size, d.SizeIsStart = start, true
+		}
+		return d
+	}
+	st := in.GetStatus()
+	out := []*envv1alpha1.BoxDisk{disk(hangar.WorkspaceDir, in.GetSpec().GetResources().GetDisk(), st.GetWorkspaceDisk(), g.GetWorkspaceMax(), g.GetThreshold(), g.GetStep())}
+	if g.GetRoot() != "" {
+		// As the provider asks hangar to grow it: an instance written before
+		// the root had its own grows as /workspace.
+		out = append(out, disk("/", g.GetRoot(), st.GetRootDisk(), g.GetRootMax(), cmp.Or(g.GetRootThreshold(), g.GetThreshold()), cmp.Or(g.GetRootStep(), g.GetStep())))
+	}
+	return out
+}
+
+// atLeastQuantity is q, or min where min is the larger quantity: hangar
+// takes a max under a disk's size as the size.
+func atLeastQuantity(q, min string) string {
+	qb, qerr := quantity.Bytes(q)
+	mb, merr := quantity.Bytes(min)
+	if qerr == nil && merr == nil && mb > qb {
+		return min
+	}
+	return q
 }
 
 // waitingForRoom gives the target's words, and true, while the instance is

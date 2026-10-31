@@ -24,6 +24,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/devcontainer"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/provider/fake"
+	"github.com/YukinaMochizuki/tower/internal/provider/hangar"
 	"github.com/YukinaMochizuki/tower/internal/store"
 	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
@@ -578,6 +579,50 @@ func TestABoxAndItsWarmBuilderGrowOnAHangarTarget(t *testing.T) {
 	})
 	if s := w.builderSpec("a"); s.GetResources().GetDisk() != "5Gi" || !proto.Equal(s.GetDiskGrowth(), growth) {
 		t.Errorf("the second warm builder: disk %q, growth %v; want 5Gi, %v", s.GetResources().GetDisk(), s.GetDiskGrowth(), growth)
+	}
+}
+
+// TestABoxSaysHowItsDisksGrow: a box on a hangar target says in its status
+// how each of its disks grows, as its instance was made to, at the size
+// the target reports, or at the start, said to be, until it reports one;
+// a box on a hostd target says nothing of its disks.
+func TestABoxSaysHowItsDisksGrow(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t, worldOption{hangar: true, settings: &targetsv1alpha1.TargetSettings{
+		BoxRootDiskMax: "40Gi", BoxWorkspaceDiskGrowStep: "8Gi", BoxRootDiskGrowThreshold: "85%",
+	}})
+	b := w.readyBox("a")
+	every := durationpb.New(hangar.GrowthCheckEvery)
+	want := func(workspace, root string, start bool) []*envv1alpha1.BoxDisk {
+		return []*envv1alpha1.BoxDisk{
+			{Path: "/workspace", Size: workspace, SizeIsStart: start, Threshold: "80%", Step: "8Gi", Max: "30Gi", CheckInterval: every},
+			{Path: "/", Size: root, SizeIsStart: start, Threshold: "85%", Step: "2Gi", Max: "40Gi", CheckInterval: every},
+		}
+	}
+	same := func(got, want []*envv1alpha1.BoxDisk) bool {
+		return slices.EqualFunc(got, want, func(a, b *envv1alpha1.BoxDisk) bool { return proto.Equal(a, b) })
+	}
+	if got := b.GetStatus().GetDisks(); !same(got, want("2Gi", "2Gi", true)) {
+		t.Errorf("a new box's disks %v, want %v", got, want("2Gi", "2Gi", true))
+	}
+	w.fake.GrowDisks(provider.Instance{Project: "web", Name: b.GetStatus().GetInstance()}, "10Gi", "4Gi")
+	testutil.Eventually(t, "the box's disks at their grown sizes", func() (bool, string) {
+		got := w.box("a").GetStatus().GetDisks()
+		return same(got, want("10Gi", "4Gi", false)), fmt.Sprint(got)
+	})
+	// One past its max, as one cloned from a larger golden starts, has it
+	// as its max, as hangar holds it.
+	w.fake.GrowDisks(provider.Instance{Project: "web", Name: b.GetStatus().GetInstance()}, "34Gi", "4Gi")
+	past := want("34Gi", "4Gi", false)
+	past[0].Max = "34Gi"
+	testutil.Eventually(t, "the box's /workspace max at its size", func() (bool, string) {
+		got := w.box("a").GetStatus().GetDisks()
+		return same(got, past), fmt.Sprint(got)
+	})
+
+	hostd := newWorld(t, worldOption{})
+	if got := hostd.readyBox("a").GetStatus().GetDisks(); len(got) != 0 {
+		t.Errorf("a box on a hostd target says of its disks %v, want nothing", got)
 	}
 }
 

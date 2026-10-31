@@ -132,6 +132,9 @@
           "format": "int32",
           "type": "integer"
         },
+        "rootDisk": {
+          "type": "string"
+        },
         "sshHostKey": {
           "description": "The host key a VM's sshd answered tower with the first time, in authorized_keys form, such as \"ssh-ed25519 AAAA...\", on a provider that pins it so (a hangar target's): every later connection must present it, and one that does not is refused. A public key, not a secret. See docs/decisions/traffic.md.",
           "type": "string"
@@ -147,6 +150,10 @@
         },
         "usedDisk": {
           "description": "What its disk holds beyond the golden it was cloned from.",
+          "type": "string"
+        },
+        "workspaceDisk": {
+          "description": "The size a container's /workspace disk and root disk have, as its provider last read them, on a provider that grows disks (hangar's): hangar's Disk status.size, and its Container's status.disk, which hangar sets only once the root has grown past the size it was asked to start at. Empty while the provider reports none: not made yet, the root not grown, or a provider that does not grow disks.",
           "type": "string"
         }
       },

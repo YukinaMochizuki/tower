@@ -5,12 +5,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
+	"github.com/YukinaMochizuki/tower/internal/provider/hangar"
 )
 
 // TestABoxsCachesAreInItsWorkspace: every cache variable points under
@@ -217,6 +220,39 @@ func TestABoxsDisksGrowOnAHangarTarget(t *testing.T) {
 		r, g := boxDisks(tc.target, tc.box)
 		if !proto.Equal(r, tc.resources) || !proto.Equal(g, tc.growth) {
 			t.Errorf("%s: resources %v, growth %v; want %v, %v", what, r, g, tc.resources, tc.growth)
+		}
+	}
+}
+
+// TestABoxsDiskStatusIsHowItsInstanceGrows: a box's disks are its
+// instance's, as the provider grows them: an instance written before the
+// root had its own threshold and step grows its root as /workspace, one
+// written before the root grew says only /workspace, and one whose disks
+// do not grow says none.
+func TestABoxsDiskStatusIsHowItsInstanceGrows(t *testing.T) {
+	t.Parallel()
+	every := durationpb.New(hangar.GrowthCheckEvery)
+	instance := func(g *envv1alpha1.DiskGrowth) *envv1alpha1.Instance {
+		return &envv1alpha1.Instance{Spec: &envv1alpha1.InstanceSpec{Resources: &envv1alpha1.Resources{Disk: "40Gi"}, DiskGrowth: g}}
+	}
+	workspace := &envv1alpha1.BoxDisk{Path: "/workspace", Size: "40Gi", SizeIsStart: true, Threshold: "80%", Step: "2x", Max: "40Gi", CheckInterval: every}
+	for what, tc := range map[string]struct {
+		in   *envv1alpha1.Instance
+		want []*envv1alpha1.BoxDisk
+	}{
+		"no growth": {in: instance(nil)},
+		"before the root's own threshold and step": {
+			in:   instance(&envv1alpha1.DiskGrowth{WorkspaceMax: "30Gi", Root: "5Gi", RootMax: "30Gi", Threshold: "80%", Step: "2x"}),
+			want: []*envv1alpha1.BoxDisk{workspace, {Path: "/", Size: "5Gi", SizeIsStart: true, Threshold: "80%", Step: "2x", Max: "30Gi", CheckInterval: every}},
+		},
+		"before the root grew": {
+			in:   instance(&envv1alpha1.DiskGrowth{WorkspaceMax: "30Gi", Threshold: "80%", Step: "2x"}),
+			want: []*envv1alpha1.BoxDisk{workspace},
+		},
+	} {
+		got := boxDiskStatus(tc.in)
+		if !slices.EqualFunc(got, tc.want, func(a, b *envv1alpha1.BoxDisk) bool { return proto.Equal(a, b) }) {
+			t.Errorf("%s: disks %v, want %v", what, got, tc.want)
 		}
 	}
 }

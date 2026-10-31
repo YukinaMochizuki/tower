@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"regexp"
 	"slices"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
@@ -63,6 +64,10 @@ const (
 	DefaultDisk = "10Gi"
 	// WorkspaceDir is where a container's Disk is mounted.
 	WorkspaceDir = "/workspace"
+	// GrowthCheckEvery is how often hangar asks a running container how
+	// full each disk that grows by itself is (hangar: internal/node,
+	// DefaultRootPoll), which hangar's API does not report.
+	GrowthCheckEvery = 15 * time.Second
 	// ReposDir is where a box's checkouts after its first go, one
 	// directory each (the apiserver's box controller).
 	ReposDir = "/repos"
@@ -133,6 +138,9 @@ type observed struct {
 	processes int32
 	// rootStart is its RootStart condition, nil while not known.
 	rootStart *metav1.Condition
+	// The sizes hangar reports of a container's /workspace Disk and root
+	// disk, "" where it reports none.
+	workspaceDisk, rootDisk string
 }
 
 func failed(reason string, err error) observed {
@@ -151,7 +159,7 @@ func (t *Target) labels(in *envv1alpha1.Instance) map[string]string {
 
 // converge makes hangar hold the instance as its spec says, and returns
 // what it holds now. Its error is one to read everything again for.
-func (t *Target) converge(ctx context.Context, in *envv1alpha1.Instance) (observed, error) {
+func (t *Target) converge(ctx context.Context, in *envv1alpha1.Instance) (ob observed, err error) {
 	spec := in.GetSpec()
 	switch spec.GetKind() {
 	case envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER:
@@ -169,6 +177,10 @@ func (t *Target) converge(ctx context.Context, in *envv1alpha1.Instance) (observ
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return observed{}, err
 	}
+	// Whatever else is found, the sizes of its disks as hangar holds them.
+	defer func() {
+		ob.workspaceDisk, ob.rootDisk = disk.GetStatus().GetSize(), ct.GetStatus().GetDisk()
+	}()
 	// What was reported made is gone from hangar: tower decides what to do
 	// about it.
 	switch in.GetStatus().GetPhase() {
@@ -206,7 +218,7 @@ func (t *Target) converge(ctx context.Context, in *envv1alpha1.Instance) (observ
 			// refuses a max under.
 			ds.Grow = &hangarstorage.DiskGrow{Max: atLeast(g.GetWorkspaceMax(), size), Threshold: g.GetThreshold(), Step: g.GetStep()}
 		}
-		_, err := t.api.Disks().Apply(ctx, &hangarstorage.Disk{
+		disk, err = t.api.Disks().Apply(ctx, &hangarstorage.Disk{
 			Metadata: &hangarmeta.ObjectMeta{Name: name, Labels: labels},
 			Spec:     ds,
 		})
@@ -495,6 +507,7 @@ func (t *Target) report(ctx context.Context, in *envv1alpha1.Instance, o observe
 	st.ObservedGeneration = in.GetMetadata().GetGeneration()
 	st.Phase = o.phase
 	st.Address, st.UsedDisk, st.StartTime, st.ProcessesRunning, st.StreamsOpen = "", "", nil, 0, 0
+	st.WorkspaceDisk, st.RootDisk = o.workspaceDisk, o.rootDisk
 	if o.phase == envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING {
 		st.Address, st.StartTime, st.ProcessesRunning = o.address, o.started, o.processes
 		st.StreamsOpen = t.streams.Open(provider.Instance{Project: in.GetMetadata().GetProject(), Name: in.GetMetadata().GetName()})

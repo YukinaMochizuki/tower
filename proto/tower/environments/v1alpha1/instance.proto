@@ -123,6 +123,14 @@ message InstanceStatus {
   // it, and one that does not is refused. A public key, not a secret. See
   // docs/decisions/traffic.md.
   string ssh_host_key = 9;
+  // The size a container's /workspace disk and root disk have, as its
+  // provider last read them, on a provider that grows disks (hangar's):
+  // hangar's Disk status.size, and its Container's status.disk, which
+  // hangar sets only once the root has grown past the size it was asked
+  // to start at. Empty while the provider reports none: not made yet, the
+  // root not grown, or a provider that does not grow disks.
+  string workspace_disk = 10;
+  string root_disk = 11;
 }
 
 // InstanceService manages instances.
