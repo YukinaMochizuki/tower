@@ -292,6 +292,30 @@ func TestAContainersDisksGrowAsItsInstanceSays(t *testing.T) {
 	}
 }
 
+// TestAnInstanceReportsItsDisksSizes: a container's instance reports the
+// size of its /workspace Disk and its root disk as hangar holds them, the
+// Disk's status.size and the Container's status.disk, read again as hangar
+// grows them; none while hangar reports none.
+func TestAnInstanceReportsItsDisksSizes(t *testing.T) {
+	w, f := newWorld(t, func(c *hangar.Config) { c.ReportEvery = 50 * time.Millisecond })
+	spec := container("ws1")
+	spec.Resources = &envv1alpha1.Resources{Cpu: "2", Memory: "2Gi", Disk: "2Gi"}
+	spec.DiskGrowth = &envv1alpha1.DiskGrowth{WorkspaceMax: "30Gi", Root: "2Gi", RootMax: "30Gi", Threshold: "80%", Step: "4Gi", RootThreshold: "90%", RootStep: "2Gi"}
+	_, st := w.Harness().Start(t, "grows", spec)
+	if st.GetWorkspaceDisk() != "" || st.GetRootDisk() != "" {
+		t.Errorf("before hangar reports a size: workspace_disk %q, root_disk %q; want none", st.GetWorkspaceDisk(), st.GetRootDisk())
+	}
+	obj := "t-" + w.Instance(t, "grows").GetMetadata().GetUid()
+	f.GrowDisks(obj, "6Gi", "4Gi")
+	testutil.Eventually(t, "the instance reporting its disks grown", func() (bool, string) {
+		st := w.Instance(t, "grows").GetStatus()
+		return st.GetWorkspaceDisk() == "6Gi" && st.GetRootDisk() == "4Gi", st.String()
+	})
+	if st := w.Instance(t, "grows").GetStatus(); st.GetPhase() != envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING {
+		t.Errorf("an instance whose disks grew: %v, want it RUNNING", st)
+	}
+}
+
 // TestTheSweepTakesWhatNoInstanceAccountsFor: what the target made for an
 // Instance hangar still holds once it is gone, as when tower was down as
 // it went, is deleted by the sweep; what another target made, or anyone

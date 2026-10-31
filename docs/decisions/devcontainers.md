@@ -229,6 +229,22 @@ are workstream's cases.
   the build needed; a pre-build that outruns the disk's growth is run
   again as above. A rebuild starts a quarter over what the repository's
   last warm golden on the target held.
+- A box says how its disks grow in `BoxStatus.disks`, one `BoxDisk` for
+  `/workspace` and one for `/`: its size, threshold, step, max and how
+  often hangar checks (15 s, hangar's node poll, which its API does not
+  report and tower keeps as `hangar.GrowthCheckEvery`), so workstream
+  can tell an agent that a full disk grows by itself and when it will
+  not. These are on the Box, not read from the Target, because they are
+  each box's own: the values its Instance was made with
+  (`InstanceSpec.disk_growth`, immutable; a target's settings changed
+  later do not reach it), and its sizes as hangar reports them
+  (`InstanceStatus.workspace_disk` from the Disk's `status.size`,
+  `root_disk` from the Container's `status.disk`), read again at each
+  provider report. hangar reports a root disk's size only once it has
+  grown past the size it was asked to start at, and never the image's
+  base it may really start at, so until then `size` is that start and
+  `size_is_start` says so. A box on any other target, or whose instance
+  was made before its target grew disks, has no `disks`.
 - Boxes read the image's ENV through the target (`ImageConfig.env`): a
   hangar target's system container and a hostd host from before this
   change return none, and every cache variable is set. Upgrade the system

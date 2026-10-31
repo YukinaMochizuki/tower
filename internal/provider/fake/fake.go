@@ -156,6 +156,9 @@ type instance struct {
 	streams int
 	// links are its symbolic links, by path, to what they name.
 	links map[string]string
+	// The sizes its /workspace and root disks have grown to (GrowDisks),
+	// "" until they grew.
+	workspaceDisk, rootDisk string
 }
 
 // resolve is the file a path of the instance names: what a link there
@@ -399,8 +402,10 @@ func (f *Fake) report(ctx context.Context, c *client.Client, in *envv1alpha1.Ins
 		}
 		st.ProcessesRunning = int32(local.processesRunning())
 		st.StreamsOpen = int32(local.streams)
+		st.WorkspaceDisk, st.RootDisk = local.workspaceDisk, local.rootDisk
 	} else {
 		st.Address, st.UsedDisk, st.StartTime, st.ProcessesRunning, st.StreamsOpen = "", "", nil, 0, 0
+		st.WorkspaceDisk, st.RootDisk = "", ""
 	}
 	f.mu.Unlock()
 	ready := &metav1.Condition{Type: InstanceReady, Status: metav1.ConditionStatus_CONDITION_STATUS_FALSE, Reason: reason, Message: msg, ObservedGeneration: st.ObservedGeneration}
@@ -488,6 +493,18 @@ func (f *Fake) FillTarget(msg string) {
 	for _, ref := range refs {
 		f.enqueue(ref)
 	}
+}
+
+// GrowDisks reports the instance's /workspace and root disks grown to
+// workspace and root, as hangar reports a disk that grew by itself; ""
+// is one that has not.
+func (f *Fake) GrowDisks(ref provider.Instance, workspace, root string) {
+	f.mu.Lock()
+	if local := f.instances[ref]; local != nil {
+		local.workspaceDisk, local.rootDisk = workspace, root
+	}
+	f.mu.Unlock()
+	f.enqueue(ref)
 }
 
 // Vanish makes the instance disappear from the target, as a host that lost

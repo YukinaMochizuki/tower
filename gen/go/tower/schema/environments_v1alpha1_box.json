@@ -1,5 +1,42 @@
 {
   "$defs": {
+    "tower.environments.v1alpha1.BoxDisk": {
+      "additionalProperties": false,
+      "description": "BoxDisk is one of a box's disks and how it grows: once it is threshold full, by step, up to max, as its target's settings said when the box was made (TargetSettings box_workspace_disk and the like).",
+      "properties": {
+        "checkInterval": {
+          "description": "How often the target checks how full it is: a disk past threshold grows within about this long, unless the quota or the node has no room for it.",
+          "examples": [
+            "30s",
+            "1.5s"
+          ],
+          "pattern": "^-?[0-9]+(\\.[0-9]{1,9})?s$",
+          "type": "string"
+        },
+        "max": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Where the box mounts it: \"/workspace\", or \"/\" for its root disk.",
+          "type": "string"
+        },
+        "size": {
+          "description": "Its size now, as the target last reported it (within the provider's report interval), such as \"6Gi\"; with size_is_start, the size it was asked to start at, the target reporting none it has grown to. A root disk not grown yet is so: hangar starts it at its image's size when that is larger, and does not report that size.",
+          "type": "string"
+        },
+        "sizeIsStart": {
+          "type": "boolean"
+        },
+        "step": {
+          "type": "string"
+        },
+        "threshold": {
+          "description": "How full its filesystem is when it grows, such as \"80%\"; how much it grows by, a quantity such as \"4Gi\" or a factor such as \"2x\"; and the most it grows to, such as \"30Gi\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "tower.environments.v1alpha1.BoxSpec": {
       "additionalProperties": false,
       "description": "BoxSpec is what workstream wants. What the box is made of cannot change: a different recipe is a different box.",
@@ -84,6 +121,13 @@
         "devcontainerGolden": {
           "description": "The golden of its devcontainer's image when the box fell back from it because it did not build, while that golden is not built: tower keeps building it again as its backoff allows, and RetryBox builds it again at once, so that a box made after is made of it. Empty when the box did not fall back, fell back from a devcontainer tower could not make an image of, or once the golden is built (DevcontainerFellBack BuiltSince).",
           "type": "string"
+        },
+        "disks": {
+          "description": "How its disks grow by themselves, on a target whose provider grows them (hangar's): its /workspace disk, then its container's root disk. Empty on any other target, and for a box made before its target grew disks, whose disks keep their size.",
+          "items": {
+            "$ref": "#/$defs/tower.environments.v1alpha1.BoxDisk"
+          },
+          "type": "array"
         },
         "imageGolden": {
           "description": "The Goldens it was made from: its image, and the warm checkout it was cloned from if its repository had one.",
