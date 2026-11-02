@@ -7,7 +7,8 @@ queue) and its sync (the box's files sent before each job, what a job
 changed written back once it ends), under "Built" below, are accepted
 and built. Routing by a command's records was built as records only and
 is withdrawn; routing by the repository's task, under "Routing by task",
-is a draft for review, 2026-11-02, not yet built.
+was drafted 2026-11-02 and is built as its "As built" says, where it
+fills in or departs from the draft; its numbers are still a start.
 
 ## Context
 
@@ -69,8 +70,8 @@ resize a machine's CPUs or memory while it runs (it grows disks only).
   exit also says what came back (`BoostRun.back`).
 - **tower routes a job by the task it runs**, a target or script the
   repository declares, from what that task does and what its runs
-  measured ("Routing by task", a draft). The caller may ask for a
-  boost, a size, or no boost, and that wins.
+  measured, when the caller asks for `auto` ("Routing by task"). The
+  caller may ask for a boost, a size, or no boost, and that wins.
 - **Boosts are budgeted per target and queued.** The target's
   `boost_budget` caps the cpu and memory all its boosts hold, within the
   Plan's quota left. A job that does not fit is queued, first come first
@@ -79,7 +80,7 @@ resize a machine's CPUs or memory while it runs (it grows disks only).
   wait, run it in the box, or do something else (decided with the human,
   2026-10-29).
 
-## Routing by task (draft, 2026-11-02)
+## Routing by task (2026-11-02)
 
 Routing by a command's records was withdrawn (decided with the human,
 2026-11-02). tower kept them (`process-usage.md`) under the sha256 of the
@@ -146,6 +147,93 @@ work has to find its own way to a boost.
   way to a record keyed by the task, which holds no line text either;
   the records kept so far are dropped.
 
+### As built
+
+`internal/apiserver/taskfind.go` finds a line's tasks,
+`taskroute.go` routes them, `taskuse.go` keeps their runs. Where this
+fills in or departs from the draft above:
+
+- **The API.** `BoostIntent.auto` asks for it; `on`, a size, or no
+  intent (no boost) win as before. `StartProcessResponse.routed`, on the
+  started and the pending answers, and `ProcessExit.routed`, on a box's
+  process's exit however it is read, say where it went and why, as
+  "`make test`: of its last 3 runs, one in this 1 vCPU box waited for a
+  CPU 40% of its 1m0s: on a boost of 8 vCPU and 8192Mi". The words are
+  the task's plain names and tower's numbers, never the line's other
+  words. A pending start asked again keeps the size and the why it was
+  routed with; a ticket tower no longer knows (a restart) asks for
+  `boost_resources`, and says so. A machine, or a box on a target with
+  no boosts (hostd), runs an `auto` start where it is, never refused.
+  Routing a start is bounded to 15 seconds.
+- **Finding the task.** The line is parsed as bash by `mvdan.cc/sh/v3`
+  (BSD-3-Clause). A simple command that is no entry is passed over, not
+  only setup and filters: `git status && make test` is `make test`. Its
+  lists, pipelines (each stage in a subshell of its own), subshells,
+  `{ }` and `time` are read; conditionals, loops and functions are not,
+  and `sh`/`bash`/`dash`/`zsh -c '...'` is read as a line of its own. A
+  line that does not parse is no task. `exec` and `command` are
+  wrappers too, and `env -C` and `sudo -D` move the directory.
+- **What is an entry.** make's `-C`/`--directory` and targets; its
+  variables (`V=1`) and flags are not in the key, and a `-f` or
+  `--eval` makes the line no task (another makefile). `just` and `task`
+  with their recipe (task's `-d` moves the directory; just's `-f`/`-d`
+  and task's `-t` are no task). npm runs a script by `run` (and its
+  aliases) or `test`/`t`/`tst`/`start`/`stop`/`restart`; pnpm, yarn and
+  bun by `run`, or by `<name>` when the box's package.json in that
+  directory has the script, a package's binary otherwise (a heavy tool
+  if it is one: `pnpm vitest run` is `vitest`); `npx`, `bunx`, `npm
+  exec`, `pnpm exec`/`dlx`, `yarn exec`/`dlx` and `bun x` run a binary.
+  `pnpm -C`/`--dir`, `npm --prefix`, `yarn --cwd` and `bun --cwd` move
+  the directory; `pnpm -r`/`--filter`, `npm -w` and the like (other
+  packages) are no task. `bun test` is bun's own runner, no task. `go
+  test`/`go build` with their patterns (none is `.`; `-C` moves the
+  directory), `cargo test`/`build` with their `-p` packages.
+- **Plain names.** A make target is a plain name as
+  `process-usage.md` sets it (`make bin/tower` is no task). A script's
+  or recipe's name may be plain names joined by `:` (`test:unit`, just's
+  `mod::recipe`), 64 characters at most: a departure, as `:` is how
+  package.json names its scripts. A directory or a package pattern is a
+  path whose parts are letters, digits, `.`, `-` and `_` (upper case
+  too: a directory is the repository's), each not shaped as a token is
+  (all hex, or a quarter digits); `..` above `/workspace` and a `cd` the
+  line cannot tell (`cd $X`, `cd -`) are no task.
+- **A line of several tasks** is kept as one, the list: its runs are
+  the line's. With no runs of its own, each of its tasks is judged on its
+  own (its runs, else its expansion), and the largest boost any asks for
+  wins.
+- **Expansions.** `make -n` runs as `timeout -k 2 10 make -n
+  <targets>`, in the task's directory, as the box's user, without the
+  line's variables; its first 1MiB of output is read as shell, all of
+  it this time (conditionals, loops, substitutions), for heavy tools and
+  for scripts, which are followed. A script's text is followed through
+  the scripts it runs, 8 deep, npm's `pre`/`post` scripts with it. The
+  judgement (the heavy tool found, or none; never the text) is kept on
+  the task's record with the sha256 of its makefile (the first of
+  `GNUmakefile`, `makefile`, `Makefile`; not what it includes) or of its
+  package.json, and only when the dry run succeeded. A `just` or `task`
+  recipe has no expansion read: with no runs, it runs in the box.
+- **Judging by runs**, the last 3, in this order: a run that ran out of
+  memory, or peaked at 80% or more of the box's memory now, wherever it
+  ran, sends the next to a boost of 1.5 times the largest such peak (an
+  OOM with no peak counts the memory it ran in), its cpu the target's
+  default moved into hangar's shapes, as a size asked for is; then a run
+  in the box of 30 seconds or more that waited for a CPU a fifth of its
+  time, or whose CPU time was 90% or more of all the box's CPUs over its
+  wall time ("busy on all", read so as a busy run never quite uses them
+  whole), to a boost of `boost_resources`; else, the last run on a
+  boost, to the box unless it used more CPUs on average than the box
+  has (then `boost_resources` again); else the box. A single-threaded job
+  thus goes to a boost after a busy run in the box, back once three
+  runs on a boost have pushed that run out of the window, and so on: one
+  run in four in the box.
+- **Records.** `TaskUse` (internal, `internal/apiserver/taskuse.go`),
+  keyed by project, repository and the line's tasks (directory, entry,
+  name each), its last 10 runs, pruned as `CommandUse` was. Every
+  `CommandUse` is deleted at the first hourly prune. `BoxProcesses`
+  keeps a boost process's tasks and the word it is listed by once its
+  boost is gone, its tasks' or its program's name, and why each `auto`
+  start was routed, the box's own processes' too (the last 100).
+
 ## Built
 
 What is accepted and built, in the API's terms:
@@ -186,8 +274,8 @@ What is accepted and built, in the API's terms:
 - **Every process call on the box reaches its boost.** A process started
   on a boost has an id of tower's, `boost-<instance uid end>-<id there>`,
   so no id is used twice, a boost's instance made again included; tower
-  keeps, per box, which instance runs it and its command's coarse key
-  alone (`process-usage.md`). ListProcesses lists the box's and its
+  keeps, per box, which instance runs it and, of its command, its
+  tasks and the word it is listed by alone (`process-usage.md`). ListProcesses lists the box's and its
   boost's together, each with `ran_on`. A boost's processes keep its box
   in use. However a boost goes (idle, its box stopped or deleted, FAILED),
   a finalizer holds it until its processes' exits are read and kept and
@@ -461,3 +549,6 @@ What is accepted and built, in the API's terms:
 - Whether a script file the line runs (`./scripts/e2e.sh`) counts as a
   task, keyed by its path.
 - Whether `auto` becomes the default of workstream's `run_async_box`.
+- Whether `bun test` (bun's own runner) and `go vet` count as heavy
+  tools, and whether a just or task recipe's expansion is read
+  (`just --dry-run`, `task --dry`).
