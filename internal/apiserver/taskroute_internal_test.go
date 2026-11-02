@@ -67,9 +67,9 @@ func shapedMemory(j judge, memory uint64) uint64 {
 func TestHeavyTool(t *testing.T) {
 	t.Parallel()
 	for tool, want := range map[string]bool{
-		"go test": true, "go build": true, "cargo test": true, "cargo build": true, "tsc": true, "vitest": true, "jest": true,
+		"go test": true, "go build": true, "go vet": true, "bun test": true, "cargo test": true, "cargo build": true, "tsc": true, "vitest": true, "jest": true,
 		"vite build": true, "next build": true, "webpack": true, "docker build": true,
-		"make": false, "pnpm": false, "just": false, "go vet": false,
+		"make": false, "pnpm": false, "just": false, "go fmt": false,
 	} {
 		if got := heavyTool(taskEntry{Tool: tool}); got != want {
 			t.Errorf("heavyTool(%q) = %v, want %v", tool, got, want)

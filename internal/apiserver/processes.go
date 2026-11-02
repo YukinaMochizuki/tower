@@ -120,10 +120,18 @@ func (h environmentService) StartProcess(ctx context.Context, req *connect.Reque
 	}
 	if (m.GetBoost() != nil || m.GetPending() != "") && (routed == nil || routed.boost) {
 		res, err := h.startBoosted(ctx, c, e, m, command, routed)
-		if err != nil {
+		var nf *neverFits
+		switch {
+		case errors.As(err, &nf):
+			// auto is advisory: a boost the target can never fit runs in
+			// the box, saying so; one that only waits stays pending.
+			h.s.log.Info("a routed start runs in the box: its boost can never fit", "caller", c.String(), "environment", e.String(), "size", nf.size.String())
+			routed = &routing{why: nf.why()}
+		case err != nil:
 			return nil, err
+		default:
+			return connect.NewResponse(res), nil
 		}
-		return connect.NewResponse(res), nil
 	}
 	id, err := e.p.StartProcess(ctx, provider.ProcessRequest{
 		Instance: e.ref, Command: e.asRunAs(command, m.GetDir()), Env: e.commandEnv(m.GetEnv()), Dir: m.GetDir(), Name: m.GetName(),

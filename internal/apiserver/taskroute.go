@@ -260,7 +260,7 @@ func (j judge) expansion(ctx context.Context, t taskEntry, cached *taskExpansion
 // heavyTool says t is a heavy tool called directly.
 func heavyTool(t taskEntry) bool {
 	switch t.Tool {
-	case "go test", "go build", "cargo test", "cargo build":
+	case "go test", "go build", "go vet", "cargo test", "cargo build", "bun test":
 		return true
 	}
 	return slices.Contains(directTools, t.Tool) || slices.Contains(expansionTools, t.Tool)

@@ -627,6 +627,13 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 		if tk != nil {
 			delete(tq.tickets, tk.id)
 		}
+		if m.GetBoost().GetAuto() {
+			// auto is advisory: the caller runs it in the box instead.
+			if tk != nil {
+				tasks = tk.tasks
+			}
+			return nil, &neverFits{size: size, tasks: tasks, quota: empty.quota}
+		}
 		return nil, failedPrecondition("a boost of %s does not fit %s's target %q even with no boost on it: its Plan has %s left",
 			size, e, e.target.GetMetadata().GetName(), empty.quota)
 	}
@@ -813,6 +820,25 @@ func (h environmentService) syncAndStart(ctx context.Context, c authz.Caller, e 
 		}
 		return res, err
 	}
+}
+
+// neverFits is a boost an auto start was routed to that its target can
+// never fit, even with no boost held: the start runs in the box.
+type neverFits struct {
+	size  boostSize
+	tasks []taskEntry
+	quota boostSize
+}
+
+func (n *neverFits) Error() string { return n.why() }
+
+// why is what the start's answer and exit say of it, in its tasks' words.
+func (n *neverFits) why() string {
+	what := tasksText(n.tasks)
+	if what == "" {
+		what = "it"
+	}
+	return fmt.Sprintf("%s would go to a boost of %s, but the target can never fit it (its Plan has %s left): ran in the box", what, n.size, n.quota)
 }
 
 // startedAnswer answers a ticket that started its process, asked about

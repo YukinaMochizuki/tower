@@ -20,7 +20,8 @@ type taskEntry struct {
 	Dir string `json:"dir"`
 	// Tool is what runs it: make, just or task with a recipe; npm, pnpm,
 	// yarn or bun with a script; or a heavy tool called directly ("go
-	// test", "go build", "cargo test", "cargo build", tsc, vitest, jest).
+	// test", "go build", "go vet", "cargo test", "cargo build", "bun
+	// test", tsc, vitest, jest).
 	// An expansion also finds the heavy tools of expansionTools.
 	Tool string `json:"tool"`
 	// Name is its targets, recipe, script or package patterns, by spaces;
@@ -824,9 +825,9 @@ func (f *taskFinder) yarn(args []word, dir string) {
 	}
 }
 
-// bunCommands are bun's own commands. bun test is bun's own test runner,
-// none of a repository's scripts nor a heavy tool of the list.
-var bunCommands = []string{"test", "install", "i", "add", "a", "remove", "rm", "update", "outdated", "link", "unlink", "pm", "build",
+// bunCommands are bun's own commands, none a repository's script; bun
+// test, bun's own test runner, is a heavy tool.
+var bunCommands = []string{"install", "i", "add", "a", "remove", "rm", "update", "outdated", "link", "unlink", "pm", "build",
 	"init", "create", "c", "upgrade", "repl", "exec", "publish", "patch", "patch-commit", "audit", "info", "why", "completions",
 	"help", "-v", "--version"}
 
@@ -845,6 +846,8 @@ func (f *taskFinder) bun(args []word, dir string) {
 		f.runScript("bun", rest, dir, nil, []string{"--filter", "-F"}, true)
 	case sub == "x":
 		f.tool(rest, dir)
+	case sub == "test":
+		f.add(taskEntry{Dir: dir, Tool: "bun test"})
 	case slices.Contains(bunCommands, sub):
 	case f.hasScript(dir, sub):
 		f.script("bun", sub, dir)
@@ -875,10 +878,10 @@ func (f *taskFinder) tool(words []word, dir string) {
 		sub = args[0].text
 	}
 	switch {
-	case f.loose && (program == "go" && (sub == "test" || sub == "build") || program == "cargo" && (sub == "test" || sub == "build")):
+	case f.loose && (program == "go" && (sub == "test" || sub == "build" || sub == "vet") || program == "cargo" && (sub == "test" || sub == "build")):
 		// An expansion is judged by its tools alone, whatever their words.
 		f.add(taskEntry{Dir: dir, Tool: program + " " + sub})
-	case program == "go" && (sub == "test" || sub == "build"):
+	case program == "go" && (sub == "test" || sub == "build" || sub == "vet"):
 		f.goTool("go "+sub, args[1:], dir)
 	case program == "cargo" && (sub == "test" || sub == "build" || sub == "t" || sub == "b"):
 		tool := map[string]string{"t": "test", "b": "build"}[sub]

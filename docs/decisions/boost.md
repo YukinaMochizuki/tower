@@ -162,9 +162,20 @@ fills in or departs from the draft above:
   the task's plain names and tower's numbers, never the line's other
   words. A pending start asked again keeps the size and the why it was
   routed with; a ticket tower no longer knows (a restart) asks for
-  `boost_resources`, and says so. A machine, or a box on a target with
-  no boosts (hostd), runs an `auto` start where it is, never refused.
-  Routing a start is bounded to 15 seconds.
+  `boost_resources`, and says so. Routing a start is bounded to 15
+  seconds.
+- **`auto` is advisory** (decided with the director, 2026-11-02): it is
+  never refused for want of a boost. A machine, or a box on a target
+  with no boosts (hostd), runs it where it is. A boost the target can
+  never fit, even with no boost held (what `on` is refused for,
+  `FAILED_PRECONDITION`), runs it in the box instead, `routed` saying so
+  ("`go test ./...` would go to a boost of 8 vCPU and 8192Mi, but the
+  target can never fit it (its Plan has 4 vCPU and 49152Mi left): ran
+  in the box"); asked again with a ticket that has come to never fit,
+  likewise. A routed size is held to `boost_max` as any size asked for
+  is, so `boost_max` alone never refuses one. A boost that only has to
+  wait (queued for `boost_budget`, a full node, starting) answers
+  pending as `on` does, so the agent still decides whether to wait.
 - **Finding the task.** The line is parsed as bash by `mvdan.cc/sh/v3`
   (BSD-3-Clause). A simple command that is no entry is passed over, not
   only setup and filters: `git status && make test` is `make test`. Its
@@ -185,9 +196,12 @@ fills in or departs from the draft above:
   exec`, `pnpm exec`/`dlx`, `yarn exec`/`dlx` and `bun x` run a binary.
   `pnpm -C`/`--dir`, `npm --prefix`, `yarn --cwd` and `bun --cwd` move
   the directory; `pnpm -r`/`--filter`, `npm -w` and the like (other
-  packages) are no task. `bun test` is bun's own runner, no task. `go
-  test`/`go build` with their patterns (none is `.`; `-C` moves the
-  directory), `cargo test`/`build` with their `-p` packages.
+  packages) are no task. `go test`/`go build`, and `go vet`, with
+  their patterns (none is `.`; `-C` moves the directory), `cargo
+  test`/`build` with their `-p` packages, and `bun test` (bun's own
+  test runner, CPU-heavy on workstream) are heavy tools, called directly
+  or in an expansion: `go vet` and `bun test` beyond the draft's list
+  (decided with the director, 2026-11-02).
 - **Plain names.** A make target is a plain name as
   `process-usage.md` sets it (`make bin/tower` is no task). A script's
   or recipe's name may be plain names joined by `:` (`test:unit`, just's
@@ -549,6 +563,5 @@ What is accepted and built, in the API's terms:
 - Whether a script file the line runs (`./scripts/e2e.sh`) counts as a
   task, keyed by its path.
 - Whether `auto` becomes the default of workstream's `run_async_box`.
-- Whether `bun test` (bun's own runner) and `go vet` count as heavy
-  tools, and whether a just or task recipe's expansion is read
-  (`just --dry-run`, `task --dry`).
+- Whether a just or task recipe's expansion is read (`just --dry-run`,
+  `task --dry`).

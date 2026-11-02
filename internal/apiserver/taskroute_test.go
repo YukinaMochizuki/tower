@@ -13,6 +13,9 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
+	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
+	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
+	"github.com/YukinaMochizuki/tower/internal/client"
 	"github.com/YukinaMochizuki/tower/internal/provider"
 	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
@@ -430,5 +433,64 @@ func TestAutoAskedAgainKeepsItsRouting(t *testing.T) {
 	got := w.start(unknown)
 	if !strings.HasPrefix(got.GetRouted(), "routed to a boost when first asked; its ticket is not known since") {
 		t.Errorf("an unknown ticket asked again answered %v", got)
+	}
+}
+
+// planOf sets the target's report of what its Plan has left.
+func (w *world) planOf(cpu, memory string) {
+	w.t.Helper()
+	o, err := w.get(registry.Target, "", "t1")
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	st := proto.Clone(o.(*targetsv1alpha1.Target).GetStatus()).(*targetsv1alpha1.TargetStatus)
+	st.Capacity = &targetsv1alpha1.Capacity{MemoryFree: memory, CpuFree: cpu}
+	if _, err := w.asSystem().generic.UpdateStatus(w.t.Context(), registry.Target, client.Key{Name: "t1"}, st, nil); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// TestAutoThatCanNeverFitRunsInTheBox: auto is advisory. A start routed
+// to a boost its target can never fit, even with no boost held, runs in
+// the box, its answer and exit saying so; on, asked the same, is refused.
+func TestAutoThatCanNeverFitRunsInTheBox(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	w.readyBox("dev", smallBox)
+	w.planOf("4", "48Gi")
+	res := w.start(autoStart("dev", "go test ./...", ""))
+	const why = "go test ./... would go to a boost of 8 vCPU and 8192Mi, but the target can never fit it (its Plan has 4 vCPU"
+	if res.GetProcess() == "" || res.GetRanOn().GetKind() != envv1alpha1.RanOnKind_RAN_ON_KIND_BOX ||
+		!strings.HasPrefix(res.GetRouted(), why) || !strings.HasSuffix(res.GetRouted(), "): ran in the box") {
+		t.Fatalf("auto routed to a boost that can never fit answered %v", res)
+	}
+	if _, ok := w.boost("dev"); ok {
+		t.Error("a boost that can never fit was made")
+	}
+	if err := w.fake.EndProcess(w.boxRef("dev"), res.GetProcess(), 0); err != nil {
+		t.Fatal(err)
+	}
+	_, end, err := attachProcess(t.Context(), w.as(workstream).envs, &envv1alpha1.AttachProcessRequest{Environment: boxEnv("dev"), Process: res.GetProcess()})
+	if err != nil || end.GetExit().GetRouted() != res.GetRouted() {
+		t.Errorf("its exit: %v, %v; want routed %q", end, err, res.GetRouted())
+	}
+	if _, err := w.as(workstream).envs.StartProcess(t.Context(), connect.NewRequest(boostOn("dev", "go", "test", "./..."))); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Errorf("on, of a boost that can never fit: %v, want FailedPrecondition", err)
+	}
+}
+
+// TestAutoThatMustWaitStaysPending: a start routed to a boost that only
+// has to wait, queued for the budget, answers pending as on does, saying
+// why it was routed, so the caller decides.
+func TestAutoThatMustWaitStaysPending(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, &targetsv1alpha1.TargetSettings{BoostBudget: &targetsv1alpha1.BoostSize{Cpu: "4", Memory: "4Gi"}})
+	w.readyBox("a", smallBox)
+	w.readyBox("b", smallBox, func(b *envv1alpha1.Box) { b.Spec.Workstream = "ws2" })
+	w.startBoosted(boostOn("a", "true"))
+	res := w.start(autoStart("b", "go test ./...", ""))
+	if res.GetPending().GetReason() != envv1alpha1.PendingReason_PENDING_REASON_QUEUED_BUDGET ||
+		res.GetRouted() != "go test ./...: no runs recorded yet; go test is a heavy tool: on a boost of 8 vCPU and 8192Mi" {
+		t.Errorf("auto past the budget answered %v, want pending QUEUED_BUDGET saying why", res)
 	}
 }

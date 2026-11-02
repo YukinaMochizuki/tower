@@ -775,11 +775,15 @@ export type BoostIntent = Message<"tower.environments.v1alpha1.BoostIntent"> & {
      * package.json script, a just or task recipe, or a heavy tool called
      * directly (docs/decisions/boost.md, "Routing by task"): a boost of a
      * size it chooses, or the box. A command that runs no task runs in the
-     * box. The answer and the process's exit say why (routed). Never
-     * refused for want of boosts: a machine, or a box on a target with
-     * none, runs it where it is. A pending start asked again keeps the
-     * size it was routed to; one whose ticket tower no longer knows, after
-     * a restart, asks for the target's boost_resources.
+     * box. The answer and the process's exit say why (routed). It is
+     * advisory, never refused for want of boosts: a machine, or a box on
+     * a target with none, runs it where it is, and a boost the target's
+     * Plan can never fit, even with no boost held (FAILED_PRECONDITION
+     * for on), runs it in the box; a boost that only has to wait (queued,
+     * a full node) answers pending as on does. A pending start asked
+     * again keeps the size it was routed to; one whose ticket tower no
+     * longer knows, after a restart, asks for the target's
+     * boost_resources.
      *
      * @generated from field: bool auto = 3;
      */

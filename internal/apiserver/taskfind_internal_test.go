@@ -71,6 +71,9 @@ func TestFindTasks(t *testing.T) {
 		{"go test -args -foo ./x", "", "go test ."},
 		{"cargo test -p core -- --nocapture", "", "cargo test core"},
 		{"cargo build --release", "", "cargo build"},
+		{"go vet ./...", "", "go vet ./..."},
+		{"bun test", "", "bun test"},
+		{"cd web && bun test src/x.test.ts | tail", "", "bun test (in web)"},
 		{"just test", "", "just test"},
 		{"just", "", "just"},
 		{"task build:web", "", "task build:web"},
@@ -79,10 +82,10 @@ func TestFindTasks(t *testing.T) {
 		{"ls -la", "", ""},
 		{"git status && git diff", "", ""},
 		{"./scripts/e2e.sh", "", ""},
-		{"go vet ./...", "", ""},
+		{"go fmt ./...", "", ""},
 		{"pnpm install", "", ""},
 		{"npm ci", "", ""},
-		{"bun test", "", ""},
+		{"bun install", "", ""},
 		{"make -n test", "/elsewhere", ""},
 		{"pnpm eslint .", "web", ""},
 		{"just --list", "", ""},
@@ -158,7 +161,9 @@ func TestExpansionTasks(t *testing.T) {
 		{"make[1]: Entering directory '/workspace/svc'\nif then\ngo test ./x", "go test"},
 		{"cd web && pnpm lint && make $X", "pnpm lint (in web)"},
 		{"echo $(", ""},
-		{"go vet ./... && eslint .", ""},
+		{"go vet ./... && eslint .", "go vet"},
+		{"bun test --coverage", "bun test"},
+		{"go fmt ./... && eslint .", ""},
 	} {
 		if got := tasksText(expansionTasks(tc.text, ".", webScripts)); got != tc.want {
 			t.Errorf("expansionTasks(%q) = %q, want %q", tc.text, got, tc.want)
