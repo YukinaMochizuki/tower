@@ -297,6 +297,7 @@ message StartProcessRequest {
   // Runs it on the box's boost rather than in the box: a larger instance of
   // the box's, made for it if the box has none (docs/decisions/boost.md).
   // Unset runs it in the box. A box on a hangar target alone has one.
+  // auto lets tower choose, by the task the command runs.
   BoostIntent boost = 7;
   // The ticket of a start answered pending, asked about again with the
   // same request: it is answered pending again, or started. Asking again
@@ -317,7 +318,9 @@ message StartProcessRequest {
   reserved "artifacts";
 }
 
-// BoostIntent is the boost a process asks for.
+// BoostIntent is the boost a process asks for. on and resources always
+// win over what tower would choose; leaving the intent unset runs the
+// process in the box.
 message BoostIntent {
   oneof size {
     // The target's boost_resources.
@@ -326,6 +329,16 @@ message BoostIntent {
     // held to the target's boost_max, and its cpus to hangar's shapes
     // (512Mi to 8Gi of memory per vCPU).
     Resources resources = 2;
+    // tower chooses by the task the command runs, a make target, a
+    // package.json script, a just or task recipe, or a heavy tool called
+    // directly (docs/decisions/boost.md, "Routing by task"): a boost of a
+    // size it chooses, or the box. A command that runs no task runs in the
+    // box. The answer and the process's exit say why (routed). Never
+    // refused for want of boosts: a machine, or a box on a target with
+    // none, runs it where it is. A pending start asked again keeps the
+    // size it was routed to; one whose ticket tower no longer knows, after
+    // a restart, asks for the target's boost_resources.
+    bool auto = 3;
   }
 }
 
@@ -340,6 +353,12 @@ message StartProcessResponse {
   // A boosted start's sync of the box's work tree to its boost, once
   // started: its sync fields alone are set.
   BoostRun boost = 4;
+  // A start asking for auto: where tower routed it and why, in its task's
+  // words, as "make test: of its last 3 runs, one in this 1 vCPU box
+  // waited for a CPU 60% of its 2m0s: on a boost of 8 vCPU, 8Gi". Set on
+  // a pending answer too. Its text names the task the repository
+  // declares, never the command's other arguments.
+  string routed = 5;
 }
 
 // BoostRun is what a boosted process's run did beside the process: the
@@ -572,6 +591,10 @@ message ProcessExit {
   bool lost = 8;
   // A boosted process's sync, and what it changed and copied back.
   BoostRun boost = 9;
+  // A box's process started with boost auto: where tower routed it and
+  // why, as its start said (StartProcessResponse.routed). A machine's
+  // says it in its start's answer alone.
+  string routed = 10;
 }
 
 message SignalProcessRequest {
