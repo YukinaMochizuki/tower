@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tower/environments/v1alpha1/environment_service.proto.
  */
 export const file_tower_environments_v1alpha1_environment_service: GenFile = /*@__PURE__*/
-  fileDesc("CjV0b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTEvZW52aXJvbm1lbnRfc2VydmljZS5wcm90bxIbdG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExIkgKC0Vudmlyb25tZW50Eg8KB3Byb2plY3QYASABKAkSDQoDYm94GAIgASgJSAASEQoHbWFjaGluZRgDIAEoCUgAQgYKBGtpbmQiwAIKC0V4ZWNSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EjEKBGFyZ3YYAiABKAsyIS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXJndkgAEg8KBXNoZWxsGAMgASgJSAASCwoDZGlyGAQgASgJEj4KA2VudhgFIAMoCzIxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FeGVjUmVxdWVzdC5FbnZFbnRyeRIqCgd0aW1lb3V0GAYgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCCQoHY29tbWFuZCIUCgRBcmd2EgwKBGFyZ3MYASADKAkidQoMRXhlY1Jlc3BvbnNlEhAKBnN0ZG91dBgBIAEoDEgAEhAKBnN0ZGVychgCIAEoDEgAEjUKBGV4aXQYAyABKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRXhlY0V4aXRIAEIKCghyZXNwb25zZSIrCghFeGVjRXhpdBIMCgRjb2RlGAEgASgFEhEKCXRpbWVkX291dBgCIAEoCCJ9Cg9SZWFkRmlsZVJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSDAoEcGF0aBgCIAEoCRIOCgZvZmZzZXQYAyABKAMSDQoFbGltaXQYBCABKAMiZwoQUmVhZEZpbGVSZXNwb25zZRIOCgRkYXRhGAEgASgMSAASNwoDZW5kGAIgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJlYWRGaWxlRW5kSABCCgoIcmVzcG9uc2UiGgoLUmVhZEZpbGVFbmQSCwoDZW9mGAEgASgIIosBChBXcml0ZUZpbGVSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EgwKBHBhdGgYAiABKAkSDAoEZGF0YRgDIAEoDBIOCgZvZmZzZXQYBCABKAMSDAoEbW9kZRgFIAEoDSITChFXcml0ZUZpbGVSZXNwb25zZSKjAQoPQ29weUZpbGVSZXF1ZXN0EjYKBGZyb20YASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSEQoJZnJvbV9wYXRoGAIgASgJEjQKAnRvGAMgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50Eg8KB3RvX3BhdGgYBCABKAkiEgoQQ29weUZpbGVSZXNwb25zZSJTChJGZXRjaE9yaWdpblJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQiVgoTRmV0Y2hPcmlnaW5SZXNwb25zZRI/CgljaGVja291dHMYASADKAsyLC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRmV0Y2hlZENoZWNrb3V0IjMKD0ZldGNoZWRDaGVja291dBISCgpyZXBvc2l0b3J5GAEgASgJEgwKBGhlYWQYAiABKAkifwoLUHVzaFJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSEgoKcmVwb3NpdG9yeRgCIAEoCRIOCgZicmFuY2gYAyABKAkSDQoFbGVhc2UYBCABKAkiDgoMUHVzaFJlc3BvbnNlImEKEklzc3VlVGlja2V0UmVxdWVzdBI9CgtlbnZpcm9ubWVudBgBIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FbnZpcm9ubWVudBIMCgRwb3J0GAIgASgFIp0DChNTdGFydFByb2Nlc3NSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EjEKBGFyZ3YYAiABKAsyIS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXJndkgAEg8KBXNoZWxsGAMgASgJSAASCwoDZGlyGAQgASgJEkYKA2VudhgFIAMoCzI5LnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5TdGFydFByb2Nlc3NSZXF1ZXN0LkVudkVudHJ5EgwKBG5hbWUYBiABKAkSNwoFYm9vc3QYByABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm9vc3RJbnRlbnQSDwoHcGVuZGluZxgIIAEoCRIOCgZjYW5jZWwYCSABKAgaKgoIRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4AUIJCgdjb21tYW5kSgQIChALUglhcnRpZmFjdHMiYAoLQm9vc3RJbnRlbnQSDAoCb24YASABKAhIABI7CglyZXNvdXJjZXMYAiABKAsyJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmVzb3VyY2VzSABCBgoEc2l6ZSLNAQoUU3RhcnRQcm9jZXNzUmVzcG9uc2USDwoHcHJvY2VzcxgBIAEoCRI6CgdwZW5kaW5nGAIgASgLMikudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlBlbmRpbmdTdGFydBIyCgZyYW5fb24YAyABKAsyIi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmFuT24SNAoFYm9vc3QYBCABKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm9vc3RSdW4i2gIKCEJvb3N0UnVuEicKBHN5bmMYASABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24SEgoKc3luY19ieXRlcxgCIAEoAxISCgpzeW5jX2ZpbGVzGAMgASgFEhQKDHN5bmNfZGVsZXRlZBgEIAEoBRIRCglzeW5jX2Z1bGwYBSABKAgSEwoLYmFzZV9zaGFyZWQYBiABKAgSHQoVc3VibW9kdWxlc19ub3Rfc3luY2VkGAcgAygJEg0KBWVycm9yGAogASgJEjsKDXN5bmNfb3Zlcl9jYXAYCyADKAsyJC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuT3ZlckNhcBI0CgRiYWNrGAwgASgLMiYudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLldyaXRlQmFja0oECAgQCUoECAkQClIHY2hhbmdlZFIJYXJ0aWZhY3RzIq4CCglXcml0ZUJhY2sSJwoEdG9vaxgBIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhINCgVmaWxlcxgCIAEoBRIPCgdkZWxldGVkGAMgASgFEg0KBWJ5dGVzGAQgASgDEjUKBW1vdmVkGAUgAygLMiYudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLk1vdmVkRmlsZRINCgV0b3RhbBgGIAEoBRIRCgljb25mbGljdHMYByADKAkSNgoIb3Zlcl9jYXAYCCADKAsyJC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuT3ZlckNhcBISCgpoZWFkX21vdmVkGAkgASgIEhUKDWluZGV4X2NoYW5nZWQYCiABKAgSDQoFZXJyb3IYCyABKAkiOAoJTW92ZWRGaWxlEgwKBHBhdGgYASABKAkSDgoGc3RhdHVzGAIgASgJEg0KBWJ5dGVzGAMgASgDIiYKB092ZXJDYXASDAoEcGF0aBgBIAEoCRINCgVieXRlcxgCIAEoAyKwAQoMUGVuZGluZ1N0YXJ0Eg4KBnRpY2tldBgBIAEoCRI6CgZyZWFzb24YAiABKA4yKi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUGVuZGluZ1JlYXNvbhIPCgdtZXNzYWdlGAMgASgJEhAKCHBvc2l0aW9uGAQgASgFEjEKDmVzdGltYXRlZF93YWl0GAUgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uIngKBVJhbk9uEjQKBGtpbmQYASABKA4yJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmFuT25LaW5kEjkKCXJlc291cmNlcxgCIAEoCzImLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5SZXNvdXJjZXMihgEKFEF0dGFjaFByb2Nlc3NSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50Eg8KB3Byb2Nlc3MYAiABKAkSDgoGb2Zmc2V0GAMgASgDEg4KBmZvbGxvdxgEIAEoCCKZAQoVQXR0YWNoUHJvY2Vzc1Jlc3BvbnNlEjwKBm91dHB1dBgBIAEoCzIqLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Qcm9jZXNzT3V0cHV0SAASNgoDZW5kGAIgASgLMicudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlByb2Nlc3NFbmRIAEIKCghyZXNwb25zZSJoCg1Qcm9jZXNzT3V0cHV0EjkKBnN0cmVhbRgBIAEoDjIpLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5PdXRwdXRTdHJlYW0SDgoGb2Zmc2V0GAIgASgDEgwKBGRhdGEYAyABKAwibAoKUHJvY2Vzc0VuZBIRCgloZWxkX2Zyb20YASABKAMSEwoLbmV4dF9vZmZzZXQYAiABKAMSNgoEZXhpdBgDIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Qcm9jZXNzRXhpdCL2AgoLUHJvY2Vzc0V4aXQSDAoEY29kZRgBIAEoBRIzCgZzaWduYWwYAiABKA4yIy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuU2lnbmFsEh4KEW1lbW9yeV9wZWFrX2J5dGVzGAMgASgDSACIAQESFwoKb29tX2tpbGxlZBgEIAEoCEgBiAEBEiwKCWNwdV91c2FnZRgFIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIrCghjcHVfd2FpdBgGIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhInCgR3YWxsGAcgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEgwKBGxvc3QYCCABKAgSNAoFYm9vc3QYCSABKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQm9vc3RSdW5CFAoSX21lbW9yeV9wZWFrX2J5dGVzQg0KC19vb21fa2lsbGVkIpsBChRTaWduYWxQcm9jZXNzUmVxdWVzdBI9CgtlbnZpcm9ubWVudBgBIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FbnZpcm9ubWVudBIPCgdwcm9jZXNzGAIgASgJEjMKBnNpZ25hbBgDIAEoDjIjLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5TaWduYWwiFwoVU2lnbmFsUHJvY2Vzc1Jlc3BvbnNlIlUKFExpc3RQcm9jZXNzZXNSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50IlQKFUxpc3RQcm9jZXNzZXNSZXNwb25zZRI7Cglwcm9jZXNzZXMYASADKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUHJvY2Vzc0luZm8i6gEKC1Byb2Nlc3NJbmZvEg8KB3Byb2Nlc3MYASABKAkSDAoEbmFtZRgCIAEoCRIPCgdjb21tYW5kGAMgASgJEi4KCnN0YXJ0X3RpbWUYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB3J1bm5pbmcYBSABKAgSNgoEZXhpdBgGIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Qcm9jZXNzRXhpdBIyCgZyYW5fb24YByABKAsyIi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmFuT24iYwoTSXNzdWVUaWNrZXRSZXNwb25zZRILCgN1cmwYASABKAkSDgoGdGlja2V0GAIgASgJEi8KC2V4cGlyZV90aW1lGAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCrtAQoNUGVuZGluZ1JlYXNvbhIeChpQRU5ESU5HX1JFQVNPTl9VTlNQRUNJRklFRBAAEiAKHFBFTkRJTkdfUkVBU09OX1FVRVVFRF9CVURHRVQQARIhCh1QRU5ESU5HX1JFQVNPTl9CT09TVF9TVEFSVElORxACEh0KGVBFTkRJTkdfUkVBU09OX0JPT1NUX0JVU1kQAxIeChpQRU5ESU5HX1JFQVNPTl9CT09TVF9HT0lORxAEEhoKFlBFTkRJTkdfUkVBU09OX1NZTkNJTkcQBRIcChhQRU5ESU5HX1JFQVNPTl9OT0RFX0ZVTEwQBipUCglSYW5PbktpbmQSGwoXUkFOX09OX0tJTkRfVU5TUEVDSUZJRUQQABITCg9SQU5fT05fS0lORF9CT1gQARIVChFSQU5fT05fS0lORF9CT09TVBACKmEKDE91dHB1dFN0cmVhbRIdChlPVVRQVVRfU1RSRUFNX1VOU1BFQ0lGSUVEEAASGAoUT1VUUFVUX1NUUkVBTV9TVERPVVQQARIYChRPVVRQVVRfU1RSRUFNX1NUREVSUhACKlIKBlNpZ25hbBIWChJTSUdOQUxfVU5TUEVDSUZJRUQQABIPCgtTSUdOQUxfVEVSTRABEg8KC1NJR05BTF9LSUxMEAISDgoKU0lHTkFMX0lOVBADMtMJChJFbnZpcm9ubWVudFNlcnZpY2USXQoERXhlYxIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FeGVjUmVxdWVzdBopLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FeGVjUmVzcG9uc2UwARJpCghSZWFkRmlsZRIsLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5SZWFkRmlsZVJlcXVlc3QaLS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmVhZEZpbGVSZXNwb25zZTABEmoKCVdyaXRlRmlsZRItLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Xcml0ZUZpbGVSZXF1ZXN0Gi4udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLldyaXRlRmlsZVJlc3BvbnNlEmcKCENvcHlGaWxlEiwudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkNvcHlGaWxlUmVxdWVzdBotLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Db3B5RmlsZVJlc3BvbnNlEnAKC0ZldGNoT3JpZ2luEi8udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkZldGNoT3JpZ2luUmVxdWVzdBowLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5GZXRjaE9yaWdpblJlc3BvbnNlElsKBFB1c2gSKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUHVzaFJlcXVlc3QaKS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUHVzaFJlc3BvbnNlEnAKC0lzc3VlVGlja2V0Ei8udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLklzc3VlVGlja2V0UmVxdWVzdBowLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Jc3N1ZVRpY2tldFJlc3BvbnNlEnMKDFN0YXJ0UHJvY2VzcxIwLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5TdGFydFByb2Nlc3NSZXF1ZXN0GjEudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlN0YXJ0UHJvY2Vzc1Jlc3BvbnNlEngKDUF0dGFjaFByb2Nlc3MSMS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXR0YWNoUHJvY2Vzc1JlcXVlc3QaMi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXR0YWNoUHJvY2Vzc1Jlc3BvbnNlMAESdgoNU2lnbmFsUHJvY2VzcxIxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5TaWduYWxQcm9jZXNzUmVxdWVzdBoyLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5TaWduYWxQcm9jZXNzUmVzcG9uc2USdgoNTGlzdFByb2Nlc3NlcxIxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5MaXN0UHJvY2Vzc2VzUmVxdWVzdBoyLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5MaXN0UHJvY2Vzc2VzUmVzcG9uc2VCogIKH2NvbS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTFCF0Vudmlyb25tZW50U2VydmljZVByb3RvUAFaWGdpdGh1Yi5jb20vWXVraW5hTW9jaGl6dWtpL3Rvd2VyL2dlbi9nby90b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTE7ZW52aXJvbm1lbnRzdjFhbHBoYTGiAgNURViqAhtUb3dlci5FbnZpcm9ubWVudHMuVjFhbHBoYTHKAhtUb3dlclxFbnZpcm9ubWVudHNcVjFhbHBoYTHiAidUb3dlclxFbnZpcm9ubWVudHNcVjFhbHBoYTFcR1BCTWV0YWRhdGHqAh1Ub3dlcjo6RW52aXJvbm1lbnRzOjpWMWFscGhhMWIGcHJvdG8z", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_tower_environments_v1alpha1_common]);
+  fileDesc("CjV0b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTEvZW52aXJvbm1lbnRfc2VydmljZS5wcm90bxIbdG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExIkgKC0Vudmlyb25tZW50Eg8KB3Byb2plY3QYASABKAkSDQoDYm94GAIgASgJSAASEQoHbWFjaGluZRgDIAEoCUgAQgYKBGtpbmQiwAIKC0V4ZWNSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EjEKBGFyZ3YYAiABKAsyIS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQXJndkgAEg8KBXNoZWxsGAMgASgJSAASCwoDZGlyGAQgASgJEj4KA2VudhgFIAMoCzIxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FeGVjUmVxdWVzdC5FbnZFbnRyeRIqCgd0aW1lb3V0GAYgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCCQoHY29tbWFuZCIUCgRBcmd2EgwKBGFyZ3MYASADKAkidQoMRXhlY1Jlc3BvbnNlEhAKBnN0ZG91dBgBIAEoDEgAEhAKBnN0ZGVychgCIAEoDEgAEjUKBGV4aXQYAyABKAsyJS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRXhlY0V4aXRIAEIKCghyZXNwb25zZSIrCghFeGVjRXhpdBIMCgRjb2RlGAEgASgFEhEKCXRpbWVkX291dBgCIAEoCCJ9Cg9SZWFkRmlsZVJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSDAoEcGF0aBgCIAEoCRIOCgZvZmZzZXQYAyABKAMSDQoFbGltaXQYBCABKAMiZwoQUmVhZEZpbGVSZXNwb25zZRIOCgRkYXRhGAEgASgMSAASNwoDZW5kGAIgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJlYWRGaWxlRW5kSABCCgoIcmVzcG9uc2UiGgoLUmVhZEZpbGVFbmQSCwoDZW9mGAEgASgIIosBChBXcml0ZUZpbGVSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EgwKBHBhdGgYAiABKAkSDAoEZGF0YRgDIAEoDBIOCgZvZmZzZXQYBCABKAMSDAoEbW9kZRgFIAEoDSITChFXcml0ZUZpbGVSZXNwb25zZSL+AQoPQ29weUZpbGVSZXF1ZXN0EjYKBGZyb20YASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSEQoJZnJvbV9wYXRoGAIgASgJEjQKAnRvGAMgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50Eg8KB3RvX3BhdGgYBCABKAkSFgoOcmVmdXNlX3NlY3JldHMYBSABKAgSEQoJbWF4X2J5dGVzGAYgASgDEhkKEWFsbG93X3N1c3BlY3RfZm9yGAggAygJSgQIBxAIUg1hbGxvd19zdXNwZWN0IhgKFkdldENhcGFiaWxpdGllc1JlcXVlc3QiLwoXR2V0Q2FwYWJpbGl0aWVzUmVzcG9uc2USFAoMY2FwYWJpbGl0aWVzGAEgAygJIn8KC0NvcHlSZWZ1c2FsEj4KBnJlYXNvbhgBIAEoDjIuLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Db3B5UmVmdXNhbFJlYXNvbhIPCgdzZWNyZXRzGAIgAygJEgwKBGZvcm0YAyABKAkSEQoJbWF4X2J5dGVzGAQgASgDIhIKEENvcHlGaWxlUmVzcG9uc2UiUwoSRmV0Y2hPcmlnaW5SZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50IlYKE0ZldGNoT3JpZ2luUmVzcG9uc2USPwoJY2hlY2tvdXRzGAEgAygLMiwudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkZldGNoZWRDaGVja291dCIzCg9GZXRjaGVkQ2hlY2tvdXQSEgoKcmVwb3NpdG9yeRgBIAEoCRIMCgRoZWFkGAIgASgJIn8KC1B1c2hSZXF1ZXN0Ej0KC2Vudmlyb25tZW50GAEgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkVudmlyb25tZW50EhIKCnJlcG9zaXRvcnkYAiABKAkSDgoGYnJhbmNoGAMgASgJEg0KBWxlYXNlGAQgASgJIg4KDFB1c2hSZXNwb25zZSJhChJJc3N1ZVRpY2tldFJlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSDAoEcG9ydBgCIAEoBSKdAwoTU3RhcnRQcm9jZXNzUmVxdWVzdBI9CgtlbnZpcm9ubWVudBgBIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FbnZpcm9ubWVudBIxCgRhcmd2GAIgASgLMiEudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkFyZ3ZIABIPCgVzaGVsbBgDIAEoCUgAEgsKA2RpchgEIAEoCRJGCgNlbnYYBSADKAsyOS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuU3RhcnRQcm9jZXNzUmVxdWVzdC5FbnZFbnRyeRIMCgRuYW1lGAYgASgJEjcKBWJvb3N0GAcgASgLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkJvb3N0SW50ZW50Eg8KB3BlbmRpbmcYCCABKAkSDgoGY2FuY2VsGAkgASgIGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCCQoHY29tbWFuZEoECAoQC1IJYXJ0aWZhY3RzImAKC0Jvb3N0SW50ZW50EgwKAm9uGAEgASgISAASOwoJcmVzb3VyY2VzGAIgASgLMiYudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJlc291cmNlc0gAQgYKBHNpemUizQEKFFN0YXJ0UHJvY2Vzc1Jlc3BvbnNlEg8KB3Byb2Nlc3MYASABKAkSOgoHcGVuZGluZxgCIAEoCzIpLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5QZW5kaW5nU3RhcnQSMgoGcmFuX29uGAMgASgLMiIudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJhbk9uEjQKBWJvb3N0GAQgASgLMiUudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkJvb3N0UnVuItoCCghCb29zdFJ1bhInCgRzeW5jGAEgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEhIKCnN5bmNfYnl0ZXMYAiABKAMSEgoKc3luY19maWxlcxgDIAEoBRIUCgxzeW5jX2RlbGV0ZWQYBCABKAUSEQoJc3luY19mdWxsGAUgASgIEhMKC2Jhc2Vfc2hhcmVkGAYgASgIEh0KFXN1Ym1vZHVsZXNfbm90X3N5bmNlZBgHIAMoCRINCgVlcnJvchgKIAEoCRI7Cg1zeW5jX292ZXJfY2FwGAsgAygLMiQudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLk92ZXJDYXASNAoEYmFjaxgMIAEoCzImLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Xcml0ZUJhY2tKBAgIEAlKBAgJEApSB2NoYW5nZWRSCWFydGlmYWN0cyKuAgoJV3JpdGVCYWNrEicKBHRvb2sYASABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24SDQoFZmlsZXMYAiABKAUSDwoHZGVsZXRlZBgDIAEoBRINCgVieXRlcxgEIAEoAxI1CgVtb3ZlZBgFIAMoCzImLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Nb3ZlZEZpbGUSDQoFdG90YWwYBiABKAUSEQoJY29uZmxpY3RzGAcgAygJEjYKCG92ZXJfY2FwGAggAygLMiQudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLk92ZXJDYXASEgoKaGVhZF9tb3ZlZBgJIAEoCBIVCg1pbmRleF9jaGFuZ2VkGAogASgIEg0KBWVycm9yGAsgASgJIjgKCU1vdmVkRmlsZRIMCgRwYXRoGAEgASgJEg4KBnN0YXR1cxgCIAEoCRINCgVieXRlcxgDIAEoAyImCgdPdmVyQ2FwEgwKBHBhdGgYASABKAkSDQoFYnl0ZXMYAiABKAMisAEKDFBlbmRpbmdTdGFydBIOCgZ0aWNrZXQYASABKAkSOgoGcmVhc29uGAIgASgOMioudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlBlbmRpbmdSZWFzb24SDwoHbWVzc2FnZRgDIAEoCRIQCghwb3NpdGlvbhgEIAEoBRIxCg5lc3RpbWF0ZWRfd2FpdBgFIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbiJ4CgVSYW5PbhI0CgRraW5kGAEgASgOMiYudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJhbk9uS2luZBI5CglyZXNvdXJjZXMYAiABKAsyJi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUmVzb3VyY2VzIoYBChRBdHRhY2hQcm9jZXNzUmVxdWVzdBI9CgtlbnZpcm9ubWVudBgBIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FbnZpcm9ubWVudBIPCgdwcm9jZXNzGAIgASgJEg4KBm9mZnNldBgDIAEoAxIOCgZmb2xsb3cYBCABKAgimQEKFUF0dGFjaFByb2Nlc3NSZXNwb25zZRI8CgZvdXRwdXQYASABKAsyKi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUHJvY2Vzc091dHB1dEgAEjYKA2VuZBgCIAEoCzInLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5Qcm9jZXNzRW5kSABCCgoIcmVzcG9uc2UiaAoNUHJvY2Vzc091dHB1dBI5CgZzdHJlYW0YASABKA4yKS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuT3V0cHV0U3RyZWFtEg4KBm9mZnNldBgCIAEoAxIMCgRkYXRhGAMgASgMImwKClByb2Nlc3NFbmQSEQoJaGVsZF9mcm9tGAEgASgDEhMKC25leHRfb2Zmc2V0GAIgASgDEjYKBGV4aXQYAyABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUHJvY2Vzc0V4aXQi9gIKC1Byb2Nlc3NFeGl0EgwKBGNvZGUYASABKAUSMwoGc2lnbmFsGAIgASgOMiMudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlNpZ25hbBIeChFtZW1vcnlfcGVha19ieXRlcxgDIAEoA0gAiAEBEhcKCm9vbV9raWxsZWQYBCABKAhIAYgBARIsCgljcHVfdXNhZ2UYBSABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24SKwoIY3B1X3dhaXQYBiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24SJwoEd2FsbBgHIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIMCgRsb3N0GAggASgIEjQKBWJvb3N0GAkgASgLMiUudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkJvb3N0UnVuQhQKEl9tZW1vcnlfcGVha19ieXRlc0INCgtfb29tX2tpbGxlZCKbAQoUU2lnbmFsUHJvY2Vzc1JlcXVlc3QSPQoLZW52aXJvbm1lbnQYASABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRW52aXJvbm1lbnQSDwoHcHJvY2VzcxgCIAEoCRIzCgZzaWduYWwYAyABKA4yIy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuU2lnbmFsIhcKFVNpZ25hbFByb2Nlc3NSZXNwb25zZSJVChRMaXN0UHJvY2Vzc2VzUmVxdWVzdBI9CgtlbnZpcm9ubWVudBgBIAEoCzIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5FbnZpcm9ubWVudCJUChVMaXN0UHJvY2Vzc2VzUmVzcG9uc2USOwoJcHJvY2Vzc2VzGAEgAygLMigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlByb2Nlc3NJbmZvIuoBCgtQcm9jZXNzSW5mbxIPCgdwcm9jZXNzGAEgASgJEgwKBG5hbWUYAiABKAkSDwoHY29tbWFuZBgDIAEoCRIuCgpzdGFydF90aW1lGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIPCgdydW5uaW5nGAUgASgIEjYKBGV4aXQYBiABKAsyKC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuUHJvY2Vzc0V4aXQSMgoGcmFuX29uGAcgASgLMiIudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJhbk9uImMKE0lzc3VlVGlja2V0UmVzcG9uc2USCwoDdXJsGAEgASgJEg4KBnRpY2tldBgCIAEoCRIvCgtleHBpcmVfdGltZRgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAqxwEKEUNvcHlSZWZ1c2FsUmVhc29uEiMKH0NPUFlfUkVGVVNBTF9SRUFTT05fVU5TUEVDSUZJRUQQABIkCiBDT1BZX1JFRlVTQUxfUkVBU09OX1NFQ1JFVF9GT1VORBABEiEKHUNPUFlfUkVGVVNBTF9SRUFTT05fVE9PX0xBUkdFEAISIwofQ09QWV9SRUZVU0FMX1JFQVNPTl9VTlNDQU5OQUJMRRADEh8KG0NPUFlfUkVGVVNBTF9SRUFTT05fU1VTUEVDVBAEKu0BCg1QZW5kaW5nUmVhc29uEh4KGlBFTkRJTkdfUkVBU09OX1VOU1BFQ0lGSUVEEAASIAocUEVORElOR19SRUFTT05fUVVFVUVEX0JVREdFVBABEiEKHVBFTkRJTkdfUkVBU09OX0JPT1NUX1NUQVJUSU5HEAISHQoZUEVORElOR19SRUFTT05fQk9PU1RfQlVTWRADEh4KGlBFTkRJTkdfUkVBU09OX0JPT1NUX0dPSU5HEAQSGgoWUEVORElOR19SRUFTT05fU1lOQ0lORxAFEhwKGFBFTkRJTkdfUkVBU09OX05PREVfRlVMTBAGKlQKCVJhbk9uS2luZBIbChdSQU5fT05fS0lORF9VTlNQRUNJRklFRBAAEhMKD1JBTl9PTl9LSU5EX0JPWBABEhUKEVJBTl9PTl9LSU5EX0JPT1NUEAIqYQoMT3V0cHV0U3RyZWFtEh0KGU9VVFBVVF9TVFJFQU1fVU5TUEVDSUZJRUQQABIYChRPVVRQVVRfU1RSRUFNX1NURE9VVBABEhgKFE9VVFBVVF9TVFJFQU1fU1RERVJSEAIqUgoGU2lnbmFsEhYKElNJR05BTF9VTlNQRUNJRklFRBAAEg8KC1NJR05BTF9URVJNEAESDwoLU0lHTkFMX0tJTEwQAhIOCgpTSUdOQUxfSU5UEAMy0QoKEkVudmlyb25tZW50U2VydmljZRJdCgRFeGVjEigudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkV4ZWNSZXF1ZXN0GikudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkV4ZWNSZXNwb25zZTABEmkKCFJlYWRGaWxlEiwudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlJlYWRGaWxlUmVxdWVzdBotLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5SZWFkRmlsZVJlc3BvbnNlMAESagoJV3JpdGVGaWxlEi0udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLldyaXRlRmlsZVJlcXVlc3QaLi50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuV3JpdGVGaWxlUmVzcG9uc2USZwoIQ29weUZpbGUSLC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuQ29weUZpbGVSZXF1ZXN0Gi0udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkNvcHlGaWxlUmVzcG9uc2USfAoPR2V0Q2FwYWJpbGl0aWVzEjMudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkdldENhcGFiaWxpdGllc1JlcXVlc3QaNC50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuR2V0Q2FwYWJpbGl0aWVzUmVzcG9uc2UScAoLRmV0Y2hPcmlnaW4SLy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuRmV0Y2hPcmlnaW5SZXF1ZXN0GjAudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkZldGNoT3JpZ2luUmVzcG9uc2USWwoEUHVzaBIoLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5QdXNoUmVxdWVzdBopLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5QdXNoUmVzcG9uc2UScAoLSXNzdWVUaWNrZXQSLy50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuSXNzdWVUaWNrZXRSZXF1ZXN0GjAudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLklzc3VlVGlja2V0UmVzcG9uc2UScwoMU3RhcnRQcm9jZXNzEjAudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlN0YXJ0UHJvY2Vzc1JlcXVlc3QaMS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEuU3RhcnRQcm9jZXNzUmVzcG9uc2USeAoNQXR0YWNoUHJvY2VzcxIxLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5BdHRhY2hQcm9jZXNzUmVxdWVzdBoyLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMS5BdHRhY2hQcm9jZXNzUmVzcG9uc2UwARJ2Cg1TaWduYWxQcm9jZXNzEjEudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlNpZ25hbFByb2Nlc3NSZXF1ZXN0GjIudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLlNpZ25hbFByb2Nlc3NSZXNwb25zZRJ2Cg1MaXN0UHJvY2Vzc2VzEjEudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkxpc3RQcm9jZXNzZXNSZXF1ZXN0GjIudG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExLkxpc3RQcm9jZXNzZXNSZXNwb25zZUKiAgofY29tLnRvd2VyLmVudmlyb25tZW50cy52MWFscGhhMUIXRW52aXJvbm1lbnRTZXJ2aWNlUHJvdG9QAVpYZ2l0aHViLmNvbS9ZdWtpbmFNb2NoaXp1a2kvdG93ZXIvZ2VuL2dvL3Rvd2VyL2Vudmlyb25tZW50cy92MWFscGhhMTtlbnZpcm9ubWVudHN2MWFscGhhMaICA1RFWKoCG1Rvd2VyLkVudmlyb25tZW50cy5WMWFscGhhMcoCG1Rvd2VyXEVudmlyb25tZW50c1xWMWFscGhhMeICJ1Rvd2VyXEVudmlyb25tZW50c1xWMWFscGhhMVxHUEJNZXRhZGF0YeoCHVRvd2VyOjpFbnZpcm9ubWVudHM6OlYxYWxwaGExYgZwcm90bzM", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_tower_environments_v1alpha1_common]);
 
 /**
  * Environment names a box or a machine.
@@ -363,6 +363,40 @@ export type CopyFileRequest = Message<"tower.environments.v1alpha1.CopyFileReque
    * @generated from field: string to_path = 4;
    */
   toPath: string;
+
+  /**
+   * Refuse the copy if what it copies holds a secret tower gave the source:
+   * a privileged box's secret values and secret files, a machine's
+   * blueprint secrets, each as every value it held since the source was
+   * made. Their encodings are looked for too. A source with a secret too
+   * short to look for, or one a value of which is no longer kept, is
+   * refused unread.
+   *
+   * @generated from field: bool refuse_secrets = 5;
+   */
+  refuseSecrets: boolean;
+
+  /**
+   * Refuse the copy once it has streamed more than this many bytes of a
+   * tar of from_path: each file's contents rounded up to 512 bytes, a
+   * 512-byte header for each entry (more for a long name), and the whole
+   * padded to 10240-byte records, so 10 KiB for a small file. 0 is no
+   * limit.
+   *
+   * @generated from field: int64 max_bytes = 6;
+   */
+  maxBytes: bigint;
+
+  /**
+   * With refuse_secrets, the secrets, named as CopyRefusal.secrets names
+   * them, whose pieces this copy may hold: what a SUSPECT refusal named
+   * and a human then looked at. A piece of any other secret is still
+   * SUSPECT, and any secret found whole still SECRET_FOUND. Without
+   * refuse_secrets it does nothing.
+   *
+   * @generated from field: repeated string allow_suspect_for = 8;
+   */
+  allowSuspectFor: string[];
 };
 
 /**
@@ -371,6 +405,86 @@ export type CopyFileRequest = Message<"tower.environments.v1alpha1.CopyFileReque
  */
 export const CopyFileRequestSchema: GenMessage<CopyFileRequest> = /*@__PURE__*/
   messageDesc(file_tower_environments_v1alpha1_environment_service, 10);
+
+/**
+ * @generated from message tower.environments.v1alpha1.GetCapabilitiesRequest
+ */
+export type GetCapabilitiesRequest = Message<"tower.environments.v1alpha1.GetCapabilitiesRequest"> & {
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.GetCapabilitiesRequest.
+ * Use `create(GetCapabilitiesRequestSchema)` to create a new message.
+ */
+export const GetCapabilitiesRequestSchema: GenMessage<GetCapabilitiesRequest> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 11);
+
+/**
+ * @generated from message tower.environments.v1alpha1.GetCapabilitiesResponse
+ */
+export type GetCapabilitiesResponse = Message<"tower.environments.v1alpha1.GetCapabilitiesResponse"> & {
+  /**
+   * Each a name and a version, as "copy.refuse_secrets.v1": CopyFile's
+   * refuse_secrets, max_bytes and allow_suspect, and its CopyRefusal.
+   *
+   * @generated from field: repeated string capabilities = 1;
+   */
+  capabilities: string[];
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.GetCapabilitiesResponse.
+ * Use `create(GetCapabilitiesResponseSchema)` to create a new message.
+ */
+export const GetCapabilitiesResponseSchema: GenMessage<GetCapabilitiesResponse> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 12);
+
+/**
+ * CopyRefusal is the detail of a CopyFile refused for refuse_secrets or
+ * max_bytes. The message starts "copy refused: " and the reason's name
+ * without its prefix, as "copy refused: SECRET_FOUND: ". Nothing is left
+ * at to_path, nor of the partial copy.
+ *
+ * @generated from message tower.environments.v1alpha1.CopyRefusal
+ */
+export type CopyRefusal = Message<"tower.environments.v1alpha1.CopyRefusal"> & {
+  /**
+   * @generated from field: tower.environments.v1alpha1.CopyRefusalReason reason = 1;
+   */
+  reason: CopyRefusalReason;
+
+  /**
+   * The secrets it is refused for, each by its environment variable as
+   * "$NAME" or by its file's path in the source, never by its value: the
+   * one found (SECRET_FOUND, SUSPECT), or every one too short to look for
+   * (UNSCANNABLE).
+   *
+   * @generated from field: repeated string secrets = 2;
+   */
+  secrets: string[];
+
+  /**
+   * How what was found was written: "raw", "hex", "base64",
+   * "base64url", "url" or "json".
+   *
+   * @generated from field: string form = 3;
+   */
+  form: string;
+
+  /**
+   * The max_bytes passed.
+   *
+   * @generated from field: int64 max_bytes = 4;
+   */
+  maxBytes: bigint;
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.CopyRefusal.
+ * Use `create(CopyRefusalSchema)` to create a new message.
+ */
+export const CopyRefusalSchema: GenMessage<CopyRefusal> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 13);
 
 /**
  * @generated from message tower.environments.v1alpha1.CopyFileResponse
@@ -383,7 +497,7 @@ export type CopyFileResponse = Message<"tower.environments.v1alpha1.CopyFileResp
  * Use `create(CopyFileResponseSchema)` to create a new message.
  */
 export const CopyFileResponseSchema: GenMessage<CopyFileResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 11);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 14);
 
 /**
  * @generated from message tower.environments.v1alpha1.FetchOriginRequest
@@ -402,7 +516,7 @@ export type FetchOriginRequest = Message<"tower.environments.v1alpha1.FetchOrigi
  * Use `create(FetchOriginRequestSchema)` to create a new message.
  */
 export const FetchOriginRequestSchema: GenMessage<FetchOriginRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 12);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 15);
 
 /**
  * @generated from message tower.environments.v1alpha1.FetchOriginResponse
@@ -419,7 +533,7 @@ export type FetchOriginResponse = Message<"tower.environments.v1alpha1.FetchOrig
  * Use `create(FetchOriginResponseSchema)` to create a new message.
  */
 export const FetchOriginResponseSchema: GenMessage<FetchOriginResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 13);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 16);
 
 /**
  * FetchedCheckout is where one checkout's origin now is.
@@ -445,7 +559,7 @@ export type FetchedCheckout = Message<"tower.environments.v1alpha1.FetchedChecko
  * Use `create(FetchedCheckoutSchema)` to create a new message.
  */
 export const FetchedCheckoutSchema: GenMessage<FetchedCheckout> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 14);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 17);
 
 /**
  * @generated from message tower.environments.v1alpha1.PushRequest
@@ -485,7 +599,7 @@ export type PushRequest = Message<"tower.environments.v1alpha1.PushRequest"> & {
  * Use `create(PushRequestSchema)` to create a new message.
  */
 export const PushRequestSchema: GenMessage<PushRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 15);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 18);
 
 /**
  * @generated from message tower.environments.v1alpha1.PushResponse
@@ -498,7 +612,7 @@ export type PushResponse = Message<"tower.environments.v1alpha1.PushResponse"> &
  * Use `create(PushResponseSchema)` to create a new message.
  */
 export const PushResponseSchema: GenMessage<PushResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 16);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 19);
 
 /**
  * @generated from message tower.environments.v1alpha1.IssueTicketRequest
@@ -520,7 +634,7 @@ export type IssueTicketRequest = Message<"tower.environments.v1alpha1.IssueTicke
  * Use `create(IssueTicketRequestSchema)` to create a new message.
  */
 export const IssueTicketRequestSchema: GenMessage<IssueTicketRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 17);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 20);
 
 /**
  * @generated from message tower.environments.v1alpha1.StartProcessRequest
@@ -614,7 +728,7 @@ export type StartProcessRequest = Message<"tower.environments.v1alpha1.StartProc
  * Use `create(StartProcessRequestSchema)` to create a new message.
  */
 export const StartProcessRequestSchema: GenMessage<StartProcessRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 18);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 21);
 
 /**
  * BoostIntent is the boost a process asks for.
@@ -651,7 +765,7 @@ export type BoostIntent = Message<"tower.environments.v1alpha1.BoostIntent"> & {
  * Use `create(BoostIntentSchema)` to create a new message.
  */
 export const BoostIntentSchema: GenMessage<BoostIntent> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 19);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 22);
 
 /**
  * @generated from message tower.environments.v1alpha1.StartProcessResponse
@@ -693,7 +807,7 @@ export type StartProcessResponse = Message<"tower.environments.v1alpha1.StartPro
  * Use `create(StartProcessResponseSchema)` to create a new message.
  */
 export const StartProcessResponseSchema: GenMessage<StartProcessResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 20);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 23);
 
 /**
  * BoostRun is what a boosted process's run did beside the process: the
@@ -781,7 +895,7 @@ export type BoostRun = Message<"tower.environments.v1alpha1.BoostRun"> & {
  * Use `create(BoostRunSchema)` to create a new message.
  */
 export const BoostRunSchema: GenMessage<BoostRun> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 21);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 24);
 
 /**
  * WriteBack is what a boosted process changed in /workspace on its boost,
@@ -874,7 +988,7 @@ export type WriteBack = Message<"tower.environments.v1alpha1.WriteBack"> & {
  * Use `create(WriteBackSchema)` to create a new message.
  */
 export const WriteBackSchema: GenMessage<WriteBack> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 22);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 25);
 
 /**
  * MovedFile is a path written back: A added, M changed, D deleted.
@@ -903,7 +1017,7 @@ export type MovedFile = Message<"tower.environments.v1alpha1.MovedFile"> & {
  * Use `create(MovedFileSchema)` to create a new message.
  */
 export const MovedFileSchema: GenMessage<MovedFile> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 23);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 26);
 
 /**
  * OverCap is a file past a move's cap, not moved.
@@ -927,7 +1041,7 @@ export type OverCap = Message<"tower.environments.v1alpha1.OverCap"> & {
  * Use `create(OverCapSchema)` to create a new message.
  */
 export const OverCapSchema: GenMessage<OverCap> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 24);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 27);
 
 /**
  * PendingStart is a boosted start that has not started yet, as tower
@@ -974,7 +1088,7 @@ export type PendingStart = Message<"tower.environments.v1alpha1.PendingStart"> &
  * Use `create(PendingStartSchema)` to create a new message.
  */
 export const PendingStartSchema: GenMessage<PendingStart> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 25);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 28);
 
 /**
  * RanOn is where a process runs or ran.
@@ -1000,7 +1114,7 @@ export type RanOn = Message<"tower.environments.v1alpha1.RanOn"> & {
  * Use `create(RanOnSchema)` to create a new message.
  */
 export const RanOnSchema: GenMessage<RanOn> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 26);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 29);
 
 /**
  * @generated from message tower.environments.v1alpha1.AttachProcessRequest
@@ -1040,7 +1154,7 @@ export type AttachProcessRequest = Message<"tower.environments.v1alpha1.AttachPr
  * Use `create(AttachProcessRequestSchema)` to create a new message.
  */
 export const AttachProcessRequestSchema: GenMessage<AttachProcessRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 27);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 30);
 
 /**
  * @generated from message tower.environments.v1alpha1.AttachProcessResponse
@@ -1071,7 +1185,7 @@ export type AttachProcessResponse = Message<"tower.environments.v1alpha1.AttachP
  * Use `create(AttachProcessResponseSchema)` to create a new message.
  */
 export const AttachProcessResponseSchema: GenMessage<AttachProcessResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 28);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 31);
 
 /**
  * ProcessOutput is a chunk of a process's output.
@@ -1103,7 +1217,7 @@ export type ProcessOutput = Message<"tower.environments.v1alpha1.ProcessOutput">
  * Use `create(ProcessOutputSchema)` to create a new message.
  */
 export const ProcessOutputSchema: GenMessage<ProcessOutput> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 29);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 32);
 
 /**
  * ProcessEnd is how an attach ended.
@@ -1140,7 +1254,7 @@ export type ProcessEnd = Message<"tower.environments.v1alpha1.ProcessEnd"> & {
  * Use `create(ProcessEndSchema)` to create a new message.
  */
 export const ProcessEndSchema: GenMessage<ProcessEnd> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 30);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 33);
 
 /**
  * ProcessExit is how a process ended, and what it used, its children
@@ -1229,7 +1343,7 @@ export type ProcessExit = Message<"tower.environments.v1alpha1.ProcessExit"> & {
  * Use `create(ProcessExitSchema)` to create a new message.
  */
 export const ProcessExitSchema: GenMessage<ProcessExit> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 31);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 34);
 
 /**
  * @generated from message tower.environments.v1alpha1.SignalProcessRequest
@@ -1258,7 +1372,7 @@ export type SignalProcessRequest = Message<"tower.environments.v1alpha1.SignalPr
  * Use `create(SignalProcessRequestSchema)` to create a new message.
  */
 export const SignalProcessRequestSchema: GenMessage<SignalProcessRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 32);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 35);
 
 /**
  * @generated from message tower.environments.v1alpha1.SignalProcessResponse
@@ -1271,7 +1385,7 @@ export type SignalProcessResponse = Message<"tower.environments.v1alpha1.SignalP
  * Use `create(SignalProcessResponseSchema)` to create a new message.
  */
 export const SignalProcessResponseSchema: GenMessage<SignalProcessResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 33);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 36);
 
 /**
  * @generated from message tower.environments.v1alpha1.ListProcessesRequest
@@ -1290,7 +1404,7 @@ export type ListProcessesRequest = Message<"tower.environments.v1alpha1.ListProc
  * Use `create(ListProcessesRequestSchema)` to create a new message.
  */
 export const ListProcessesRequestSchema: GenMessage<ListProcessesRequest> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 34);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 37);
 
 /**
  * @generated from message tower.environments.v1alpha1.ListProcessesResponse
@@ -1311,7 +1425,7 @@ export type ListProcessesResponse = Message<"tower.environments.v1alpha1.ListPro
  * Use `create(ListProcessesResponseSchema)` to create a new message.
  */
 export const ListProcessesResponseSchema: GenMessage<ListProcessesResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 35);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 38);
 
 /**
  * ProcessInfo is one process of a box or a machine.
@@ -1368,7 +1482,7 @@ export type ProcessInfo = Message<"tower.environments.v1alpha1.ProcessInfo"> & {
  * Use `create(ProcessInfoSchema)` to create a new message.
  */
 export const ProcessInfoSchema: GenMessage<ProcessInfo> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 36);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 39);
 
 /**
  * @generated from message tower.environments.v1alpha1.IssueTicketResponse
@@ -1399,7 +1513,58 @@ export type IssueTicketResponse = Message<"tower.environments.v1alpha1.IssueTick
  * Use `create(IssueTicketResponseSchema)` to create a new message.
  */
 export const IssueTicketResponseSchema: GenMessage<IssueTicketResponse> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_environment_service, 37);
+  messageDesc(file_tower_environments_v1alpha1_environment_service, 40);
+
+/**
+ * @generated from enum tower.environments.v1alpha1.CopyRefusalReason
+ */
+export enum CopyRefusalReason {
+  /**
+   * @generated from enum value: COPY_REFUSAL_REASON_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * What was copied holds a secret the source was given: its value whole
+   * or trimmed, or a PEM key's body.
+   *
+   * @generated from enum value: COPY_REFUSAL_REASON_SECRET_FOUND = 1;
+   */
+  SECRET_FOUND = 1,
+
+  /**
+   * What was copied passed max_bytes.
+   *
+   * @generated from enum value: COPY_REFUSAL_REASON_TOO_LARGE = 2;
+   */
+  TOO_LARGE = 2,
+
+  /**
+   * A copy out of the source cannot be cleared. With secrets named, the
+   * source has a secret shorter than 8 bytes, one tower cannot open, or
+   * one replaced longer ago than tower keeps, and nothing was read. With
+   * none, what the source sent was not a plain tar of from_path.
+   *
+   * @generated from enum value: COPY_REFUSAL_REASON_UNSCANNABLE = 3;
+   */
+  UNSCANNABLE = 3,
+
+  /**
+   * What was copied holds no secret whole, but a credential-shaped piece
+   * of one, a line or a field of a multi-part value (a kubeconfig's
+   * token, a key's line, a .netrc's password): a human should judge it.
+   * A secret found whole decides over it.
+   *
+   * @generated from enum value: COPY_REFUSAL_REASON_SUSPECT = 4;
+   */
+  SUSPECT = 4,
+}
+
+/**
+ * Describes the enum tower.environments.v1alpha1.CopyRefusalReason.
+ */
+export const CopyRefusalReasonSchema: GenEnum<CopyRefusalReason> = /*@__PURE__*/
+  enumDesc(file_tower_environments_v1alpha1_environment_service, 0);
 
 /**
  * PendingReason is why a start is pending.
@@ -1475,7 +1640,7 @@ export enum PendingReason {
  * Describes the enum tower.environments.v1alpha1.PendingReason.
  */
 export const PendingReasonSchema: GenEnum<PendingReason> = /*@__PURE__*/
-  enumDesc(file_tower_environments_v1alpha1_environment_service, 0);
+  enumDesc(file_tower_environments_v1alpha1_environment_service, 1);
 
 /**
  * @generated from enum tower.environments.v1alpha1.RanOnKind
@@ -1501,7 +1666,7 @@ export enum RanOnKind {
  * Describes the enum tower.environments.v1alpha1.RanOnKind.
  */
 export const RanOnKindSchema: GenEnum<RanOnKind> = /*@__PURE__*/
-  enumDesc(file_tower_environments_v1alpha1_environment_service, 1);
+  enumDesc(file_tower_environments_v1alpha1_environment_service, 2);
 
 /**
  * OutputStream is which of a process's outputs a chunk was written to.
@@ -1529,7 +1694,7 @@ export enum OutputStream {
  * Describes the enum tower.environments.v1alpha1.OutputStream.
  */
 export const OutputStreamSchema: GenEnum<OutputStream> = /*@__PURE__*/
-  enumDesc(file_tower_environments_v1alpha1_environment_service, 2);
+  enumDesc(file_tower_environments_v1alpha1_environment_service, 3);
 
 /**
  * Signal is a signal a process's group can be sent.
@@ -1562,7 +1727,7 @@ export enum Signal {
  * Describes the enum tower.environments.v1alpha1.Signal.
  */
 export const SignalSchema: GenEnum<Signal> = /*@__PURE__*/
-  enumDesc(file_tower_environments_v1alpha1_environment_service, 3);
+  enumDesc(file_tower_environments_v1alpha1_environment_service, 4);
 
 /**
  * EnvironmentService is what workstream does in a box or a machine: run a
@@ -1620,7 +1785,10 @@ export const EnvironmentService: GenService<{
   },
   /**
    * CopyFile copies a file or a directory from one environment to another
-   * of the same workstream. The bytes never leave the target.
+   * of the same workstream. The bytes never leave the target, unless
+   * refuse_secrets or max_bytes is set: tower then streams them through
+   * itself, and refuses a copy that fails either with FAILED_PRECONDITION
+   * carrying a CopyRefusal detail (docs/decisions/copy-out-scan.md).
    *
    * @generated from rpc tower.environments.v1alpha1.EnvironmentService.CopyFile
    */
@@ -1628,6 +1796,19 @@ export const EnvironmentService: GenService<{
     methodKind: "unary";
     input: typeof CopyFileRequestSchema;
     output: typeof CopyFileResponseSchema;
+  },
+  /**
+   * GetCapabilities names what this tower does that an older one did not
+   * and that a caller cannot otherwise tell: a field an older tower would
+   * drop unread. A tower without it answers UNIMPLEMENTED, which is to
+   * have none.
+   *
+   * @generated from rpc tower.environments.v1alpha1.EnvironmentService.GetCapabilities
+   */
+  getCapabilities: {
+    methodKind: "unary";
+    input: typeof GetCapabilitiesRequestSchema;
+    output: typeof GetCapabilitiesResponseSchema;
   },
   /**
    * FetchOrigin fetches the repositories of a box's checkouts into the

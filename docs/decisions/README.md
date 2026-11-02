@@ -20,6 +20,7 @@ the change.
 | `machine-blueprints.md` | A machine's golden is its playbook but the tasks tagged configure, which each machine runs; every VM has the hostname `machine` |
 | `repositories.md` | tower mirrors repositories with its own credentials and pushes branches after workstream's approval; pull requests stay workstream's |
 | `secrets.md` | Every product secret is tower's, sealed at rest; a secret reaches only the environment that uses it; privileged boxes run through tower |
+| `copy-out-scan.md` | A copy asked to refuse secrets or bound its size streams through tower, scanned for the source's secret values in their common encodings, and lands only once all of it passed |
 | `authentication.md` | Service tokens with one fixed role each (admin, workstream, hostd); root on the host through a unix socket; tailnet only |
 | `deployment.md` | tower and the registry run on a dedicated machine on the tailnet |
 | `process-usage.md` | Each process in a box on a hangar target runs in a cgroup of its own under `/tower`, which holds them together below the box's memory, so an OOM kills one of them whole; tower keeps the last runs of each command under a hashed exact key and an advisory coarse key, never its text |

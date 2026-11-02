@@ -122,6 +122,8 @@ type Fake struct {
 	listErrs     map[string]error
 	checkouts    map[provider.Instance]int
 	failCommands []string
+	writeErr     error
+	writeHold    *writeHold
 	diskTotal    uint64
 	diskFree     *uint64
 	captureSize  func(provider.Instance) uint64
@@ -169,6 +171,143 @@ func (in *instance) resolve(p string) string {
 		return t
 	}
 	return p
+}
+
+// tarRecord is what real tar pads an archive to.
+const tarRecord = 10240
+
+// withoutRunuser is cmd without a runuser -u user -- before it.
+func withoutRunuser(cmd []string) []string {
+	if len(cmd) > 4 && cmd[0] == "runuser" && cmd[1] == "-u" && cmd[3] == "--" {
+		return cmd[4:]
+	}
+	return cmd
+}
+
+// fileCommand runs a command on the instance's files, as tower runs them
+// for a copy it streams: tar -cf - -C dir -- base, which writes what
+// stdout gets; rm -rf; and a shell line unpacking the tar $1 and putting
+// its $3 at $2, replacing a link there. ok is false for any other
+// command; one FailCommands names exits 1.
+func (in *instance) fileCommand(cmd []string, failing []string) (code int, stdout, stderr []byte, ok bool) {
+	cmd = withoutRunuser(cmd)
+	switch {
+	case len(cmd) == 7 && cmd[0] == "tar" && cmd[1] == "-cf" && cmd[2] == "-" && cmd[3] == "-C" && cmd[5] == "--":
+		if slices.Contains(failing, "tar") {
+			return 1, nil, nil, true
+		}
+		b, found := in.tarOf(path.Join(cmd[4], cmd[6]), cmd[6])
+		if !found {
+			return 2, nil, []byte("tar: " + cmd[6] + ": Cannot stat: No such file or directory\n"), true
+		}
+		return 0, b, nil, true
+	case len(cmd) > 3 && cmd[0] == "rm" && cmd[1] == "-rf" && cmd[2] == "--":
+		for _, p := range cmd[3:] {
+			in.remove(path.Clean(p))
+		}
+		return 0, nil, nil, true
+	case len(cmd) == 7 && cmd[0] == "sh" && cmd[1] == "-c" && strings.Contains(cmd[2], "tar -xf"):
+		if slices.Contains(failing, "sh") {
+			return 1, nil, nil, true
+		}
+		part, to, base := path.Clean(cmd[4]), path.Clean(cmd[5]), cmd[6]
+		b, there := in.files[part]
+		if !there || in.untar(b, to, base) != nil {
+			return 2, nil, []byte("tar: not a tar\n"), true
+		}
+		delete(in.files, part)
+		return 0, nil, nil, true
+	}
+	return 0, nil, nil, false
+}
+
+// remove removes p and all under it, files and links.
+func (in *instance) remove(p string) {
+	for name := range in.files {
+		if _, ok := under(name, p); ok {
+			delete(in.files, name)
+		}
+	}
+	for name := range in.links {
+		if _, ok := under(name, p); ok {
+			delete(in.links, name)
+		}
+	}
+}
+
+// tarOf is a tar of root, named from base, as real tar writes one: a
+// link as a link, the whole padded to whole records.
+func (in *instance) tarOf(root, base string) ([]byte, bool) {
+	type entry struct {
+		data []byte
+		link string
+	}
+	entries := map[string]entry{}
+	for name, b := range in.files {
+		if rel, ok := under(name, root); ok {
+			entries[path.Join(base, rel)] = entry{data: b}
+		}
+	}
+	for name, target := range in.links {
+		if rel, ok := under(name, root); ok {
+			entries[path.Join(base, rel)] = entry{link: target}
+		}
+	}
+	if len(entries) == 0 {
+		return nil, false
+	}
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, name := range slices.Sorted(maps.Keys(entries)) {
+		e := entries[name]
+		if e.link != "" {
+			_ = tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeSymlink, Linkname: e.link, Mode: 0o777})
+			continue
+		}
+		_ = tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(e.data)), Typeflag: tar.TypeReg})
+		_, _ = tw.Write(e.data)
+	}
+	_ = tw.Close()
+	if pad := buf.Len() % tarRecord; pad != 0 {
+		buf.Write(make([]byte, tarRecord-pad))
+	}
+	return buf.Bytes(), true
+}
+
+// untar puts the entries of the tar b named from base at to: a link at
+// to replaced, never followed.
+func (in *instance) untar(b []byte, to, base string) error {
+	tr := tar.NewReader(bytes.NewReader(b))
+	delete(in.links, to)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		rel, ok := under(path.Clean(hdr.Name), base)
+		if !ok {
+			continue
+		}
+		at := path.Join(to, rel)
+		switch hdr.Typeflag {
+		case tar.TypeSymlink:
+			if in.links == nil {
+				in.links = map[string]string{}
+			}
+			delete(in.files, at)
+			in.links[at] = hdr.Linkname
+		case tar.TypeReg:
+			data, err := io.ReadAll(tr)
+			if err != nil {
+				return err
+			}
+			delete(in.links, at)
+			in.files[at] = data
+		}
+	}
 }
 
 // linkCommand reads a command that links a path to a file, as tower
@@ -602,6 +741,31 @@ func (f *Fake) Checkouts(in provider.Instance) int {
 	return f.checkouts[in]
 }
 
+// FailWriteFiles makes every WriteFile fail with err; nil undoes it.
+func (f *Fake) FailWriteFiles(err error) { f.mu.Lock(); f.writeErr = err; f.mu.Unlock() }
+
+// writeHold holds each WriteFile, telling held, until release closes or
+// its call ends.
+type writeHold struct {
+	held    chan struct{}
+	release chan struct{}
+}
+
+// HoldWriteFiles holds every WriteFile until release is called or its
+// call ends; held hears each that is held.
+func (f *Fake) HoldWriteFiles() (held <-chan struct{}, release func()) {
+	h := &writeHold{held: make(chan struct{}, 16), release: make(chan struct{})}
+	f.mu.Lock()
+	f.writeHold = h
+	f.mu.Unlock()
+	return h.held, func() {
+		f.mu.Lock()
+		f.writeHold = nil
+		f.mu.Unlock()
+		close(h.release)
+	}
+}
+
 // FailCommands makes every command whose program is one of names exit 1.
 func (f *Fake) FailCommands(names ...string) { f.mu.Lock(); f.failCommands = names; f.mu.Unlock() }
 
@@ -804,6 +968,26 @@ func (f *Fake) Exec(ctx context.Context, req provider.ExecRequest) (int, error) 
 		f.mu.Unlock()
 		return 0, nil
 	}
+	if ctx.Err() != nil && slices.Contains([]string{"tar", "rm", "sh", "find"}, withoutRunuser(req.Command)[0]) {
+		// A command on files a call that ended asks for never runs, as on
+		// a real target.
+		f.mu.Unlock()
+		return 0, ctx.Err()
+	}
+	if code, stdout, stderr, ok := local.fileCommand(req.Command, f.failCommands); ok {
+		f.execs[i].ExitCode = code
+		f.mu.Unlock()
+		// Written without f.mu: a writer may call back into the fake.
+		if req.Stdout != nil && len(stdout) > 0 {
+			if _, err := req.Stdout.Write(stdout); err != nil {
+				return 0, err
+			}
+		}
+		if req.Stderr != nil && len(stderr) > 0 {
+			_, _ = req.Stderr.Write(stderr)
+		}
+		return code, nil
+	}
 	cmd := command{files: maps.Clone(local.files), failing: slices.Clone(f.failCommands), onExec: f.onExec}
 	for at, target := range local.links {
 		if b, ok := local.files[target]; ok {
@@ -918,7 +1102,21 @@ func (f *Fake) ReadFile(_ context.Context, in provider.Instance, p string, w io.
 	return err
 }
 
-func (f *Fake) WriteFile(_ context.Context, in provider.Instance, p string, mode fs.FileMode, offset int64, r io.Reader) error {
+func (f *Fake) WriteFile(ctx context.Context, in provider.Instance, p string, mode fs.FileMode, offset int64, r io.Reader) error {
+	f.mu.Lock()
+	fail, hold := f.writeErr, f.writeHold
+	f.mu.Unlock()
+	if fail != nil {
+		return fail
+	}
+	if hold != nil {
+		hold.held <- struct{}{}
+		select {
+		case <-hold.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	b, err := io.ReadAll(r)
 	if err != nil {
 		return err

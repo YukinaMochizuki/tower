@@ -33,8 +33,16 @@ service EnvironmentService {
   // replaces the file, and each later chunk starts where the file ends.
   rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
   // CopyFile copies a file or a directory from one environment to another
-  // of the same workstream. The bytes never leave the target.
+  // of the same workstream. The bytes never leave the target, unless
+  // refuse_secrets or max_bytes is set: tower then streams them through
+  // itself, and refuses a copy that fails either with FAILED_PRECONDITION
+  // carrying a CopyRefusal detail (docs/decisions/copy-out-scan.md).
   rpc CopyFile(CopyFileRequest) returns (CopyFileResponse);
+  // GetCapabilities names what this tower does that an older one did not
+  // and that a caller cannot otherwise tell: a field an older tower would
+  // drop unread. A tower without it answers UNIMPLEMENTED, which is to
+  // have none.
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
   // FetchOrigin fetches the repositories of a box's checkouts into the
   // target's mirrors, then brings each checkout's origin/* up to them.
   rpc FetchOrigin(FetchOriginRequest) returns (FetchOriginResponse);
@@ -156,6 +164,75 @@ message CopyFileRequest {
   string from_path = 2;
   Environment to = 3;
   string to_path = 4;
+  // Refuse the copy if what it copies holds a secret tower gave the source:
+  // a privileged box's secret values and secret files, a machine's
+  // blueprint secrets, each as every value it held since the source was
+  // made. Their encodings are looked for too. A source with a secret too
+  // short to look for, or one a value of which is no longer kept, is
+  // refused unread.
+  bool refuse_secrets = 5;
+  // Refuse the copy once it has streamed more than this many bytes of a
+  // tar of from_path: each file's contents rounded up to 512 bytes, a
+  // 512-byte header for each entry (more for a long name), and the whole
+  // padded to 10240-byte records, so 10 KiB for a small file. 0 is no
+  // limit.
+  int64 max_bytes = 6;
+  // allow_suspect: every secret's pieces at once, replaced by
+  // allow_suspect_for, which names whose.
+  reserved 7;
+  reserved "allow_suspect";
+
+  // With refuse_secrets, the secrets, named as CopyRefusal.secrets names
+  // them, whose pieces this copy may hold: what a SUSPECT refusal named
+  // and a human then looked at. A piece of any other secret is still
+  // SUSPECT, and any secret found whole still SECRET_FOUND. Without
+  // refuse_secrets it does nothing.
+  repeated string allow_suspect_for = 8;
+}
+
+message GetCapabilitiesRequest {}
+
+message GetCapabilitiesResponse {
+  // Each a name and a version, as "copy.refuse_secrets.v1": CopyFile's
+  // refuse_secrets, max_bytes and allow_suspect, and its CopyRefusal.
+  repeated string capabilities = 1;
+}
+
+// CopyRefusal is the detail of a CopyFile refused for refuse_secrets or
+// max_bytes. The message starts "copy refused: " and the reason's name
+// without its prefix, as "copy refused: SECRET_FOUND: ". Nothing is left
+// at to_path, nor of the partial copy.
+message CopyRefusal {
+  CopyRefusalReason reason = 1;
+  // The secrets it is refused for, each by its environment variable as
+  // "$NAME" or by its file's path in the source, never by its value: the
+  // one found (SECRET_FOUND, SUSPECT), or every one too short to look for
+  // (UNSCANNABLE).
+  repeated string secrets = 2;
+  // How what was found was written: "raw", "hex", "base64",
+  // "base64url", "url" or "json".
+  string form = 3;
+  // The max_bytes passed.
+  int64 max_bytes = 4;
+}
+
+enum CopyRefusalReason {
+  COPY_REFUSAL_REASON_UNSPECIFIED = 0;
+  // What was copied holds a secret the source was given: its value whole
+  // or trimmed, or a PEM key's body.
+  COPY_REFUSAL_REASON_SECRET_FOUND = 1;
+  // What was copied passed max_bytes.
+  COPY_REFUSAL_REASON_TOO_LARGE = 2;
+  // A copy out of the source cannot be cleared. With secrets named, the
+  // source has a secret shorter than 8 bytes, one tower cannot open, or
+  // one replaced longer ago than tower keeps, and nothing was read. With
+  // none, what the source sent was not a plain tar of from_path.
+  COPY_REFUSAL_REASON_UNSCANNABLE = 3;
+  // What was copied holds no secret whole, but a credential-shaped piece
+  // of one, a line or a field of a multi-part value (a kubeconfig's
+  // token, a key's line, a .netrc's password): a human should judge it.
+  // A secret found whole decides over it.
+  COPY_REFUSAL_REASON_SUSPECT = 4;
 }
 
 message CopyFileResponse {}

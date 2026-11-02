@@ -59,9 +59,10 @@ type environment struct {
 	target     *targetsv1alpha1.Target
 	ref        provider.Instance
 	// p is the target's provider, or perr why there is none.
-	p    provider.Provider
-	perr error
-	box  *envv1alpha1.Box
+	p       provider.Provider
+	perr    error
+	box     *envv1alpha1.Box
+	machine *envv1alpha1.Machine
 	// secretEnv is a privileged box's Secret's values, which every command
 	// in it is given.
 	secretEnv map[string]string
@@ -193,6 +194,7 @@ func (h environmentService) findIn(ctx context.Context, env *envv1alpha1.Environ
 		if phase := m.GetStatus().GetPhase(); phase != envv1alpha1.MachinePhase_MACHINE_PHASE_READY {
 			return nil, failedPrecondition("%s is not ready: it is %s", e, strings.TrimPrefix(phase.String(), "MACHINE_PHASE_"))
 		}
+		e.machine = m
 		e.workstream, e.runAs = m.GetSpec().GetWorkstream(), m.GetSpec().GetBlueprint().GetRunAs().GetUser()
 		target, instance = m.GetStatus().GetTarget(), m.GetStatus().GetInstance()
 	}
@@ -456,7 +458,8 @@ func (h environmentService) WriteFile(ctx context.Context, req *connect.Request[
 
 func (h environmentService) CopyFile(ctx context.Context, req *connect.Request[envv1alpha1.CopyFileRequest]) (*connect.Response[envv1alpha1.CopyFileResponse], error) {
 	m := req.Msg
-	if _, err := h.begin(ctx, m.GetFrom()); err != nil {
+	c, err := h.begin(ctx, m.GetFrom())
+	if err != nil {
 		return nil, err
 	}
 	if err := checkEnvironment(m.GetTo()); err != nil {
@@ -467,6 +470,9 @@ func (h environmentService) CopyFile(ctx context.Context, req *connect.Request[e
 	}
 	if m.GetFrom().GetProject() != m.GetTo().GetProject() {
 		return nil, invalid("a copy is between two environments of one project")
+	}
+	if m.GetMaxBytes() < 0 {
+		return nil, invalid("max_bytes is at least 0, and 0 is no limit")
 	}
 	from, err := h.open(ctx, m.GetFrom())
 	if err != nil {
@@ -484,7 +490,11 @@ func (h environmentService) CopyFile(ctx context.Context, req *connect.Request[e
 	if from.target.GetMetadata().GetName() != to.target.GetMetadata().GetName() {
 		return nil, failedPrecondition("%s and %s run on different targets", from, to)
 	}
-	if err := from.p.Copy(ctx, from.ref, m.GetFromPath(), to.ref, m.GetToPath()); err != nil {
+	if m.GetRefuseSecrets() || m.GetMaxBytes() > 0 {
+		if err := h.copyScanned(ctx, c, from, to, m); err != nil {
+			return nil, err
+		}
+	} else if err := from.p.Copy(ctx, from.ref, m.GetFromPath(), to.ref, m.GetToPath()); err != nil {
 		return nil, providerError(from, err)
 	}
 	if err := to.giveToRunAs(ctx, h.s, m.GetToPath()); err != nil {

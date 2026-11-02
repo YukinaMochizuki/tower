@@ -149,6 +149,10 @@ func TestOnlyWorkstreamUsesEnvironments(t *testing.T) {
 			_, err := c.ListProcesses(ctx, connect.NewRequest(&envv1alpha1.ListProcessesRequest{Environment: env}))
 			return err
 		},
+		"GetCapabilities": func(c environmentsv1alpha1connect.EnvironmentServiceClient, _ *envv1alpha1.Environment) error {
+			_, err := c.GetCapabilities(ctx, connect.NewRequest(&envv1alpha1.GetCapabilitiesRequest{}))
+			return err
+		},
 		"IssueTicket": func(c environmentsv1alpha1connect.EnvironmentServiceClient, env *envv1alpha1.Environment) error {
 			_, err := c.IssueTicket(ctx, connect.NewRequest(&envv1alpha1.IssueTicketRequest{Environment: env, Port: 8080}))
 			return err
