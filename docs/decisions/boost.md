@@ -5,7 +5,9 @@ Status: accepted in part, 2026-10-29; one box, and a full node,
 itself (its kind, its life, the pending answer, the settings and the
 queue) and its sync (the box's files sent before each job, what a job
 changed written back once it ends), under "Built" below, are accepted
-and built; routing by the records is a draft for review, not yet built.
+and built. Routing by a command's records was built as records only and
+is withdrawn; routing by the repository's task, under "Routing by task",
+is a draft for review, 2026-11-02, not yet built.
 
 ## Context
 
@@ -65,17 +67,10 @@ resize a machine's CPUs or memory while it runs (it grows disks only).
 - **A job's output and exit come back as any process's**
   (`EnvironmentService`), so workstream's job tools work unchanged; its
   exit also says what came back (`BoostRun.back`).
-- **tower routes each job, from what it measured.** Every process on a
-  hangar box runs in a cgroup of its own and reports its peak memory, an
-  OOM kill, its CPU time and wait, and its wall time; tower keeps the last
-  runs of each (repository, directory, command) (`process-usage.md`). A command whose recent
-  peaks came within 80% of the box's memory runs on a boost of 1.5 times
-  that peak. One that runs for minutes with the box's CPUs saturated runs
-  on 8 vCPU. A command with no record runs in the box, and if it is OOM
-  killed there the agent is told that its next run goes to a boost; it is
-  never re-run by itself, since a command may have effects. A record of
-  the program and subcommand alone (`go test`) only gives hints. The
-  caller may ask for a boost, a size, or no boost.
+- **tower routes a job by the task it runs**, a target or script the
+  repository declares, from what that task does and what its runs
+  measured ("Routing by task", a draft). The caller may ask for a
+  boost, a size, or no boost, and that wins.
 - **Boosts are budgeted per target and queued.** The target's
   `boost_budget` caps the cpu and memory all its boosts hold, within the
   Plan's quota left. A job that does not fit is queued, first come first
@@ -83,6 +78,73 @@ resize a machine's CPUs or memory while it runs (it grows disks only).
   it is queued and for about how long, so the agent decides whether to
   wait, run it in the box, or do something else (decided with the human,
   2026-10-29).
+
+## Routing by task (draft, 2026-11-02)
+
+Routing by a command's records was withdrawn (decided with the human,
+2026-11-02). tower kept them (`process-usage.md`) under the sha256 of the
+command line and under its first word, and four days of them on
+hangar-ardge (2026-10-29 to 11-02) showed the key was wrong: 76 exact keys
+over 80 runs, 73 of them run once, since an agent seldom writes the same
+line twice (`| tail -50`, another test file, a `cd … &&` before it); and
+the first word was mostly `export`, `cd`, `eval` or `source`. The same
+runs show what a job runs short of: no peak above 1.28Gi of a 2Gi box
+and no OOM, but 15 runs of 30 seconds or more (of the 80) waited for a
+CPU for a fifth of their time or more. And tower is one tenant of its Plan,
+with no claim to more: boxes stay small, heading to 1 vCPU, so heavy
+work has to find its own way to a boost.
+
+- **The unit is a task the repository declares**, not a command line.
+  Make targets, `package.json` scripts and `just`/`task` recipes are few,
+  named and stable; however an agent writes the line around one, it
+  runs the same task.
+- **Finding the task.** The line is parsed as shell (`mvdan.cc/sh`), and
+  each simple command of its lists and pipelines read past setup (`cd`,
+  `export`, `NAME=value`, `source` and `.`, `set`), wrappers (`env`,
+  `time`, `timeout`, `nice`, `nohup`, `sudo`) and output filters after a
+  pipe (`tail`, `head`, `grep`, `tee`). A task entry is:
+  - `make` (its `-C` directory, its targets, or its default goal), `just`
+    and `task` with their recipe;
+  - `npm`, `pnpm`, `yarn` and `bun` running a script, by `run` or by a
+    shorthand that runs one (`pnpm test`, `pnpm lint` when `lint` is a
+    script);
+  - a heavy tool called directly: `go test` and `go build` with their
+    package pattern (`./...` and `./pkg/x` are different tasks, and differ
+    by gigabytes), `cargo test` and `cargo build`, `tsc`, `vitest`, `jest`.
+
+  A line with several entries (`make gen && make test`) is their list, in
+  order. A line with none is no task and runs in the box.
+- **A task's key** is the project, the repository, the directory
+  relative to `/workspace`, the entry and its target, script or pattern.
+  Flags and other arguments are not in it. Targets and scripts are names
+  the repository gives, not a caller's values, so the key is kept as
+  text, each word held to the plain-name rule `process-usage.md` sets
+  for the coarse key; a word that fails it makes the line no task.
+- **A task with no record is judged by what it does.** A make target's
+  expansion is read with `make -n` in the box, as its user, bounded in
+  time; a script's is its text in `package.json`, following the scripts it
+  runs. One that runs a heavy tool (the list above, plus bundlers and
+  builds: `vite build`, `next build`, `webpack`, `docker build`) goes to
+  a boost of the target's `boost_resources`; any other runs in the box.
+  The expansion is kept by the hash of the file it came from. `make -n`
+  still runs a `+` line and a `$(shell …)`, so a dry run that fails or
+  overruns leaves the task judged as having none.
+- **A task with records is judged by them**, its last runs in the box or
+  on a boost:
+  - in the box, waiting for a CPU a fifth of its time or more, or busy on
+    all the box's CPUs, for 30 seconds or more: next time a boost of the
+    target's `boost_resources`;
+  - a peak within 80% of the box's memory, or an OOM: a boost of 1.5
+    times that peak;
+  - on a boost, using no more CPUs than the box has and a peak that fits
+    the box: next time in the box.
+
+  The numbers are a start, to be read again against the records.
+- **Each routed exit says why**, in its task's words ("`make test`: its
+  last 3 runs in this 1 vCPU box waited for a CPU 60% of the time").
+- **Records are kept per task**: `CommandUse`, keyed by the line, gives
+  way to a record keyed by the task, which holds no line text either;
+  the records kept so far are dropped.
 
 ## Built
 
@@ -387,15 +449,15 @@ What is accepted and built, in the API's terms:
   lost with it; what a job puts there does not reach the box's.
 - A commit or `git add` a job makes on the boost does not come back,
   though its files do; the exit says so.
-- Routing is only as good as the records: the first heavy run of a
-  command may OOM in the box.
+- A line that runs no task the repository declares, a script of its own
+  say, never goes to a boost unless its caller asks; a heavy task's first
+  run goes to one by what it does, before any record.
 
 ## Not decided yet
 
-- What workstream's tools take and show: the `boost` argument of a job,
-  and how a pending start, usage and what came back read in a job's result
-  (usage on `await_job` is asked for). The API they call is above.
 - Whether a boost runs Docker (docker-in-docker works in a hangar guest,
   but tower starts no dockerd today), which would move e2e that needs
   Docker or k3s from machines to boosts.
-- The thresholds above, to be set from the records once tower keeps them.
+- Whether a script file the line runs (`./scripts/e2e.sh`) counts as a
+  task, keyed by its path.
+- Whether `auto` becomes the default of workstream's `run_async_box`.

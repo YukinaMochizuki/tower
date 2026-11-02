@@ -173,5 +173,7 @@ picks, its services and its agent included.
 - A record says which command it is only to whoever already knows the
   command: routing and hints look a command up by its key, never list
   what was run.
-- Routing to a boost, and suggesting box sizes, read these records; neither
-  exists yet.
+- Routing to a boost was to read these records. Four days of them showed
+  their keys almost never repeat, and routing by them is withdrawn:
+  `boost.md`, "Routing by task" (a draft), keeps records by the
+  repository's task instead, and drops these.
