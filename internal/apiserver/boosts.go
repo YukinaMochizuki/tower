@@ -76,6 +76,10 @@ type boostTicket struct {
 	admitted bool
 	// sync is the sync made for it once its boost was READY, if any.
 	sync *syncRun
+	// routed is why a start asking for auto was routed to a boost, and
+	// tasks its line's tasks as found then; neither changes once made.
+	routed string
+	tasks  []taskEntry
 }
 
 // boostQueues are each target's boosted starts not started yet, and what

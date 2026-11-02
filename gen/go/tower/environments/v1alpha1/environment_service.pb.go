@@ -1691,6 +1691,7 @@ type StartProcessRequest struct {
 	// Runs it on the box's boost rather than in the box: a larger instance of
 	// the box's, made for it if the box has none (docs/decisions/boost.md).
 	// Unset runs it in the box. A box on a hangar target alone has one.
+	// auto lets tower choose, by the task the command runs.
 	Boost *BoostIntent `protobuf:"bytes,7,opt,name=boost,proto3" json:"boost,omitempty"`
 	// The ticket of a start answered pending, asked about again with the
 	// same request: it is answered pending again, or started. Asking again
@@ -1831,13 +1832,16 @@ func (*StartProcessRequest_Argv) isStartProcessRequest_Command() {}
 
 func (*StartProcessRequest_Shell) isStartProcessRequest_Command() {}
 
-// BoostIntent is the boost a process asks for.
+// BoostIntent is the boost a process asks for. on and resources always
+// win over what tower would choose; leaving the intent unset runs the
+// process in the box.
 type BoostIntent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Size:
 	//
 	//	*BoostIntent_On
 	//	*BoostIntent_Resources
+	//	*BoostIntent_Auto
 	Size          isBoostIntent_Size `protobuf_oneof:"size"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1898,6 +1902,15 @@ func (x *BoostIntent) GetResources() *Resources {
 	return nil
 }
 
+func (x *BoostIntent) GetAuto() bool {
+	if x != nil {
+		if x, ok := x.Size.(*BoostIntent_Auto); ok {
+			return x.Auto
+		}
+	}
+	return false
+}
+
 type isBoostIntent_Size interface {
 	isBoostIntent_Size()
 }
@@ -1914,9 +1927,31 @@ type BoostIntent_Resources struct {
 	Resources *Resources `protobuf:"bytes,2,opt,name=resources,proto3,oneof"`
 }
 
+type BoostIntent_Auto struct {
+	// tower chooses by the task the command runs, a make target, a
+	// package.json script, a just or task recipe, or a heavy tool called
+	// directly (docs/decisions/boost.md, "Routing by task"): a boost of a
+	// size it chooses, or the box, by the task's last runs; with none, a
+	// heavy tool, or a script that runs one, goes to a boost, and a make,
+	// just or task target runs in the box, its first run measured. tower
+	// runs nothing to judge a task. A command that runs no task runs in
+	// the box. The answer and the process's exit say why (routed). It is
+	// advisory, never refused for want of boosts: a machine, or a box on
+	// a target with none, runs it where it is, and a boost the target's
+	// Plan can never fit, even with no boost held (FAILED_PRECONDITION
+	// for on), runs it in the box; a boost that only has to wait (queued,
+	// a full node) answers pending as on does. A pending start asked
+	// again keeps the size it was routed to; one whose ticket tower no
+	// longer knows, after a restart, asks for the target's
+	// boost_resources.
+	Auto bool `protobuf:"varint,3,opt,name=auto,proto3,oneof"`
+}
+
 func (*BoostIntent_On) isBoostIntent_Size() {}
 
 func (*BoostIntent_Resources) isBoostIntent_Size() {}
+
+func (*BoostIntent_Auto) isBoostIntent_Size() {}
 
 type StartProcessResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1929,7 +1964,15 @@ type StartProcessResponse struct {
 	RanOn *RanOn `protobuf:"bytes,3,opt,name=ran_on,json=ranOn,proto3" json:"ran_on,omitempty"`
 	// A boosted start's sync of the box's work tree to its boost, once
 	// started: its sync fields alone are set.
-	Boost         *BoostRun `protobuf:"bytes,4,opt,name=boost,proto3" json:"boost,omitempty"`
+	Boost *BoostRun `protobuf:"bytes,4,opt,name=boost,proto3" json:"boost,omitempty"`
+	// A start asking for auto: where tower routed it and why, in its task's
+	// words, as "make test: of its last 3 runs, one in this 1 vCPU box
+	// waited for a CPU 40% of its 1m0s: on a boost of 8 vCPU and 8192Mi",
+	// or "go test ./... would go to a boost of 8 vCPU and 8192Mi, but the
+	// target can never fit it (its Plan has 4 vCPU and 49152Mi left): ran
+	// in the box". Set on a pending answer too. Its text names the task the
+	// repository declares, never the command's other arguments.
+	Routed        string `protobuf:"bytes,5,opt,name=routed,proto3" json:"routed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1990,6 +2033,13 @@ func (x *StartProcessResponse) GetBoost() *BoostRun {
 		return x.Boost
 	}
 	return nil
+}
+
+func (x *StartProcessResponse) GetRouted() string {
+	if x != nil {
+		return x.Routed
+	}
+	return ""
 }
 
 // BoostRun is what a boosted process's run did beside the process: the
@@ -2837,7 +2887,11 @@ type ProcessExit struct {
 	// and the rest are unset.
 	Lost bool `protobuf:"varint,8,opt,name=lost,proto3" json:"lost,omitempty"`
 	// A boosted process's sync, and what it changed and copied back.
-	Boost         *BoostRun `protobuf:"bytes,9,opt,name=boost,proto3" json:"boost,omitempty"`
+	Boost *BoostRun `protobuf:"bytes,9,opt,name=boost,proto3" json:"boost,omitempty"`
+	// A box's process started with boost auto: where tower routed it and
+	// why, as its start said (StartProcessResponse.routed). A machine's
+	// says it in its start's answer alone.
+	Routed        string `protobuf:"bytes,10,opt,name=routed,proto3" json:"routed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2933,6 +2987,13 @@ func (x *ProcessExit) GetBoost() *BoostRun {
 		return x.Boost
 	}
 	return nil
+}
+
+func (x *ProcessExit) GetRouted() string {
+	if x != nil {
+		return x.Routed
+	}
+	return ""
 }
 
 type SignalProcessRequest struct {
@@ -3387,16 +3448,18 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\t\n" +
 	"\acommandJ\x04\b\n" +
-	"\x10\vR\tartifacts\"o\n" +
+	"\x10\vR\tartifacts\"\x85\x01\n" +
 	"\vBoostIntent\x12\x10\n" +
 	"\x02on\x18\x01 \x01(\bH\x00R\x02on\x12F\n" +
-	"\tresources\x18\x02 \x01(\v2&.tower.environments.v1alpha1.ResourcesH\x00R\tresourcesB\x06\n" +
-	"\x04size\"\xed\x01\n" +
+	"\tresources\x18\x02 \x01(\v2&.tower.environments.v1alpha1.ResourcesH\x00R\tresources\x12\x14\n" +
+	"\x04auto\x18\x03 \x01(\bH\x00R\x04autoB\x06\n" +
+	"\x04size\"\x85\x02\n" +
 	"\x14StartProcessResponse\x12\x18\n" +
 	"\aprocess\x18\x01 \x01(\tR\aprocess\x12C\n" +
 	"\apending\x18\x02 \x01(\v2).tower.environments.v1alpha1.PendingStartR\apending\x129\n" +
 	"\x06ran_on\x18\x03 \x01(\v2\".tower.environments.v1alpha1.RanOnR\x05ranOn\x12;\n" +
-	"\x05boost\x18\x04 \x01(\v2%.tower.environments.v1alpha1.BoostRunR\x05boost\"\xc8\x03\n" +
+	"\x05boost\x18\x04 \x01(\v2%.tower.environments.v1alpha1.BoostRunR\x05boost\x12\x16\n" +
+	"\x06routed\x18\x05 \x01(\tR\x06routed\"\xc8\x03\n" +
 	"\bBoostRun\x12-\n" +
 	"\x04sync\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x04sync\x12\x1d\n" +
 	"\n" +
@@ -3462,7 +3525,7 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\theld_from\x18\x01 \x01(\x03R\bheldFrom\x12\x1f\n" +
 	"\vnext_offset\x18\x02 \x01(\x03R\n" +
 	"nextOffset\x12<\n" +
-	"\x04exit\x18\x03 \x01(\v2(.tower.environments.v1alpha1.ProcessExitR\x04exit\"\xc6\x03\n" +
+	"\x04exit\x18\x03 \x01(\v2(.tower.environments.v1alpha1.ProcessExitR\x04exit\"\xde\x03\n" +
 	"\vProcessExit\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\x05R\x04code\x12;\n" +
 	"\x06signal\x18\x02 \x01(\x0e2#.tower.environments.v1alpha1.SignalR\x06signal\x12/\n" +
@@ -3473,7 +3536,9 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\bcpu_wait\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\acpuWait\x12-\n" +
 	"\x04wall\x18\a \x01(\v2\x19.google.protobuf.DurationR\x04wall\x12\x12\n" +
 	"\x04lost\x18\b \x01(\bR\x04lost\x12;\n" +
-	"\x05boost\x18\t \x01(\v2%.tower.environments.v1alpha1.BoostRunR\x05boostB\x14\n" +
+	"\x05boost\x18\t \x01(\v2%.tower.environments.v1alpha1.BoostRunR\x05boost\x12\x16\n" +
+	"\x06routed\x18\n" +
+	" \x01(\tR\x06routedB\x14\n" +
 	"\x12_memory_peak_bytesB\r\n" +
 	"\v_oom_killed\"\xb9\x01\n" +
 	"\x14SignalProcessRequest\x12J\n" +
@@ -3723,6 +3788,7 @@ func file_tower_environments_v1alpha1_environment_service_proto_init() {
 	file_tower_environments_v1alpha1_environment_service_proto_msgTypes[22].OneofWrappers = []any{
 		(*BoostIntent_On)(nil),
 		(*BoostIntent_Resources)(nil),
+		(*BoostIntent_Auto)(nil),
 	}
 	file_tower_environments_v1alpha1_environment_service_proto_msgTypes[31].OneofWrappers = []any{
 		(*AttachProcessResponse_Output)(nil),

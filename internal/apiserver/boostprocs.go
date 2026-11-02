@@ -1,10 +1,12 @@
 package apiserver
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"maps"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -28,8 +30,9 @@ import (
 // boost, on which instance and by which id there, and, once read, how
 // each ended: a process call on the box finds where the process runs
 // from it, and a boost gone leaves its processes' exits here. It holds no
-// command text, only the coarse key of each command
-// (docs/decisions/process-usage.md). It goes with its box. Not an API
+// command text, only the tasks of each command, as plain names
+// (docs/decisions/boost.md), and why a start asking for auto was routed
+// where it ran, its box's processes too. It goes with its box. Not an API
 // kind.
 const boxProcessesKind = "BoxProcesses"
 
@@ -50,6 +53,30 @@ type boxProcesses struct {
 	// usage is kept under once the box is gone.
 	Repository string         `json:"repository,omitempty"`
 	Boost      []boostProcess `json:"boost"`
+	// Routed are the box's own processes started asking for auto, and
+	// why they run in the box: a boost's say it themselves.
+	Routed []routedProcess `json:"routed,omitempty"`
+}
+
+// routedProcess is a box's process routed to the box by auto.
+type routedProcess struct {
+	ID  string    `json:"id"`
+	Why string    `json:"why"`
+	At  time.Time `json:"at"`
+}
+
+// routedKept bounds the box's routed processes kept, the oldest going.
+const routedKept = 100
+
+// routedOf is why the box's own process id was routed there, if it was:
+// the last so kept, an id an instance made again gives again being its.
+func (r *boxProcesses) routedOf(id string) string {
+	for _, p := range slices.Backward(r.Routed) {
+		if p.ID == id {
+			return p.Why
+		}
+	}
+	return ""
 }
 
 // boostProcess is a process run on a box's boost.
@@ -65,9 +92,16 @@ type boostProcess struct {
 	CPU    string `json:"cpu"`
 	Memory string `json:"memory"`
 	Name   string `json:"name,omitempty"`
-	// Coarse is its command's coarse key (coarseCommand), all of its
-	// command it is shown by once its boost is gone.
-	Coarse  string    `json:"coarse,omitempty"`
+	// Tasks are its line's (findTasks), its run recorded by, found as it
+	// started (TasksFound). Shown is all of its command it is listed by
+	// once its boost is gone (shownCommand); Coarse what a tower that kept
+	// runs by the command line listed instead.
+	Tasks      []taskEntry `json:"tasks,omitempty"`
+	TasksFound bool        `json:"tasksFound,omitempty"`
+	Shown      string      `json:"shown,omitempty"`
+	Coarse     string      `json:"coarse,omitempty"`
+	// Routed is why a start asking for auto routed it to the boost.
+	Routed  string    `json:"routed,omitempty"`
 	Dir     string    `json:"dir,omitempty"`
 	Started time.Time `json:"started"`
 	// Exit is how it ended, once read.
@@ -151,6 +185,31 @@ func (r *boxProcesses) find(id string) (boostProcess, bool) {
 	return r.Boost[i], true
 }
 
+// shown is the command a kept process is listed with.
+func (p boostProcess) shown() []string {
+	return []string{cmp.Or(p.Shown, p.Coarse)}
+}
+
+// otherProgram is what a kept process whose line has no task, and whose
+// program's name is no plain name (a script's, say), is listed by.
+const otherProgram = "<program>"
+
+// shownCommand is all a kept process's record holds of its command: its
+// tasks' words, else its program's name if it is a plain name; never its
+// arguments, which may hold a secret.
+func shownCommand(command []string, tasks []taskEntry) string {
+	if len(tasks) > 0 {
+		return tasksText(tasks)
+	}
+	if len(command) == 0 {
+		return ""
+	}
+	if program := path.Base(command[0]); nameWord(program) && !slices.Contains(shells, command[0]) {
+		return program
+	}
+	return otherProgram
+}
+
 // keepExits sets the exits of the processes exits names, by tower's id,
 // that have none, reporting whether any had none.
 func (r *boxProcesses) keepExits(exits map[string]*provider.ProcessExit) bool {
@@ -189,6 +248,12 @@ type listedProcess struct {
 	lost bool
 	// run is a boost process's sync, and what it changed and copied back.
 	run *envv1alpha1.BoostRun
+	// tasks are its line's as found when it started, if tasksKnown (a
+	// boost's process): else they are found from its command.
+	tasks      []taskEntry
+	tasksKnown bool
+	// routed is why a start asking for auto routed it where it ran.
+	routed string
 }
 
 // running says the process runs.
@@ -209,7 +274,7 @@ func (p listedProcess) exit() *envv1alpha1.ProcessExit {
 	default:
 		return nil
 	}
-	x.Boost = p.run
+	x.Boost, x.Routed = p.run, p.routed
 	return x
 }
 
@@ -260,8 +325,14 @@ func (s *Server) boxProcessesOf(ctx context.Context, e *environment) ([]listedPr
 	}
 	boxKey := controller.Key{Project: e.key.Project, Name: e.key.Name}
 	var rec boxProcesses
-	if _, err := s.getRecord(ctx, boxProcessesKey(boxKey), &rec); err != nil || len(rec.Boost) == 0 || rec.BoxUID != e.box.GetMetadata().GetUid() {
+	if _, err := s.getRecord(ctx, boxProcessesKey(boxKey), &rec); err != nil || rec.BoxUID != e.box.GetMetadata().GetUid() {
 		return out, err
+	}
+	for i := range out {
+		out[i].routed = rec.routedOf(out[i].ID)
+	}
+	if len(rec.Boost) == 0 {
+		return out, nil
 	}
 	// The boost's instance now, and what runs on it.
 	live := map[string]provider.Process{}
@@ -294,19 +365,19 @@ func (s *Server) boxProcessesOf(ctx context.Context, e *environment) ([]listedPr
 			if p.Exit != nil && !bp.Settled {
 				settle = append(settle, len(out))
 			}
-			out = append(out, listedProcess{Process: p, at: at, run: boostRunOf(bp)})
+			out = append(out, listedProcess{Process: p, at: at, run: boostRunOf(bp), tasks: bp.Tasks, tasksKnown: bp.TasksFound, routed: bp.Routed})
 			continue
 		}
 		if onIt && bp.Exit == nil && !listed {
 			// Its instance did not answer: running, as far as is known.
-			out = append(out, listedProcess{Process: provider.Process{ID: bp.ID, Name: bp.Name, Command: []string{bp.Coarse}, Dir: bp.Dir, Started: bp.Started}, at: at, kept: true, run: boostRunOf(bp)})
+			out = append(out, listedProcess{Process: provider.Process{ID: bp.ID, Name: bp.Name, Command: bp.shown(), Dir: bp.Dir, Started: bp.Started}, at: at, kept: true, run: boostRunOf(bp), routed: bp.Routed})
 			continue
 		}
 		// Its instance gone, or the instance no longer keeps it: as kept,
 		// its exit or lost.
 		out = append(out, listedProcess{Process: provider.Process{
-			ID: bp.ID, Name: bp.Name, Command: []string{bp.Coarse}, Dir: bp.Dir, Started: bp.Started, Exit: bp.Exit,
-		}, at: at, kept: true, lost: bp.Exit == nil, run: boostRunOf(bp)})
+			ID: bp.ID, Name: bp.Name, Command: bp.shown(), Dir: bp.Dir, Started: bp.Started, Exit: bp.Exit,
+		}, at: at, kept: true, lost: bp.Exit == nil, run: boostRunOf(bp), routed: bp.Routed})
 	}
 	if len(exits) > 0 {
 		if err := changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool { return r.keepExits(exits) }); err != nil {
@@ -399,7 +470,7 @@ func (s *Server) keepBoostExits(ctx context.Context, boxKey controller.Key, b *e
 		}
 		p := ps[i]
 		p.ID, exits[bp.ID] = bp.ID, p.Exit
-		listed = append(listed, listedProcess{Process: p, at: ranOn{Kind: ranOnBoost, CPU: bp.CPU, Memory: bp.Memory}})
+		listed = append(listed, listedProcess{Process: p, at: ranOn{Kind: ranOnBoost, CPU: bp.CPU, Memory: bp.Memory}, tasks: bp.Tasks, tasksKnown: bp.TasksFound})
 	}
 	if len(listed) == 0 && len(pending) == 0 {
 		return false, nil
@@ -451,8 +522,10 @@ func commandSummary(command []string) string {
 // again with a ticket: started on the box's boost once it is READY, else
 // pending at once, with a ticket, why, and about how long. Asking again
 // with a ticket still pending changes nothing of its place; it admits
-// the target's queue, as any start does.
-func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e *environment, m *envv1alpha1.StartProcessRequest, command []string) (*envv1alpha1.StartProcessResponse, error) {
+// the target's queue, as any start does. routed is where a start asking
+// for auto was routed, a boost, when first asked; its why is in each
+// answer to the start.
+func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e *environment, m *envv1alpha1.StartProcessRequest, command []string, routed *routing) (res *envv1alpha1.StartProcessResponse, err error) {
 	s := h.s
 	if e.box == nil {
 		return nil, invalid("a boost is a box's: %s has none", e)
@@ -473,6 +546,17 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 	now := s.clock.Now()
 	tq.prune(now)
 	var tk *boostTicket
+	why := ""
+	if routed != nil {
+		why = routed.why
+	}
+	defer func() {
+		// Every answer to a start routed by auto says why, a started
+		// one's from its process.
+		if res != nil && res.GetRouted() == "" && m.GetBoost().GetAuto() {
+			res.Routed = why
+		}
+	}()
 	if id := m.GetPending(); id != "" {
 		// Asked again once started, as by a caller that lost the answer:
 		// that start, never a second one.
@@ -505,13 +589,22 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 		return nil, invalid("cancel gives up a pending start: name its ticket in pending")
 	}
 	size := set.boostResources
-	if tk != nil {
-		size, tk.seen = tk.size, now
-	} else if m.GetBoost() != nil {
-		var err error
+	switch {
+	case tk != nil:
+		size, tk.seen, why = tk.size, now, tk.routed
+	case routed != nil:
+		size = routed.size
+	case m.GetBoost().GetAuto():
+		// Routed when first asked, by a tower that knew its ticket.
+		why = fmt.Sprintf("routed to a boost when first asked; its ticket is not known since, so it asks for the target's boost_resources (%s)", size)
+	case m.GetBoost() != nil:
 		if size, err = boostAsk(m.GetBoost(), set); err != nil {
 			return nil, err
 		}
+	}
+	var tasks []taskEntry
+	if routed != nil {
+		tasks = routed.tasks
 	}
 	b, ok, err := getTyped[*envv1alpha1.Boost](ctx, s, registry.Boost, e.key)
 	if err != nil {
@@ -534,13 +627,20 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 		if tk != nil {
 			delete(tq.tickets, tk.id)
 		}
+		if m.GetBoost().GetAuto() {
+			// auto is advisory: the caller runs it in the box instead.
+			if tk != nil {
+				tasks = tk.tasks
+			}
+			return nil, &neverFits{size: size, tasks: tasks, quota: empty.quota}
+		}
 		return nil, failedPrecondition("a boost of %s does not fit %s's target %q even with no boost on it: its Plan has %s left",
 			size, e, e.target.GetMetadata().GetName(), empty.quota)
 	}
 	ticket := func(admitted bool) *boostTicket {
 		if tk == nil {
 			tq.arrivals++
-			tk = &boostTicket{id: newTicketID(), box: boxKey, workstream: e.workstream, size: size, arrived: now, arrival: tq.arrivals}
+			tk = &boostTicket{id: newTicketID(), box: boxKey, workstream: e.workstream, size: size, arrived: now, arrival: tq.arrivals, routed: why, tasks: tasks}
 			tq.tickets[tk.id] = tk
 		}
 		tk.seen, tk.admitted = now, tk.admitted || admitted
@@ -705,7 +805,7 @@ func (h environmentService) syncAndStart(ctx context.Context, c authz.Caller, e 
 		if hook := s.beforeBoostStart.Load(); hook != nil {
 			(*hook)(boxKey)
 		}
-		res, err := h.startOnBoost(ctx, c, e, m, command, b, tq, boxKey, run.stats, tk.id)
+		res, err := h.startOnBoost(ctx, c, e, m, command, b, tq, boxKey, run.stats, tk)
 		tq.mu.Lock()
 		cancel := st.cancel
 		if err != nil {
@@ -720,6 +820,25 @@ func (h environmentService) syncAndStart(ctx context.Context, c authz.Caller, e 
 		}
 		return res, err
 	}
+}
+
+// neverFits is a boost an auto start was routed to that its target can
+// never fit, even with no boost held: the start runs in the box.
+type neverFits struct {
+	size  boostSize
+	tasks []taskEntry
+	quota boostSize
+}
+
+func (n *neverFits) Error() string { return n.why() }
+
+// why is what the start's answer and exit say of it, in its tasks' words.
+func (n *neverFits) why() string {
+	what := tasksText(n.tasks)
+	if what == "" {
+		what = "it"
+	}
+	return fmt.Sprintf("%s would go to a boost of %s, but the target can never fit it (its Plan has %s left): ran in the box", what, n.size, n.quota)
 }
 
 // startedAnswer answers a ticket that started its process, asked about
@@ -761,7 +880,7 @@ func (s *Server) startedAnswer(ctx context.Context, e *environment, tq *targetBo
 			term = bp.ID
 		}
 		at := ranOn{Kind: ranOnBoost, CPU: bp.CPU, Memory: bp.Memory}
-		return &envv1alpha1.StartProcessResponse{Process: bp.ID, RanOn: at.proto(), Boost: boostRunOf(bp)}, true, term, nil
+		return &envv1alpha1.StartProcessResponse{Process: bp.ID, RanOn: at.proto(), Boost: boostRunOf(bp), Routed: bp.Routed}, true, term, nil
 	}
 	return nil, false, "", nil
 }
@@ -782,11 +901,11 @@ func (s *Server) termBoostProcess(ctx context.Context, c authz.Caller, e *enviro
 	s.log.Info("a started boosted start given up: its process sent TERM", "caller", c.String(), "environment", e.String(), "process", id, "error", err)
 }
 
-// startOnBoost starts the process on the box's READY boost b, keeping
-// where it runs in boxProcesses; if that cannot be kept, the process is
-// killed, as no call could reach it. tq counts it as starting, which ends
-// here.
-func (h environmentService) startOnBoost(ctx context.Context, c authz.Caller, e *environment, m *envv1alpha1.StartProcessRequest, command []string, b *envv1alpha1.Boost, tq *targetBoosts, boxKey controller.Key, synced *syncStats, ticket string) (*envv1alpha1.StartProcessResponse, error) {
+// startOnBoost starts the process of tk on the box's READY boost b,
+// keeping where it runs in boxProcesses, with its line's tasks; if that
+// cannot be kept, the process is killed, as no call could reach it. tq
+// counts it as starting, which ends here.
+func (h environmentService) startOnBoost(ctx context.Context, c authz.Caller, e *environment, m *envv1alpha1.StartProcessRequest, command []string, b *envv1alpha1.Boost, tq *targetBoosts, boxKey controller.Key, synced *syncStats, tk *boostTicket) (*envv1alpha1.StartProcessResponse, error) {
 	s := h.s
 	defer func() {
 		tq.mu.Lock()
@@ -831,14 +950,15 @@ func (h environmentService) startOnBoost(ctx context.Context, c authz.Caller, e 
 		return nil, providerError(e, err)
 	}
 	at := ranOn{Kind: ranOnBoost, CPU: b.GetSpec().GetResources().GetCpu(), Memory: b.GetSpec().GetResources().GetMemory()}
-	var repository string
-	if cs := e.box.GetSpec().GetCheckouts(); len(cs) > 0 {
-		repository = cs[0].GetRepository()
+	repository := repositoryOf(e.box)
+	tasks := tk.tasks
+	if tasks == nil {
+		tasks = findTasks(commandText(command), m.GetDir(), s.packagesIn(ctx, e))
 	}
 	entry := boostProcess{
 		ID: id, BoostUID: b.GetMetadata().GetUid(), Instance: ref.Name, InstanceUID: in.GetMetadata().GetUid(), ProviderID: pid,
-		CPU: at.CPU, Memory: at.Memory, Name: m.GetName(), Coarse: coarseCommand(commandText(e.givenCommand(command))), Dir: m.GetDir(),
-		Started: s.clock.Now(), RunID: runID, SyncID: syncID, Sync: synced, TicketID: ticket,
+		CPU: at.CPU, Memory: at.Memory, Name: m.GetName(), Tasks: tasks, TasksFound: true, Shown: shownCommand(command, tasks), Routed: tk.routed,
+		Dir: m.GetDir(), Started: s.clock.Now(), RunID: runID, SyncID: syncID, Sync: synced, TicketID: tk.id,
 	}
 	err = changeRecord(ctx, s, boxProcessesKey(boxKey), func(r *boxProcesses) bool {
 		if uid := e.box.GetMetadata().GetUid(); r.BoxUID != uid {
@@ -854,7 +974,7 @@ func (h environmentService) startOnBoost(ctx context.Context, c authz.Caller, e 
 		}
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("keeping where %s's process runs failed, and it was killed: %w", e, err))
 	}
-	return &envv1alpha1.StartProcessResponse{Process: id, RanOn: at.proto(), Boost: boostRunOf(entry)}, nil
+	return &envv1alpha1.StartProcessResponse{Process: id, RanOn: at.proto(), Boost: boostRunOf(entry), Routed: entry.Routed}, nil
 }
 
 // boostProcessOf is the box's process of id run on its boost; NotFound

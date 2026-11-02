@@ -20,57 +20,51 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/store"
 )
 
-// commandUseKind holds what the last runs of a command used, per project,
-// repository, directory and command key, never the command's text or
-// environment (docs/decisions/process-usage.md). Not an API kind.
+// taskUseKind holds what the last runs of a line's tasks used, per
+// project, repository and tasks; never a command's text beyond its
+// tasks' plain names, nor its environment
+// (docs/decisions/process-usage.md, docs/decisions/boost.md).
+// Not an API kind.
+const taskUseKind = "TaskUse"
+
+// commandUseKind held runs by the command line, which routing by task
+// replaced; its records are deleted (pruneTaskUses).
 const commandUseKind = "CommandUse"
 
 // processesRecordedKind holds, per box, the processes whose exits its
-// command uses count, so an exit read twice is counted once.
+// task uses count, so an exit read twice is counted once.
 const processesRecordedKind = "ProcessesRecorded"
 
 const (
-	// commandRunsKept is how many runs a command use keeps, the newest.
-	commandRunsKept = 10
-	// commandUsesKeptFor is how long a command use outlives its last run,
-	// as a box's use record does its last use.
-	commandUsesKeptFor = useRecordsKeptFor
-	// commandUsesPruneEvery is how often command uses are pruned: each
-	// prune reads them all.
-	commandUsesPruneEvery = time.Hour
-	// maxCommandUses bounds a project's command uses, the least recently
-	// run going first: about 4KiB each, 4MiB a project, far above the
-	// distinct commands a project's boxes run in commandUsesKeptFor.
-	maxCommandUses = 1000
+	// taskRunsKept is how many runs a task use keeps, the newest.
+	taskRunsKept = 10
+	// taskUsesKeptFor is how long a task use outlives its last write, as a
+	// box's use record does its last use.
+	taskUsesKeptFor = useRecordsKeptFor
+	// taskUsesPruneEvery is how often task uses are pruned: each prune
+	// reads them all.
+	taskUsesPruneEvery = time.Hour
+	// maxTaskUses bounds a project's task uses, the least recently written
+	// going first: about 4KiB each, 4MiB a project, far above the tasks a
+	// project's repositories declare.
+	maxTaskUses = 1000
 	// recordTimeout bounds recording the exits a call read, which goes on
 	// once the call ends: a run claimed and not recorded is lost.
 	recordTimeout = 30 * time.Second
 )
 
-// The keys a command use is kept under.
-const (
-	commandKeyExact  = "exact"
-	commandKeyCoarse = "coarse"
-)
-
-// commandUse is what commandUseKind holds.
-type commandUse struct {
-	Repository string `json:"repository"`
-	// Dir is the working directory relative to /workspace: "." for
-	// /workspace itself, absolute for one outside it.
-	Dir string `json:"dir"`
-	// Key is commandKeyExact, with CommandSHA256 the exact key, or
-	// commandKeyCoarse, with Coarse the coarse key.
-	Key           string `json:"key"`
-	CommandSHA256 string `json:"commandSha256,omitempty"`
-	Coarse        string `json:"coarse,omitempty"`
-	// LastRecorded is when its last run was recorded, on tower's clock.
-	LastRecorded time.Time    `json:"lastRecorded"`
-	Runs         []commandRun `json:"runs"`
+// taskUse is what taskUseKind holds: the runs of a line's tasks, one or
+// more in order.
+type taskUse struct {
+	Repository string      `json:"repository"`
+	Tasks      []taskEntry `json:"tasks"`
+	// LastRecorded is when a run was last written, on tower's clock.
+	LastRecorded time.Time `json:"lastRecorded"`
+	Runs         []taskRun `json:"runs,omitempty"`
 }
 
-// commandRun is one run of a command and what it used.
-type commandRun struct {
+// taskRun is one run of a line's tasks and what it used.
+type taskRun struct {
 	// At is when it was recorded, on tower's clock.
 	At       time.Time `json:"at"`
 	Box      string    `json:"box"`
@@ -110,17 +104,30 @@ type processesRecorded struct {
 	IDs []string `json:"ids"`
 }
 
-// commandUseKey is the key of the record of a command, a hash of what
+// taskUseKey is the key of the record of a line's tasks, a hash of what
 // keys it.
-func commandUseKey(project, repository, dir, key, command string) store.Key {
+func taskUseKey(project, repository string, tasks []taskEntry) store.Key {
 	h := sha256.New()
-	for _, part := range []string{repository, dir, key, command} {
-		_, _ = fmt.Fprintf(h, "%d:%s\n", len(part), part)
+	_, _ = fmt.Fprintf(h, "%d:%s\n", len(repository), repository)
+	for _, t := range tasks {
+		for _, part := range []string{t.Dir, t.Tool, t.Name} {
+			_, _ = fmt.Fprintf(h, "%d:%s\n", len(part), part)
+		}
 	}
-	return store.Key{Kind: commandUseKind, Project: project, Name: hex.EncodeToString(h.Sum(nil))[:40]}
+	return store.Key{Kind: taskUseKind, Project: project, Name: hex.EncodeToString(h.Sum(nil))[:40]}
 }
 
-// workspaceRelative is dir relative to /workspace, as commandUse.Dir says.
+// repositoryOf is a box's first checkout's repository, which its tasks
+// are kept under.
+func repositoryOf(box *envv1alpha1.Box) string {
+	if cs := box.GetSpec().GetCheckouts(); len(cs) > 0 {
+		return cs[0].GetRepository()
+	}
+	return ""
+}
+
+// workspaceRelative is dir relative to /workspace: "." for /workspace
+// itself, absolute for one outside it, "" for none.
 func workspaceRelative(dir string) string {
 	if dir == "" {
 		return ""
@@ -133,6 +140,35 @@ func workspaceRelative(dir string) string {
 		return rel[1:]
 	}
 	return clean
+}
+
+// shells are the programs whose "-c" line is a command's text: what
+// commandLine runs a shell line with, and what a caller's argv may name.
+var shells = []string{"sh", "/bin/sh", "/usr/bin/sh", "bash", "/bin/bash", "/usr/bin/bash"}
+
+// commandText is a process's command as one line: a shell's -c line as it
+// is, other argv joined by spaces, each word quoted where shell would
+// read it otherwise.
+func commandText(argv []string) string {
+	if len(argv) == 3 && slices.Contains(shells, argv[0]) && (argv[1] == "-c" || argv[1] == "-lc") {
+		return argv[2]
+	}
+	words := make([]string, len(argv))
+	for i, a := range argv {
+		words[i] = shellQuote(a)
+	}
+	return strings.Join(words, " ")
+}
+
+// shellQuote is w as one shell word.
+func shellQuote(w string) string {
+	plain := func(r rune) bool {
+		return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_./=:,+@%", r)
+	}
+	if w != "" && !strings.ContainsFunc(w, func(r rune) bool { return !plain(r) }) {
+		return w
+	}
+	return "'" + strings.ReplaceAll(w, "'", `'\''`) + "'"
 }
 
 // exitRead records the usage of a box's process whose exit an attach
@@ -202,60 +238,52 @@ func (s *Server) exitsListed(ctx context.Context, e *environment, ps []listedPro
 		return
 	}
 	for _, p := range claimed {
-		if err := s.recordRun(ctx, e, p.Process, p.at); err != nil {
+		if err := s.recordRun(ctx, e, p); err != nil {
 			s.log.Error("recording a process's usage failed", "environment", e.String(), "process", p.ID, "error", err)
 		}
 	}
 }
 
-// recordRun adds a process's run to its command's records under both
-// keys.
-func (s *Server) recordRun(ctx context.Context, e *environment, p provider.Process, at ranOn) error {
-	var repository string
-	if cs := e.box.GetSpec().GetCheckouts(); len(cs) > 0 {
-		repository = cs[0].GetRepository()
+// recordRun adds a process's run to the records of its line's tasks: as
+// found when it started, if it was kept then (a boost's process), else
+// found now. A line with no task is not recorded.
+func (s *Server) recordRun(ctx context.Context, e *environment, p listedProcess) error {
+	tasks := p.tasks
+	if !p.tasksKnown {
+		tasks = findTasks(commandText(e.givenCommand(p.Command)), p.Dir, s.packagesIn(ctx, e))
 	}
-	dir := workspaceRelative(p.Dir)
-	text := commandText(e.givenCommand(p.Command))
-	u, now := p.Exit.Usage, s.clock.Now()
-	run := commandRun{
-		At: now, Box: e.key.Name, Process: p.ID, ExitCode: p.Exit.Code, Signal: int(p.Exit.Signal),
-		MemoryPeak: u.MemoryPeak, OOMKilled: u.OOMKilled, CPUUsage: u.CPUUsage, CPUWait: u.CPUWait, Wall: u.Wall, RanOn: at,
-	}
-	var errs []error
-	for _, r := range []commandUse{
-		{Repository: repository, Dir: dir, Key: commandKeyExact, CommandSHA256: exactKey(text)},
-		{Repository: repository, Dir: dir, Key: commandKeyCoarse, Coarse: coarseCommand(text)},
-	} {
-		if r.CommandSHA256 == "" && r.Coarse == "" {
-			continue
-		}
-		rk := commandUseKey(e.key.Project, repository, dir, r.Key, r.CommandSHA256+r.Coarse)
-		errs = append(errs, changeRecord(ctx, s, rk, func(old *commandUse) bool {
-			if slices.ContainsFunc(old.Runs, func(o commandRun) bool { return o.Box == run.Box && o.Process == run.Process }) {
-				return false
-			}
-			runs := append(old.Runs, run)
-			if len(runs) > commandRunsKept {
-				runs = runs[len(runs)-commandRunsKept:]
-			}
-			*old = r
-			old.Runs, old.LastRecorded = runs, now
-			return true
-		}))
-	}
-	return errors.Join(errs...)
-}
-
-// pruneCommandUses, at most every commandUsesPruneEvery, deletes the
-// command uses not run for commandUsesKeptFor, those of a project past
-// maxCommandUses, and the counted processes of boxes gone.
-func (s *Server) pruneCommandUses(ctx context.Context) error {
-	now := s.clock.Now()
-	if last := s.commandUsesPruned.Load(); last != 0 && now.Sub(time.Unix(0, last)) < commandUsesPruneEvery {
+	if len(tasks) == 0 {
 		return nil
 	}
-	objs, _, err := s.store.List(ctx, store.ListOptions{Kind: commandUseKind})
+	repository := repositoryOf(e.box)
+	u, now := p.Exit.Usage, s.clock.Now()
+	run := taskRun{
+		At: now, Box: e.key.Name, Process: p.ID, ExitCode: p.Exit.Code, Signal: int(p.Exit.Signal),
+		MemoryPeak: u.MemoryPeak, OOMKilled: u.OOMKilled, CPUUsage: u.CPUUsage, CPUWait: u.CPUWait, Wall: u.Wall, RanOn: p.at,
+	}
+	return changeRecord(ctx, s, taskUseKey(e.key.Project, repository, tasks), func(old *taskUse) bool {
+		if slices.ContainsFunc(old.Runs, func(o taskRun) bool { return o.Box == run.Box && o.Process == run.Process }) {
+			return false
+		}
+		runs := append(old.Runs, run)
+		if len(runs) > taskRunsKept {
+			runs = runs[len(runs)-taskRunsKept:]
+		}
+		old.Repository, old.Tasks, old.Runs, old.LastRecorded = repository, tasks, runs, now
+		return true
+	})
+}
+
+// pruneTaskUses, at most every taskUsesPruneEvery, deletes the task uses
+// not written for taskUsesKeptFor, those of a project past maxTaskUses,
+// the counted processes of boxes gone, and every CommandUse left by a
+// tower that kept runs by the command line.
+func (s *Server) pruneTaskUses(ctx context.Context) error {
+	now := s.clock.Now()
+	if last := s.taskUsesPruned.Load(); last != 0 && now.Sub(time.Unix(0, last)) < taskUsesPruneEvery {
+		return nil
+	}
+	objs, _, err := s.store.List(ctx, store.ListOptions{Kind: taskUseKind})
 	if err != nil {
 		return err
 	}
@@ -266,22 +294,29 @@ func (s *Server) pruneCommandUses(ctx context.Context) error {
 	byProject := map[string][]use{}
 	var gone []store.Object
 	for _, o := range objs {
-		var r commandUse
-		if json.Unmarshal(o.Data, &r) != nil || now.Sub(r.LastRecorded) > commandUsesKeptFor {
+		var r taskUse
+		if json.Unmarshal(o.Data, &r) != nil || now.Sub(r.LastRecorded) > taskUsesKeptFor {
 			gone = append(gone, o)
 			continue
 		}
 		byProject[o.Project] = append(byProject[o.Project], use{o, r.LastRecorded})
 	}
 	for _, uses := range byProject {
-		if len(uses) <= maxCommandUses {
+		if len(uses) <= maxTaskUses {
 			continue
 		}
 		slices.SortFunc(uses, func(a, b use) int { return cmp.Or(a.last.Compare(b.last), strings.Compare(a.o.Name, b.o.Name)) })
-		for _, u := range uses[:len(uses)-maxCommandUses] {
+		for _, u := range uses[:len(uses)-maxTaskUses] {
 			gone = append(gone, u.o)
 		}
 	}
+	// Runs kept by the command line are dropped: their keys never
+	// repeated, and routing reads tasks' records alone.
+	legacy, _, err := s.store.List(ctx, store.ListOptions{Kind: commandUseKind})
+	if err != nil {
+		return err
+	}
+	gone = append(gone, legacy...)
 	objs, _, err = s.store.List(ctx, store.ListOptions{Kind: processesRecordedKind})
 	if err != nil {
 		return err
@@ -304,6 +339,6 @@ func (s *Server) pruneCommandUses(ctx context.Context) error {
 			return err
 		}
 	}
-	s.commandUsesPruned.Store(now.UnixNano())
+	s.taskUsesPruned.Store(now.UnixNano())
 	return nil
 }

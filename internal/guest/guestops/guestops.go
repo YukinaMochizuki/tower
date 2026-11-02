@@ -17,6 +17,7 @@ import (
 	"io/fs"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/YukinaMochizuki/tower/internal/guest"
 	"github.com/YukinaMochizuki/tower/internal/guest/guestbin"
@@ -128,7 +129,8 @@ func (l *limited) Write(p []byte) (int, error) {
 }
 
 // result is an operation's error from its exit code: what is not there,
-// a bad offset, or a failure with its message.
+// a directory where a file was to be read (syscall.EISDIR), a bad
+// offset, or a failure with its message.
 func result(op string, code int, msg string, err error) error {
 	switch {
 	case err != nil:
@@ -137,6 +139,8 @@ func result(op string, code int, msg string, err error) error {
 		return nil
 	case code == guestbin.ExitNotExist:
 		return fmt.Errorf("%s: %s: %w", op, msg, fs.ErrNotExist)
+	case code == guestbin.ExitIsDir:
+		return fmt.Errorf("%s: %s: %w", op, msg, syscall.EISDIR)
 	case code == guestbin.ExitBadOffset:
 		return fmt.Errorf("%s: %s: %w", op, msg, guest.ErrBadOffset)
 	}

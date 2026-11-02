@@ -37,6 +37,7 @@ require (
 	golang.org/x/time v0.16.0
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.60.1
+	mvdan.cc/sh/v3 v3.14.1
 	sigs.k8s.io/yaml v1.6.0
 )
 

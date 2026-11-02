@@ -126,39 +126,38 @@ picks, its services and its agent included.
   `CLONE_INTO_CGROUP`) runs the process as it would without one, its usage
   unset. A field whose file the kernel does not offer (`memory.peak` before
   5.19, `cpu.pressure` without PSI) is unset alone.
-- **tower keeps the last 10 runs of each command** in an internal record
-  kind, `CommandUse`, beside `BoxUse` (`internal/apiserver/commanduse.go`),
-  keyed by project, the box's first checkout's repository, the directory
-  the process ran in relative to `/workspace`, and the command. The
-  directory is the one the guest ran it in, so a process that asked for
-  none counts with one that asked for its box's default directory. The
-  apiserver writes a record when it reads an exit (an attach's end, or a
-  list), each exit once: a box's processes are claimed before they are
-  recorded, and the recording goes on once the call that read them ends.
-  A record not run for 90 days goes, and a project keeps 1000 at most, the
-  least recently run going first; both are pruned once an hour.
-- **A command is kept under two keys, and its text under neither.** A
-  command's arguments may hold a secret, and records outlive the box, so a
-  record holds no command text and no environment:
-  - the exact key is the sha256 of the command normalized: whitespace
-    collapsed, a leading `cd /workspace &&` stripped and, on a line that is
-    one pipeline alone, trailing output filters (`2>&1`, `| tail`,
-    `| head`, `| grep`) stripped. A line holding a list (`;`, `&&`, `||`),
-    a background `&`, a substitution or a subshell keeps its filters,
-    whatever follows them;
-  - the coarse key is the program's name and its first subcommand (`go
-    test`, `make e2e`), past variables set before it, wrappers (`env`,
-    `time`, `timeout`, `sudo`, `nice`) and a leading `cd DIR &&`. It is the
-    only command text a record holds, so each word in it is a plain name:
-    lower-case letters, digits, `-` and `_`, starting with a letter, 32
-    characters at most, and not hex or digit-heavy as a token is. A
-    subcommand that is not one is left out; a program that is not one, a
-    script's name, say, is `<program>`, with no subcommand.
-
-  The coarse key is advisory: it may hint (a box size to suggest, a warning
-  that a command of this kind ran out of memory before) but never decides
-  where a run goes. `go test ./x` and `go test ./...` share it and differ
-  by gigabytes.
+- **tower keeps the last 10 runs of each task a line runs** in an
+  internal record kind, `TaskUse`, beside `BoxUse`
+  (`internal/apiserver/taskuse.go`), keyed by project, the box's first
+  checkout's repository, and the line's tasks, each its directory
+  relative to `/workspace`, its entry and its target, script or pattern
+  (`boost.md`, "Routing by task"). A line running none (`ls`, a script
+  file of its own) is not kept. The directory is where the process ran
+  joined with where the line moves (`cd web &&`, `make -C svc`), so a
+  process that asked for none counts with one that asked for
+  `/workspace`. The apiserver writes a record when it reads an exit (an
+  attach's end, or a list), each exit once: a box's processes are
+  claimed before they are recorded, and the recording goes on once the
+  call that read them ends. A boost's process is kept by the tasks found
+  as it started; a box's own by its command when its exit is read, with
+  the box's package.json (`pnpm lint` is a script only if it has it). A
+  record not written for 90 days goes, and a project keeps 1000 at most,
+  the least recently written going first; both are pruned once an hour.
+- **A record holds the task's plain names, and no other command text.**
+  A command's arguments may hold a secret, and records outlive the box,
+  so a record holds no line text and no environment: its targets,
+  scripts and recipes are names the repository gives, each a plain name
+  (lower-case letters, digits, `-` and `_`, starting with a letter, 32
+  characters at most, and not hex or digit-heavy as a token is; a
+  script's or recipe's may join such names with `:`), and its
+  directories and package patterns paths whose parts are not shaped as a
+  token is, and each a directory the box has (read through the provider,
+  never run). A line whose task has a word that is none is no task, and
+  not kept. A record holds the runs alone.
+- **Runs kept by the command line are dropped.** An earlier tower kept
+  them in `CommandUse`, under the sha256 of the line and its first word;
+  their keys almost never repeated (`boost.md`), and the first hourly
+  prune deletes them all.
 
 ## Consequences
 
@@ -170,10 +169,7 @@ picks, its services and its agent included.
   are still there; its other processes started through tower may not be.
 - The box's measured processes together can no longer use the last 768Mi
   of its memory, which its own processes keep.
-- A record says which command it is only to whoever already knows the
-  command: routing and hints look a command up by its key, never list
-  what was run.
-- Routing to a boost was to read these records. Four days of them showed
-  their keys almost never repeat, and routing by them is withdrawn:
-  `boost.md`, "Routing by task" (a draft), keeps records by the
-  repository's task instead, and drops these.
+- A record says which of the repository's tasks it is, and nothing of
+  the lines that ran it.
+- Routing a start that asks for `auto` reads these records
+  (`boost.md`, "Routing by task").

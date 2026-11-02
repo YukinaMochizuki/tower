@@ -109,12 +109,29 @@ func (h environmentService) StartProcess(ctx context.Context, req *connect.Reque
 		return nil, err
 	}
 	defer e.release()
-	if m.GetBoost() != nil || m.GetPending() != "" {
-		res, err := h.startBoosted(ctx, c, e, m, command)
-		if err != nil {
+	var routed *routing
+	if m.GetBoost().GetAuto() && m.GetPending() == "" {
+		ctx, cancel := context.WithTimeout(ctx, routeTimeout)
+		r := h.s.route(ctx, e, command, m.GetDir())
+		cancel()
+		// The why names the line's tasks alone, never its other words.
+		h.s.log.Info("a start routed", "caller", c.String(), "environment", e.String(), "boost", r.boost, "why", r.why)
+		routed = &r
+	}
+	if (m.GetBoost() != nil || m.GetPending() != "") && (routed == nil || routed.boost) {
+		res, err := h.startBoosted(ctx, c, e, m, command, routed)
+		var nf *neverFits
+		switch {
+		case errors.As(err, &nf):
+			// auto is advisory: a boost the target can never fit runs in
+			// the box, saying so; one that only waits stays pending.
+			h.s.log.Info("a routed start runs in the box: its boost can never fit", "caller", c.String(), "environment", e.String(), "size", nf.size.String())
+			routed = &routing{why: nf.why()}
+		case err != nil:
 			return nil, err
+		default:
+			return connect.NewResponse(res), nil
 		}
-		return connect.NewResponse(res), nil
 	}
 	id, err := e.p.StartProcess(ctx, provider.ProcessRequest{
 		Instance: e.ref, Command: e.asRunAs(command, m.GetDir()), Env: e.commandEnv(m.GetEnv()), Dir: m.GetDir(), Name: m.GetName(),
@@ -132,7 +149,50 @@ func (h environmentService) StartProcess(ctx context.Context, req *connect.Reque
 		r := h.s.instanceResources(ctx, e)
 		res.RanOn = ranOn{Kind: ranOnBox, CPU: r.GetCpu(), Memory: r.GetMemory()}.proto()
 	}
+	if routed != nil {
+		res.Routed = routed.why
+		h.s.keepRouted(ctx, e, id, routed.why)
+	}
 	return connect.NewResponse(res), nil
+}
+
+// routeTimeout bounds routing a start that asks for auto: the box's files
+// it reads, and the records.
+const routeTimeout = 10 * time.Second
+
+// keepRouted keeps why the box's process id was routed to the box, for
+// its exit; a failure is logged, its exit then saying none.
+func (s *Server) keepRouted(ctx context.Context, e *environment, id, why string) {
+	if e.box == nil {
+		return
+	}
+	now := s.clock.Now()
+	err := changeRecord(ctx, s, boxProcessesKey(controller.Key{Project: e.key.Project, Name: e.key.Name}), func(r *boxProcesses) bool {
+		if uid := e.box.GetMetadata().GetUid(); r.BoxUID != uid {
+			*r = boxProcesses{BoxUID: uid}
+		}
+		r.Routed = append(r.Routed, routedProcess{ID: id, Why: why, At: now})
+		if len(r.Routed) > routedKept {
+			r.Routed = r.Routed[len(r.Routed)-routedKept:]
+		}
+		return true
+	})
+	if err != nil {
+		s.log.Error("keeping why a process was routed failed", "environment", e.String(), "process", id, "error", err)
+	}
+}
+
+// routedIn is why the box's own process id was routed to the box, if it
+// was.
+func (s *Server) routedIn(ctx context.Context, e *environment, id string) string {
+	if e.box == nil {
+		return ""
+	}
+	var rec boxProcesses
+	if _, err := s.getRecord(ctx, boxProcessesKey(controller.Key{Project: e.key.Project, Name: e.key.Name}), &rec); err != nil || rec.BoxUID != e.box.GetMetadata().GetUid() {
+		return ""
+	}
+	return rec.routedOf(id)
 }
 
 func (h environmentService) AttachProcess(ctx context.Context, req *connect.Request[envv1alpha1.AttachProcessRequest], stream *connect.ServerStream[envv1alpha1.AttachProcessResponse]) error {
@@ -163,7 +223,7 @@ func (h environmentService) AttachProcess(ctx context.Context, req *connect.Requ
 		if !live {
 			// Its boost's instance is gone, its output with it: its exit as
 			// kept, or lost.
-			p := listedProcess{Process: provider.Process{Exit: bp.Exit}, lost: bp.Exit == nil, run: boostRunOf(bp)}
+			p := listedProcess{Process: provider.Process{Exit: bp.Exit}, lost: bp.Exit == nil, run: boostRunOf(bp), routed: bp.Routed}
 			return stream.Send(&envv1alpha1.AttachProcessResponse{Response: &envv1alpha1.AttachProcessResponse_End{End: &envv1alpha1.ProcessEnd{
 				HeldFrom: m.GetOffset(), NextOffset: m.GetOffset(), Exit: p.exit(),
 			}}})
@@ -187,6 +247,9 @@ func (h environmentService) AttachProcess(ctx context.Context, req *connect.Requ
 	}
 	h.s.exitRead(ctx, e, m.GetProcess(), at.Exit)
 	exit := processExit(at.Exit)
+	if exit != nil && ref == e.ref {
+		exit.Routed = h.s.routedIn(ctx, e, pid)
+	}
 	if exit != nil && ref != e.ref {
 		// A boost's process: what it changed and copied back, before its
 		// end is said.
@@ -197,7 +260,7 @@ func (h environmentService) AttachProcess(ctx context.Context, req *connect.Requ
 		if err != nil {
 			return apiError(err)
 		}
-		exit.Boost = boostRunOf(bp)
+		exit.Boost, exit.Routed = boostRunOf(bp), bp.Routed
 	}
 	return stream.Send(&envv1alpha1.AttachProcessResponse{Response: &envv1alpha1.AttachProcessResponse_End{End: &envv1alpha1.ProcessEnd{
 		HeldFrom: at.HeldFrom, NextOffset: at.Next, Exit: exit,
