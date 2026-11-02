@@ -169,7 +169,9 @@ func execOp(h Header, in io.Reader, stderr io.Writer) int {
 }
 
 func readOp(h Header, stdout, stderr io.Writer) int {
-	f, err := os.Open(h.Path)
+	// Opened without blocking, so a FIFO with no writer reads as empty at
+	// once rather than holding the read until one comes.
+	f, err := os.OpenFile(h.Path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if errors.Is(err, fs.ErrNotExist) {
 		return failed(stderr, ExitNotExist, err)
 	}
@@ -178,8 +180,11 @@ func readOp(h Header, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = f.Close() }()
 	if st, err := f.Stat(); err == nil && st.IsDir() {
-		return failed(stderr, ExitFailed, fmt.Errorf("%s is a directory", h.Path))
+		return failed(stderr, ExitIsDir, fmt.Errorf("%s is a directory", h.Path))
 	}
+	// Reads block again from here (Fd sets the descriptor blocking), as a
+	// device's should; a FIFO with no writer still ends at once.
+	_ = f.Fd()
 	if _, err := io.Copy(stdout, f); err != nil {
 		return failed(stderr, ExitFailed, err)
 	}

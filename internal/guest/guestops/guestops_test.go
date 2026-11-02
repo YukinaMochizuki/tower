@@ -200,6 +200,21 @@ func TestFiles(t *testing.T) {
 	if err := o.ReadFile(ctx, p+".none", io.Discard); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("reading what is not there: %v", err)
 	}
+	// A directory is told by its error, nothing sent; a FIFO with no
+	// writer reads as empty at once, not waiting for one.
+	b.Reset()
+	if err := o.ReadFile(ctx, filepath.Dir(p), &b); !errors.Is(err, syscall.EISDIR) || errors.Is(err, fs.ErrNotExist) || b.Len() != 0 {
+		t.Errorf("reading a directory: %v, %d bytes", err, b.Len())
+	}
+	fifo := filepath.Join(t.TempDir(), "fifo")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := o.ReadFile(fctx, fifo, &b); err != nil || b.Len() != 0 {
+		t.Errorf("reading a FIFO with no writer: %v, %d bytes", err, b.Len())
+	}
 }
 
 // TestCopy: a directory copied out as a tar named from its parent, and

@@ -1,9 +1,18 @@
 package apiserver
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/YukinaMochizuki/tower/internal/provider"
 )
 
 // TestJudgeRuns: each of the draft's thresholds, at its edge
@@ -78,6 +87,87 @@ func TestMemoryHolding(t *testing.T) {
 		if got := uint64(processMemoryMax(int64(m - 1))); got >= limit {
 			t.Errorf("memoryHolding(%d) = %d, but %d would hold them to %d", limit, m, m-1, got)
 		}
+	}
+}
+
+// readsAs is a provider whose ReadFile answers as read does; nothing else
+// of it is called.
+type readsAs struct {
+	provider.Provider
+	read  func(ctx context.Context, w io.Writer) error
+	calls atomic.Int32
+	// taken counts the bytes the reader took.
+	taken atomic.Int64
+}
+
+func (r *readsAs) ReadFile(ctx context.Context, _ provider.Instance, _ string, w io.Writer) error {
+	r.calls.Add(1)
+	return r.read(ctx, counting{w, &r.taken})
+}
+
+// counting counts what w takes.
+type counting struct {
+	w io.Writer
+	n *atomic.Int64
+}
+
+func (c counting) Write(b []byte) (int, error) {
+	n, err := c.w.Write(b)
+	c.n.Add(int64(n))
+	return n, err
+}
+
+// TestIsDir: a directory is told by its error alone (syscall.EISDIR),
+// never by its words; a file is read no further than its first byte, so
+// one that never ends answers at once.
+func TestIsDir(t *testing.T) {
+	t.Parallel()
+	endless := func(ctx context.Context, w io.Writer) error {
+		for {
+			if _, err := w.Write(make([]byte, 4096)); err != nil {
+				return err
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		read func(context.Context, io.Writer) error
+		want bool
+	}{
+		{"a directory", func(context.Context, io.Writer) error {
+			return fmt.Errorf("reading /workspace/web: %w: %w", syscall.EISDIR, provider.ErrFailed)
+		}, true},
+		{"words alone", func(context.Context, io.Writer) error {
+			return errors.New("reading /workspace/web: /workspace/web is a directory")
+		}, false},
+		{"not there", func(context.Context, io.Writer) error { return fs.ErrNotExist }, false},
+		{"an empty file", func(context.Context, io.Writer) error { return nil }, false},
+		{"a file that never ends", endless, false},
+		// As an older guest's read of a FIFO did: bounded by isDirTimeout.
+		{"a read that never answers", func(ctx context.Context, _ io.Writer) error { <-ctx.Done(); return ctx.Err() }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := &readsAs{read: tc.read}
+			pk := (&Server{}).packagesIn(t.Context(), &environment{p: p})
+			start := time.Now()
+			if got := pk.isDir("web"); got != tc.want {
+				t.Errorf("isDir = %v, want %v", got, tc.want)
+			}
+			if took := time.Since(start); took > isDirTimeout+time.Second {
+				t.Errorf("isDir took %v", took)
+			}
+			pk.isDir("web")
+			if n := p.calls.Load(); n != 1 {
+				t.Errorf("read %d times, want once", n)
+			}
+			if n := p.taken.Load(); n != 0 {
+				t.Errorf("took %d bytes of a file, want none", n)
+			}
+		})
 	}
 }
 

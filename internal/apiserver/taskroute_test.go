@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"log/slog"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -149,13 +148,13 @@ func TestAutoSendsAHeavyToolToABoost(t *testing.T) {
 	}
 }
 
-// execsRun counts the commands run in the fake by Exec, not as a
-// process, that run make: routing runs nothing to judge a task (a boost
-// being made runs its own setup).
-func (w *world) execsRun() int {
-	n := 0
+// execsRun counts every command run in the box by Exec, not as a
+// process: routing a start runs nothing there. (A boosted start syncs the
+// box by Exec, so only a start routed to the box is counted around.)
+func (w *world) execsRun(box string) int {
+	ref, n := w.boxRef(box), 0
 	for _, x := range w.fake.Execs() {
-		if !x.Process && slices.ContainsFunc(x.Command, func(a string) bool { return strings.Contains(a, "make") }) {
+		if !x.Process && x.Instance == ref {
 			n++
 		}
 	}
@@ -172,21 +171,24 @@ func TestAMakeTargetLearnsFromItsFirstRun(t *testing.T) {
 	w.readyBox("other", smallBox)
 	w.writeBoxFile("dev", "/workspace/Makefile", "test:\n\tgo test ./...\n")
 	w.writeBoxFile("dev", "/workspace/svc/Makefile", "test:\n")
-	execs := w.execsRun()
+	execs := w.execsRun("dev")
 	for _, tc := range []struct{ line, why string }{
 		{"make test 2>&1 | tee log", "make test: no runs recorded yet; its first run here is measured, and decides the next: in the box"},
 		{"make -C svc test", "make test (in svc): no runs recorded yet; its first run here is measured"},
 		{"just build", "just build: no runs recorded yet; its first run here is measured"},
 		{"task lint", "task lint: no runs recorded yet; its first run here is measured"},
-		{"make gen && go test ./...", "make gen && go test ./...: go test ./...: no runs recorded yet; go test is a heavy tool"},
 	} {
 		res := w.start(autoStart("dev", tc.line, ""))
-		if boosted(res) != strings.Contains(tc.why, "heavy tool") || !strings.HasPrefix(res.GetRouted(), tc.why) {
+		if boosted(res) || !strings.HasPrefix(res.GetRouted(), tc.why) {
 			t.Errorf("%q answered %v, want it saying %q", tc.line, res, tc.why)
 		}
 	}
-	if n := w.execsRun(); n != execs {
+	if n := w.execsRun("dev"); n != execs {
 		t.Errorf("routing ran %d commands in the box", n-execs)
+	}
+	if res := w.start(autoStart("dev", "make gen && go test ./...", "")); !boosted(res) ||
+		!strings.HasPrefix(res.GetRouted(), "make gen && go test ./...: go test ./...: no runs recorded yet; go test is a heavy tool") {
+		t.Errorf("a target and a heavy tool answered %v", res)
 	}
 	// Its first run, in one box, waited for a CPU: the next, in another,
 	// goes to a boost.
@@ -249,7 +251,6 @@ func TestAutoRoutesByRecords(t *testing.T) {
 	w := boostWorld(t, nil)
 	w.readyBox("dev", smallBox)
 	w.readyBox("other", smallBox)
-	execs := w.execsRun()
 	light := provider.ProcessUsage{MemoryPeak: bytesOf(500 << 20), CPUUsage: dur(10 * time.Second), CPUWait: dur(time.Second), Wall: time.Minute}
 	w.ranInBox("dev", "make test", light)
 	w.ranInBox("dev", "make test", provider.ProcessUsage{CPUUsage: dur(40 * time.Second), CPUWait: dur(24 * time.Second), Wall: time.Minute})
@@ -277,17 +278,18 @@ func TestAutoRoutesByRecords(t *testing.T) {
 		{"make short", false, "make short: its last run came near neither"},
 	} {
 		for _, box := range []string{"dev", "other"} {
+			execs := w.execsRun(box)
 			res := w.start(autoStart(box, tc.line, ""))
 			if boosted(res) != tc.boost || !strings.HasPrefix(res.GetRouted(), tc.why) {
 				t.Errorf("%q in %s answered %v, want boosted %v saying %q", tc.line, box, res, tc.boost, tc.why)
+			}
+			if n := w.execsRun(box); !boosted(res) && n != execs {
+				t.Errorf("routing %q ran %d commands in %s", tc.line, n-execs, box)
 			}
 			if tk := res.GetPending().GetTicket(); tk != "" {
 				w.start(&envv1alpha1.StartProcessRequest{Environment: boxEnv(box), Boost: autoStart(box, "", "").GetBoost(), Pending: tk, Cancel: true, Command: shellLine("x")})
 			}
 		}
-	}
-	if n := w.execsRun(); n != execs {
-		t.Errorf("routing ran %d commands in the box", n-execs)
 	}
 
 	// Three light runs since, the one that waited is past what is read.

@@ -153,6 +153,8 @@ const (
 	ExitFailed = 202
 	// ExitUnreachable is a fetch or post whose probe failed, nothing sent.
 	ExitUnreachable = 203
+	// ExitIsDir is a read of a directory: nothing is sent.
+	ExitIsDir = 204
 	// ExitCannotStart is exec's for a command that cannot start.
 	ExitCannotStart = 127
 )

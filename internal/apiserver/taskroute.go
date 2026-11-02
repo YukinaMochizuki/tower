@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"path"
 	"slices"
-	"strings"
+	"syscall"
 	"time"
 
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
@@ -242,9 +242,8 @@ func (j judge) busy(usage, wall time.Duration, cpu string) bool {
 
 // firstRun routes a task with no runs: a heavy tool by its name, a
 // package.json script by its text and the scripts it runs, a make, just
-// or task target to the box, where its first run is measured. tower runs
-// nothing to judge a task (decided with the human, 2026-11-02: make -n
-// runs $(MAKE) lines and remakes included makefiles).
+// or task target to the box, where its first run is measured. Nothing is
+// run to judge a task (docs/decisions/boost.md, "Routing by task").
 func (j judge) firstRun(t taskEntry) routing {
 	text := t.String()
 	size := j.set.boostResources
@@ -337,18 +336,37 @@ func (p *packages) read(file string) ([]byte, bool) {
 	return out.Bytes(), true
 }
 
-// isDirectory is how a read of a directory fails, a guest's ("<path> is
-// a directory") and the kernel's ("read <path>: is a directory") alike.
-const isDirectory = "is a directory"
+// isDirTimeout bounds the read that tells a directory: a guest answers
+// one at once, and a file at its first byte.
+const isDirTimeout = 2 * time.Second
 
+// errFirstByte stops a read that tells a directory once a file sends
+// anything: a large file, or a device that never ends, is not read on.
+var errFirstByte = errors.New("a file, not a directory")
+
+// firstByte refuses every byte written to it.
+type firstByte struct{}
+
+func (firstByte) Write(b []byte) (int, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
+	return 0, errFirstByte
+}
+
+// isDir reads dir as a file: a directory's read fails as one
+// (syscall.EISDIR), sending nothing; any other answer, a file's first
+// byte included, is no directory.
 func (p *packages) isDir(dir string) bool {
 	if got, ok := p.dirs[dir]; ok {
 		return got
 	}
 	is := false
 	if p.e.p != nil && dir != unknownDir {
-		err := p.e.p.ReadFile(p.ctx, p.e.ref, path.Join("/workspace", dir), io.Discard)
-		is = err != nil && strings.Contains(err.Error(), isDirectory)
+		ctx, cancel := context.WithTimeout(p.ctx, isDirTimeout)
+		err := p.e.p.ReadFile(ctx, p.e.ref, path.Join("/workspace", dir), firstByte{})
+		cancel()
+		is = errors.Is(err, syscall.EISDIR)
 	}
 	p.dirs[dir] = is
 	return is

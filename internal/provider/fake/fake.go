@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"connectrpc.com/connect"
@@ -1097,7 +1098,7 @@ func (f *Fake) ReadFile(_ context.Context, in provider.Instance, p string, w io.
 			// as a guest's does.
 			for file := range local.files {
 				if strings.HasPrefix(file, strings.TrimSuffix(name, "/")+"/") {
-					err = fmt.Errorf("reading %s: %s is a directory", p, p)
+					err = fmt.Errorf("reading %s: %s is a directory: %w", p, p, syscall.EISDIR)
 					break
 				}
 			}

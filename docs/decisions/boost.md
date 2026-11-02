@@ -222,10 +222,16 @@ fills in or departs from the draft above:
   line cannot tell (`cd $X`, `cd -`) are no task. **A directory is in a
   key only if the box has it**: the task's own (`cd X`, `make -C X`) and
   each `go` package pattern's (`./pkg/...` is `pkg`, which must be a
-  directory; a module's path or a file is none), read through the
-  provider as package.json is (a read of a directory fails as one), so
-  a word a line holds that is no directory of the repository's, a
-  secret say, never reaches a record, a log or `routed`.
+  directory; a module's path or a file is none), told by a read through
+  the provider, as package.json is read: the guest answers a directory
+  with an exit code of its own (`ExitIsDir`, `syscall.EISDIR` to tower),
+  sending nothing, never told by an error's words; a file is read no
+  further than its first byte, a FIFO with no writer reads as empty at
+  once, and the read is bounded to 2 seconds. A word a line holds that
+  is no directory of the repository's, a secret say, so never reaches a
+  record, a log or `routed`. A guest older than this tower answers no
+  directory, so its box's lines that name one are no task until it is
+  replaced.
 - **A line of several tasks** is kept as one, the list: its runs are
   the line's. With no runs of its own, each of its tasks is judged on its
   own (its runs, else as one with none), and the largest boost any asks
