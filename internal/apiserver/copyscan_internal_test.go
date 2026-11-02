@@ -210,7 +210,7 @@ func TestNeedleTiers(t *testing.T) {
 	for value, name := range map[string]string{
 		tierKube: "/kube", strings.TrimSpace(tierKube): "/kube", tierNetrc: "/netrc", key: "/key", keyBody: "/key", tierToken: "$TOKEN",
 		// A .netrc's fields are credentials whole.
-		tierNetrcPassword: "/netrc", tierNpmPassword: "/netrc", "ci-bot-2024": "/netrc",
+		tierNetrcPassword: "/netrc", tierNpmPassword: "/netrc",
 	} {
 		if strong[value] != name {
 			t.Errorf("%s's %.20q... is not strong", name, value)
@@ -428,25 +428,40 @@ func TestAGCPServiceAccountKeyIsFound(t *testing.T) {
 	}
 }
 
-// TestFieldsOfAOneLineSecretAreStrong: the password and login of a .netrc
-// on one line, the value of a KEY=value line, and a token-shaped string
-// of a JSON value are each a credential whole, found alone.
+// TestFieldsOfAOneLineSecretAreStrong: a .netrc's password and the value
+// of a key named as a secret are each a credential whole, whatever they
+// look like; a .netrc's login, any other KEY=value value and a JSON
+// string only if they look like a token. So a region or a bot's name in a
+// secret refuses no copy naming it.
 func TestFieldsOfAOneLineSecretAreStrong(t *testing.T) {
-	const pw, login, env, tok = "hunter2-Pq8Lm4Zx", "deploy-bot-2024", "s3cr3t-Value-9Kd2", "tk_" + "Q9w8E7r6T5y4U3i2O1p0"
+	const pw, tokenLogin, env, dbPassword = "hunter2-Pq8Lm4Zx", "u9Kx2mQ7vLp4Rt8Z", "s3cr3t-Value-9Kd2", "hunter2hunter2"
+	tok, build := "tk_"+"Q9w8E7r6T5y4U3i2O1p0", "Bq7Xz2Lm9Wd4Kp8N"
 	patterns, _ := secretPatterns([]namedSecret{
-		{name: "/netrc", value: []byte("machine github.com login " + login + " password " + pw + "\n")},
-		{name: "/app.env", value: []byte("export REGION=eu\nAPI_SECRET=\"" + env + "\"\n")},
-		{name: "/app.json", value: []byte(`{"name":"ci","auth":{"token":"` + tok + `"}}`)},
+		{name: "/netrc", value: []byte("machine github.com login ci-bot-2024 password " + pw + "\n")},
+		{name: "/netrc2", value: []byte("machine git.example.com login " + tokenLogin + " password x\n")},
+		{name: "/app.env", value: []byte("export REGION=eu\nAWS_REGION=us-east-1\nAPI_SECRET=\"" + env + "\"\nDB_PASSWORD=" + dbPassword + "\nBUILD_ID=" + build + "\nAPP_NAME=billing-service-prod\n")},
+		{name: "/app.json", value: []byte(`{"name":"billing-service-prod","host":"api.example.com","auth":{"token":"` + tok + `"}}`)},
 	})
 	for in, name := range map[string]string{
-		"pw: " + pw: "/netrc", "user " + login: "/netrc", "secret=" + env: "/app.env", "tok " + tok: "/app.json",
+		"pw: " + pw: "/netrc", "user " + tokenLogin: "/netrc2", "secret=" + env: "/app.env",
+		"db " + dbPassword: "/app.env", "build " + build: "/app.env", "tok " + tok: "/app.json",
 	} {
 		if _, stop := scanFor(t, patterns, in); stop == nil || stop.pattern == nil || !stop.pattern.strong || stop.pattern.name != name {
 			t.Errorf("%q: stopped %+v; want a strong needle of %s", in, stop, name)
 		}
 	}
-	if _, stop := scanFor(t, patterns, "machine github.com in region eu"); stop != nil {
-		t.Errorf("structure: stopped %+v", stop)
+	for _, clean := range []string{
+		"machine github.com in region eu", "deployed to us-east-1", "commits by ci-bot-2024",
+		"the billing-service-prod logs", "GET https://api.example.com/v1",
+	} {
+		if _, stop := scanFor(t, patterns, clean); stop != nil {
+			t.Errorf("%q: stopped as %s %s %q", clean, stop.pattern.name, stop.pattern.form, stop.pattern.b)
+		}
+		s := newScanner(patterns, 0, io.Discard)
+		_, _ = s.Write([]byte(clean))
+		if s.suspect != nil {
+			t.Errorf("%q: suspect as %q", clean, s.suspect.b)
+		}
 	}
 }
 

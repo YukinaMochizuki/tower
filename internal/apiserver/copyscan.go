@@ -53,7 +53,9 @@ var (
 	// hostShape is a DNS name: labels, the last a top-level domain's.
 	hostShape = regexp.MustCompile(`^([A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,24}$`)
 	// envLine is a line of an env file, KEY=value.
-	envLine = regexp.MustCompile(`^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_.-]*\s*=\s*(.*?)\s*$`)
+	envLine = regexp.MustCompile(`^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*(.*?)\s*$`)
+	// secretKey is a key whose name says its value is a secret.
+	secretKey = regexp.MustCompile(`(?i)PASS|PASSWORD|SECRET|TOKEN|KEY|CREDENTIAL|AUTH|PRIVATE|APIKEY|API_KEY`)
 	// jsonUnescape is a JSON string's escapes a PEM key in a JSON file, as
 	// a service account's private_key, is written with.
 	jsonUnescape = strings.NewReplacer(`\n`, "\n", `\r`, "\r", `\t`, "\t", `\/`, "/", `\"`, `"`, `\\`, `\`)
@@ -122,7 +124,7 @@ func secretPatterns(secrets []namedSecret) (patterns []scanPattern, tooShort []s
 // strongNeedles are what of a value is a credential itself: the value
 // whole and trimmed, a PEM block's base64 body, and its fields
 // (strongFields); in a JSON value, each string it holds that is a PEM
-// block or token-shaped, as the program reading it gets it.
+// block or a token (tokenLike), as the program reading it gets it.
 func strongNeedles(v []byte) [][]byte {
 	out := [][]byte{v, bytes.TrimSpace(v)}
 	for _, u := range unescaped(v) {
@@ -133,26 +135,43 @@ func strongNeedles(v []byte) [][]byte {
 		switch {
 		case bytes.Contains(s, []byte("-----BEGIN ")):
 			out = append(out, s, bytes.TrimSpace(s), pemBody(s))
-		case credentialShaped(s):
+		case tokenLike(s):
 			out = append(out, s)
 		}
 	}
 	return out
 }
 
+// tokenLike reports whether a field's value is a credential by its shape
+// alone: what a weak piece must be, and not a DNS name nor a JWT's header.
+func tokenLike(p []byte) bool {
+	return credentialShaped(p) && !hostShape.Match(p) && !joseHeader(p)
+}
+
 // strongFields are the credentials a value holds as fields: a .netrc's
-// password and login, and the value of each KEY=value line.
+// password, and the value of each KEY=value line whose key's name says
+// secret, whatever they look like; a .netrc's login and any other value
+// only if it is tokenLike. So "AWS_REGION=us-east-1" or "login
+// ci-bot-2024" is none, which would refuse every copy naming them.
 func strongFields(v []byte) [][]byte {
 	var out [][]byte
+	field := func(b []byte, always bool) {
+		if always || tokenLike(b) {
+			out = append(out, b)
+		}
+	}
 	words := strings.Fields(string(v))
 	for i, w := range words[:max(len(words)-1, 0)] {
-		if w == "password" || w == "login" {
-			out = append(out, []byte(words[i+1]))
+		switch w {
+		case "password":
+			field([]byte(words[i+1]), true)
+		case "login":
+			field([]byte(words[i+1]), false)
 		}
 	}
 	for line := range strings.Lines(string(v)) {
 		if m := envLine.FindStringSubmatch(line); m != nil {
-			out = append(out, []byte(strings.Trim(m[1], `"'`)))
+			field([]byte(strings.Trim(m[2], `"'`)), secretKey.MatchString(m[1]))
 		}
 	}
 	return out

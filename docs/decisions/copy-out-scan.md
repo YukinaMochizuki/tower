@@ -62,11 +62,20 @@ scan in tower, every copy out of a privileged box on tower asks a human.
   - the value whole and trimmed;
   - a PEM block's base64 body, its lines joined, also inside JSON with its
     line breaks escaped;
-  - a .netrc's `password` and `login` values, and the value of each
-    `KEY=value` line (`export` before it, quotes around the value
-    dropped);
-  - in a JSON value, each string it holds at any depth, unescaped, that
-    is a PEM block (whole, trimmed, and its body) or credential-shaped.
+  - a .netrc's `password` value, and the value of each `KEY=value` line
+    (`export` before it, quotes around the value dropped) whose key's
+    name holds, in any case, `PASS`, `PASSWORD`, `SECRET`, `TOKEN`, `KEY`,
+    `CREDENTIAL`, `AUTH`, `PRIVATE`, `APIKEY` or `API_KEY`, whatever it
+    looks like;
+  - a .netrc's `login` value, any other `KEY=value` value, and each string
+    a JSON value holds at any depth, unescaped, only if it looks like a
+    token: credential-shaped, and neither a DNS name nor a JWT's header,
+    as a weak piece must be. Else it is no needle at all, so
+    `AWS_REGION=us-east-1` or `login ci-bot-2024` in a secret refuses no
+    copy that names them, which as strong needles they would, with no
+    human able to let it through;
+  - in a JSON value, each string that is a PEM block, whole, trimmed,
+    and its body.
 
   Weak needles are the credential-shaped pieces of a value, single-line
   included: each trimmed line, and each segment split on whitespace,
