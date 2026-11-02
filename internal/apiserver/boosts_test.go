@@ -174,7 +174,7 @@ func TestABoostGoesWhenIdle(t *testing.T) {
 	t.Parallel()
 	w := boostWorld(t, &targetsv1alpha1.TargetSettings{IdleStopAfter: durationpb.New(30 * time.Minute)})
 	w.readyBox("dev")
-	id := w.startBoosted(boostOn("dev", "sleep")).GetProcess()
+	id := w.startBoosted(boostOn("dev", "sh", "-c", "sleep; go test ./...")).GetProcess()
 	b, _ := w.boost("dev")
 	bref := provider.Instance{Project: "web", Name: b.GetStatus().GetInstance()}
 	testutil.Eventually(t, "the boost's process reported running", func() bool {
@@ -225,12 +225,10 @@ func TestABoostGoesWhenIdle(t *testing.T) {
 	})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Errorf("signalling a process of a boost gone: %v, want FailedPrecondition", err)
 	}
-	uses, _ := w.commandUses()
+	uses, _ := w.taskUses()
 	recorded := false
-	for _, u := range uses {
-		for _, run := range u.Runs {
-			recorded = recorded || (run.Process == id && run.RanOn.Kind == "boost" && run.RanOn.Memory == "8192Mi" && run.MemoryPeak != nil && *run.MemoryPeak == peak)
-		}
+	for _, run := range uses["go test ./..."].Runs {
+		recorded = recorded || (run.Process == id && run.RanOn.Kind == "boost" && run.RanOn.Memory == "8192Mi" && run.MemoryPeak != nil && *run.MemoryPeak == peak)
 	}
 	if !recorded {
 		t.Errorf("the boost's run is not recorded as run on a boost of 8192Mi: %+v", uses)
@@ -382,7 +380,7 @@ func TestADeletedBoxsBoostKeepsItsUsage(t *testing.T) {
 	t.Parallel()
 	w := boostWorld(t, nil)
 	w.readyBox("dev")
-	id := w.startBoosted(boostOn("dev", "sleep")).GetProcess()
+	id := w.startBoosted(boostOn("dev", "sh", "-c", "sleep; go test ./...")).GetProcess()
 	b, _ := w.boost("dev")
 	bref := provider.Instance{Project: "web", Name: b.GetStatus().GetInstance()}
 	ps, _ := w.fake.ListProcesses(t.Context(), bref)
@@ -402,12 +400,11 @@ func TestADeletedBoxsBoostKeepsItsUsage(t *testing.T) {
 	// ended process reads its exit first; the settling may end after the
 	// instance is gone.
 	testutil.Eventually(t, "the deleted box's boost process recorded", func() (bool, string) {
-		uses, _ := w.commandUses()
-		for _, u := range uses {
-			for _, run := range u.Runs {
-				if run.Process == id && run.RanOn.Kind == "boost" && run.MemoryPeak != nil && *run.MemoryPeak == peak && u.Repository == "api" {
-					return true, ""
-				}
+		uses, _ := w.taskUses()
+		u := uses["go test ./..."]
+		for _, run := range u.Runs {
+			if run.Process == id && run.RanOn.Kind == "boost" && run.MemoryPeak != nil && *run.MemoryPeak == peak && u.Repository == "api" {
+				return true, ""
 			}
 		}
 		return false, fmt.Sprintf("%+v", uses)
@@ -640,22 +637,31 @@ func TestAStartWaitingForItsBoostKeepsIt(t *testing.T) {
 }
 
 // TestAKeptExitIsNotCountedAgain: a process kept from a boost gone is
-// never recorded as a run from its record, which holds no command text:
-// its usage was recorded before the boost went, or is lost.
+// never recorded as a run from its record, which holds no command text
+// but its tasks' words: its usage was recorded before the boost went, or
+// is lost. One kept by a tower that kept runs by the command line is
+// listed by its coarse key.
 func TestAKeptExitIsNotCountedAgain(t *testing.T) {
 	t.Parallel()
 	w := boostWorld(t, nil)
 	box := w.readyBox("dev")
 	rec := fmt.Sprintf(`{"boxUid":%q,"repository":"api","boost":[{"id":"boost-0123456789ab-p7","boostUid":"gone","instance":"boost-dev",
 		"instanceUid":"gone","providerId":"p7","cpu":"8","memory":"8192Mi","coarse":"go test","started":"2026-10-29T00:00:00Z",
+		"exit":{"Code":0,"Signal":0,"Usage":{"MemoryPeak":1024,"Wall":60000000000}},"gone":true},
+		{"id":"boost-0123456789ab-p8","boostUid":"gone","instance":"boost-dev","instanceUid":"gone","providerId":"p8","cpu":"8","memory":"8192Mi",
+		"tasks":[{"dir":".","tool":"make","name":"test"}],"tasksFound":true,"shown":"make test","routed":"make test: why","started":"2026-10-29T00:00:00Z",
 		"exit":{"Code":0,"Signal":0,"Usage":{"MemoryPeak":1024,"Wall":60000000000}},"gone":true}]}`, box.GetMetadata().GetUid())
 	if _, err := w.store.Create(t.Context(), store.Key{Kind: "BoxProcesses", Project: "web", Name: "dev"}, []byte(rec)); err != nil {
 		t.Fatal(err)
 	}
-	if p := w.listed("dev")["boost-0123456789ab-p7"]; p.GetExit().GetMemoryPeakBytes() != 1024 || p.GetCommand() != "go test" {
+	listed := w.listed("dev")
+	if p := listed["boost-0123456789ab-p7"]; p.GetExit().GetMemoryPeakBytes() != 1024 || p.GetCommand() != "go test" {
 		t.Fatalf("the kept process listed: %v", p)
 	}
-	uses, all := w.commandUses()
+	if p := listed["boost-0123456789ab-p8"]; p.GetCommand() != "make test" || p.GetExit().GetRouted() != "make test: why" {
+		t.Fatalf("the kept process listed: %v", p)
+	}
+	uses, all := w.taskUses()
 	if len(uses) != 0 {
 		t.Errorf("a kept exit was recorded as a run: %s", all)
 	}

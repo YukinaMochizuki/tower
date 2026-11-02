@@ -1,9 +1,8 @@
 package apiserver_test
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -23,11 +22,12 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
-// commandUse is a CommandUse record as the store holds it.
-type commandUse struct {
-	Repository, Dir, Key, CommandSHA256, Coarse string
-	LastRecorded                                time.Time
-	Runs                                        []struct {
+// taskUse is a TaskUse record as the store holds it.
+type taskUse struct {
+	Repository   string
+	Tasks        []struct{ Dir, Tool, Name string }
+	LastRecorded time.Time
+	Runs         []struct {
 		Box, Process string
 		ExitCode     int
 		MemoryPeak   *int64
@@ -35,35 +35,47 @@ type commandUse struct {
 		Wall         time.Duration
 		RanOn        struct{ Kind, CPU, Memory string }
 	}
+	Expansion *struct{ Source, File, Heavy string }
 }
 
-// commandUses are the project web's command uses by key and dir, and
+// text is its tasks as a routed answer words them.
+func (u taskUse) text() string {
+	var words []string
+	for _, t := range u.Tasks {
+		s := t.Tool
+		if t.Name != "" {
+			s += " " + t.Name
+		}
+		if t.Dir != "." {
+			s += " (in " + t.Dir + ")"
+		}
+		words = append(words, s)
+	}
+	return strings.Join(words, " && ")
+}
+
+// taskUses are the project web's task uses by their tasks' words, and
 // every record's data together.
-func (w *world) commandUses() (map[string]commandUse, string) {
+func (w *world) taskUses() (map[string]taskUse, string) {
 	w.t.Helper()
-	objs, _, err := w.store.List(w.t.Context(), store.ListOptions{Kind: "CommandUse", Project: "web"})
+	objs, _, err := w.store.List(w.t.Context(), store.ListOptions{Kind: "TaskUse", Project: "web"})
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	out := map[string]commandUse{}
+	out := map[string]taskUse{}
 	var all strings.Builder
 	for _, o := range objs {
 		all.Write(o.Data)
-		var r commandUse
+		var r taskUse
 		if err := json.Unmarshal(o.Data, &r); err != nil {
 			w.t.Fatal(err)
 		}
-		out[r.Key+" "+r.Dir+" "+r.CommandSHA256+r.Coarse] = r
+		out[r.text()] = r
 	}
 	return out, all.String()
 }
 
-func sha(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:])
-}
-
-func runsOf(r commandUse) []string {
+func runsOf(r taskUse) []string {
 	var out []string
 	for _, run := range r.Runs {
 		out = append(out, run.Process)
@@ -75,11 +87,17 @@ func sleepArgv(args ...string) *envv1alpha1.StartProcessRequest_Argv {
 	return &envv1alpha1.StartProcessRequest_Argv{Argv: &envv1alpha1.Argv{Args: append([]string{"sleep"}, args...)}}
 }
 
+// shellLine is a shell line the fake runs until it is ended, as its
+// first word is sleep.
+func shellLine(line string) *envv1alpha1.StartProcessRequest_Shell {
+	return &envv1alpha1.StartProcessRequest_Shell{Shell: "sleep; " + line}
+}
+
 // TestProcessUsage: a process is held to its box's memory less tower's
 // reserve; a measured process's usage reaches its exit as the API gives
-// it, and tower keeps it under the command's exact and coarse keys, once
-// however often the exit is read, and never the command's text. An
-// unmeasured exit says no usage, and is not kept.
+// it, and tower keeps it under the line's task, once however often the
+// exit is read, and never the line's other words. An unmeasured exit
+// says no usage, and is not kept; a line with no task is not kept.
 func TestProcessUsage(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -91,11 +109,11 @@ func TestProcessUsage(t *testing.T) {
 	peak, killed, cpu := int64(3<<30), true, 90*time.Second
 	usage := &provider.ProcessUsage{MemoryPeak: &peak, OOMKilled: &killed, CPUUsage: &cpu, Wall: 2 * time.Minute}
 	const secret = "canary-arg-Qz81"
-	sleep := func(dir string) string {
-		return startProcess(t, envs, &envv1alpha1.StartProcessRequest{Environment: boxEnv("dev"), Command: sleepArgv("60", secret), Dir: dir})
+	start := func(dir string) string {
+		return startProcess(t, envs, &envv1alpha1.StartProcessRequest{Environment: boxEnv("dev"), Command: shellLine("export TOKEN=" + secret + "; make test ARG=" + secret + " | tail -5"), Dir: dir})
 	}
 
-	first := sleep("/workspace")
+	first := start("/workspace")
 	inst, _ := w.instance(inName)
 	memory, err := quantity.Bytes(inst.GetSpec().GetResources().GetMemory())
 	if err != nil {
@@ -116,31 +134,37 @@ func TestProcessUsage(t *testing.T) {
 	if exit.GetMemoryPeakBytes() != peak || !exit.GetOomKilled() || exit.GetCpuUsage().AsDuration() != cpu || exit.CpuWait != nil || exit.GetWall().AsDuration() != 2*time.Minute {
 		t.Errorf("the attach's end says %v", exit)
 	}
-	exactName := "exact . " + sha("sleep 60 "+secret)
-	uses, all := w.commandUses()
-	exact, coarse := uses[exactName], uses["coarse . sleep"]
-	if len(uses) != 2 || len(exact.Runs) != 1 || len(coarse.Runs) != 1 {
+	if exit.GetRouted() != "" {
+		t.Errorf("a start that did not ask for auto says it was routed: %q", exit.GetRouted())
+	}
+	uses, all := w.taskUses()
+	use := uses["make test"]
+	if len(uses) != 1 || len(use.Runs) != 1 {
 		t.Fatalf("recorded %+v", uses)
 	}
-	if strings.Contains(all, secret) || strings.Contains(all, "sleep 60") {
-		t.Errorf("a record holds the command's text: %s", all)
+	if strings.Contains(all, secret) || strings.Contains(all, "tail") || strings.Contains(all, "TOKEN") {
+		t.Errorf("a record holds more of the line than its task: %s", all)
 	}
-	run := exact.Runs[0]
-	if exact.Repository != "api" || run.Box != "dev" || run.Process != first || run.ExitCode != 137 || run.MemoryPeak == nil || *run.MemoryPeak != peak ||
+	run := use.Runs[0]
+	if use.Repository != "api" || run.Box != "dev" || run.Process != first || run.ExitCode != 137 || run.MemoryPeak == nil || *run.MemoryPeak != peak ||
 		run.OOMKilled == nil || !*run.OOMKilled || run.Wall != 2*time.Minute || run.RanOn.Kind != "box" || run.RanOn.Memory == "" {
-		t.Errorf("the exact record holds %+v, %+v", exact, run)
+		t.Errorf("the record holds %+v, %+v", use, run)
 	}
 
 	// Read again, by attach and list, it is counted once.
 	if _, _, err := attachProcess(ctx, envs, &envv1alpha1.AttachProcessRequest{Environment: boxEnv("dev"), Process: first}); err != nil {
 		t.Fatal(err)
 	}
-	second := sleep("/workspace/")
-	unmeasured := sleep("/workspace")
+	second := start("/workspace/")
+	unmeasured := start("/workspace")
+	noTask := startProcess(t, envs, &envv1alpha1.StartProcessRequest{Environment: boxEnv("dev"), Command: sleepArgv("60", secret)})
 	if err := w.fake.EndProcessWith(in, second, provider.ProcessExit{Usage: usage}); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.fake.EndProcess(in, unmeasured, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.fake.EndProcessWith(in, noTask, provider.ProcessExit{Usage: usage}); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
@@ -155,18 +179,21 @@ func TestProcessUsage(t *testing.T) {
 			}
 		}
 	}
-	uses, _ = w.commandUses()
-	if got := runsOf(uses[exactName]); len(uses) != 2 || !slices.Equal(got, []string{first, second}) || len(uses["coarse . sleep"].Runs) != 2 {
+	uses, all = w.taskUses()
+	if got := runsOf(uses["make test"]); len(uses) != 1 || !slices.Equal(got, []string{first, second}) {
 		t.Errorf("after reading the exits again, the records hold runs of %v: %+v", got, uses)
+	}
+	if strings.Contains(all, noTask) {
+		t.Errorf("a line with no task was recorded: %s", all)
 	}
 
 	// Unused for longer than they are kept, they go.
 	w.advance(91 * 24 * time.Hour)
-	testutil.Eventually(t, "the command uses pruned", func() bool { return w.records("CommandUse") == 0 })
+	testutil.Eventually(t, "the task uses pruned", func() bool { return w.records("TaskUse") == 0 })
 }
 
-// TestProcessUsageKeepsTheLastRuns: a command's records keep its newest
-// runs alone, and a box gone takes what it counted with it.
+// TestProcessUsageKeepsTheLastRuns: a task's records keep its newest runs
+// alone, by its directory; and a box gone takes what it counted with it.
 func TestProcessUsageKeepsTheLastRuns(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
@@ -175,7 +202,11 @@ func TestProcessUsageKeepsTheLastRuns(t *testing.T) {
 	in := provider.Instance{Project: "web", Name: w.box("dev").GetStatus().GetInstance()}
 	var ids []string
 	for i := range 12 {
-		id := startProcess(t, envs, &envv1alpha1.StartProcessRequest{Environment: boxEnv("dev"), Command: sleepArgv("go", "test"), Dir: "/workspace/sub"})
+		line := "go test ./... -run X"
+		if i%2 == 1 {
+			line = "cd /workspace/sub && go test ./... 2>&1 | tail -50"
+		}
+		id := startProcess(t, envs, &envv1alpha1.StartProcessRequest{Environment: boxEnv("dev"), Command: shellLine(line), Dir: "/workspace/sub"})
 		ids = append(ids, id)
 		if err := w.fake.EndProcessWith(in, id, provider.ProcessExit{Usage: &provider.ProcessUsage{Wall: time.Duration(i+1) * time.Second}}); err != nil {
 			t.Fatal(err)
@@ -185,8 +216,8 @@ func TestProcessUsageKeepsTheLastRuns(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	uses, _ := w.commandUses()
-	if got := runsOf(uses["exact sub "+sha("sleep go test")]); !slices.Equal(got, ids[2:]) || len(uses["coarse sub sleep go"].Runs) != 10 {
+	uses, _ := w.taskUses()
+	if got := runsOf(uses["go test ./... (in sub)"]); len(uses) != 1 || !slices.Equal(got, ids[2:]) {
 		t.Errorf("kept runs of %v, want %v; records %v", got, ids[2:], uses)
 	}
 	if n := w.records("ProcessesRecorded"); n != 1 {
@@ -204,6 +235,32 @@ func TestProcessUsageKeepsTheLastRuns(t *testing.T) {
 	testutil.Eventually(t, "the counted processes of a box gone pruned", func() bool { return w.records("ProcessesRecorded") == 0 })
 }
 
+// TestProcessUsageFindsScriptsInTheBox: a runner's shorthand is recorded
+// as a script when the box's package.json has it, and not otherwise.
+func TestProcessUsageFindsScriptsInTheBox(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.readyBox("dev")
+	envs := w.as(workstream).envs
+	in := provider.Instance{Project: "web", Name: w.box("dev").GetStatus().GetInstance()}
+	if err := w.fake.WriteFile(t.Context(), in, "/workspace/web/package.json", 0o644, 0, bytes.NewReader([]byte(`{"scripts":{"lint":"eslint ."}}`))); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range []string{"cd web && pnpm lint", "pnpm lint"} {
+		id := startProcess(t, envs, &envv1alpha1.StartProcessRequest{Environment: boxEnv("dev"), Command: shellLine(line)})
+		if err := w.fake.EndProcessWith(in, id, provider.ProcessExit{Usage: &provider.ProcessUsage{Wall: time.Second}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := envs.ListProcesses(t.Context(), connect.NewRequest(&envv1alpha1.ListProcessesRequest{Environment: boxEnv("dev")})); err != nil {
+		t.Fatal(err)
+	}
+	uses, all := w.taskUses()
+	if len(uses) != 1 || len(uses["pnpm lint (in web)"].Runs) != 1 {
+		t.Errorf("recorded %s", all)
+	}
+}
+
 // TestProcessUsageIsRecordedOnceAtOnce: exits read by calls at once,
 // lists and an attach racing a list, are each counted once.
 func TestProcessUsageIsRecordedOnceAtOnce(t *testing.T) {
@@ -214,7 +271,7 @@ func TestProcessUsageIsRecordedOnceAtOnce(t *testing.T) {
 	in := provider.Instance{Project: "web", Name: w.box("dev").GetStatus().GetInstance()}
 	var ids []string
 	for range 4 {
-		id := startProcess(t, envs, &envv1alpha1.StartProcessRequest{Environment: boxEnv("dev"), Command: sleepArgv("1")})
+		id := startProcess(t, envs, &envv1alpha1.StartProcessRequest{Environment: boxEnv("dev"), Command: shellLine("make test")})
 		if err := w.fake.EndProcessWith(in, id, provider.ProcessExit{Usage: &provider.ProcessUsage{Wall: time.Second}}); err != nil {
 			t.Fatal(err)
 		}
@@ -240,8 +297,8 @@ func TestProcessUsageIsRecordedOnceAtOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	uses, _ := w.commandUses()
-	got := runsOf(uses["exact  "+sha("sleep 1")])
+	uses, _ := w.taskUses()
+	got := runsOf(uses["make test"])
 	slices.Sort(got)
 	if !slices.Equal(got, ids) {
 		t.Errorf("recorded runs of %v, want each of %v once", got, ids)
@@ -260,29 +317,47 @@ func TestProcessUsageOutlivesTheCall(t *testing.T) {
 	if err := w.srv.RecordExits(ctx, "web", "dev", ps); err != nil {
 		t.Fatal(err)
 	}
-	uses, _ := w.commandUses()
-	if got := runsOf(uses["exact . "+sha("make e2e")]); !slices.Equal(got, []string{"p1"}) || len(uses["coarse . make e2e"].Runs) != 1 {
+	uses, _ := w.taskUses()
+	if got := runsOf(uses["make e2e"]); !slices.Equal(got, []string{"p1"}) {
 		t.Errorf("a cancelled call recorded %+v", uses)
 	}
 }
 
-// TestCommandUsesAreCapped: a project keeps maxCommandUses command uses,
-// the least recently run going.
-func TestCommandUsesAreCapped(t *testing.T) {
+// TestTaskUsesAreCapped: a project keeps maxTaskUses task uses, the least
+// recently written going.
+func TestTaskUsesAreCapped(t *testing.T) {
 	t.Parallel()
 	w := newWorld(t)
 	now := w.clock.Now()
 	for i := range 1002 {
-		data, _ := json.Marshal(map[string]any{"key": "exact", "commandSha256": fmt.Sprint(i), "lastRecorded": now.Add(time.Duration(i) * time.Second)})
-		if _, err := w.store.Create(t.Context(), store.Key{Kind: "CommandUse", Project: "web", Name: fmt.Sprintf("c%04d", i)}, data); err != nil {
+		data, _ := json.Marshal(map[string]any{"tasks": []map[string]string{{"dir": ".", "tool": "make", "name": fmt.Sprint("t", i)}}, "lastRecorded": now.Add(time.Duration(i) * time.Second)})
+		if _, err := w.store.Create(t.Context(), store.Key{Kind: "TaskUse", Project: "web", Name: fmt.Sprintf("c%04d", i)}, data); err != nil {
 			t.Fatal(err)
 		}
 	}
 	w.advance(time.Hour + time.Minute)
-	testutil.Eventually(t, "the command uses capped", func() bool { return w.records("CommandUse") == 1000 })
+	testutil.Eventually(t, "the task uses capped", func() bool { return w.records("TaskUse") == 1000 })
 	for _, name := range []string{"c0000", "c0001"} {
-		if _, err := w.store.Get(t.Context(), store.Key{Kind: "CommandUse", Project: "web", Name: name}); err == nil {
-			t.Errorf("%s, among the least recently run, was kept", name)
+		if _, err := w.store.Get(t.Context(), store.Key{Kind: "TaskUse", Project: "web", Name: name}); err == nil {
+			t.Errorf("%s, among the least recently written, was kept", name)
 		}
 	}
+}
+
+// TestCommandUsesAreDropped: the runs a tower kept by the command line
+// are deleted at the first prune, however recent.
+func TestCommandUsesAreDropped(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	data, _ := json.Marshal(map[string]any{"key": "coarse", "coarse": "go test", "lastRecorded": w.clock.Now()})
+	for _, project := range []string{"web", "other"} {
+		if _, err := w.store.Create(t.Context(), store.Key{Kind: "CommandUse", Project: project, Name: "c1"}, data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.advance(time.Hour + time.Minute)
+	testutil.Eventually(t, "the command uses dropped", func() bool {
+		objs, _, err := w.store.List(t.Context(), store.ListOptions{Kind: "CommandUse"})
+		return err == nil && len(objs) == 0
+	})
 }

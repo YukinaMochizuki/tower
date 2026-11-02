@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/YukinaMochizuki/tower/internal/provider"
@@ -15,9 +16,9 @@ import (
 
 // process is one process of a fake instance: its log, in memory, and how
 // it ended. The fake's commands run when the process starts and end it at
-// once, but sleep, which runs until it is signalled or its instance
-// stops; a test writes to a process and ends it with WriteProcess and
-// EndProcess.
+// once, but sleep (or a shell line starting with it), which runs until
+// it is signalled or its instance stops; a test writes to a process and
+// ends it with WriteProcess and EndProcess.
 type process struct {
 	id, name, dir string
 	command       []string
@@ -115,6 +116,16 @@ func (f *Fake) GuestProcessesInBackground() {
 	f.guestInBackground = true
 }
 
+// sleeps says a process of command runs until it is ended: sleep, or a
+// shell line starting with it ("sleep; make test"), which a test gives the
+// words a line of its own would have.
+func sleeps(command []string) bool {
+	if len(command) == 3 && (command[1] == "-c" || command[1] == "-lc") && strings.HasPrefix(command[2], "sleep") {
+		return true
+	}
+	return len(command) > 0 && command[0] == "sleep"
+}
+
 func (f *Fake) StartProcess(_ context.Context, req provider.ProcessRequest) (string, error) {
 	f.mu.Lock()
 	local, err := f.running(req.Instance)
@@ -140,7 +151,7 @@ func (f *Fake) StartProcess(_ context.Context, req provider.ProcessRequest) (str
 		req.Command = withoutBoostJob(req.Command)
 	}
 	f.mu.Unlock()
-	if len(req.Command) > 0 && req.Command[0] == "sleep" {
+	if sleeps(req.Command) {
 		return p.id, nil
 	}
 	f.mu.Lock()
