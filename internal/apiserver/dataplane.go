@@ -477,6 +477,7 @@ func (h environmentService) CopyFile(ctx context.Context, req *connect.Request[e
 	if err != nil {
 		return nil, err
 	}
+	defer to.release()
 	if from.workstream != to.workstream {
 		return nil, invalid("a copy is between two environments of one workstream; %s and %s are not", from, to)
 	}
