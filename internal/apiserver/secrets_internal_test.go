@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -11,10 +12,13 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
+	"github.com/jonboulle/clockwork"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	iamv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/iam/v1alpha1"
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
@@ -23,6 +27,7 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/conditions"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/secrets"
+	"github.com/YukinaMochizuki/tower/internal/store"
 	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
@@ -81,12 +86,14 @@ func withSecrets(k *secrets.Keyring, log *lockedBuffer) func(*Config) {
 }
 
 // noValues fails if an answered secret holds its values, their sealed
-// form, or the canary anywhere.
+// form, the values it held before, when it holds them since, or the
+// canary anywhere.
 func noValues(t *testing.T, what string, msgs ...proto.Message) {
 	t.Helper()
 	for _, m := range msgs {
-		if sec, ok := m.(*secretsv1alpha1.Secret); ok && (sec.GetSpec().GetData() != nil || sec.GetSpec().GetSealed() != nil) {
-			t.Errorf("%s: answered the data or its sealed form: %v", what, sec.GetSpec())
+		if sec, ok := m.(*secretsv1alpha1.Secret); ok && (sec.GetSpec().GetData() != nil || sec.GetSpec().GetSealed() != nil ||
+			sec.GetSpec().GetSuperseded() != nil || sec.GetSpec().GetHistorySince() != nil) {
+			t.Errorf("%s: answered the data, its sealed form or its history: %v", what, sec.GetSpec())
 		}
 		b, err := protojson.Marshal(m)
 		if err != nil {
@@ -175,6 +182,29 @@ func TestSecretValuesAreNeverAnswered(t *testing.T) {
 	if again.(*secretsv1alpha1.Secret).GetStatus().GetContentHmac() == st.GetContentHmac() {
 		t.Error("the content HMAC did not change with the values")
 	}
+	// Past what it keeps, so it holds values before and a history_since:
+	// neither is answered.
+	for i := range 17 {
+		res, err = b.Apply(user, registrySecret("ghcr", dockerConfig("ghcr.io", "me", fmt.Sprintf("%s-r%d", secretCanary, i))))
+		if err != nil {
+			t.Fatal(err)
+		}
+		noValues(t, "apply a rotation", res.Object)
+	}
+	if kept, err := s.get(system, registry.Secret, key); err != nil || len(kept.(*secretsv1alpha1.Secret).GetSpec().GetSuperseded()) == 0 ||
+		kept.(*secretsv1alpha1.Secret).GetSpec().GetHistorySince() == nil {
+		t.Fatalf("the stored secret has no history to leave out: %v", err)
+	}
+	got, err = b.Get(user, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noValues(t, "get a rotated secret", got)
+	list, err := b.List(user, resource.ListOptions{Project: "web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	noValues(t, "list a rotated secret", list.Items...)
 
 	// Errors name what is wrong, never the value.
 	bad := registrySecret("bad", []byte(`{"auths":{"ghcr.io":{"password":"`+secretCanary+`"`))
@@ -477,5 +507,134 @@ func TestOpenSecretIsTheSystemsAlone(t *testing.T) {
 	}
 	if _, err := s.OpenSecret(system, resource.Key{Project: "web", Name: "held"}); connect.CodeOf(err) != connect.CodeNotFound {
 		t.Errorf("opening a secret being deleted: %v", err)
+	}
+}
+
+// TestASecretsHistoryOutlivesAKEKRotation: the values a secret held
+// before are sealed again under a new KEK at start, as its current one
+// is, and open with it alone; sealing the same data under a new KEK is no
+// new value; and a secret written more than once before history was kept
+// has its history start at the first start that keeps it.
+func TestASecretsHistoryOutlivesAKEKRotation(t *testing.T) {
+	t.Parallel()
+	k1 := secrets.NewKEK("k1")
+	s, system, user := runningWith(t, withSecrets(keyring(t, k1), nil))
+	b := s.backend(registry.Secret)
+	key := resource.Key{Project: "web", Name: "forge"}
+	// An environment made with the secret, given every value it held.
+	made := s.clock.Now()
+	for _, v := range []string{"canary-v1-Qa81zz", "canary-v2-Ws72yy"} {
+		if _, err := b.Apply(user, &secretsv1alpha1.Secret{
+			Metadata: &metav1.ObjectMeta{Project: "web", Name: "forge"},
+			Spec:     &secretsv1alpha1.SecretSpec{Type: secretsv1alpha1.SecretType_SECRET_TYPE_OPAQUE, Data: map[string][]byte{"T": []byte(v)}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	restart := func(k *secrets.Keyring) *Server {
+		srv := New(Config{Store: s.store, Secrets: k, Clock: s.clock})
+		if err := srv.PrepareSecrets(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		return srv
+	}
+	k2 := secrets.NewKEK("k2")
+	restart(keyring(t, k2, k1))
+	after := restart(keyring(t, k2))
+	stored := func(srv *Server) *secretsv1alpha1.Secret {
+		t.Helper()
+		obj, err := srv.get(system, registry.Secret, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return obj.(*secretsv1alpha1.Secret)
+	}
+	if sup := stored(after).GetSpec().GetSuperseded(); len(sup) != 1 || sup[0].GetSealed().GetKekId() != "k2" {
+		t.Fatalf("after rotating, superseded %v", sup)
+	}
+	values, complete, err := after.OpenSecretHistory(system, key, made)
+	if err != nil || !complete || len(values) != 2 || string(values[0]["T"]) != "canary-v2-Ws72yy" || string(values[1]["T"]) != "canary-v1-Qa81zz" {
+		t.Fatalf("history: %d values, complete %v, %v", len(values), complete, err)
+	}
+	// The same data again, sealed under k2 now: no new value.
+	if _, err := after.backend(registry.Secret).Apply(user, &secretsv1alpha1.Secret{
+		Metadata: &metav1.ObjectMeta{Project: "web", Name: "forge"},
+		Spec:     &secretsv1alpha1.SecretSpec{Type: secretsv1alpha1.SecretType_SECRET_TYPE_OPAQUE, Data: map[string][]byte{"T": []byte("canary-v2-Ws72yy")}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(stored(after).GetSpec().GetSuperseded()); n != 1 {
+		t.Errorf("the same data again: %d superseded", n)
+	}
+	// The history is the apiserver's: an apply that sets it is refused.
+	_, err = after.backend(registry.Secret).Apply(user, &secretsv1alpha1.Secret{
+		Metadata: &metav1.ObjectMeta{Project: "web", Name: "forge"},
+		Spec: &secretsv1alpha1.SecretSpec{Type: secretsv1alpha1.SecretType_SECRET_TYPE_OPAQUE, Data: map[string][]byte{"T": []byte("canary-v3-Ed63xx")},
+			HistorySince: timestamppb.New(s.clock.Now())},
+	})
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("an apply setting history_since: %v", err)
+	}
+	// As stored before history was kept: written twice, none.
+	objs, _, err := s.store.List(t.Context(), store.ListOptions{Kind: registry.Secret.Kind})
+	if err != nil || len(objs) != 1 {
+		t.Fatal(objs, err)
+	}
+	legacy := stored(after)
+	legacy.Spec.Superseded, legacy.Spec.HistorySince = nil, nil
+	data, err := encode(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.Update(t.Context(), objs[0].Key, data, objs[0].Revision); err != nil {
+		t.Fatal(err)
+	}
+	started := s.clock.Now()
+	restarted := restart(keyring(t, k2))
+	if hist := stored(restarted).GetSpec().GetHistorySince(); hist == nil || hist.AsTime().Before(started) {
+		t.Errorf("a secret written twice before history was kept: history since %v", hist)
+	}
+	if _, complete, _ := restarted.OpenSecretHistory(system, key, started.Add(-time.Hour)); complete {
+		t.Error("an environment made before history was kept has its secret's whole history")
+	}
+}
+
+// TestTheSameValuesAgainBumpNothing: a value kept past its 90 days is not
+// dropped by an apply of the same values, which changes nothing, but by
+// the next new value or the next start.
+func TestTheSameValuesAgainBumpNothing(t *testing.T) {
+	t.Parallel()
+	k1 := secrets.NewKEK("k1")
+	s, system, user := runningWith(t, withSecrets(keyring(t, k1), nil))
+	b := s.backend(registry.Secret)
+	key := resource.Key{Project: "web", Name: "forge"}
+	apply := func(v string) *secretsv1alpha1.Secret {
+		t.Helper()
+		if _, err := b.Apply(user, opaque("forge", map[string]string{"T": v})); err != nil {
+			t.Fatal(err)
+		}
+		obj, err := s.get(system, registry.Secret, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return obj.(*secretsv1alpha1.Secret)
+	}
+	apply("canary-v1-Uj55qq")
+	before := apply("canary-v2-Ik44ww")
+	s.clock.(*clockwork.FakeClock).Advance(91 * 24 * time.Hour)
+	again := apply("canary-v2-Ik44ww")
+	if again.GetMetadata().GetGeneration() != before.GetMetadata().GetGeneration() || len(again.GetSpec().GetSuperseded()) != 1 {
+		t.Errorf("the same values again: generation %d (was %d), %d superseded", again.GetMetadata().GetGeneration(), before.GetMetadata().GetGeneration(), len(again.GetSpec().GetSuperseded()))
+	}
+	restarted := New(Config{Store: s.store, Secrets: keyring(t, k1), Clock: s.clock})
+	if err := restarted.PrepareSecrets(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	obj, err := restarted.get(system, registry.Secret, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sec := obj.(*secretsv1alpha1.Secret); len(sec.GetSpec().GetSuperseded()) != 0 || sec.GetSpec().GetHistorySince() == nil {
+		t.Errorf("after a start: %d superseded, history since %v", len(sec.GetSpec().GetSuperseded()), sec.GetSpec().GetHistorySince())
 	}
 }

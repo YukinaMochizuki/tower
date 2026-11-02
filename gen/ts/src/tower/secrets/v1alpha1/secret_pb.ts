@@ -4,6 +4,8 @@
 
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Condition, EventType, ObjectMeta } from "../../meta/v1/meta_pb";
 import { file_tower_meta_v1_meta } from "../../meta/v1/meta_pb";
 import { file_tower_meta_v1_options } from "../../meta/v1/options_pb";
@@ -13,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tower/secrets/v1alpha1/secret.proto.
  */
 export const file_tower_secrets_v1alpha1_secret: GenFile = /*@__PURE__*/
-  fileDesc("CiN0b3dlci9zZWNyZXRzL3YxYWxwaGExL3NlY3JldC5wcm90bxIWdG93ZXIuc2VjcmV0cy52MWFscGhhMSLZAQoGU2VjcmV0EhMKC2FwaV92ZXJzaW9uGAEgASgJEgwKBGtpbmQYAiABKAkSKwoIbWV0YWRhdGEYAyABKAsyGS50b3dlci5tZXRhLnYxLk9iamVjdE1ldGESMAoEc3BlYxgEIAEoCzIiLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuU2VjcmV0U3BlYxI0CgZzdGF0dXMYBSABKAsyJC50b3dlci5zZWNyZXRzLnYxYWxwaGExLlNlY3JldFN0YXR1czoXyvMYEwoGU2VjcmV0EgdzZWNyZXRzIAEi4wEKClNlY3JldFNwZWMSOAoEdHlwZRgBIAEoDjIiLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuU2VjcmV0VHlwZUIGyvMYAggBEjoKBGRhdGEYAiADKAsyLC50b3dlci5zZWNyZXRzLnYxYWxwaGExLlNlY3JldFNwZWMuRGF0YUVudHJ5EjIKBnNlYWxlZBgDIAEoCzIiLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuU2VhbGVkRGF0YRorCglEYXRhRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgMOgI4ASJqCgpTZWFsZWREYXRhEg4KBmtla19pZBgBIAEoCRITCgt3cmFwcGVkX2tleRgCIAEoDBINCgVub25jZRgDIAEoDBISCgpjaXBoZXJ0ZXh0GAQgASgMEhQKDGNvbnRlbnRfaG1hYxgFIAEoCSKRAQoMU2VjcmV0U3RhdHVzEhsKE29ic2VydmVkX2dlbmVyYXRpb24YASABKAMSLAoKY29uZGl0aW9ucxgCIAMoCzIYLnRvd2VyLm1ldGEudjEuQ29uZGl0aW9uEgwKBGtleXMYAyADKAkSFAoMY29udGVudF9obWFjGAQgASgJEhIKCnJlZ2lzdHJpZXMYBSADKAkiMQoQR2V0U2VjcmV0UmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEgwKBG5hbWUYAiABKAkiQwoRR2V0U2VjcmV0UmVzcG9uc2USLgoGc2VjcmV0GAEgASgLMh4udG93ZXIuc2VjcmV0cy52MWFscGhhMS5TZWNyZXQiZAoSTGlzdFNlY3JldHNSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkSFgoObGFiZWxfc2VsZWN0b3IYAiABKAkSEQoJcGFnZV9zaXplGAMgASgFEhIKCnBhZ2VfdG9rZW4YBCABKAkibwoTTGlzdFNlY3JldHNSZXNwb25zZRItCgVpdGVtcxgBIAMoCzIeLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuU2VjcmV0EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAyJWChNXYXRjaFNlY3JldHNSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkSFgoObGFiZWxfc2VsZWN0b3IYAiABKAkSFgoOc2luY2VfcmV2aXNpb24YAyABKAMigAEKFFdhdGNoU2VjcmV0c1Jlc3BvbnNlEiYKBHR5cGUYASABKA4yGC50b3dlci5tZXRhLnYxLkV2ZW50VHlwZRIuCgZzZWNyZXQYAiABKAsyHi50b3dlci5zZWNyZXRzLnYxYWxwaGExLlNlY3JldBIQCghyZXZpc2lvbhgDIAEoAyJZChJBcHBseVNlY3JldFJlcXVlc3QSLgoGc2VjcmV0GAEgASgLMh4udG93ZXIuc2VjcmV0cy52MWFscGhhMS5TZWNyZXQSEwoLY3JlYXRlX29ubHkYAiABKAgiaAoTQXBwbHlTZWNyZXRSZXNwb25zZRIuCgZzZWNyZXQYASABKAsyHi50b3dlci5zZWNyZXRzLnYxYWxwaGExLlNlY3JldBIQCgh3YXJuaW5ncxgCIAMoCRIPCgdjcmVhdGVkGAMgASgIInoKE0RlbGV0ZVNlY3JldFJlcXVlc3QSDwoHcHJvamVjdBgBIAEoCRIMCgRuYW1lGAIgASgJEiYKGWV4cGVjdGVkX3Jlc291cmNlX3ZlcnNpb24YAyABKANIAIgBAUIcChpfZXhwZWN0ZWRfcmVzb3VyY2VfdmVyc2lvbiJGChREZWxldGVTZWNyZXRSZXNwb25zZRIuCgZzZWNyZXQYASABKAsyHi50b3dlci5zZWNyZXRzLnYxYWxwaGExLlNlY3JldCK2AQoZVXBkYXRlU2VjcmV0U3RhdHVzUmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEgwKBG5hbWUYAiABKAkSNAoGc3RhdHVzGAMgASgLMiQudG93ZXIuc2VjcmV0cy52MWFscGhhMS5TZWNyZXRTdGF0dXMSJgoZZXhwZWN0ZWRfcmVzb3VyY2VfdmVyc2lvbhgEIAEoA0gAiAEBQhwKGl9leHBlY3RlZF9yZXNvdXJjZV92ZXJzaW9uIkwKGlVwZGF0ZVNlY3JldFN0YXR1c1Jlc3BvbnNlEi4KBnNlY3JldBgBIAEoCzIeLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuU2VjcmV0KmAKClNlY3JldFR5cGUSGwoXU0VDUkVUX1RZUEVfVU5TUEVDSUZJRUQQABIdChlTRUNSRVRfVFlQRV9SRUdJU1RSWV9BVVRIEAESFgoSU0VDUkVUX1RZUEVfT1BBUVVFEAIylgUKDVNlY3JldFNlcnZpY2USYAoJR2V0U2VjcmV0EigudG93ZXIuc2VjcmV0cy52MWFscGhhMS5HZXRTZWNyZXRSZXF1ZXN0GikudG93ZXIuc2VjcmV0cy52MWFscGhhMS5HZXRTZWNyZXRSZXNwb25zZRJmCgtMaXN0U2VjcmV0cxIqLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuTGlzdFNlY3JldHNSZXF1ZXN0GisudG93ZXIuc2VjcmV0cy52MWFscGhhMS5MaXN0U2VjcmV0c1Jlc3BvbnNlEmsKDFdhdGNoU2VjcmV0cxIrLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuV2F0Y2hTZWNyZXRzUmVxdWVzdBosLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuV2F0Y2hTZWNyZXRzUmVzcG9uc2UwARJmCgtBcHBseVNlY3JldBIqLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuQXBwbHlTZWNyZXRSZXF1ZXN0GisudG93ZXIuc2VjcmV0cy52MWFscGhhMS5BcHBseVNlY3JldFJlc3BvbnNlEmkKDERlbGV0ZVNlY3JldBIrLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuRGVsZXRlU2VjcmV0UmVxdWVzdBosLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuRGVsZXRlU2VjcmV0UmVzcG9uc2USewoSVXBkYXRlU2VjcmV0U3RhdHVzEjEudG93ZXIuc2VjcmV0cy52MWFscGhhMS5VcGRhdGVTZWNyZXRTdGF0dXNSZXF1ZXN0GjIudG93ZXIuc2VjcmV0cy52MWFscGhhMS5VcGRhdGVTZWNyZXRTdGF0dXNSZXNwb25zZULzAQoaY29tLnRvd2VyLnNlY3JldHMudjFhbHBoYTFCC1NlY3JldFByb3RvUAFaTmdpdGh1Yi5jb20vWXVraW5hTW9jaGl6dWtpL3Rvd2VyL2dlbi9nby90b3dlci9zZWNyZXRzL3YxYWxwaGExO3NlY3JldHN2MWFscGhhMaICA1RTWKoCFlRvd2VyLlNlY3JldHMuVjFhbHBoYTHKAhZUb3dlclxTZWNyZXRzXFYxYWxwaGEx4gIiVG93ZXJcU2VjcmV0c1xWMWFscGhhMVxHUEJNZXRhZGF0YeoCGFRvd2VyOjpTZWNyZXRzOjpWMWFscGhhMWIGcHJvdG8z", [file_tower_meta_v1_meta, file_tower_meta_v1_options]);
+  fileDesc("CiN0b3dlci9zZWNyZXRzL3YxYWxwaGExL3NlY3JldC5wcm90bxIWdG93ZXIuc2VjcmV0cy52MWFscGhhMSLZAQoGU2VjcmV0EhMKC2FwaV92ZXJzaW9uGAEgASgJEgwKBGtpbmQYAiABKAkSKwoIbWV0YWRhdGEYAyABKAsyGS50b3dlci5tZXRhLnYxLk9iamVjdE1ldGESMAoEc3BlYxgEIAEoCzIiLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuU2VjcmV0U3BlYxI0CgZzdGF0dXMYBSABKAsyJC50b3dlci5zZWNyZXRzLnYxYWxwaGExLlNlY3JldFN0YXR1czoXyvMYEwoGU2VjcmV0EgdzZWNyZXRzIAEi0gIKClNlY3JldFNwZWMSOAoEdHlwZRgBIAEoDjIiLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuU2VjcmV0VHlwZUIGyvMYAggBEjoKBGRhdGEYAiADKAsyLC50b3dlci5zZWNyZXRzLnYxYWxwaGExLlNlY3JldFNwZWMuRGF0YUVudHJ5EjIKBnNlYWxlZBgDIAEoCzIiLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuU2VhbGVkRGF0YRI6CgpzdXBlcnNlZGVkGAQgAygLMiYudG93ZXIuc2VjcmV0cy52MWFscGhhMS5TdXBlcnNlZGVkRGF0YRIxCg1oaXN0b3J5X3NpbmNlGAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBorCglEYXRhRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgMOgI4ASJ5Cg5TdXBlcnNlZGVkRGF0YRIyCgZzZWFsZWQYASABKAsyIi50b3dlci5zZWNyZXRzLnYxYWxwaGExLlNlYWxlZERhdGESMwoPc3VwZXJzZWRlZF90aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJqCgpTZWFsZWREYXRhEg4KBmtla19pZBgBIAEoCRITCgt3cmFwcGVkX2tleRgCIAEoDBINCgVub25jZRgDIAEoDBISCgpjaXBoZXJ0ZXh0GAQgASgMEhQKDGNvbnRlbnRfaG1hYxgFIAEoCSKRAQoMU2VjcmV0U3RhdHVzEhsKE29ic2VydmVkX2dlbmVyYXRpb24YASABKAMSLAoKY29uZGl0aW9ucxgCIAMoCzIYLnRvd2VyLm1ldGEudjEuQ29uZGl0aW9uEgwKBGtleXMYAyADKAkSFAoMY29udGVudF9obWFjGAQgASgJEhIKCnJlZ2lzdHJpZXMYBSADKAkiMQoQR2V0U2VjcmV0UmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEgwKBG5hbWUYAiABKAkiQwoRR2V0U2VjcmV0UmVzcG9uc2USLgoGc2VjcmV0GAEgASgLMh4udG93ZXIuc2VjcmV0cy52MWFscGhhMS5TZWNyZXQiZAoSTGlzdFNlY3JldHNSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkSFgoObGFiZWxfc2VsZWN0b3IYAiABKAkSEQoJcGFnZV9zaXplGAMgASgFEhIKCnBhZ2VfdG9rZW4YBCABKAkibwoTTGlzdFNlY3JldHNSZXNwb25zZRItCgVpdGVtcxgBIAMoCzIeLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuU2VjcmV0EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAyJWChNXYXRjaFNlY3JldHNSZXF1ZXN0Eg8KB3Byb2plY3QYASABKAkSFgoObGFiZWxfc2VsZWN0b3IYAiABKAkSFgoOc2luY2VfcmV2aXNpb24YAyABKAMigAEKFFdhdGNoU2VjcmV0c1Jlc3BvbnNlEiYKBHR5cGUYASABKA4yGC50b3dlci5tZXRhLnYxLkV2ZW50VHlwZRIuCgZzZWNyZXQYAiABKAsyHi50b3dlci5zZWNyZXRzLnYxYWxwaGExLlNlY3JldBIQCghyZXZpc2lvbhgDIAEoAyJZChJBcHBseVNlY3JldFJlcXVlc3QSLgoGc2VjcmV0GAEgASgLMh4udG93ZXIuc2VjcmV0cy52MWFscGhhMS5TZWNyZXQSEwoLY3JlYXRlX29ubHkYAiABKAgiaAoTQXBwbHlTZWNyZXRSZXNwb25zZRIuCgZzZWNyZXQYASABKAsyHi50b3dlci5zZWNyZXRzLnYxYWxwaGExLlNlY3JldBIQCgh3YXJuaW5ncxgCIAMoCRIPCgdjcmVhdGVkGAMgASgIInoKE0RlbGV0ZVNlY3JldFJlcXVlc3QSDwoHcHJvamVjdBgBIAEoCRIMCgRuYW1lGAIgASgJEiYKGWV4cGVjdGVkX3Jlc291cmNlX3ZlcnNpb24YAyABKANIAIgBAUIcChpfZXhwZWN0ZWRfcmVzb3VyY2VfdmVyc2lvbiJGChREZWxldGVTZWNyZXRSZXNwb25zZRIuCgZzZWNyZXQYASABKAsyHi50b3dlci5zZWNyZXRzLnYxYWxwaGExLlNlY3JldCK2AQoZVXBkYXRlU2VjcmV0U3RhdHVzUmVxdWVzdBIPCgdwcm9qZWN0GAEgASgJEgwKBG5hbWUYAiABKAkSNAoGc3RhdHVzGAMgASgLMiQudG93ZXIuc2VjcmV0cy52MWFscGhhMS5TZWNyZXRTdGF0dXMSJgoZZXhwZWN0ZWRfcmVzb3VyY2VfdmVyc2lvbhgEIAEoA0gAiAEBQhwKGl9leHBlY3RlZF9yZXNvdXJjZV92ZXJzaW9uIkwKGlVwZGF0ZVNlY3JldFN0YXR1c1Jlc3BvbnNlEi4KBnNlY3JldBgBIAEoCzIeLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuU2VjcmV0KmAKClNlY3JldFR5cGUSGwoXU0VDUkVUX1RZUEVfVU5TUEVDSUZJRUQQABIdChlTRUNSRVRfVFlQRV9SRUdJU1RSWV9BVVRIEAESFgoSU0VDUkVUX1RZUEVfT1BBUVVFEAIylgUKDVNlY3JldFNlcnZpY2USYAoJR2V0U2VjcmV0EigudG93ZXIuc2VjcmV0cy52MWFscGhhMS5HZXRTZWNyZXRSZXF1ZXN0GikudG93ZXIuc2VjcmV0cy52MWFscGhhMS5HZXRTZWNyZXRSZXNwb25zZRJmCgtMaXN0U2VjcmV0cxIqLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuTGlzdFNlY3JldHNSZXF1ZXN0GisudG93ZXIuc2VjcmV0cy52MWFscGhhMS5MaXN0U2VjcmV0c1Jlc3BvbnNlEmsKDFdhdGNoU2VjcmV0cxIrLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuV2F0Y2hTZWNyZXRzUmVxdWVzdBosLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuV2F0Y2hTZWNyZXRzUmVzcG9uc2UwARJmCgtBcHBseVNlY3JldBIqLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuQXBwbHlTZWNyZXRSZXF1ZXN0GisudG93ZXIuc2VjcmV0cy52MWFscGhhMS5BcHBseVNlY3JldFJlc3BvbnNlEmkKDERlbGV0ZVNlY3JldBIrLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuRGVsZXRlU2VjcmV0UmVxdWVzdBosLnRvd2VyLnNlY3JldHMudjFhbHBoYTEuRGVsZXRlU2VjcmV0UmVzcG9uc2USewoSVXBkYXRlU2VjcmV0U3RhdHVzEjEudG93ZXIuc2VjcmV0cy52MWFscGhhMS5VcGRhdGVTZWNyZXRTdGF0dXNSZXF1ZXN0GjIudG93ZXIuc2VjcmV0cy52MWFscGhhMS5VcGRhdGVTZWNyZXRTdGF0dXNSZXNwb25zZULzAQoaY29tLnRvd2VyLnNlY3JldHMudjFhbHBoYTFCC1NlY3JldFByb3RvUAFaTmdpdGh1Yi5jb20vWXVraW5hTW9jaGl6dWtpL3Rvd2VyL2dlbi9nby90b3dlci9zZWNyZXRzL3YxYWxwaGExO3NlY3JldHN2MWFscGhhMaICA1RTWKoCFlRvd2VyLlNlY3JldHMuVjFhbHBoYTHKAhZUb3dlclxTZWNyZXRzXFYxYWxwaGEx4gIiVG93ZXJcU2VjcmV0c1xWMWFscGhhMVxHUEJNZXRhZGF0YeoCGFRvd2VyOjpTZWNyZXRzOjpWMWFscGhhMWIGcHJvdG8z", [file_google_protobuf_timestamp, file_tower_meta_v1_meta, file_tower_meta_v1_options]);
 
 /**
  * Secret holds credentials for tower to use on a project's behalf: a
@@ -88,6 +90,25 @@ export type SecretSpec = Message<"tower.secrets.v1alpha1.SecretSpec"> & {
    * @generated from field: tower.secrets.v1alpha1.SealedData sealed = 3;
    */
   sealed?: SealedData | undefined;
+
+  /**
+   * The data this secret held before, newest first, kept encrypted for 90
+   * days and 16 values at most, so a copy out of an environment can be
+   * scanned for every value it was given (docs/decisions/copy-out-scan.md).
+   * The apiserver's alone, as sealed is.
+   *
+   * @generated from field: repeated tower.secrets.v1alpha1.SupersededData superseded = 4;
+   */
+  superseded: SupersededData[];
+
+  /**
+   * Every value the secret held at or after this time is sealed or
+   * superseded: an older one was dropped. Unset, it holds every value it
+   * ever held. The apiserver's alone, as sealed is.
+   *
+   * @generated from field: google.protobuf.Timestamp history_since = 5;
+   */
+  historySince?: Timestamp | undefined;
 };
 
 /**
@@ -96,6 +117,30 @@ export type SecretSpec = Message<"tower.secrets.v1alpha1.SecretSpec"> & {
  */
 export const SecretSpecSchema: GenMessage<SecretSpec> = /*@__PURE__*/
   messageDesc(file_tower_secrets_v1alpha1_secret, 1);
+
+/**
+ * SupersededData is data a secret held until it was replaced.
+ *
+ * @generated from message tower.secrets.v1alpha1.SupersededData
+ */
+export type SupersededData = Message<"tower.secrets.v1alpha1.SupersededData"> & {
+  /**
+   * @generated from field: tower.secrets.v1alpha1.SealedData sealed = 1;
+   */
+  sealed?: SealedData | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp superseded_time = 2;
+   */
+  supersededTime?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message tower.secrets.v1alpha1.SupersededData.
+ * Use `create(SupersededDataSchema)` to create a new message.
+ */
+export const SupersededDataSchema: GenMessage<SupersededData> = /*@__PURE__*/
+  messageDesc(file_tower_secrets_v1alpha1_secret, 2);
 
 /**
  * SealedData is a secret's data encrypted under a key of its own, which is
@@ -143,7 +188,7 @@ export type SealedData = Message<"tower.secrets.v1alpha1.SealedData"> & {
  * Use `create(SealedDataSchema)` to create a new message.
  */
 export const SealedDataSchema: GenMessage<SealedData> = /*@__PURE__*/
-  messageDesc(file_tower_secrets_v1alpha1_secret, 2);
+  messageDesc(file_tower_secrets_v1alpha1_secret, 3);
 
 /**
  * SecretStatus is what can be said of a secret without its values.
@@ -189,7 +234,7 @@ export type SecretStatus = Message<"tower.secrets.v1alpha1.SecretStatus"> & {
  * Use `create(SecretStatusSchema)` to create a new message.
  */
 export const SecretStatusSchema: GenMessage<SecretStatus> = /*@__PURE__*/
-  messageDesc(file_tower_secrets_v1alpha1_secret, 3);
+  messageDesc(file_tower_secrets_v1alpha1_secret, 4);
 
 /**
  * @generated from message tower.secrets.v1alpha1.GetSecretRequest
@@ -211,7 +256,7 @@ export type GetSecretRequest = Message<"tower.secrets.v1alpha1.GetSecretRequest"
  * Use `create(GetSecretRequestSchema)` to create a new message.
  */
 export const GetSecretRequestSchema: GenMessage<GetSecretRequest> = /*@__PURE__*/
-  messageDesc(file_tower_secrets_v1alpha1_secret, 4);
+  messageDesc(file_tower_secrets_v1alpha1_secret, 5);
 
 /**
  * @generated from message tower.secrets.v1alpha1.GetSecretResponse
@@ -228,7 +273,7 @@ export type GetSecretResponse = Message<"tower.secrets.v1alpha1.GetSecretRespons
  * Use `create(GetSecretResponseSchema)` to create a new message.
  */
 export const GetSecretResponseSchema: GenMessage<GetSecretResponse> = /*@__PURE__*/
-  messageDesc(file_tower_secrets_v1alpha1_secret, 5);
+  messageDesc(file_tower_secrets_v1alpha1_secret, 6);
 
 /**
  * @generated from message tower.secrets.v1alpha1.ListSecretsRequest
@@ -262,7 +307,7 @@ export type ListSecretsRequest = Message<"tower.secrets.v1alpha1.ListSecretsRequ
  * Use `create(ListSecretsRequestSchema)` to create a new message.
  */
 export const ListSecretsRequestSchema: GenMessage<ListSecretsRequest> = /*@__PURE__*/
-  messageDesc(file_tower_secrets_v1alpha1_secret, 6);
+  messageDesc(file_tower_secrets_v1alpha1_secret, 7);
 
 /**
  * @generated from message tower.secrets.v1alpha1.ListSecretsResponse
@@ -289,7 +334,7 @@ export type ListSecretsResponse = Message<"tower.secrets.v1alpha1.ListSecretsRes
  * Use `create(ListSecretsResponseSchema)` to create a new message.
  */
 export const ListSecretsResponseSchema: GenMessage<ListSecretsResponse> = /*@__PURE__*/
-  messageDesc(file_tower_secrets_v1alpha1_secret, 7);
+  messageDesc(file_tower_secrets_v1alpha1_secret, 8);
 
 /**
  * @generated from message tower.secrets.v1alpha1.WatchSecretsRequest
@@ -318,7 +363,7 @@ export type WatchSecretsRequest = Message<"tower.secrets.v1alpha1.WatchSecretsRe
  * Use `create(WatchSecretsRequestSchema)` to create a new message.
  */
 export const WatchSecretsRequestSchema: GenMessage<WatchSecretsRequest> = /*@__PURE__*/
-  messageDesc(file_tower_secrets_v1alpha1_secret, 8);
+  messageDesc(file_tower_secrets_v1alpha1_secret, 9);
 
 /**
  * @generated from message tower.secrets.v1alpha1.WatchSecretsResponse
@@ -345,7 +390,7 @@ export type WatchSecretsResponse = Message<"tower.secrets.v1alpha1.WatchSecretsR
  * Use `create(WatchSecretsResponseSchema)` to create a new message.
  */
 export const WatchSecretsResponseSchema: GenMessage<WatchSecretsResponse> = /*@__PURE__*/
-  messageDesc(file_tower_secrets_v1alpha1_secret, 9);
+  messageDesc(file_tower_secrets_v1alpha1_secret, 10);
 
 /**
  * @generated from message tower.secrets.v1alpha1.ApplySecretRequest
@@ -369,7 +414,7 @@ export type ApplySecretRequest = Message<"tower.secrets.v1alpha1.ApplySecretRequ
  * Use `create(ApplySecretRequestSchema)` to create a new message.
  */
 export const ApplySecretRequestSchema: GenMessage<ApplySecretRequest> = /*@__PURE__*/
-  messageDesc(file_tower_secrets_v1alpha1_secret, 10);
+  messageDesc(file_tower_secrets_v1alpha1_secret, 11);
 
 /**
  * @generated from message tower.secrets.v1alpha1.ApplySecretResponse
@@ -396,7 +441,7 @@ export type ApplySecretResponse = Message<"tower.secrets.v1alpha1.ApplySecretRes
  * Use `create(ApplySecretResponseSchema)` to create a new message.
  */
 export const ApplySecretResponseSchema: GenMessage<ApplySecretResponse> = /*@__PURE__*/
-  messageDesc(file_tower_secrets_v1alpha1_secret, 11);
+  messageDesc(file_tower_secrets_v1alpha1_secret, 12);
 
 /**
  * @generated from message tower.secrets.v1alpha1.DeleteSecretRequest
@@ -423,7 +468,7 @@ export type DeleteSecretRequest = Message<"tower.secrets.v1alpha1.DeleteSecretRe
  * Use `create(DeleteSecretRequestSchema)` to create a new message.
  */
 export const DeleteSecretRequestSchema: GenMessage<DeleteSecretRequest> = /*@__PURE__*/
-  messageDesc(file_tower_secrets_v1alpha1_secret, 12);
+  messageDesc(file_tower_secrets_v1alpha1_secret, 13);
 
 /**
  * @generated from message tower.secrets.v1alpha1.DeleteSecretResponse
@@ -440,7 +485,7 @@ export type DeleteSecretResponse = Message<"tower.secrets.v1alpha1.DeleteSecretR
  * Use `create(DeleteSecretResponseSchema)` to create a new message.
  */
 export const DeleteSecretResponseSchema: GenMessage<DeleteSecretResponse> = /*@__PURE__*/
-  messageDesc(file_tower_secrets_v1alpha1_secret, 13);
+  messageDesc(file_tower_secrets_v1alpha1_secret, 14);
 
 /**
  * @generated from message tower.secrets.v1alpha1.UpdateSecretStatusRequest
@@ -472,7 +517,7 @@ export type UpdateSecretStatusRequest = Message<"tower.secrets.v1alpha1.UpdateSe
  * Use `create(UpdateSecretStatusRequestSchema)` to create a new message.
  */
 export const UpdateSecretStatusRequestSchema: GenMessage<UpdateSecretStatusRequest> = /*@__PURE__*/
-  messageDesc(file_tower_secrets_v1alpha1_secret, 14);
+  messageDesc(file_tower_secrets_v1alpha1_secret, 15);
 
 /**
  * @generated from message tower.secrets.v1alpha1.UpdateSecretStatusResponse
@@ -489,7 +534,7 @@ export type UpdateSecretStatusResponse = Message<"tower.secrets.v1alpha1.UpdateS
  * Use `create(UpdateSecretStatusResponseSchema)` to create a new message.
  */
 export const UpdateSecretStatusResponseSchema: GenMessage<UpdateSecretStatusResponse> = /*@__PURE__*/
-  messageDesc(file_tower_secrets_v1alpha1_secret, 15);
+  messageDesc(file_tower_secrets_v1alpha1_secret, 16);
 
 /**
  * SecretType says what a secret holds and how its data is checked.

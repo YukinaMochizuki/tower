@@ -10,6 +10,7 @@ import (
 	v1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -170,7 +171,16 @@ type SecretSpec struct {
 	Data map[string][]byte `protobuf:"bytes,2,rep,name=data,proto3" json:"data,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// What the apiserver stores of data, encrypted. It is the apiserver's
 	// alone: an apply that sets it is refused, and no answer holds it.
-	Sealed        *SealedData `protobuf:"bytes,3,opt,name=sealed,proto3" json:"sealed,omitempty"`
+	Sealed *SealedData `protobuf:"bytes,3,opt,name=sealed,proto3" json:"sealed,omitempty"`
+	// The data this secret held before, newest first, kept encrypted for 90
+	// days and 16 values at most, so a copy out of an environment can be
+	// scanned for every value it was given (docs/decisions/copy-out-scan.md).
+	// The apiserver's alone, as sealed is.
+	Superseded []*SupersededData `protobuf:"bytes,4,rep,name=superseded,proto3" json:"superseded,omitempty"`
+	// Every value the secret held at or after this time is sealed or
+	// superseded: an older one was dropped. Unset, it holds every value it
+	// ever held. The apiserver's alone, as sealed is.
+	HistorySince  *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=history_since,json=historySince,proto3" json:"history_since,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -226,6 +236,73 @@ func (x *SecretSpec) GetSealed() *SealedData {
 	return nil
 }
 
+func (x *SecretSpec) GetSuperseded() []*SupersededData {
+	if x != nil {
+		return x.Superseded
+	}
+	return nil
+}
+
+func (x *SecretSpec) GetHistorySince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.HistorySince
+	}
+	return nil
+}
+
+// SupersededData is data a secret held until it was replaced.
+type SupersededData struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Sealed         *SealedData            `protobuf:"bytes,1,opt,name=sealed,proto3" json:"sealed,omitempty"`
+	SupersededTime *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=superseded_time,json=supersededTime,proto3" json:"superseded_time,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SupersededData) Reset() {
+	*x = SupersededData{}
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SupersededData) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SupersededData) ProtoMessage() {}
+
+func (x *SupersededData) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SupersededData.ProtoReflect.Descriptor instead.
+func (*SupersededData) Descriptor() ([]byte, []int) {
+	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *SupersededData) GetSealed() *SealedData {
+	if x != nil {
+		return x.Sealed
+	}
+	return nil
+}
+
+func (x *SupersededData) GetSupersededTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.SupersededTime
+	}
+	return nil
+}
+
 // SealedData is a secret's data encrypted under a key of its own, which is
 // itself encrypted under tower's key-encryption key.
 type SealedData struct {
@@ -245,7 +322,7 @@ type SealedData struct {
 
 func (x *SealedData) Reset() {
 	*x = SealedData{}
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[2]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -257,7 +334,7 @@ func (x *SealedData) String() string {
 func (*SealedData) ProtoMessage() {}
 
 func (x *SealedData) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[2]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -270,7 +347,7 @@ func (x *SealedData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SealedData.ProtoReflect.Descriptor instead.
 func (*SealedData) Descriptor() ([]byte, []int) {
-	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{2}
+	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *SealedData) GetKekId() string {
@@ -326,7 +403,7 @@ type SecretStatus struct {
 
 func (x *SecretStatus) Reset() {
 	*x = SecretStatus{}
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[3]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -338,7 +415,7 @@ func (x *SecretStatus) String() string {
 func (*SecretStatus) ProtoMessage() {}
 
 func (x *SecretStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[3]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -351,7 +428,7 @@ func (x *SecretStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecretStatus.ProtoReflect.Descriptor instead.
 func (*SecretStatus) Descriptor() ([]byte, []int) {
-	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{3}
+	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SecretStatus) GetObservedGeneration() int64 {
@@ -399,7 +476,7 @@ type GetSecretRequest struct {
 
 func (x *GetSecretRequest) Reset() {
 	*x = GetSecretRequest{}
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[4]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -411,7 +488,7 @@ func (x *GetSecretRequest) String() string {
 func (*GetSecretRequest) ProtoMessage() {}
 
 func (x *GetSecretRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[4]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -424,7 +501,7 @@ func (x *GetSecretRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecretRequest.ProtoReflect.Descriptor instead.
 func (*GetSecretRequest) Descriptor() ([]byte, []int) {
-	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{4}
+	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetSecretRequest) GetProject() string {
@@ -450,7 +527,7 @@ type GetSecretResponse struct {
 
 func (x *GetSecretResponse) Reset() {
 	*x = GetSecretResponse{}
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[5]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -462,7 +539,7 @@ func (x *GetSecretResponse) String() string {
 func (*GetSecretResponse) ProtoMessage() {}
 
 func (x *GetSecretResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[5]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -475,7 +552,7 @@ func (x *GetSecretResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecretResponse.ProtoReflect.Descriptor instead.
 func (*GetSecretResponse) Descriptor() ([]byte, []int) {
-	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{5}
+	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetSecretResponse) GetSecret() *Secret {
@@ -498,7 +575,7 @@ type ListSecretsRequest struct {
 
 func (x *ListSecretsRequest) Reset() {
 	*x = ListSecretsRequest{}
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[6]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -510,7 +587,7 @@ func (x *ListSecretsRequest) String() string {
 func (*ListSecretsRequest) ProtoMessage() {}
 
 func (x *ListSecretsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[6]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -523,7 +600,7 @@ func (x *ListSecretsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecretsRequest.ProtoReflect.Descriptor instead.
 func (*ListSecretsRequest) Descriptor() ([]byte, []int) {
-	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{6}
+	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ListSecretsRequest) GetProject() string {
@@ -565,7 +642,7 @@ type ListSecretsResponse struct {
 
 func (x *ListSecretsResponse) Reset() {
 	*x = ListSecretsResponse{}
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[7]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -577,7 +654,7 @@ func (x *ListSecretsResponse) String() string {
 func (*ListSecretsResponse) ProtoMessage() {}
 
 func (x *ListSecretsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[7]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -590,7 +667,7 @@ func (x *ListSecretsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecretsResponse.ProtoReflect.Descriptor instead.
 func (*ListSecretsResponse) Descriptor() ([]byte, []int) {
-	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{7}
+	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListSecretsResponse) GetItems() []*Secret {
@@ -626,7 +703,7 @@ type WatchSecretsRequest struct {
 
 func (x *WatchSecretsRequest) Reset() {
 	*x = WatchSecretsRequest{}
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[8]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -638,7 +715,7 @@ func (x *WatchSecretsRequest) String() string {
 func (*WatchSecretsRequest) ProtoMessage() {}
 
 func (x *WatchSecretsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[8]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -651,7 +728,7 @@ func (x *WatchSecretsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchSecretsRequest.ProtoReflect.Descriptor instead.
 func (*WatchSecretsRequest) Descriptor() ([]byte, []int) {
-	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{8}
+	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *WatchSecretsRequest) GetProject() string {
@@ -686,7 +763,7 @@ type WatchSecretsResponse struct {
 
 func (x *WatchSecretsResponse) Reset() {
 	*x = WatchSecretsResponse{}
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[9]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -698,7 +775,7 @@ func (x *WatchSecretsResponse) String() string {
 func (*WatchSecretsResponse) ProtoMessage() {}
 
 func (x *WatchSecretsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[9]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -711,7 +788,7 @@ func (x *WatchSecretsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchSecretsResponse.ProtoReflect.Descriptor instead.
 func (*WatchSecretsResponse) Descriptor() ([]byte, []int) {
-	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{9}
+	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *WatchSecretsResponse) GetType() v1.EventType {
@@ -746,7 +823,7 @@ type ApplySecretRequest struct {
 
 func (x *ApplySecretRequest) Reset() {
 	*x = ApplySecretRequest{}
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[10]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -758,7 +835,7 @@ func (x *ApplySecretRequest) String() string {
 func (*ApplySecretRequest) ProtoMessage() {}
 
 func (x *ApplySecretRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[10]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -771,7 +848,7 @@ func (x *ApplySecretRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplySecretRequest.ProtoReflect.Descriptor instead.
 func (*ApplySecretRequest) Descriptor() ([]byte, []int) {
-	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{10}
+	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ApplySecretRequest) GetSecret() *Secret {
@@ -799,7 +876,7 @@ type ApplySecretResponse struct {
 
 func (x *ApplySecretResponse) Reset() {
 	*x = ApplySecretResponse{}
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[11]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -811,7 +888,7 @@ func (x *ApplySecretResponse) String() string {
 func (*ApplySecretResponse) ProtoMessage() {}
 
 func (x *ApplySecretResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[11]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -824,7 +901,7 @@ func (x *ApplySecretResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplySecretResponse.ProtoReflect.Descriptor instead.
 func (*ApplySecretResponse) Descriptor() ([]byte, []int) {
-	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{11}
+	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ApplySecretResponse) GetSecret() *Secret {
@@ -859,7 +936,7 @@ type DeleteSecretRequest struct {
 
 func (x *DeleteSecretRequest) Reset() {
 	*x = DeleteSecretRequest{}
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[12]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -871,7 +948,7 @@ func (x *DeleteSecretRequest) String() string {
 func (*DeleteSecretRequest) ProtoMessage() {}
 
 func (x *DeleteSecretRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[12]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -884,7 +961,7 @@ func (x *DeleteSecretRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSecretRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSecretRequest) Descriptor() ([]byte, []int) {
-	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{12}
+	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DeleteSecretRequest) GetProject() string {
@@ -917,7 +994,7 @@ type DeleteSecretResponse struct {
 
 func (x *DeleteSecretResponse) Reset() {
 	*x = DeleteSecretResponse{}
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[13]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -929,7 +1006,7 @@ func (x *DeleteSecretResponse) String() string {
 func (*DeleteSecretResponse) ProtoMessage() {}
 
 func (x *DeleteSecretResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[13]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -942,7 +1019,7 @@ func (x *DeleteSecretResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSecretResponse.ProtoReflect.Descriptor instead.
 func (*DeleteSecretResponse) Descriptor() ([]byte, []int) {
-	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{13}
+	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DeleteSecretResponse) GetSecret() *Secret {
@@ -964,7 +1041,7 @@ type UpdateSecretStatusRequest struct {
 
 func (x *UpdateSecretStatusRequest) Reset() {
 	*x = UpdateSecretStatusRequest{}
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[14]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -976,7 +1053,7 @@ func (x *UpdateSecretStatusRequest) String() string {
 func (*UpdateSecretStatusRequest) ProtoMessage() {}
 
 func (x *UpdateSecretStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[14]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -989,7 +1066,7 @@ func (x *UpdateSecretStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateSecretStatusRequest.ProtoReflect.Descriptor instead.
 func (*UpdateSecretStatusRequest) Descriptor() ([]byte, []int) {
-	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{14}
+	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *UpdateSecretStatusRequest) GetProject() string {
@@ -1029,7 +1106,7 @@ type UpdateSecretStatusResponse struct {
 
 func (x *UpdateSecretStatusResponse) Reset() {
 	*x = UpdateSecretStatusResponse{}
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[15]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1041,7 +1118,7 @@ func (x *UpdateSecretStatusResponse) String() string {
 func (*UpdateSecretStatusResponse) ProtoMessage() {}
 
 func (x *UpdateSecretStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[15]
+	mi := &file_tower_secrets_v1alpha1_secret_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1054,7 +1131,7 @@ func (x *UpdateSecretStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateSecretStatusResponse.ProtoReflect.Descriptor instead.
 func (*UpdateSecretStatusResponse) Descriptor() ([]byte, []int) {
-	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{15}
+	return file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *UpdateSecretStatusResponse) GetSecret() *Secret {
@@ -1068,7 +1145,7 @@ var File_tower_secrets_v1alpha1_secret_proto protoreflect.FileDescriptor
 
 const file_tower_secrets_v1alpha1_secret_proto_rawDesc = "" +
 	"\n" +
-	"#tower/secrets/v1alpha1/secret.proto\x12\x16tower.secrets.v1alpha1\x1a\x18tower/meta/v1/meta.proto\x1a\x1btower/meta/v1/options.proto\"\x83\x02\n" +
+	"#tower/secrets/v1alpha1/secret.proto\x12\x16tower.secrets.v1alpha1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18tower/meta/v1/meta.proto\x1a\x1btower/meta/v1/options.proto\"\x83\x02\n" +
 	"\x06Secret\x12\x1f\n" +
 	"\vapi_version\x18\x01 \x01(\tR\n" +
 	"apiVersion\x12\x12\n" +
@@ -1076,15 +1153,22 @@ const file_tower_secrets_v1alpha1_secret_proto_rawDesc = "" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x126\n" +
 	"\x04spec\x18\x04 \x01(\v2\".tower.secrets.v1alpha1.SecretSpecR\x04spec\x12<\n" +
 	"\x06status\x18\x05 \x01(\v2$.tower.secrets.v1alpha1.SecretStatusR\x06status:\x17\xca\xf3\x18\x13\n" +
-	"\x06Secret\x12\asecrets \x01\"\x83\x02\n" +
+	"\x06Secret\x12\asecrets \x01\"\x8c\x03\n" +
 	"\n" +
 	"SecretSpec\x12>\n" +
 	"\x04type\x18\x01 \x01(\x0e2\".tower.secrets.v1alpha1.SecretTypeB\x06\xca\xf3\x18\x02\b\x01R\x04type\x12@\n" +
 	"\x04data\x18\x02 \x03(\v2,.tower.secrets.v1alpha1.SecretSpec.DataEntryR\x04data\x12:\n" +
-	"\x06sealed\x18\x03 \x01(\v2\".tower.secrets.v1alpha1.SealedDataR\x06sealed\x1a7\n" +
+	"\x06sealed\x18\x03 \x01(\v2\".tower.secrets.v1alpha1.SealedDataR\x06sealed\x12F\n" +
+	"\n" +
+	"superseded\x18\x04 \x03(\v2&.tower.secrets.v1alpha1.SupersededDataR\n" +
+	"superseded\x12?\n" +
+	"\rhistory_since\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fhistorySince\x1a7\n" +
 	"\tDataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x9d\x01\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x91\x01\n" +
+	"\x0eSupersededData\x12:\n" +
+	"\x06sealed\x18\x01 \x01(\v2\".tower.secrets.v1alpha1.SealedDataR\x06sealed\x12C\n" +
+	"\x0fsuperseded_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x0esupersededTime\"\x9d\x01\n" +
 	"\n" +
 	"SealedData\x12\x15\n" +
 	"\x06kek_id\x18\x01 \x01(\tR\x05kekId\x12\x1f\n" +
@@ -1178,64 +1262,70 @@ func file_tower_secrets_v1alpha1_secret_proto_rawDescGZIP() []byte {
 }
 
 var file_tower_secrets_v1alpha1_secret_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_tower_secrets_v1alpha1_secret_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_tower_secrets_v1alpha1_secret_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_tower_secrets_v1alpha1_secret_proto_goTypes = []any{
 	(SecretType)(0),                    // 0: tower.secrets.v1alpha1.SecretType
 	(*Secret)(nil),                     // 1: tower.secrets.v1alpha1.Secret
 	(*SecretSpec)(nil),                 // 2: tower.secrets.v1alpha1.SecretSpec
-	(*SealedData)(nil),                 // 3: tower.secrets.v1alpha1.SealedData
-	(*SecretStatus)(nil),               // 4: tower.secrets.v1alpha1.SecretStatus
-	(*GetSecretRequest)(nil),           // 5: tower.secrets.v1alpha1.GetSecretRequest
-	(*GetSecretResponse)(nil),          // 6: tower.secrets.v1alpha1.GetSecretResponse
-	(*ListSecretsRequest)(nil),         // 7: tower.secrets.v1alpha1.ListSecretsRequest
-	(*ListSecretsResponse)(nil),        // 8: tower.secrets.v1alpha1.ListSecretsResponse
-	(*WatchSecretsRequest)(nil),        // 9: tower.secrets.v1alpha1.WatchSecretsRequest
-	(*WatchSecretsResponse)(nil),       // 10: tower.secrets.v1alpha1.WatchSecretsResponse
-	(*ApplySecretRequest)(nil),         // 11: tower.secrets.v1alpha1.ApplySecretRequest
-	(*ApplySecretResponse)(nil),        // 12: tower.secrets.v1alpha1.ApplySecretResponse
-	(*DeleteSecretRequest)(nil),        // 13: tower.secrets.v1alpha1.DeleteSecretRequest
-	(*DeleteSecretResponse)(nil),       // 14: tower.secrets.v1alpha1.DeleteSecretResponse
-	(*UpdateSecretStatusRequest)(nil),  // 15: tower.secrets.v1alpha1.UpdateSecretStatusRequest
-	(*UpdateSecretStatusResponse)(nil), // 16: tower.secrets.v1alpha1.UpdateSecretStatusResponse
-	nil,                                // 17: tower.secrets.v1alpha1.SecretSpec.DataEntry
-	(*v1.ObjectMeta)(nil),              // 18: tower.meta.v1.ObjectMeta
-	(*v1.Condition)(nil),               // 19: tower.meta.v1.Condition
-	(v1.EventType)(0),                  // 20: tower.meta.v1.EventType
+	(*SupersededData)(nil),             // 3: tower.secrets.v1alpha1.SupersededData
+	(*SealedData)(nil),                 // 4: tower.secrets.v1alpha1.SealedData
+	(*SecretStatus)(nil),               // 5: tower.secrets.v1alpha1.SecretStatus
+	(*GetSecretRequest)(nil),           // 6: tower.secrets.v1alpha1.GetSecretRequest
+	(*GetSecretResponse)(nil),          // 7: tower.secrets.v1alpha1.GetSecretResponse
+	(*ListSecretsRequest)(nil),         // 8: tower.secrets.v1alpha1.ListSecretsRequest
+	(*ListSecretsResponse)(nil),        // 9: tower.secrets.v1alpha1.ListSecretsResponse
+	(*WatchSecretsRequest)(nil),        // 10: tower.secrets.v1alpha1.WatchSecretsRequest
+	(*WatchSecretsResponse)(nil),       // 11: tower.secrets.v1alpha1.WatchSecretsResponse
+	(*ApplySecretRequest)(nil),         // 12: tower.secrets.v1alpha1.ApplySecretRequest
+	(*ApplySecretResponse)(nil),        // 13: tower.secrets.v1alpha1.ApplySecretResponse
+	(*DeleteSecretRequest)(nil),        // 14: tower.secrets.v1alpha1.DeleteSecretRequest
+	(*DeleteSecretResponse)(nil),       // 15: tower.secrets.v1alpha1.DeleteSecretResponse
+	(*UpdateSecretStatusRequest)(nil),  // 16: tower.secrets.v1alpha1.UpdateSecretStatusRequest
+	(*UpdateSecretStatusResponse)(nil), // 17: tower.secrets.v1alpha1.UpdateSecretStatusResponse
+	nil,                                // 18: tower.secrets.v1alpha1.SecretSpec.DataEntry
+	(*v1.ObjectMeta)(nil),              // 19: tower.meta.v1.ObjectMeta
+	(*timestamppb.Timestamp)(nil),      // 20: google.protobuf.Timestamp
+	(*v1.Condition)(nil),               // 21: tower.meta.v1.Condition
+	(v1.EventType)(0),                  // 22: tower.meta.v1.EventType
 }
 var file_tower_secrets_v1alpha1_secret_proto_depIdxs = []int32{
-	18, // 0: tower.secrets.v1alpha1.Secret.metadata:type_name -> tower.meta.v1.ObjectMeta
+	19, // 0: tower.secrets.v1alpha1.Secret.metadata:type_name -> tower.meta.v1.ObjectMeta
 	2,  // 1: tower.secrets.v1alpha1.Secret.spec:type_name -> tower.secrets.v1alpha1.SecretSpec
-	4,  // 2: tower.secrets.v1alpha1.Secret.status:type_name -> tower.secrets.v1alpha1.SecretStatus
+	5,  // 2: tower.secrets.v1alpha1.Secret.status:type_name -> tower.secrets.v1alpha1.SecretStatus
 	0,  // 3: tower.secrets.v1alpha1.SecretSpec.type:type_name -> tower.secrets.v1alpha1.SecretType
-	17, // 4: tower.secrets.v1alpha1.SecretSpec.data:type_name -> tower.secrets.v1alpha1.SecretSpec.DataEntry
-	3,  // 5: tower.secrets.v1alpha1.SecretSpec.sealed:type_name -> tower.secrets.v1alpha1.SealedData
-	19, // 6: tower.secrets.v1alpha1.SecretStatus.conditions:type_name -> tower.meta.v1.Condition
-	1,  // 7: tower.secrets.v1alpha1.GetSecretResponse.secret:type_name -> tower.secrets.v1alpha1.Secret
-	1,  // 8: tower.secrets.v1alpha1.ListSecretsResponse.items:type_name -> tower.secrets.v1alpha1.Secret
-	20, // 9: tower.secrets.v1alpha1.WatchSecretsResponse.type:type_name -> tower.meta.v1.EventType
-	1,  // 10: tower.secrets.v1alpha1.WatchSecretsResponse.secret:type_name -> tower.secrets.v1alpha1.Secret
-	1,  // 11: tower.secrets.v1alpha1.ApplySecretRequest.secret:type_name -> tower.secrets.v1alpha1.Secret
-	1,  // 12: tower.secrets.v1alpha1.ApplySecretResponse.secret:type_name -> tower.secrets.v1alpha1.Secret
-	1,  // 13: tower.secrets.v1alpha1.DeleteSecretResponse.secret:type_name -> tower.secrets.v1alpha1.Secret
-	4,  // 14: tower.secrets.v1alpha1.UpdateSecretStatusRequest.status:type_name -> tower.secrets.v1alpha1.SecretStatus
-	1,  // 15: tower.secrets.v1alpha1.UpdateSecretStatusResponse.secret:type_name -> tower.secrets.v1alpha1.Secret
-	5,  // 16: tower.secrets.v1alpha1.SecretService.GetSecret:input_type -> tower.secrets.v1alpha1.GetSecretRequest
-	7,  // 17: tower.secrets.v1alpha1.SecretService.ListSecrets:input_type -> tower.secrets.v1alpha1.ListSecretsRequest
-	9,  // 18: tower.secrets.v1alpha1.SecretService.WatchSecrets:input_type -> tower.secrets.v1alpha1.WatchSecretsRequest
-	11, // 19: tower.secrets.v1alpha1.SecretService.ApplySecret:input_type -> tower.secrets.v1alpha1.ApplySecretRequest
-	13, // 20: tower.secrets.v1alpha1.SecretService.DeleteSecret:input_type -> tower.secrets.v1alpha1.DeleteSecretRequest
-	15, // 21: tower.secrets.v1alpha1.SecretService.UpdateSecretStatus:input_type -> tower.secrets.v1alpha1.UpdateSecretStatusRequest
-	6,  // 22: tower.secrets.v1alpha1.SecretService.GetSecret:output_type -> tower.secrets.v1alpha1.GetSecretResponse
-	8,  // 23: tower.secrets.v1alpha1.SecretService.ListSecrets:output_type -> tower.secrets.v1alpha1.ListSecretsResponse
-	10, // 24: tower.secrets.v1alpha1.SecretService.WatchSecrets:output_type -> tower.secrets.v1alpha1.WatchSecretsResponse
-	12, // 25: tower.secrets.v1alpha1.SecretService.ApplySecret:output_type -> tower.secrets.v1alpha1.ApplySecretResponse
-	14, // 26: tower.secrets.v1alpha1.SecretService.DeleteSecret:output_type -> tower.secrets.v1alpha1.DeleteSecretResponse
-	16, // 27: tower.secrets.v1alpha1.SecretService.UpdateSecretStatus:output_type -> tower.secrets.v1alpha1.UpdateSecretStatusResponse
-	22, // [22:28] is the sub-list for method output_type
-	16, // [16:22] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	18, // 4: tower.secrets.v1alpha1.SecretSpec.data:type_name -> tower.secrets.v1alpha1.SecretSpec.DataEntry
+	4,  // 5: tower.secrets.v1alpha1.SecretSpec.sealed:type_name -> tower.secrets.v1alpha1.SealedData
+	3,  // 6: tower.secrets.v1alpha1.SecretSpec.superseded:type_name -> tower.secrets.v1alpha1.SupersededData
+	20, // 7: tower.secrets.v1alpha1.SecretSpec.history_since:type_name -> google.protobuf.Timestamp
+	4,  // 8: tower.secrets.v1alpha1.SupersededData.sealed:type_name -> tower.secrets.v1alpha1.SealedData
+	20, // 9: tower.secrets.v1alpha1.SupersededData.superseded_time:type_name -> google.protobuf.Timestamp
+	21, // 10: tower.secrets.v1alpha1.SecretStatus.conditions:type_name -> tower.meta.v1.Condition
+	1,  // 11: tower.secrets.v1alpha1.GetSecretResponse.secret:type_name -> tower.secrets.v1alpha1.Secret
+	1,  // 12: tower.secrets.v1alpha1.ListSecretsResponse.items:type_name -> tower.secrets.v1alpha1.Secret
+	22, // 13: tower.secrets.v1alpha1.WatchSecretsResponse.type:type_name -> tower.meta.v1.EventType
+	1,  // 14: tower.secrets.v1alpha1.WatchSecretsResponse.secret:type_name -> tower.secrets.v1alpha1.Secret
+	1,  // 15: tower.secrets.v1alpha1.ApplySecretRequest.secret:type_name -> tower.secrets.v1alpha1.Secret
+	1,  // 16: tower.secrets.v1alpha1.ApplySecretResponse.secret:type_name -> tower.secrets.v1alpha1.Secret
+	1,  // 17: tower.secrets.v1alpha1.DeleteSecretResponse.secret:type_name -> tower.secrets.v1alpha1.Secret
+	5,  // 18: tower.secrets.v1alpha1.UpdateSecretStatusRequest.status:type_name -> tower.secrets.v1alpha1.SecretStatus
+	1,  // 19: tower.secrets.v1alpha1.UpdateSecretStatusResponse.secret:type_name -> tower.secrets.v1alpha1.Secret
+	6,  // 20: tower.secrets.v1alpha1.SecretService.GetSecret:input_type -> tower.secrets.v1alpha1.GetSecretRequest
+	8,  // 21: tower.secrets.v1alpha1.SecretService.ListSecrets:input_type -> tower.secrets.v1alpha1.ListSecretsRequest
+	10, // 22: tower.secrets.v1alpha1.SecretService.WatchSecrets:input_type -> tower.secrets.v1alpha1.WatchSecretsRequest
+	12, // 23: tower.secrets.v1alpha1.SecretService.ApplySecret:input_type -> tower.secrets.v1alpha1.ApplySecretRequest
+	14, // 24: tower.secrets.v1alpha1.SecretService.DeleteSecret:input_type -> tower.secrets.v1alpha1.DeleteSecretRequest
+	16, // 25: tower.secrets.v1alpha1.SecretService.UpdateSecretStatus:input_type -> tower.secrets.v1alpha1.UpdateSecretStatusRequest
+	7,  // 26: tower.secrets.v1alpha1.SecretService.GetSecret:output_type -> tower.secrets.v1alpha1.GetSecretResponse
+	9,  // 27: tower.secrets.v1alpha1.SecretService.ListSecrets:output_type -> tower.secrets.v1alpha1.ListSecretsResponse
+	11, // 28: tower.secrets.v1alpha1.SecretService.WatchSecrets:output_type -> tower.secrets.v1alpha1.WatchSecretsResponse
+	13, // 29: tower.secrets.v1alpha1.SecretService.ApplySecret:output_type -> tower.secrets.v1alpha1.ApplySecretResponse
+	15, // 30: tower.secrets.v1alpha1.SecretService.DeleteSecret:output_type -> tower.secrets.v1alpha1.DeleteSecretResponse
+	17, // 31: tower.secrets.v1alpha1.SecretService.UpdateSecretStatus:output_type -> tower.secrets.v1alpha1.UpdateSecretStatusResponse
+	26, // [26:32] is the sub-list for method output_type
+	20, // [20:26] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_tower_secrets_v1alpha1_secret_proto_init() }
@@ -1243,15 +1333,15 @@ func file_tower_secrets_v1alpha1_secret_proto_init() {
 	if File_tower_secrets_v1alpha1_secret_proto != nil {
 		return
 	}
-	file_tower_secrets_v1alpha1_secret_proto_msgTypes[12].OneofWrappers = []any{}
-	file_tower_secrets_v1alpha1_secret_proto_msgTypes[14].OneofWrappers = []any{}
+	file_tower_secrets_v1alpha1_secret_proto_msgTypes[13].OneofWrappers = []any{}
+	file_tower_secrets_v1alpha1_secret_proto_msgTypes[15].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tower_secrets_v1alpha1_secret_proto_rawDesc), len(file_tower_secrets_v1alpha1_secret_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   17,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
