@@ -43,35 +43,63 @@ scan in tower, every copy out of a privileged box on tower asks a human.
   none of the old one's values) and one whose Secret is gone. A Secret
   written more than once before this was kept starts its history when an
   apiserver that keeps it first starts.
-- **Each value is looked for in many forms**: hex, base64 and base64url at
-  every byte alignment, URL-encoded (query, path and userinfo escaping),
-  and JSON-escaped, as well as raw; a second pass over the stream without
-  line breaks finds a wrapped encoding. The scanner holds back the longest
+- **Each needle is looked for in many forms**: hex, base64 and base64url
+  at every byte alignment; URL-encoded as JavaScript's
+  `encodeURIComponent`, Go's query, path and userinfo escaping, every byte
+  but an unreserved one (Python's `quote(safe="")`, curl) and Python's
+  default `quote`, which keeps `/`, each with upper- and lower-case
+  escapes; and JSON-escaped, as JavaScript writes it, with `\/`, as Go
+  writes it (`&`, `<` and `>` as `\u00XX`), and with every non-alphanumeric
+  as `\uXXXX`; as well as raw. A second pass over the stream without line
+  breaks finds a wrapped encoding. The scanner holds back the longest
   pattern's length, so a value split across reads is found before it is
   passed on. It is the scan workstream runs for the secrets it holds
-  itself, so a copy out is judged alike wherever the values are.
-- **Needles come in two tiers.** Strong: a value whole and trimmed, and a
-  PEM key's base64 body, also inside JSON with its line breaks escaped; a
-  hit is `SECRET_FOUND`, always refused. Weak: a line or field of a value
-  made of several (a kubeconfig's token, a key's line, a .netrc's
-  password), counted only when it looks like a credential: 16 bytes at
-  least of a token's characters and 3 bits a byte of entropy, with letters
-  of both cases and digits, 32 hex digits, a UUID, or 20 bytes of lower
-  case and digits that switch between the two at least every 8 bytes, with
-  no dot or slash. Structure (`apiVersion: v1`, a server URL, a path, a
-  host, a dated name) is never a needle, since a structural line would
-  refuse most copies of a config by chance. A weak hit is `SUSPECT`:
-  workstream has a human judge it. After one, the scan passes nothing more
-  on but reads to the end, so a strong hit later decides.
+  itself, and the two must stay the same, so a copy out is judged alike
+  wherever the values are.
+- **Needles come in two tiers.** A strong hit is `SECRET_FOUND`, always
+  refused; a weak one is `SUSPECT`, which workstream has a human judge.
+  Strong needles are what is a credential whole:
+  - the value whole and trimmed;
+  - a PEM block's base64 body, its lines joined, also inside JSON with its
+    line breaks escaped;
+  - a .netrc's `password` and `login` values, and the value of each
+    `KEY=value` line (`export` before it, quotes around the value
+    dropped);
+  - in a JSON value, each string it holds at any depth, unescaped, that
+    is a PEM block (whole, trimmed, and its body) or credential-shaped.
+
+  Weak needles are the credential-shaped pieces of a value, single-line
+  included: each trimmed line, and each segment split on whitespace,
+  quotes, brackets and `: / , ; = @ & ? < >`, then on `.`. A segment that
+  is a DNS name (labels, the last 2 to 24 letters), as is a line, is
+  skipped whole, so an EKS server's id is no needle; so is a part that is
+  a JWT's header (base64url of JSON naming `alg`), which every token of
+  its algorithm shares. A JSON value's strings give pieces too.
+
+  Credential-shaped is 16 bytes at least of `[A-Za-z0-9+/=_.-]` and one
+  of: hex digits mixing letters and digits; a UUID; letters of both cases
+  and digits with 3 bits a byte of entropy; or 20 bytes of lower case and
+  digits, no dot or slash, switching between the two at least every 8
+  bytes, with 3.5 bits a byte. Structure (`apiVersion: v1`, a server URL,
+  a path, a host, a dated name) is never a needle, since a structural line
+  would refuse most copies of a config by chance.
+
+  After a weak hit the scan passes nothing more on but reads to the end,
+  and every window is searched for strong needles before weak ones, so a
+  strong hit anywhere decides; a `SUSPECT` names the secret its piece is
+  of.
 - **`allow_suspect_for` lets a human's approval through, for what they
   saw.** Once a human has approved a copy that came back `SUSPECT`,
   workstream copies again naming the secrets the refusal named: their weak
   needles are dropped, every other secret's stay, and every strong one
   still refuses. Without `refuse_secrets` it does nothing.
-- **A caller asks before it relies on the scan.** An older tower drops
-  `refuse_secrets` unread and copies unscanned, so
-  `EnvironmentService.GetCapabilities` names `copy.refuse_secrets.v1`;
-  a tower without the RPC answers UNIMPLEMENTED, which is to have none.
+- **A caller asks before it relies on the scan, and checks after.** An
+  older tower drops `refuse_secrets` unread and copies unscanned, so
+  `EnvironmentService.GetCapabilities` names `copy.refuse_secrets.v1`; a
+  tower without the RPC answers UNIMPLEMENTED, which is to have none. And
+  `CopyFileResponse.scanned` is true only for a copy that went through
+  the scan, so a tower rolled back to one that ignores the options is
+  caught on the copy it made.
 - **Patterns are found by their first 8 bytes**, through a hashed bitset
   and an index: 50 MB against 1,600 patterns scans in about a third of a
   second, where a search per pattern took 30.

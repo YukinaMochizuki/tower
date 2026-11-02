@@ -235,7 +235,13 @@ enum CopyRefusalReason {
   COPY_REFUSAL_REASON_SUSPECT = 4;
 }
 
-message CopyFileResponse {}
+message CopyFileResponse {
+  // The copy streamed through tower and passed its scan and limit, as
+  // refuse_secrets or max_bytes asked. False for a copy that stayed on the
+  // target: a caller that asked for either and gets false was answered by
+  // a tower that does not scan, and its copy was not checked.
+  bool scanned = 1;
+}
 
 message FetchOriginRequest {
   // A box.

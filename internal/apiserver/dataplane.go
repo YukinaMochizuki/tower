@@ -490,7 +490,8 @@ func (h environmentService) CopyFile(ctx context.Context, req *connect.Request[e
 	if from.target.GetMetadata().GetName() != to.target.GetMetadata().GetName() {
 		return nil, failedPrecondition("%s and %s run on different targets", from, to)
 	}
-	if m.GetRefuseSecrets() || m.GetMaxBytes() > 0 {
+	scanned := m.GetRefuseSecrets() || m.GetMaxBytes() > 0
+	if scanned {
 		if err := h.copyScanned(ctx, c, from, to, m); err != nil {
 			return nil, err
 		}
@@ -500,7 +501,7 @@ func (h environmentService) CopyFile(ctx context.Context, req *connect.Request[e
 	if err := to.giveToRunAs(ctx, h.s, m.GetToPath()); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&envv1alpha1.CopyFileResponse{}), nil
+	return connect.NewResponse(&envv1alpha1.CopyFileResponse{Scanned: scanned}), nil
 }
 
 // asRunAs is command as a machine's run_as user runs it, as its playbook

@@ -142,9 +142,11 @@ users:
   user:
     client-certificate: /var/lib/kubelet/pki/kubelet-client-2024-01-01.pem
     token: ` + tierToken + "\n"
+	tierKubeSig = "Sig_abc-XYZ0123456789"
 	// Split so GitHub push protection does not take it for a real token.
 	tierNetrcPassword = "ghp_" + "R4nd0mT0kenValue9988AbCdEf"
-	tierNetrc         = "machine github.com\nlogin ci-bot-2024\npassword " + tierNetrcPassword + "\nmachine registry.npmjs.org login ci password npm_9fA8bC7dE6fG5hI4jK3l\n"
+	tierNpmPassword   = "npm_" + "9fA8bC7dE6fG5hI4jK3l"
+	tierNetrc         = "machine github.com\nlogin ci-bot-2024\npassword " + tierNetrcPassword + "\nmachine registry.npmjs.org login ci password " + tierNpmPassword + "\n"
 	tierStructure     = `apiVersion: v1
 kind: Config
     server: https://kube1.example.com:6443
@@ -152,7 +154,6 @@ kind: Config
     client-certificate: /var/lib/kubelet/pki/kubelet-client-2024-01-01.pem
 current-context: prod
 machine github.com
-login ci-bot-2024
 -----BEGIN OPENSSH PRIVATE KEY-----
 -----END OPENSSH PRIVATE KEY-----
 `
@@ -208,17 +209,25 @@ func TestNeedleTiers(t *testing.T) {
 	}
 	for value, name := range map[string]string{
 		tierKube: "/kube", strings.TrimSpace(tierKube): "/kube", tierNetrc: "/netrc", key: "/key", keyBody: "/key", tierToken: "$TOKEN",
+		// A .netrc's fields are credentials whole.
+		tierNetrcPassword: "/netrc", tierNpmPassword: "/netrc", "ci-bot-2024": "/netrc",
 	} {
 		if strong[value] != name {
 			t.Errorf("%s's %.20q... is not strong", name, value)
 		}
 	}
 	for value, name := range map[string]string{
-		strings.TrimRight(tierCA, "="): "/kube", tierNetrcPassword: "/netrc", "npm_9fA8bC7dE6fG5hI4jK3l": "/netrc", keyLines[0]: "/key", keyLines[5]: "/key",
+		strings.TrimRight(tierCA, "="): "/kube", keyLines[0]: "/key", keyLines[5]: "/key",
+		// A JWT's payload and signature, not its header, which every token
+		// of its algorithm shares.
+		"eyJzdWIiOiJjaSJ9": "/kube", tierKubeSig: "/kube",
 	} {
 		if weak[value] != name {
 			t.Errorf("%s's %q is not weak", name, value)
 		}
+	}
+	if _, ok := weak["eyJhbGciOiJSUzI1NiIsImtpZCI6IjEyMyJ9"]; ok {
+		t.Error("a JWT's header is a weak needle")
 	}
 	// A piece that is a whole secret too is strong.
 	if _, ok := weak[tierToken]; ok || strong[tierToken] != "$TOKEN" {
@@ -240,13 +249,13 @@ func TestNeedleTiers(t *testing.T) {
 // passes nothing more on but reads on, and the whole secret after it
 // decides; without it the piece does.
 func TestAWeakHitWaitsForAStrongOne(t *testing.T) {
-	patterns, _ := secretPatterns([]namedSecret{{name: "/netrc", value: []byte(tierNetrc)}})
+	patterns, _ := secretPatterns([]namedSecret{{name: "/kube", value: []byte(tierKube)}})
 	for _, tt := range []struct {
 		in     string
 		strong bool
 	}{
-		{strings.Repeat("x", 1000) + tierNetrcPassword + strings.Repeat("y", 9000) + tierNetrc, true},
-		{strings.Repeat("x", 1000) + tierNetrcPassword + strings.Repeat("y", 9000), false},
+		{strings.Repeat("x", 1000) + tierKubeSig + strings.Repeat("y", 9000) + tierKube, true},
+		{strings.Repeat("x", 1000) + tierKubeSig + strings.Repeat("y", 9000), false},
 	} {
 		var out bytes.Buffer
 		s := newScanner(patterns, 0, &out)
@@ -261,7 +270,7 @@ func TestAWeakHitWaitsForAStrongOne(t *testing.T) {
 		case !tt.strong && (s.stop != nil || s.suspect == nil || s.Flush() == nil):
 			t.Errorf("a piece alone: stop %+v, suspect %+v", s.stop, s.suspect)
 		}
-		if strings.Contains(out.String(), tierNetrcPassword) || out.Len() > 1000 {
+		if strings.Contains(out.String(), tierKubeSig) || out.Len() > 1000 {
 			t.Errorf("passed on %d bytes, past the piece", out.Len())
 		}
 	}
@@ -280,9 +289,9 @@ func TestTheWriteCrossingTheCapIsScannedFirst(t *testing.T) {
 		t.Errorf("a secret past the limit: stopped %+v; want the size", stop)
 	}
 	// A weak piece within the limit decides over the size too.
-	patterns, _ := secretPatterns([]namedSecret{{name: "/netrc", value: []byte(tierNetrc)}})
+	patterns, _ := secretPatterns([]namedSecret{{name: "/kube", value: []byte(tierKube)}})
 	s := newScanner(patterns, 200, io.Discard)
-	_, _ = s.Write([]byte("x " + tierNetrcPassword + strings.Repeat("y", 500)))
+	_, _ = s.Write([]byte("x " + tierKubeSig + strings.Repeat("y", 500)))
 	if r := s.refusal(); r.GetReason().String() != "COPY_REFUSAL_REASON_SUSPECT" {
 		t.Errorf("a piece inside the crossing write: %v", r)
 	}
@@ -301,7 +310,7 @@ func TestMoreCredentialShapes(t *testing.T) {
 		"ci-runners-2024-eu-west-1":                            false,
 		"ip-10-0-1-23-eu-west-1":                               false,
 		"node1.cluster2.example.com":                           false,
-		"aaaaaaaaaaaaaaaaaaaa1111111111":                       false,
+		"zzzzzzzzzzzzzzzzzzzz1111111111":                       false,
 	} {
 		if got := credentialShaped([]byte(p)); got != want {
 			t.Errorf("%q credential-shaped: %v, want %v", p, got, want)
@@ -317,14 +326,14 @@ func TestAPEMKeyInJSONIsFound(t *testing.T) {
 	escaped, _ := json.Marshal(key)
 	sa := `{"type":"service_account","client_id":"550e8400-e29b-41d4-a716-446655440000","private_key":` + string(escaped) + "}\n"
 	patterns, _ := secretPatterns([]namedSecret{{name: "/sa.json", value: []byte(sa)}})
-	var bodyStrong, lineWeak, idWeak bool
+	var bodyStrong, lineWeak, idStrong bool
 	for _, p := range patterns {
 		bodyStrong = bodyStrong || p.form == "raw" && p.strong && string(p.b) == body
 		lineWeak = lineWeak || p.form == "raw" && !p.strong && string(p.b) == lines[3]
-		idWeak = idWeak || p.form == "raw" && !p.strong && string(p.b) == "550e8400-e29b-41d4-a716-446655440000"
+		idStrong = idStrong || p.form == "raw" && p.strong && string(p.b) == "550e8400-e29b-41d4-a716-446655440000"
 	}
-	if !bodyStrong || !lineWeak || !idWeak {
-		t.Errorf("the key's body strong %v, a line weak %v, the client id weak %v", bodyStrong, lineWeak, idWeak)
+	if !bodyStrong || !lineWeak || !idStrong {
+		t.Errorf("the key's body strong %v, a line weak %v, the client id, a token-shaped JSON string, strong %v", bodyStrong, lineWeak, idStrong)
 	}
 	// The key alone, out of its JSON, is found whole.
 	if _, stop := scanFor(t, patterns, key); stop == nil || stop.pattern == nil {
@@ -382,5 +391,180 @@ func TestHistoryIsBounded(t *testing.T) {
 	}
 	if kept, since := pruneHistory(old[:1], nil, now); len(kept) != 1 || since != nil {
 		t.Errorf("within bounds: kept %d, since %v", len(kept), since)
+	}
+}
+
+// TestAGCPServiceAccountKeyIsFound: a service account's JSON key gives
+// its private key as strong needles, as `jq -r .private_key` prints it
+// and as its base64 body joined: a copy of either is SECRET_FOUND.
+func TestAGCPServiceAccountKeyIsFound(t *testing.T) {
+	key, _, body := pemKey(t)
+	sa, err := json.Marshal(map[string]string{
+		"type": "service_account", "project_id": "prod-123", "private_key_id": "0123456789abcdef0123456789abcdef01234567",
+		"private_key": key, "client_email": "ci@prod-123.iam.gserviceaccount.com", "client_id": "112233445566778899001",
+		"token_uri": "https://oauth2.googleapis.com/token",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	patterns, short := secretPatterns([]namedSecret{{name: "/sa.json", value: sa}})
+	if len(short) > 0 {
+		t.Fatal(short)
+	}
+	for what, in := range map[string]string{
+		"jq -r .private_key": key + "\n",
+		"its body, joined":   "key=" + body + "\n",
+		"its body, wrapped":  key[strings.Index(key, "\n")+1:],
+		"the key id":         "kid 0123456789abcdef0123456789abcdef01234567",
+	} {
+		if _, stop := scanFor(t, patterns, in); stop == nil || stop.pattern == nil || !stop.pattern.strong || stop.pattern.name != "/sa.json" {
+			t.Errorf("%s: stopped %+v", what, stop)
+		}
+	}
+	for _, clean := range []string{"oauth2.googleapis.com/token", "ci@prod-123.iam.gserviceaccount.com sent mail", `{"type": "service_account"}`} {
+		if _, stop := scanFor(t, patterns, clean); stop != nil {
+			t.Errorf("%q: stopped %+v", clean, stop.pattern.form)
+		}
+	}
+}
+
+// TestFieldsOfAOneLineSecretAreStrong: the password and login of a .netrc
+// on one line, the value of a KEY=value line, and a token-shaped string
+// of a JSON value are each a credential whole, found alone.
+func TestFieldsOfAOneLineSecretAreStrong(t *testing.T) {
+	const pw, login, env, tok = "hunter2-Pq8Lm4Zx", "deploy-bot-2024", "s3cr3t-Value-9Kd2", "tk_" + "Q9w8E7r6T5y4U3i2O1p0"
+	patterns, _ := secretPatterns([]namedSecret{
+		{name: "/netrc", value: []byte("machine github.com login " + login + " password " + pw + "\n")},
+		{name: "/app.env", value: []byte("export REGION=eu\nAPI_SECRET=\"" + env + "\"\n")},
+		{name: "/app.json", value: []byte(`{"name":"ci","auth":{"token":"` + tok + `"}}`)},
+	})
+	for in, name := range map[string]string{
+		"pw: " + pw: "/netrc", "user " + login: "/netrc", "secret=" + env: "/app.env", "tok " + tok: "/app.json",
+	} {
+		if _, stop := scanFor(t, patterns, in); stop == nil || stop.pattern == nil || !stop.pattern.strong || stop.pattern.name != name {
+			t.Errorf("%q: stopped %+v; want a strong needle of %s", in, stop, name)
+		}
+	}
+	if _, stop := scanFor(t, patterns, "machine github.com in region eu"); stop != nil {
+		t.Errorf("structure: stopped %+v", stop)
+	}
+}
+
+// TestRandomHexKeysAreWeak: a random hex key is a piece worth looking for,
+// whatever its few bits a byte.
+func TestRandomHexKeysAreWeak(t *testing.T) {
+	for range 200 {
+		b := make([]byte, 16)
+		_, _ = rand.Read(b)
+		k := hex.EncodeToString(b)
+		if !credentialShaped([]byte(k)) || !credentialShaped([]byte(strings.ToUpper(k))) {
+			t.Fatalf("%s is not credential-shaped", k)
+		}
+		patterns, _ := secretPatterns([]namedSecret{{name: "/keys", value: []byte("service: billing\napi_key: " + k + "\n")}})
+		if _, stop := scanFor(t, patterns, "the key "+k); stop != nil || patterns == nil {
+			t.Fatalf("%s: stopped %+v", k, stop)
+		}
+		s := newScanner(patterns, 0, io.Discard)
+		_, _ = s.Write([]byte("the key " + k))
+		if s.suspect == nil || s.suspect.name != "/keys" {
+			t.Fatalf("%s is not a weak needle", k)
+		}
+	}
+}
+
+// TestMoreURLAndJSONForms: a value fully percent-encoded, as Python's
+// quote(safe="") and curl write it, Python's default quote, which keeps
+// slashes, and Go's JSON with its HTML escapes are found.
+func TestMoreURLAndJSONForms(t *testing.T) {
+	const v = "a&b<c>d/e f+g~h=Zq7"
+	patterns, _ := secretPatterns([]namedSecret{{name: "$V", value: []byte(v)}})
+	goJSON, _ := json.Marshal(v)
+	for what, in := range map[string]string{
+		`quote(safe="")`:     "x=a%26b%3Cc%3Ed%2Fe%20f%2Bg~h%3DZq7",
+		"quote()":            "/p/a%26b%3Cc%3Ed/e%20f%2Bg~h%3DZq7",
+		"Go's JSON":          `{"v":` + string(goJSON) + `}`,
+		"lower-case escapes": "a%26b%3cc%3ed%2fe%20f%2bg~h%3dZq7",
+	} {
+		if _, stop := scanFor(t, patterns, in); stop == nil || stop.pattern == nil {
+			t.Errorf("%s: %q not found", what, in)
+		}
+	}
+	if !strings.Contains(string(goJSON), `\`+`u003c`) {
+		t.Fatalf("Go's JSON did not escape <: %s", goJSON)
+	}
+}
+
+// TestAnEKSKubeconfigsStructureIsNoNeedle: a real-shaped EKS kubeconfig's
+// server URL, cluster ARN and exec arguments are none of its needles; its
+// CA data is.
+func TestAnEKSKubeconfigsStructureIsNoNeedle(t *testing.T) {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	server := "https://" + strings.ToUpper(hex.EncodeToString(b)) + ".gr7.eu-west-1.eks.amazonaws.com"
+	ca := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("ca-cert-Zq81-"), 40))
+	arn := "arn:aws:eks:eu-west-1:123456789012:cluster/prod-eks-01"
+	kube := `apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: ` + ca + `
+    server: ` + server + `
+  name: ` + arn + `
+contexts:
+- context:
+    cluster: ` + arn + `
+    user: ` + arn + `
+  name: ` + arn + `
+current-context: ` + arn + `
+kind: Config
+users:
+- name: ` + arn + `
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1beta1
+      args: [--region, eu-west-1, eks, get-token, --cluster-name, prod-eks-01, --output, json]
+      command: aws
+`
+	patterns, _ := secretPatterns([]namedSecret{{name: "/kube", value: []byte(kube)}})
+	for _, in := range []string{
+		"curl -k " + server + "/healthz",
+		"kubectl --context " + arn + " get pods",
+		"aws eks get-token --region eu-west-1 --cluster-name prod-eks-01",
+		strings.TrimPrefix(server, "https://"),
+	} {
+		if _, stop := scanFor(t, patterns, in); stop != nil {
+			t.Errorf("%q: stopped as %s %s", in, stop.pattern.name, stop.pattern.form)
+		}
+		s := newScanner(patterns, 0, io.Discard)
+		_, _ = s.Write([]byte(in))
+		if s.suspect != nil {
+			t.Errorf("%q: suspect as %q", in, s.suspect.b)
+		}
+	}
+	s := newScanner(patterns, 0, io.Discard)
+	_, _ = s.Write([]byte("ca: " + ca))
+	if s.suspect == nil && s.stop == nil {
+		t.Error("the CA data is no needle")
+	}
+}
+
+// TestStrongBeforeWeakInOneWindow: a window holding a piece of one secret
+// before another secret whole is SECRET_FOUND for the whole one; a piece
+// alone is SUSPECT naming its secret.
+func TestStrongBeforeWeakInOneWindow(t *testing.T) {
+	strongWhole := "ghp_" + "StrongWholeValue0099XyZ"
+	patterns, _ := secretPatterns([]namedSecret{
+		{name: "/kube", value: []byte(tierKube)},
+		{name: "$TOKEN", value: []byte(strongWhole)},
+	})
+	s := newScanner(patterns, 0, io.Discard)
+	_, _ = s.Write([]byte("sig " + tierKubeSig + " then " + strongWhole))
+	if r := s.refusal(); r.GetReason().String() != "COPY_REFUSAL_REASON_SECRET_FOUND" || r.GetSecrets()[0] != "$TOKEN" {
+		t.Errorf("a piece, then a whole secret in one write: %v", r)
+	}
+	s = newScanner(patterns, 0, io.Discard)
+	_, _ = s.Write([]byte("sig " + tierKubeSig))
+	_ = s.Flush()
+	if r := s.refusal(); r.GetReason().String() != "COPY_REFUSAL_REASON_SUSPECT" || len(r.GetSecrets()) != 1 || r.GetSecrets()[0] != "/kube" {
+		t.Errorf("a piece alone: %v", r)
 	}
 }
