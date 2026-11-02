@@ -44,6 +44,9 @@ const (
 	// EnvironmentServiceCopyFileProcedure is the fully-qualified name of the EnvironmentService's
 	// CopyFile RPC.
 	EnvironmentServiceCopyFileProcedure = "/tower.environments.v1alpha1.EnvironmentService/CopyFile"
+	// EnvironmentServiceGetCapabilitiesProcedure is the fully-qualified name of the
+	// EnvironmentService's GetCapabilities RPC.
+	EnvironmentServiceGetCapabilitiesProcedure = "/tower.environments.v1alpha1.EnvironmentService/GetCapabilities"
 	// EnvironmentServiceFetchOriginProcedure is the fully-qualified name of the EnvironmentService's
 	// FetchOrigin RPC.
 	EnvironmentServiceFetchOriginProcedure = "/tower.environments.v1alpha1.EnvironmentService/FetchOrigin"
@@ -80,8 +83,16 @@ type EnvironmentServiceClient interface {
 	// replaces the file, and each later chunk starts where the file ends.
 	WriteFile(context.Context, *connect.Request[v1alpha1.WriteFileRequest]) (*connect.Response[v1alpha1.WriteFileResponse], error)
 	// CopyFile copies a file or a directory from one environment to another
-	// of the same workstream. The bytes never leave the target.
+	// of the same workstream. The bytes never leave the target, unless
+	// refuse_secrets or max_bytes is set: tower then streams them through
+	// itself, and refuses a copy that fails either with FAILED_PRECONDITION
+	// carrying a CopyRefusal detail (docs/decisions/copy-out-scan.md).
 	CopyFile(context.Context, *connect.Request[v1alpha1.CopyFileRequest]) (*connect.Response[v1alpha1.CopyFileResponse], error)
+	// GetCapabilities names what this tower does that an older one did not
+	// and that a caller cannot otherwise tell: a field an older tower would
+	// drop unread. A tower without it answers UNIMPLEMENTED, which is to
+	// have none.
+	GetCapabilities(context.Context, *connect.Request[v1alpha1.GetCapabilitiesRequest]) (*connect.Response[v1alpha1.GetCapabilitiesResponse], error)
 	// FetchOrigin fetches the repositories of a box's checkouts into the
 	// target's mirrors, then brings each checkout's origin/* up to them.
 	FetchOrigin(context.Context, *connect.Request[v1alpha1.FetchOriginRequest]) (*connect.Response[v1alpha1.FetchOriginResponse], error)
@@ -148,6 +159,12 @@ func NewEnvironmentServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(environmentServiceMethods.ByName("CopyFile")),
 			connect.WithClientOptions(opts...),
 		),
+		getCapabilities: connect.NewClient[v1alpha1.GetCapabilitiesRequest, v1alpha1.GetCapabilitiesResponse](
+			httpClient,
+			baseURL+EnvironmentServiceGetCapabilitiesProcedure,
+			connect.WithSchema(environmentServiceMethods.ByName("GetCapabilities")),
+			connect.WithClientOptions(opts...),
+		),
 		fetchOrigin: connect.NewClient[v1alpha1.FetchOriginRequest, v1alpha1.FetchOriginResponse](
 			httpClient,
 			baseURL+EnvironmentServiceFetchOriginProcedure,
@@ -195,17 +212,18 @@ func NewEnvironmentServiceClient(httpClient connect.HTTPClient, baseURL string, 
 
 // environmentServiceClient implements EnvironmentServiceClient.
 type environmentServiceClient struct {
-	exec          *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
-	readFile      *connect.Client[v1alpha1.ReadFileRequest, v1alpha1.ReadFileResponse]
-	writeFile     *connect.Client[v1alpha1.WriteFileRequest, v1alpha1.WriteFileResponse]
-	copyFile      *connect.Client[v1alpha1.CopyFileRequest, v1alpha1.CopyFileResponse]
-	fetchOrigin   *connect.Client[v1alpha1.FetchOriginRequest, v1alpha1.FetchOriginResponse]
-	push          *connect.Client[v1alpha1.PushRequest, v1alpha1.PushResponse]
-	issueTicket   *connect.Client[v1alpha1.IssueTicketRequest, v1alpha1.IssueTicketResponse]
-	startProcess  *connect.Client[v1alpha1.StartProcessRequest, v1alpha1.StartProcessResponse]
-	attachProcess *connect.Client[v1alpha1.AttachProcessRequest, v1alpha1.AttachProcessResponse]
-	signalProcess *connect.Client[v1alpha1.SignalProcessRequest, v1alpha1.SignalProcessResponse]
-	listProcesses *connect.Client[v1alpha1.ListProcessesRequest, v1alpha1.ListProcessesResponse]
+	exec            *connect.Client[v1alpha1.ExecRequest, v1alpha1.ExecResponse]
+	readFile        *connect.Client[v1alpha1.ReadFileRequest, v1alpha1.ReadFileResponse]
+	writeFile       *connect.Client[v1alpha1.WriteFileRequest, v1alpha1.WriteFileResponse]
+	copyFile        *connect.Client[v1alpha1.CopyFileRequest, v1alpha1.CopyFileResponse]
+	getCapabilities *connect.Client[v1alpha1.GetCapabilitiesRequest, v1alpha1.GetCapabilitiesResponse]
+	fetchOrigin     *connect.Client[v1alpha1.FetchOriginRequest, v1alpha1.FetchOriginResponse]
+	push            *connect.Client[v1alpha1.PushRequest, v1alpha1.PushResponse]
+	issueTicket     *connect.Client[v1alpha1.IssueTicketRequest, v1alpha1.IssueTicketResponse]
+	startProcess    *connect.Client[v1alpha1.StartProcessRequest, v1alpha1.StartProcessResponse]
+	attachProcess   *connect.Client[v1alpha1.AttachProcessRequest, v1alpha1.AttachProcessResponse]
+	signalProcess   *connect.Client[v1alpha1.SignalProcessRequest, v1alpha1.SignalProcessResponse]
+	listProcesses   *connect.Client[v1alpha1.ListProcessesRequest, v1alpha1.ListProcessesResponse]
 }
 
 // Exec calls tower.environments.v1alpha1.EnvironmentService.Exec.
@@ -226,6 +244,11 @@ func (c *environmentServiceClient) WriteFile(ctx context.Context, req *connect.R
 // CopyFile calls tower.environments.v1alpha1.EnvironmentService.CopyFile.
 func (c *environmentServiceClient) CopyFile(ctx context.Context, req *connect.Request[v1alpha1.CopyFileRequest]) (*connect.Response[v1alpha1.CopyFileResponse], error) {
 	return c.copyFile.CallUnary(ctx, req)
+}
+
+// GetCapabilities calls tower.environments.v1alpha1.EnvironmentService.GetCapabilities.
+func (c *environmentServiceClient) GetCapabilities(ctx context.Context, req *connect.Request[v1alpha1.GetCapabilitiesRequest]) (*connect.Response[v1alpha1.GetCapabilitiesResponse], error) {
+	return c.getCapabilities.CallUnary(ctx, req)
 }
 
 // FetchOrigin calls tower.environments.v1alpha1.EnvironmentService.FetchOrigin.
@@ -277,8 +300,16 @@ type EnvironmentServiceHandler interface {
 	// replaces the file, and each later chunk starts where the file ends.
 	WriteFile(context.Context, *connect.Request[v1alpha1.WriteFileRequest]) (*connect.Response[v1alpha1.WriteFileResponse], error)
 	// CopyFile copies a file or a directory from one environment to another
-	// of the same workstream. The bytes never leave the target.
+	// of the same workstream. The bytes never leave the target, unless
+	// refuse_secrets or max_bytes is set: tower then streams them through
+	// itself, and refuses a copy that fails either with FAILED_PRECONDITION
+	// carrying a CopyRefusal detail (docs/decisions/copy-out-scan.md).
 	CopyFile(context.Context, *connect.Request[v1alpha1.CopyFileRequest]) (*connect.Response[v1alpha1.CopyFileResponse], error)
+	// GetCapabilities names what this tower does that an older one did not
+	// and that a caller cannot otherwise tell: a field an older tower would
+	// drop unread. A tower without it answers UNIMPLEMENTED, which is to
+	// have none.
+	GetCapabilities(context.Context, *connect.Request[v1alpha1.GetCapabilitiesRequest]) (*connect.Response[v1alpha1.GetCapabilitiesResponse], error)
 	// FetchOrigin fetches the repositories of a box's checkouts into the
 	// target's mirrors, then brings each checkout's origin/* up to them.
 	FetchOrigin(context.Context, *connect.Request[v1alpha1.FetchOriginRequest]) (*connect.Response[v1alpha1.FetchOriginResponse], error)
@@ -340,6 +371,12 @@ func NewEnvironmentServiceHandler(svc EnvironmentServiceHandler, opts ...connect
 		connect.WithSchema(environmentServiceMethods.ByName("CopyFile")),
 		connect.WithHandlerOptions(opts...),
 	)
+	environmentServiceGetCapabilitiesHandler := connect.NewUnaryHandler(
+		EnvironmentServiceGetCapabilitiesProcedure,
+		svc.GetCapabilities,
+		connect.WithSchema(environmentServiceMethods.ByName("GetCapabilities")),
+		connect.WithHandlerOptions(opts...),
+	)
 	environmentServiceFetchOriginHandler := connect.NewUnaryHandler(
 		EnvironmentServiceFetchOriginProcedure,
 		svc.FetchOrigin,
@@ -392,6 +429,8 @@ func NewEnvironmentServiceHandler(svc EnvironmentServiceHandler, opts ...connect
 			environmentServiceWriteFileHandler.ServeHTTP(w, r)
 		case EnvironmentServiceCopyFileProcedure:
 			environmentServiceCopyFileHandler.ServeHTTP(w, r)
+		case EnvironmentServiceGetCapabilitiesProcedure:
+			environmentServiceGetCapabilitiesHandler.ServeHTTP(w, r)
 		case EnvironmentServiceFetchOriginProcedure:
 			environmentServiceFetchOriginHandler.ServeHTTP(w, r)
 		case EnvironmentServicePushProcedure:
@@ -429,6 +468,10 @@ func (UnimplementedEnvironmentServiceHandler) WriteFile(context.Context, *connec
 
 func (UnimplementedEnvironmentServiceHandler) CopyFile(context.Context, *connect.Request[v1alpha1.CopyFileRequest]) (*connect.Response[v1alpha1.CopyFileResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.environments.v1alpha1.EnvironmentService.CopyFile is not implemented"))
+}
+
+func (UnimplementedEnvironmentServiceHandler) GetCapabilities(context.Context, *connect.Request[v1alpha1.GetCapabilitiesRequest]) (*connect.Response[v1alpha1.GetCapabilitiesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.environments.v1alpha1.EnvironmentService.GetCapabilities is not implemented"))
 }
 
 func (UnimplementedEnvironmentServiceHandler) FetchOrigin(context.Context, *connect.Request[v1alpha1.FetchOriginRequest]) (*connect.Response[v1alpha1.FetchOriginResponse], error) {
