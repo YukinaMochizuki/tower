@@ -1,19 +1,31 @@
 package apiserver
 
 import (
+	"slices"
 	"testing"
 )
 
-// webScripts are the package.json scripts of a repository's web/ and of
-// its root, as scriptsFunc reads them.
-func webScripts(dir string) (map[string]string, bool) {
-	switch dir {
-	case "web":
-		return map[string]string{"lint": "eslint .", "test": "vitest run", "build": "vite build", "test:unit": "vitest run unit"}, true
-	case ".":
-		return map[string]string{"typecheck": "tsc --noEmit"}, true
-	}
-	return nil, false
+// testView is a box: package.json scripts and the directories it has.
+type testView struct {
+	pkgs map[string]map[string]string
+	dirs []string
+}
+
+func (v testView) scripts(dir string) (map[string]string, bool) {
+	s, ok := v.pkgs[dir]
+	return s, ok
+}
+
+func (v testView) isDir(dir string) bool { return slices.Contains(v.dirs, dir) }
+
+// web is a repository with scripts in web/ and at its root, and the
+// directories its lines name; "a b" and the token-shaped one exist too.
+var web = testView{
+	pkgs: map[string]map[string]string{
+		"web": {"lint": "eslint .", "test": "vitest run", "build": "vite build", "test:unit": "vitest run unit"},
+		".":   {"typecheck": "tsc --noEmit"},
+	},
+	dirs: []string{"web", "svc", "api", "sub", "internal", "internal/apiserver", "internal/x", "cmd", "cmd/tower", "x", "a b", "a/0123456789abcdef", "example.com/m"},
 }
 
 // TestFindTasks: a line's tasks are found past setup, wrappers and output
@@ -91,6 +103,25 @@ func TestFindTasks(t *testing.T) {
 		{"just --list", "", ""},
 		// Tasks that cannot be keyed by plain names: none.
 		{"make $TARGET", "", ""},
+		// Directories the box does not have, or whose names are no plain
+		// names though it has them: no task.
+		{"cd nowhere && make test", "", ""},
+		{"make -C nowhere test", "", ""},
+		{"go test ./nowhere/...", "", ""},
+		{"go test github.com/a/b", "", ""},
+		// A module's path is no directory, though one of its name is there.
+		{"go test example.com/m", "", ""},
+		{"go test ./x/... ./nowhere", "", ""},
+		{"cd 'a b' && make test", "", ""},
+		{"cd a/0123456789abcdef && make test", "", ""},
+		// Lookups run nothing; -E is --eval.
+		{"command -v make && make test", "", "make test"},
+		{"command -v make", "", ""},
+		{"command -V go", "", ""},
+		{"type make && hash make", "", ""},
+		{"command make test", "", "make test"},
+		{"make -E 'x: ; go test' x", "", ""},
+		{"make -Ex test", "", ""},
 		{"make gen && make $TARGET", "", ""},
 		{"make gen; cd $X; make test", "", ""},
 		{"cd $DIR && make test", "", ""},
@@ -111,7 +142,7 @@ func TestFindTasks(t *testing.T) {
 	} {
 		t.Run(tc.line, func(t *testing.T) {
 			t.Parallel()
-			if got := tasksText(findTasks(tc.line, tc.dir, webScripts)); got != tc.want {
+			if got := tasksText(findTasks(tc.line, tc.dir, web)); got != tc.want {
 				t.Errorf("findTasks(%q, %q) = %q, want %q", tc.line, tc.dir, got, tc.want)
 			}
 		})
@@ -122,7 +153,7 @@ func TestFindTasks(t *testing.T) {
 // when package.json says so; with none to read, a heavy tool is still one.
 func TestFindTasksWithoutPackageJSON(t *testing.T) {
 	t.Parallel()
-	none := func(string) (map[string]string, bool) { return nil, false }
+	none := testView{dirs: web.dirs}
 	for line, want := range map[string]string{
 		"pnpm lint":         "",
 		"pnpm vitest run":   "vitest",
@@ -139,14 +170,14 @@ func TestFindTasksWithoutPackageJSON(t *testing.T) {
 		}
 	}
 	if got := tasksText(findTasks("pnpm lint", "", nil)); got != "" {
-		t.Errorf("findTasks with no scriptsFunc = %q", got)
+		t.Errorf("findTasks with no box view = %q", got)
 	}
 }
 
-// TestExpansionTasks: an expansion is read whole, inside conditionals,
+// TestScriptTasks: a script's text is read whole, inside conditionals,
 // loops and substitutions, with the bundlers and builds a line's tasks
 // are not; a line that is not shell is passed over.
-func TestExpansionTasks(t *testing.T) {
+func TestScriptTasks(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ text, want string }{
 		{"echo building\ngo build -o bin/x ./cmd/x", "go build"},
@@ -165,8 +196,8 @@ func TestExpansionTasks(t *testing.T) {
 		{"bun test --coverage", "bun test"},
 		{"go fmt ./... && eslint .", ""},
 	} {
-		if got := tasksText(expansionTasks(tc.text, ".", webScripts)); got != tc.want {
-			t.Errorf("expansionTasks(%q) = %q, want %q", tc.text, got, tc.want)
+		if got := tasksText(scriptTasks(tc.text, ".", web)); got != tc.want {
+			t.Errorf("scriptTasks(%q) = %q, want %q", tc.text, got, tc.want)
 		}
 	}
 }

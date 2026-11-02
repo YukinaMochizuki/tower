@@ -151,10 +151,9 @@ picks, its services and its agent included.
   characters at most, and not hex or digit-heavy as a token is; a
   script's or recipe's may join such names with `:`), and its
   directories and package patterns paths whose parts are not shaped as a
-  token is. A line whose task has a word that is none is no task, and
-  not kept. A task's record also keeps what its expansion was judged to
-  run (a heavy tool's name, or none) and its source file's sha256, never
-  the expansion's text.
+  token is, and each a directory the box has (read through the provider,
+  never run). A line whose task has a word that is none is no task, and
+  not kept. A record holds the runs alone.
 - **Runs kept by the command line are dropped.** An earlier tower kept
   them in `CommandUse`, under the sha256 of the line and its first word;
   their keys almost never repeated (`boost.md`), and the first hourly

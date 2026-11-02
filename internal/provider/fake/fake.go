@@ -1090,8 +1090,17 @@ func (f *Fake) ReadFile(_ context.Context, in provider.Instance, p string, w io.
 	}
 	if err == nil {
 		var ok bool
-		if b, ok = local.files[local.resolve(p)]; !ok {
+		name := local.resolve(p)
+		if b, ok = local.files[name]; !ok {
 			err = fmt.Errorf("%s: %w", p, fs.ErrNotExist)
+			// A directory is any path a file is under; a read of it fails,
+			// as a guest's does.
+			for file := range local.files {
+				if strings.HasPrefix(file, strings.TrimSuffix(name, "/")+"/") {
+					err = fmt.Errorf("reading %s: %s is a directory", p, p)
+					break
+				}
+			}
 		}
 	}
 	f.mu.Unlock()

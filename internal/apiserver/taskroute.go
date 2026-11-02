@@ -3,18 +3,15 @@ package apiserver
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"path"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
-	"github.com/YukinaMochizuki/tower/internal/provider"
 )
 
 // Routing a start that asks for auto by the tasks its line runs
@@ -33,19 +30,17 @@ const (
 	// CPU time over its wall time must reach to count as all of them busy:
 	// a little below all, as a busy run never quite uses them whole.
 	allCPUsBusy = 900
-	// nearMemory is the share of the box's memory, in percent, a peak must
-	// reach for the next run to go to a boost of memoryGrowth times it.
+	// nearMemory is the share of the memory the box holds its measured
+	// processes to (processMemoryMax), in percent, a peak must reach for
+	// the next run to go to a boost that holds them to memoryGrowth times
+	// it.
 	nearMemory = 80
-	// memoryGrowth is how much larger than a run's peak, in percent, the
-	// boost its next run goes to is.
+	// memoryGrowth is how much more than a run's peak, in percent, the
+	// boost its next run goes to holds its processes to.
 	memoryGrowth = 150
-	// dryRunTimeout bounds make -n in the box; past it the task's
-	// expansion is not known.
-	dryRunTimeout = 10 * time.Second
-	// maxSourceBytes bounds a makefile, a package.json and make -n's
-	// output read for routing.
+	// maxSourceBytes bounds a package.json read for routing.
 	maxSourceBytes = 1 << 20
-	// maxScriptDepth bounds the scripts a script's expansion follows.
+	// maxScriptDepth bounds the scripts a script's text is followed through.
 	maxScriptDepth = 8
 )
 
@@ -69,7 +64,7 @@ func (s *Server) route(ctx context.Context, e *environment, command []string, di
 		return routing{why: "its box's target makes no boosts: it runs in the box"}
 	}
 	pk := s.packagesIn(ctx, e)
-	tasks := findTasks(commandText(command), dir, pk.scripts)
+	tasks := findTasks(commandText(command), dir, pk)
 	if len(tasks) == 0 {
 		return routing{why: "no task found in the line (a make target, a package.json script, a just or task recipe, or a heavy tool): in the box"}
 	}
@@ -110,7 +105,7 @@ func (j judge) tasks(ctx context.Context, tasks []taskEntry) routing {
 		return j.runs(text, use.Runs)
 	}
 	if len(tasks) == 1 {
-		return j.expansion(ctx, tasks[0], use.Expansion)
+		return j.firstRun(tasks[0])
 	}
 	var out routing
 	for _, t := range tasks {
@@ -136,7 +131,12 @@ func (j judge) runs(text string, runs []taskRun) routing {
 	if len(last) == 1 {
 		of = "its last run"
 	}
-	// Memory first: a run near the box's memory, or killed for it.
+	// Memory first: a run near what the box holds its processes to, or
+	// killed for it, wherever it ran.
+	limit := uint64(0)
+	if j.box.memory > 0 {
+		limit = uint64(processMemoryMax(int64(min(j.box.memory, 1<<62))))
+	}
 	var peak uint64
 	why := ""
 	for _, r := range last {
@@ -146,10 +146,13 @@ func (j judge) runs(text string, runs []taskRun) routing {
 		}
 		oom := r.OOMKilled != nil && *r.OOMKilled
 		if oom && p == 0 {
-			// Killed with no peak told: at least the memory it ran in.
-			p, _ = quantity.Bytes(r.RanOn.Memory)
+			// Killed with no peak told: at least what the instance it ran
+			// on held its processes to.
+			if m, err := quantity.Bytes(r.RanOn.Memory); err == nil && m > 0 {
+				p = uint64(processMemoryMax(int64(min(m, 1<<62))))
+			}
 		}
-		near := j.box.memory > 0 && p*100 >= j.box.memory*nearMemory
+		near := limit > 0 && p*100 >= limit*nearMemory
 		if (!oom && !near) || p <= peak {
 			continue
 		}
@@ -162,10 +165,10 @@ func (j judge) runs(text string, runs []taskRun) routing {
 		if r.RanOn.Kind == ranOnBoost {
 			where = "on a boost"
 		}
-		why = fmt.Sprintf("%s %s %s %s of this box's %s", of, where, what, bytesText(p), bytesText(j.box.memory))
+		why = fmt.Sprintf("%s %s %s %s, of the %s this box holds its processes to", of, where, what, bytesText(p), bytesText(limit))
 	}
 	if peak > 0 {
-		size, err := parseBoostSize("", quantity.FormatMemory(peak*memoryGrowth/100), j.set.boostResources)
+		size, err := parseBoostSize("", quantity.FormatMemory(memoryHolding(peak*memoryGrowth/100)), j.set.boostResources)
 		if err != nil {
 			size = j.set.boostResources
 		}
@@ -210,12 +213,21 @@ func (j judge) runs(text string, runs []taskRun) routing {
 				text, used, formatMilliCPU(j.box.milliCPU), j.onBoost(size))}
 		}
 	}
+	// Its peak is below nearMemory of the box's limit, or the memory rule
+	// above would have kept it on a boost.
 	why = "its last run, on a boost, fits this box"
 	if used != "" && latest.MemoryPeak != nil {
-		why = fmt.Sprintf("its last run, on a boost, used %s vCPU on average and peaked at %s, which this box (%s vCPU, %s) holds",
-			used, bytesText(uint64(max(*latest.MemoryPeak, 0))), formatMilliCPU(j.box.milliCPU), bytesText(j.box.memory))
+		why = fmt.Sprintf("its last run, on a boost, used %s vCPU on average and peaked at %s, which this %s vCPU box, holding its processes to %s, holds",
+			used, bytesText(uint64(max(*latest.MemoryPeak, 0))), formatMilliCPU(j.box.milliCPU), bytesText(limit))
 	}
 	return routing{why: text + ": " + why + ": in the box"}
+}
+
+// memoryHolding is the least memory of an instance whose measured
+// processes are held to at least limit (processMemoryMax solved for the
+// instance's memory).
+func memoryHolding(limit uint64) uint64 {
+	return min(limit+processMemoryReserve, 2*limit)
 }
 
 // busy says a run of usage CPU time over wall kept all of the CPUs it ran
@@ -228,33 +240,28 @@ func (j judge) busy(usage, wall time.Duration, cpu string) bool {
 	return int64(usage)*1000*1000 >= int64(wall)*m*allCPUsBusy
 }
 
-// expansion routes a task with no runs by what it runs.
-func (j judge) expansion(ctx context.Context, t taskEntry, cached *taskExpansion) routing {
+// firstRun routes a task with no runs: a heavy tool by its name, a
+// package.json script by its text and the scripts it runs, a make, just
+// or task target to the box, where its first run is measured. tower runs
+// nothing to judge a task (decided with the human, 2026-11-02: make -n
+// runs $(MAKE) lines and remakes included makefiles).
+func (j judge) firstRun(t taskEntry) routing {
 	text := t.String()
-	if heavyTool(t) {
-		size := j.set.boostResources
-		return routing{boost: true, size: size, why: fmt.Sprintf("%s: no runs recorded yet; %s is a heavy tool: %s", text, t.Tool, j.onBoost(size))}
-	}
-	var (
-		x   *taskExpansion
-		err error
-	)
-	switch {
-	case t.Tool == "make":
-		x, err = j.makeExpansion(ctx, t, cached)
-	case t.script():
-		x, err = j.scriptExpansion(ctx, t, cached)
-	default:
-		return routing{why: fmt.Sprintf("%s: no runs recorded yet, and what a %s recipe runs is not read: in the box", text, t.Tool)}
-	}
-	if err != nil {
-		return routing{why: fmt.Sprintf("%s: no runs recorded yet, and what it runs is not known: %v: in the box", text, err)}
-	}
-	if x.Heavy == "" {
-		return routing{why: fmt.Sprintf("%s: no runs recorded yet, and what it runs (%s) holds no heavy tool: in the box", text, x.Source)}
-	}
 	size := j.set.boostResources
-	return routing{boost: true, size: size, why: fmt.Sprintf("%s: no runs recorded yet; what it runs (%s) holds %s, a heavy tool: %s", text, x.Source, x.Heavy, j.onBoost(size))}
+	switch {
+	case heavyTool(t):
+		return routing{boost: true, size: size, why: fmt.Sprintf("%s: no runs recorded yet; %s is a heavy tool: %s", text, t.Tool, j.onBoost(size))}
+	case !t.script():
+		return routing{why: fmt.Sprintf("%s: no runs recorded yet; its first run here is measured, and decides the next: in the box", text)}
+	}
+	p := j.pk.get(t.Dir)
+	if _, ok := p.scripts[t.Name]; !p.ok || !ok {
+		return routing{why: fmt.Sprintf("%s: no runs recorded yet, and its package.json has no such script: in the box", text)}
+	}
+	if heavy := j.heavyIn([]taskEntry{t}, 0, nil); heavy != "" {
+		return routing{boost: true, size: size, why: fmt.Sprintf("%s: no runs recorded yet; its script runs %s, a heavy tool: %s", text, heavy, j.onBoost(size))}
+	}
+	return routing{why: fmt.Sprintf("%s: no runs recorded yet, and its script runs no heavy tool: in the box", text)}
 }
 
 // heavyTool says t is a heavy tool called directly.
@@ -263,87 +270,7 @@ func heavyTool(t taskEntry) bool {
 	case "go test", "go build", "go vet", "cargo test", "cargo build", "bun test":
 		return true
 	}
-	return slices.Contains(directTools, t.Tool) || slices.Contains(expansionTools, t.Tool)
-}
-
-// keepExpansion keeps x as t's, for the next start while its file is the
-// same; a failure is logged, the routing stands.
-func (j judge) keepExpansion(ctx context.Context, t taskEntry, x *taskExpansion) {
-	tasks := []taskEntry{t}
-	now := j.s.clock.Now()
-	err := changeRecord(ctx, j.s, taskUseKey(j.e.key.Project, j.repository, tasks), func(u *taskUse) bool {
-		if u.Expansion != nil && *u.Expansion == *x {
-			return false
-		}
-		u.Repository, u.Tasks, u.Expansion, u.LastRecorded = j.repository, tasks, x, now
-		return true
-	})
-	if err != nil {
-		j.s.log.Warn("keeping a task's expansion failed", "environment", j.e.String(), "error", err)
-	}
-}
-
-// makefiles are the files make reads in a directory, in its order.
-var makefiles = []string{"GNUmakefile", "makefile", "Makefile"}
-
-// errDryRun is a dry run that did not tell what a target runs.
-var errDryRun = errors.New("its dry run (make -n)")
-
-// makeExpansion is what t, a make target, runs: its make -n in the box,
-// as its user, within dryRunTimeout; cached by its makefile's hash.
-func (j judge) makeExpansion(ctx context.Context, t taskEntry, cached *taskExpansion) (*taskExpansion, error) {
-	dir := path.Join("/workspace", t.Dir)
-	sum := ""
-	for _, name := range makefiles {
-		if b, ok := j.pk.read(ctx, path.Join(dir, name)); ok {
-			h := sha256.Sum256(b)
-			sum = hex.EncodeToString(h[:])
-			break
-		}
-	}
-	if sum == "" {
-		return nil, errors.New("it has no makefile")
-	}
-	if cached != nil && cached.Source == expansionMake && cached.File == sum {
-		return cached, nil
-	}
-	dctx, cancel := context.WithTimeout(ctx, dryRunTimeout)
-	defer cancel()
-	out := &capped{max: maxSourceBytes}
-	argv := []string{"timeout", "-k", "2", fmt.Sprint(int(dryRunTimeout / time.Second)), "make", "-n"}
-	if t.Name != "" {
-		argv = append(argv, splitNames(t.Name)...)
-	}
-	code, err := j.e.p.Exec(dctx, provider.ExecRequest{Instance: j.e.ref, Command: argv, Dir: dir, Stdout: out, Stderr: io.Discard})
-	switch {
-	case dctx.Err() != nil || code == 124 || code == 137:
-		return nil, fmt.Errorf("%w ran past %s", errDryRun, dryRunTimeout)
-	case err != nil:
-		return nil, fmt.Errorf("%w could not run", errDryRun)
-	case code != 0:
-		return nil, fmt.Errorf("%w failed, exit %d", errDryRun, code)
-	}
-	x := &taskExpansion{Source: expansionMake, File: sum, Heavy: j.heavyIn(expansionTasks(out.String(), t.Dir, j.pk.scripts), 0, nil)}
-	j.keepExpansion(ctx, t, x)
-	return x, nil
-}
-
-// scriptExpansion is what t, a package.json script, runs: its text and
-// the scripts it runs; cached by its package.json's hash.
-func (j judge) scriptExpansion(ctx context.Context, t taskEntry, cached *taskExpansion) (*taskExpansion, error) {
-	p := j.pk.get(t.Dir)
-	if !p.ok {
-		return nil, errors.New("its package.json cannot be read")
-	}
-	if _, ok := p.scripts[t.Name]; !ok {
-		return nil, errors.New("its package.json has no such script")
-	}
-	if cached != nil && cached.Source == expansionScript && cached.File == p.sum {
-		return cached, nil
-	}
-	x := &taskExpansion{Source: expansionScript, File: p.sum, Heavy: j.heavyIn([]taskEntry{t}, 0, map[taskEntry]bool{})}
-	j.keepExpansion(ctx, t, x)
-	return x, nil
+	return slices.Contains(directTools, t.Tool) || slices.Contains(scriptTools, t.Tool)
 }
 
 // heavyIn is the first heavy tool tasks run, following the scripts they
@@ -371,7 +298,7 @@ func (j judge) heavyIn(tasks []taskEntry, depth int, seen map[taskEntry]bool) st
 			if !ok {
 				continue
 			}
-			if h := j.heavyIn(expansionTasks(text, t.Dir, j.pk.scripts), depth+1, seen); h != "" {
+			if h := j.heavyIn(scriptTasks(text, t.Dir, j.pk), depth+1, seen); h != "" {
 				return h
 			}
 		}
@@ -379,50 +306,52 @@ func (j judge) heavyIn(tasks []taskEntry, depth int, seen map[taskEntry]bool) st
 	return ""
 }
 
-// splitNames is a task's names, as Name joins them.
-func splitNames(name string) []string {
-	var out []string
-	for _, n := range bytes.Fields([]byte(name)) {
-		out = append(out, string(n))
-	}
-	return out
-}
-
-// packages reads the box's package.json files for a routing or a
-// record, each once.
+// packages is a boxView of e: its package.json files and directories, read
+// through its provider as its user, each once per routing or record.
 type packages struct {
 	ctx  context.Context
 	e    *environment
-	read func(ctx context.Context, p string) ([]byte, bool)
 	got  map[string]packageJSON
+	dirs map[string]bool
 }
 
 // packageJSON is what a package.json says of its scripts.
 type packageJSON struct {
 	ok      bool
-	sum     string
 	scripts map[string]string
 }
 
-// packagesIn reads e's files through its provider, as its user.
 func (s *Server) packagesIn(ctx context.Context, e *environment) *packages {
-	p := &packages{ctx: ctx, e: e, got: map[string]packageJSON{}}
-	p.read = func(ctx context.Context, file string) ([]byte, bool) {
-		if e.p == nil {
-			return nil, false
-		}
-		out := &capped{max: maxSourceBytes}
-		if err := e.p.ReadFile(ctx, e.ref, file, out); err != nil || out.over {
-			return nil, false
-		}
-		return out.Bytes(), true
-	}
-	return p
+	return &packages{ctx: ctx, e: e, got: map[string]packageJSON{}, dirs: map[string]bool{}}
 }
 
-// scriptsIn is a scriptsFunc reading e's package.json files.
-func (s *Server) scriptsIn(ctx context.Context, e *environment) scriptsFunc {
-	return s.packagesIn(ctx, e).scripts
+// read is a file of the box's, at most maxSourceBytes.
+func (p *packages) read(file string) ([]byte, bool) {
+	if p.e.p == nil {
+		return nil, false
+	}
+	out := &capped{max: maxSourceBytes}
+	if err := p.e.p.ReadFile(p.ctx, p.e.ref, file, out); err != nil || out.over {
+		return nil, false
+	}
+	return out.Bytes(), true
+}
+
+// isDirectory is how a read of a directory fails, a guest's ("<path> is
+// a directory") and the kernel's ("read <path>: is a directory") alike.
+const isDirectory = "is a directory"
+
+func (p *packages) isDir(dir string) bool {
+	if got, ok := p.dirs[dir]; ok {
+		return got
+	}
+	is := false
+	if p.e.p != nil && dir != unknownDir {
+		err := p.e.p.ReadFile(p.ctx, p.e.ref, path.Join("/workspace", dir), io.Discard)
+		is = err != nil && strings.Contains(err.Error(), isDirectory)
+	}
+	p.dirs[dir] = is
+	return is
 }
 
 func (p *packages) get(dir string) packageJSON {
@@ -430,13 +359,12 @@ func (p *packages) get(dir string) packageJSON {
 		return got
 	}
 	var out packageJSON
-	if b, ok := p.read(p.ctx, path.Join("/workspace", dir, "package.json")); ok {
+	if b, ok := p.read(path.Join("/workspace", dir, "package.json")); ok {
 		var pj struct {
 			Scripts map[string]string `json:"scripts"`
 		}
 		if json.Unmarshal(b, &pj) == nil {
-			sum := sha256.Sum256(b)
-			out = packageJSON{ok: true, sum: hex.EncodeToString(sum[:]), scripts: pj.Scripts}
+			out = packageJSON{ok: true, scripts: pj.Scripts}
 		}
 	}
 	p.got[dir] = out

@@ -21,9 +21,9 @@ import (
 )
 
 // taskUseKind holds what the last runs of a line's tasks used, per
-// project, repository and tasks, and a task's expansion as last judged;
-// never a command's text beyond its tasks' plain names, nor its
-// environment (docs/decisions/process-usage.md, docs/decisions/boost.md).
+// project, repository and tasks; never a command's text beyond its
+// tasks' plain names, nor its environment
+// (docs/decisions/process-usage.md, docs/decisions/boost.md).
 // Not an API kind.
 const taskUseKind = "TaskUse"
 
@@ -54,37 +54,14 @@ const (
 )
 
 // taskUse is what taskUseKind holds: the runs of a line's tasks, one or
-// more in order, and, for one task alone, its expansion.
+// more in order.
 type taskUse struct {
 	Repository string      `json:"repository"`
 	Tasks      []taskEntry `json:"tasks"`
-	// LastRecorded is when a run or an expansion was last written, on
-	// tower's clock.
+	// LastRecorded is when a run was last written, on tower's clock.
 	LastRecorded time.Time `json:"lastRecorded"`
 	Runs         []taskRun `json:"runs,omitempty"`
-	// Expansion is what the task was last judged to run, by its source
-	// file's hash.
-	Expansion *taskExpansion `json:"expansion,omitempty"`
 }
-
-// taskExpansion is a task judged by what it runs: make -n's output, or a
-// script's text and the scripts it runs. It holds what it found, never
-// the text.
-type taskExpansion struct {
-	// Source is how it was read: expansionMake or expansionScript.
-	Source string `json:"source"`
-	// File is the sha256 of the file it came from, the makefile or the
-	// package.json: changed, the task is judged again.
-	File string `json:"file"`
-	// Heavy is the heavy tool it runs, as "go test"; empty for none.
-	Heavy string `json:"heavy,omitempty"`
-}
-
-// The ways a task's expansion is read.
-const (
-	expansionMake   = "make -n"
-	expansionScript = "package.json"
-)
 
 // taskRun is one run of a line's tasks and what it used.
 type taskRun struct {
@@ -273,7 +250,7 @@ func (s *Server) exitsListed(ctx context.Context, e *environment, ps []listedPro
 func (s *Server) recordRun(ctx context.Context, e *environment, p listedProcess) error {
 	tasks := p.tasks
 	if !p.tasksKnown {
-		tasks = findTasks(commandText(e.givenCommand(p.Command)), p.Dir, s.scriptsIn(ctx, e))
+		tasks = findTasks(commandText(e.givenCommand(p.Command)), p.Dir, s.packagesIn(ctx, e))
 	}
 	if len(tasks) == 0 {
 		return nil

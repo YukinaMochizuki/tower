@@ -156,9 +156,9 @@ func (h environmentService) StartProcess(ctx context.Context, req *connect.Reque
 	return connect.NewResponse(res), nil
 }
 
-// routeTimeout bounds routing a start that asks for auto: a dry run in
-// the box, and the files it reads.
-const routeTimeout = dryRunTimeout + 5*time.Second
+// routeTimeout bounds routing a start that asks for auto: the box's files
+// it reads, and the records.
+const routeTimeout = 10 * time.Second
 
 // keepRouted keeps why the box's process id was routed to the box, for
 // its exit; a failure is logged, its exit then saying none.

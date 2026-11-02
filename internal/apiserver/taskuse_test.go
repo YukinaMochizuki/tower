@@ -35,7 +35,6 @@ type taskUse struct {
 		Wall         time.Duration
 		RanOn        struct{ Kind, CPU, Memory string }
 	}
-	Expansion *struct{ Source, File, Heavy string }
 }
 
 // text is its tasks as a routed answer words them.
@@ -200,6 +199,8 @@ func TestProcessUsageKeepsTheLastRuns(t *testing.T) {
 	w.readyBox("dev")
 	envs := w.as(workstream).envs
 	in := provider.Instance{Project: "web", Name: w.box("dev").GetStatus().GetInstance()}
+	// A task's directory is one the box has.
+	w.writeBoxFile("dev", "/workspace/sub/go.mod", "module sub\n")
 	var ids []string
 	for i := range 12 {
 		line := "go test ./... -run X"

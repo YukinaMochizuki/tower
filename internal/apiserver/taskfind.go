@@ -1,6 +1,7 @@
 package apiserver
 
 import (
+	"cmp"
 	"path"
 	"regexp"
 	"slices"
@@ -22,7 +23,7 @@ type taskEntry struct {
 	// yarn or bun with a script; or a heavy tool called directly ("go
 	// test", "go build", "go vet", "cargo test", "cargo build", "bun
 	// test", tsc, vitest, jest).
-	// An expansion also finds the heavy tools of expansionTools.
+	// A script's text also finds the heavy tools of scriptTools.
 	Tool string `json:"tool"`
 	// Name is its targets, recipe, script or package patterns, by spaces;
 	// empty for a default goal, or a tool with none.
@@ -60,13 +61,19 @@ var scriptRunners = []string{"npm", "pnpm", "yarn", "bun"}
 // named alone; go and cargo are tasks by their subcommand.
 var directTools = []string{"tsc", "vitest", "jest"}
 
-// expansionTools are the heavy tools an expansion is judged heavy by,
+// scriptTools are the heavy tools a script's text is judged heavy by,
 // beyond the tasks a line may be: bundlers and builds.
-var expansionTools = []string{"vite build", "next build", "webpack", "docker build"}
+var scriptTools = []string{"vite build", "next build", "webpack", "docker build"}
 
-// scriptsFunc reads the scripts of the package.json in dir, relative to
-// /workspace; ok is false when there is none or it cannot be read.
-type scriptsFunc func(dir string) (scripts map[string]string, ok bool)
+// boxView is what a line's tasks are read against: the box's files, as
+// its user reads them, never anything run there.
+type boxView interface {
+	// scripts are the scripts of the package.json in dir, relative to
+	// /workspace; ok is false when there is none or it cannot be read.
+	scripts(dir string) (scripts map[string]string, ok bool)
+	// isDir says dir, relative to /workspace, is a directory of the box.
+	isDir(dir string) bool
+}
 
 // unknownDir is a directory a line moves to that cannot be told, as "cd
 // $X": a task there is none the line can be keyed by.
@@ -77,10 +84,10 @@ const maxShellDepth = 4
 
 // taskFinder reads a line for its tasks.
 type taskFinder struct {
-	scripts scriptsFunc
-	// loose reads an expansion rather than a line: every command, inside
+	view boxView
+	// loose reads a script's text rather than a line: every command, inside
 	// conditionals, loops and substitutions too, and the heavy tools of
-	// expansionTools; a word it cannot read is passed over, not the end of
+	// scriptTools; a word it cannot read is passed over, not the end of
 	// the line's tasks.
 	loose bool
 	tasks []taskEntry
@@ -92,20 +99,50 @@ type taskFinder struct {
 
 // findTasks is the tasks line runs from dir (as a process's directory,
 // absolute or relative to /workspace), in order; none when it runs no
-// task, or runs one it cannot be keyed by.
-func findTasks(line, dir string, scripts scriptsFunc) []taskEntry {
-	f := &taskFinder{scripts: scripts}
+// task, or runs one it cannot be keyed by: a word no plain name, or a
+// directory, its own or its package pattern's, that the box does not have.
+func findTasks(line, dir string, view boxView) []taskEntry {
+	f := &taskFinder{view: view}
 	f.line(line, startDir(dir))
 	if f.bad {
 		return nil
 	}
+	for _, t := range f.tasks {
+		for _, d := range t.dirs() {
+			if d != "." && (view == nil || !view.isDir(d)) {
+				return nil
+			}
+		}
+	}
 	return f.tasks
 }
 
-// expansionTasks is what an expansion (make -n's output, a script's
-// text) runs from dir: its heavy tools and the scripts it runs.
-func expansionTasks(text, dir string, scripts scriptsFunc) []taskEntry {
-	f := &taskFinder{scripts: scripts, loose: true}
+// dirs are the directories t names, relative to /workspace: its own, and
+// those of its package patterns; unknownDir for one that cannot be told.
+func (t taskEntry) dirs() []string {
+	out := []string{t.Dir}
+	if t.Tool != "go test" && t.Tool != "go build" && t.Tool != "go vet" {
+		return out
+	}
+	for _, p := range splitNames(t.Name) {
+		if !strings.HasPrefix(p, ".") {
+			// A module's path, or a file: no directory of the box.
+			out = append(out, unknownDir)
+			continue
+		}
+		p = strings.TrimSuffix(strings.TrimSuffix(p, "..."), "/")
+		out = append(out, joinDir(t.Dir, cmp.Or(p, ".")))
+	}
+	return out
+}
+
+// splitNames is a task's names, as Name joins them.
+func splitNames(name string) []string { return strings.Fields(name) }
+
+// scriptTasks is what a script's text runs from dir: its heavy tools
+// and the scripts it runs.
+func scriptTasks(text, dir string, view boxView) []taskEntry {
+	f := &taskFinder{view: view, loose: true}
 	f.line(text, dir)
 	return f.tasks
 }
@@ -131,7 +168,7 @@ func (f *taskFinder) line(text, dir string) {
 			f.bad = true
 			return
 		}
-		// An expansion is read line by line where it is not shell as a
+		// A script's text is read line by line where it is not shell as a
 		// whole, a recipe's line being shell alone.
 		for l := range strings.SplitSeq(text, "\n") {
 			if file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(l), ""); err == nil {
@@ -179,14 +216,14 @@ func (f *taskFinder) stmt(st *syntax.Stmt, dir *string) {
 		// Setup: export, declare, local.
 	default:
 		// Conditionals, loops, functions: a line's tasks are not read in
-		// them; an expansion's are.
+		// them; a script's are.
 		if f.loose && c != nil {
 			f.nested(c, *dir)
 		}
 	}
 }
 
-// nested reads the commands of a node an expansion holds, each from dir.
+// nested reads the commands of a node a script holds, each from dir.
 func (f *taskFinder) nested(n syntax.Node, dir string) {
 	syntax.Walk(n, func(n syntax.Node) bool {
 		if c, ok := n.(*syntax.CallExpr); ok {
@@ -347,6 +384,10 @@ func skipWrappers(words []word, dir *string) ([]word, bool) {
 			if !strings.HasPrefix(opt, "-") || opt == "-" {
 				break
 			}
+			if w == "command" && (opt == "-v" || opt == "-V") {
+				// A lookup of what a name is: it runs nothing.
+				return nil, false
+			}
 			words = words[1:]
 			if opt == "--" {
 				break
@@ -431,7 +472,7 @@ func (f *taskFinder) shell(args []word, dir string) {
 
 // makeFlagsWithArg are make's short options that take an argument, joined
 // or as the next word; j and l take one optionally, a number.
-const makeFlagsWithArg = "CfIoW"
+const makeFlagsWithArg = "CEfIoW"
 
 func (f *taskFinder) make(args []word, dir string) {
 	var targets []string
@@ -499,7 +540,8 @@ func (f *taskFinder) make(args []word, dir string) {
 						}
 					}
 					switch c {
-					case 'f':
+					case 'f', 'E':
+						// Another makefile, or more of one (-E is --eval).
 						f.none()
 						return
 					case 'C':
@@ -683,10 +725,10 @@ func (f *taskFinder) script(tool, name string, dir string) {
 
 // hasScript says package.json in dir has the script name.
 func (f *taskFinder) hasScript(dir, name string) bool {
-	if f.scripts == nil || dir == unknownDir {
+	if f.view == nil || dir == unknownDir {
 		return false
 	}
-	scripts, ok := f.scripts(dir)
+	scripts, ok := f.view.scripts(dir)
 	_, has := scripts[name]
 	return ok && has
 }
@@ -879,7 +921,7 @@ func (f *taskFinder) tool(words []word, dir string) {
 	}
 	switch {
 	case f.loose && (program == "go" && (sub == "test" || sub == "build" || sub == "vet") || program == "cargo" && (sub == "test" || sub == "build")):
-		// An expansion is judged by its tools alone, whatever their words.
+		// A script is judged by its tools alone, whatever their words.
 		f.add(taskEntry{Dir: dir, Tool: program + " " + sub})
 	case program == "go" && (sub == "test" || sub == "build" || sub == "vet"):
 		f.goTool("go "+sub, args[1:], dir)

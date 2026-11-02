@@ -1931,8 +1931,11 @@ type BoostIntent_Auto struct {
 	// tower chooses by the task the command runs, a make target, a
 	// package.json script, a just or task recipe, or a heavy tool called
 	// directly (docs/decisions/boost.md, "Routing by task"): a boost of a
-	// size it chooses, or the box. A command that runs no task runs in the
-	// box. The answer and the process's exit say why (routed). It is
+	// size it chooses, or the box, by the task's last runs; with none, a
+	// heavy tool, or a script that runs one, goes to a boost, and a make,
+	// just or task target runs in the box, its first run measured. tower
+	// runs nothing to judge a task. A command that runs no task runs in
+	// the box. The answer and the process's exit say why (routed). It is
 	// advisory, never refused for want of boosts: a machine, or a box on
 	// a target with none, runs it where it is, and a boost the target's
 	// Plan can never fit, even with no boost held (FAILED_PRECONDITION
@@ -1964,9 +1967,11 @@ type StartProcessResponse struct {
 	Boost *BoostRun `protobuf:"bytes,4,opt,name=boost,proto3" json:"boost,omitempty"`
 	// A start asking for auto: where tower routed it and why, in its task's
 	// words, as "make test: of its last 3 runs, one in this 1 vCPU box
-	// waited for a CPU 60% of its 2m0s: on a boost of 8 vCPU, 8Gi". Set on
-	// a pending answer too. Its text names the task the repository
-	// declares, never the command's other arguments.
+	// waited for a CPU 40% of its 1m0s: on a boost of 8 vCPU and 8192Mi",
+	// or "go test ./... would go to a boost of 8 vCPU and 8192Mi, but the
+	// target can never fit it (its Plan has 4 vCPU and 49152Mi left): ran
+	// in the box". Set on a pending answer too. Its text names the task the
+	// repository declares, never the command's other arguments.
 	Routed        string `protobuf:"bytes,5,opt,name=routed,proto3" json:"routed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

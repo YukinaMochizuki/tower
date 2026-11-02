@@ -121,28 +121,34 @@ work has to find its own way to a boost.
   the repository gives, not a caller's values, so the key is kept as
   text, each word held to the plain-name rule `process-usage.md` sets
   for the coarse key; a word that fails it makes the line no task.
-- **A task with no record is judged by what it does.** A make target's
-  expansion is read with `make -n` in the box, as its user, bounded in
-  time; a script's is its text in `package.json`, following the scripts it
-  runs. One that runs a heavy tool (the list above, plus bundlers and
-  builds: `vite build`, `next build`, `webpack`, `docker build`) goes to
-  a boost of the target's `boost_resources`; any other runs in the box.
-  The expansion is kept by the hash of the file it came from. `make -n`
-  still runs a `+` line and a `$(shell …)`, so a dry run that fails or
-  overruns leaves the task judged as having none.
+- **A task with no record**: a heavy tool called directly (the list
+  above) goes to a boost of the target's `boost_resources` by its name; a
+  script is judged by its text in `package.json`, following the scripts
+  it runs, and goes to a boost if it runs a heavy tool (the list above,
+  plus `go vet`, `bun test`, and bundlers and builds: `vite build`,
+  `next build`, `webpack`, `docker build`); a make target, or a `just` or
+  `task` recipe, runs in the box. **tower never runs anything to judge a
+  task** (decided with the human, 2026-11-02): `make -n`, drafted here
+  first, runs whole `$(MAKE)` lines, `+` lines and `$(shell …)`, and
+  remakes the makefiles it includes. **A target learns from its first
+  run**: that run, in the box, is measured, and its record, shared by
+  every box of the repository, routes the next.
 - **A task with records is judged by them**, its last runs in the box or
-  on a boost:
+  on a boost, the memory against what the box holds its measured
+  processes to (`processMemoryMax`, `process-usage.md`: the box's memory
+  less 768Mi, at least half), not its memory as a whole:
   - in the box, waiting for a CPU a fifth of its time or more, or busy on
     all the box's CPUs, for 30 seconds or more: next time a boost of the
     target's `boost_resources`;
-  - a peak within 80% of the box's memory, or an OOM: a boost of 1.5
-    times that peak;
-  - on a boost, using no more CPUs than the box has and a peak that fits
-    the box: next time in the box.
+  - a peak within 80% of what the box holds its processes to, or an OOM:
+    a boost that holds them to 1.5 times that peak;
+  - on a boost, using no more CPUs than the box has and a peak the box
+    holds its processes to: next time in the box.
 
   The numbers are a start, to be read again against the records.
-- **Each routed exit says why**, in its task's words ("`make test`: its
-  last 3 runs in this 1 vCPU box waited for a CPU 60% of the time").
+- **Each routed exit says why**, in its task's words ("`make test`: of
+  its last 3 runs, one in this 1 vCPU box waited for a CPU 40% of its
+  1m0s: on a boost of 8 vCPU and 8192Mi").
 - **Records are kept per task**: `CommandUse`, keyed by the line, gives
   way to a record keyed by the task, which holds no line text either;
   the records kept so far are dropped.
@@ -162,7 +168,7 @@ fills in or departs from the draft above:
   the task's plain names and tower's numbers, never the line's other
   words. A pending start asked again keeps the size and the why it was
   routed with; a ticket tower no longer knows (a restart) asks for
-  `boost_resources`, and says so. Routing a start is bounded to 15
+  `boost_resources`, and says so. Routing a start is bounded to 10
   seconds.
 - **`auto` is advisory** (decided with the director, 2026-11-02): it is
   never refused for want of a boost. A machine, or a box on a target
@@ -183,10 +189,13 @@ fills in or departs from the draft above:
   `{ }` and `time` are read; conditionals, loops and functions are not,
   and `sh`/`bash`/`dash`/`zsh -c '...'` is read as a line of its own. A
   line that does not parse is no task. `exec` and `command` are
-  wrappers too, and `env -C` and `sudo -D` move the directory.
+  wrappers too, and `env -C` and `sudo -D` move the directory; `command
+  -v`/`-V`, `type` and `hash` are lookups, which run nothing: that
+  command is no task.
 - **What is an entry.** make's `-C`/`--directory` and targets; its
-  variables (`V=1`) and flags are not in the key, and a `-f` or
-  `--eval` makes the line no task (another makefile). `just` and `task`
+  variables (`V=1`) and flags are not in the key, and a `-f`, or an
+  `-E`/`--eval`, makes the line no task (another makefile, or more of
+  one). `just` and `task`
   with their recipe (task's `-d` moves the directory; just's `-f`/`-d`
   and task's `-t` are no task). npm runs a script by `run` (and its
   aliases) or `test`/`t`/`tst`/`start`/`stop`/`restart`; pnpm, yarn and
@@ -200,7 +209,7 @@ fills in or departs from the draft above:
   their patterns (none is `.`; `-C` moves the directory), `cargo
   test`/`build` with their `-p` packages, and `bun test` (bun's own
   test runner, CPU-heavy on workstream) are heavy tools, called directly
-  or in an expansion: `go vet` and `bun test` beyond the draft's list
+  or in a script: `go vet` and `bun test` beyond the draft's list
   (decided with the director, 2026-11-02).
 - **Plain names.** A make target is a plain name as
   `process-usage.md` sets it (`make bin/tower` is no task). A script's
@@ -210,39 +219,49 @@ fills in or departs from the draft above:
   path whose parts are letters, digits, `.`, `-` and `_` (upper case
   too: a directory is the repository's), each not shaped as a token is
   (all hex, or a quarter digits); `..` above `/workspace` and a `cd` the
-  line cannot tell (`cd $X`, `cd -`) are no task.
+  line cannot tell (`cd $X`, `cd -`) are no task. **A directory is in a
+  key only if the box has it**: the task's own (`cd X`, `make -C X`) and
+  each `go` package pattern's (`./pkg/...` is `pkg`, which must be a
+  directory; a module's path or a file is none), read through the
+  provider as package.json is (a read of a directory fails as one), so
+  a word a line holds that is no directory of the repository's, a
+  secret say, never reaches a record, a log or `routed`.
 - **A line of several tasks** is kept as one, the list: its runs are
   the line's. With no runs of its own, each of its tasks is judged on its
-  own (its runs, else its expansion), and the largest boost any asks for
-  wins.
-- **Expansions.** `make -n` runs as `timeout -k 2 10 make -n
-  <targets>`, in the task's directory, as the box's user, without the
-  line's variables; its first 1MiB of output is read as shell, all of
-  it this time (conditionals, loops, substitutions), for heavy tools and
-  for scripts, which are followed. A script's text is followed through
-  the scripts it runs, 8 deep, npm's `pre`/`post` scripts with it. The
-  judgement (the heavy tool found, or none; never the text) is kept on
-  the task's record with the sha256 of its makefile (the first of
-  `GNUmakefile`, `makefile`, `Makefile`; not what it includes) or of its
-  package.json, and only when the dry run succeeded. A `just` or `task`
-  recipe has no expansion read: with no runs, it runs in the box.
+  own (its runs, else as one with none), and the largest boost any asks
+  for wins.
+- **Scripts.** A script's text is read as shell, all of it
+  (conditionals, loops, substitutions), for heavy tools and for the
+  scripts it runs, followed 8 deep in the package.json of the directory
+  each runs in, npm's `pre`/`post` scripts with it. It is read again at
+  each start that needs it, one read of a file, so nothing of it is kept.
+  A make target, or a `just` or `task` recipe, has nothing read: with no
+  runs, it runs in the box.
 - **Judging by runs**, the last 3, in this order: a run that ran out of
-  memory, or peaked at 80% or more of the box's memory now, wherever it
-  ran, sends the next to a boost of 1.5 times the largest such peak (an
-  OOM with no peak counts the memory it ran in), its cpu the target's
-  default moved into hangar's shapes, as a size asked for is; then a run
+  memory, or peaked at 80% or more of what the box now holds its
+  processes to (`processMemoryMax` of its memory), wherever it ran,
+  sends the next to a boost that holds them to 1.5 times the largest
+  such peak (an OOM with no peak counts what the instance it ran on held
+  them to): the least memory M with `processMemoryMax(M)` that large,
+  min(T + 768Mi, 2T) for a limit T, its cpu the target's default moved
+  into hangar's shapes, as a size asked for is, and held to `boost_max`;
+  a box of 2Gi holds its processes to 1280Mi, so a peak of 1100Mi there
+  sends the next to a boost of 2418Mi. Then a run
   in the box of 30 seconds or more that waited for a CPU a fifth of its
   time, or whose CPU time was 90% or more of all the box's CPUs over its
   wall time ("busy on all", read so as a busy run never quite uses them
   whole), to a boost of `boost_resources`; else, the last run on a
   boost, to the box unless it used more CPUs on average than the box
-  has (then `boost_resources` again); else the box. A single-threaded job
+  has (then `boost_resources` again), its peak being under 80% of what
+  the box holds its processes to, or the memory rule would have held it;
+  else the box. A single-threaded job
   thus goes to a boost after a busy run in the box, back once three
   runs on a boost have pushed that run out of the window, and so on: one
   run in four in the box.
 - **Records.** `TaskUse` (internal, `internal/apiserver/taskuse.go`),
   keyed by project, repository and the line's tasks (directory, entry,
-  name each), its last 10 runs, pruned as `CommandUse` was. Every
+  name each), its last 10 runs, pruned as `CommandUse` was; nothing else
+  (routing writes nothing). Every
   `CommandUse` is deleted at the first hourly prune. `BoxProcesses`
   keeps a boost process's tasks and the word it is listed by once its
   boost is gone, its tasks' or its program's name, and why each `auto`
@@ -552,8 +571,10 @@ What is accepted and built, in the API's terms:
 - A commit or `git add` a job makes on the boost does not come back,
   though its files do; the exit says so.
 - A line that runs no task the repository declares, a script of its own
-  say, never goes to a boost unless its caller asks; a heavy task's first
-  run goes to one by what it does, before any record.
+  say, never goes to a boost unless its caller asks. A heavy tool's first
+  run, or a script's that runs one, goes to a boost by its name, before
+  any record; a make target's, or a just or task recipe's, first run is
+  in the box, a cost paid once per repository for what it measures.
 
 ## Not decided yet
 
@@ -563,5 +584,3 @@ What is accepted and built, in the API's terms:
 - Whether a script file the line runs (`./scripts/e2e.sh`) counts as a
   task, keyed by its path.
 - Whether `auto` becomes the default of workstream's `run_async_box`.
-- Whether a just or task recipe's expansion is read (`just --dry-run`,
-  `task --dry`).

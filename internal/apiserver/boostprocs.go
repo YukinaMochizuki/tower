@@ -953,7 +953,7 @@ func (h environmentService) startOnBoost(ctx context.Context, c authz.Caller, e 
 	repository := repositoryOf(e.box)
 	tasks := tk.tasks
 	if tasks == nil {
-		tasks = findTasks(commandText(command), m.GetDir(), s.scriptsIn(ctx, e))
+		tasks = findTasks(commandText(command), m.GetDir(), s.packagesIn(ctx, e))
 	}
 	entry := boostProcess{
 		ID: id, BoostUID: b.GetMetadata().GetUid(), Instance: ref.Name, InstanceUID: in.GetMetadata().GetUid(), ProviderID: pid,

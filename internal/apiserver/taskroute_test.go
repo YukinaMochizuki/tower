@@ -2,10 +2,10 @@ package apiserver_test
 
 import (
 	"bytes"
-	"fmt"
+	"encoding/json"
+	"log/slog"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -15,8 +15,10 @@ import (
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
 	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
+	"github.com/YukinaMochizuki/tower/internal/apiserver"
 	"github.com/YukinaMochizuki/tower/internal/client"
 	"github.com/YukinaMochizuki/tower/internal/provider"
+	"github.com/YukinaMochizuki/tower/internal/store"
 	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
@@ -137,126 +139,61 @@ func TestAutoSendsAHeavyToolToABoost(t *testing.T) {
 
 	next := w.start(req)
 	if next.GetRanOn().GetKind() != envv1alpha1.RanOnKind_RAN_ON_KIND_BOX ||
-		next.GetRouted() != "go test ./...: its last run, on a boost, used 0.5 vCPU on average and peaked at 600Mi, which this box (1 vCPU, 2.0Gi) holds: in the box" {
+		next.GetRouted() != "go test ./...: its last run, on a boost, used 0.5 vCPU on average and peaked at 600Mi, which this 1 vCPU box, holding its processes to 1.2Gi, holds: in the box" {
 		t.Errorf("after a light run on a boost, it answered %v", next)
 	}
 	// Another pattern is another task, with no runs.
+	w.writeBoxFile("dev", "/workspace/internal/x/x.go", "package x\n")
 	if other := w.start(autoStart("dev", "go test ./internal/x/", "")); !strings.HasPrefix(other.GetRouted(), "go test ./internal/x/: no runs recorded yet") || !boosted(other) {
 		t.Errorf("another package pattern answered %v", other)
 	}
 }
 
-// fakeDryRun answers make -n in the fake as a makefile would, by target:
-// what each prints, how it exits, and how many dry runs there were.
-type fakeDryRun struct {
-	mu   sync.Mutex
-	runs []provider.ExecRequest
-}
-
-func (d *fakeDryRun) install(w *world) {
-	w.fake.OnExec(func(req provider.ExecRequest) (int, bool) {
-		i := slices.Index(req.Command, "-n")
-		if i < 1 || req.Command[i-1] != "make" {
-			return 0, false
+// execsRun counts the commands run in the fake by Exec, not as a
+// process, that run make: routing runs nothing to judge a task (a boost
+// being made runs its own setup).
+func (w *world) execsRun() int {
+	n := 0
+	for _, x := range w.fake.Execs() {
+		if !x.Process && slices.ContainsFunc(x.Command, func(a string) bool { return strings.Contains(a, "make") }) {
+			n++
 		}
-		d.mu.Lock()
-		d.runs = append(d.runs, req)
-		d.mu.Unlock()
-		targets := strings.Join(req.Command[i+1:], " ")
-		out := map[string]string{
-			"test":      "go test ./...",
-			"lint":      "golangci-lint run ./...\necho done",
-			"check":     "make -C sub lint\ncd web && pnpm build",
-			"":          "go build -o bin/x ./cmd/x",
-			"lint test": "golangci-lint run\ngo test ./...",
-			"web":       "cd web && pnpm lint",
-			"slow":      "",
-			"bad":       "",
-			"gen":       "buf generate",
-		}[targets]
-		_, _ = fmt.Fprintln(req.Stdout, out)
-		switch targets {
-		case "slow":
-			return 124, true
-		case "bad":
-			return 2, true
-		}
-		return 0, true
-	})
+	}
+	return n
 }
 
-func (d *fakeDryRun) count() int {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return len(d.runs)
-}
-
-// TestAutoReadsAMakeTargetsDryRun: a make target with no runs is judged
-// by make -n in the box, as its user, in its directory: one that runs a
-// heavy tool goes to a boost, any other to the box. The judgement is kept
-// by the makefile's hash, so the dry run runs again only once it
-// changes; a dry run that fails or overruns leaves it to the box.
-func TestAutoReadsAMakeTargetsDryRun(t *testing.T) {
+// TestAMakeTargetLearnsFromItsFirstRun: a make, just or task target with
+// no runs runs in the box, nothing run to judge it; its first run's
+// measure decides the next, in any box of the repository.
+func TestAMakeTargetLearnsFromItsFirstRun(t *testing.T) {
 	t.Parallel()
 	w := boostWorld(t, nil)
 	w.readyBox("dev", smallBox)
-	dry := &fakeDryRun{}
-	dry.install(w)
+	w.readyBox("other", smallBox)
 	w.writeBoxFile("dev", "/workspace/Makefile", "test:\n\tgo test ./...\n")
-	w.writeBoxFile("dev", "/workspace/web/package.json", `{"scripts":{"build":"vite build","lint":"eslint ."}}`)
-
-	for _, tc := range []struct {
-		line, dir string
-		boost     bool
-		why       string
-	}{
-		{"make test 2>&1 | tee log", "", true, "make test: no runs recorded yet; what it runs (make -n) holds go test, a heavy tool: on a boost of 8 vCPU and 8192Mi"},
-		{"make", "/workspace", true, "make: no runs recorded yet; what it runs (make -n) holds go build"},
-		{"make lint", "", false, "make lint: no runs recorded yet, and what it runs (make -n) holds no heavy tool: in the box"},
-		{"make check", "", true, "make check: no runs recorded yet; what it runs (make -n) holds vite build"},
-		{"make web", "", false, "make web: no runs recorded yet, and what it runs (make -n) holds no heavy tool"},
-		{"make slow", "", false, "make slow: no runs recorded yet, and what it runs is not known: its dry run (make -n) ran past 10s: in the box"},
-		{"make bad", "", false, "make bad: no runs recorded yet, and what it runs is not known: its dry run (make -n) failed, exit 2: in the box"},
-		{"make -C nowhere test", "", false, "make test (in nowhere): no runs recorded yet, and what it runs is not known: it has no makefile: in the box"},
-		{"make gen && make test", "", true, "make gen && make test: make test: no runs recorded yet; what it runs (make -n) holds go test"},
+	w.writeBoxFile("dev", "/workspace/svc/Makefile", "test:\n")
+	execs := w.execsRun()
+	for _, tc := range []struct{ line, why string }{
+		{"make test 2>&1 | tee log", "make test: no runs recorded yet; its first run here is measured, and decides the next: in the box"},
+		{"make -C svc test", "make test (in svc): no runs recorded yet; its first run here is measured"},
+		{"just build", "just build: no runs recorded yet; its first run here is measured"},
+		{"task lint", "task lint: no runs recorded yet; its first run here is measured"},
+		{"make gen && go test ./...", "make gen && go test ./...: go test ./...: no runs recorded yet; go test is a heavy tool"},
 	} {
-		res := w.start(autoStart("dev", tc.line, tc.dir))
-		if boosted(res) != tc.boost || !strings.HasPrefix(res.GetRouted(), tc.why) {
-			t.Errorf("%q answered %v, want boosted %v saying %q", tc.line, res, tc.boost, tc.why)
-		}
-		if tk := res.GetPending().GetTicket(); tk != "" {
-			w.start(&envv1alpha1.StartProcessRequest{Environment: boxEnv("dev"), Boost: autoStart("dev", "", "").GetBoost(), Pending: tk, Cancel: true, Command: shellLine("x")})
+		res := w.start(autoStart("dev", tc.line, ""))
+		if boosted(res) != strings.Contains(tc.why, "heavy tool") || !strings.HasPrefix(res.GetRouted(), tc.why) {
+			t.Errorf("%q answered %v, want it saying %q", tc.line, res, tc.why)
 		}
 	}
-	dry.mu.Lock()
-	runs := slices.Clone(dry.runs)
-	dry.mu.Unlock()
-	for _, r := range runs {
-		if r.AsRoot || r.Dir != "/workspace" || r.Command[0] != "timeout" {
-			t.Errorf("a dry run ran as %v", r)
-		}
+	if n := w.execsRun(); n != execs {
+		t.Errorf("routing ran %d commands in the box", n-execs)
 	}
-	// Kept by the makefile's hash: not run again while it is the same.
-	n := dry.count()
-	if res := w.start(autoStart("dev", "make test", "")); !boosted(res) || !strings.HasPrefix(res.GetRouted(), "make test: no runs recorded yet; what it runs (make -n) holds go test") || dry.count() != n {
-		t.Errorf("asked again, make test answered %v after %d dry runs, want %d", res, dry.count(), n)
-	}
-	// A failed one is not kept.
-	w.start(autoStart("dev", "make bad", ""))
-	if dry.count() != n+1 {
-		t.Errorf("a failed dry run was kept: %d dry runs, want %d", dry.count(), n+1)
-	}
-	w.writeBoxFile("dev", "/workspace/Makefile", "test:\n\tgo test -race ./...\n")
-	w.start(autoStart("dev", "make test", ""))
-	if dry.count() != n+2 {
-		t.Errorf("after its makefile changed, %d dry runs, want %d", dry.count(), n+2)
-	}
-	uses, all := w.taskUses()
-	if x := uses["make test"].Expansion; x == nil || x.Heavy != "go test" || x.Source != "make -n" || len(x.File) != 64 {
-		t.Errorf("make test's record holds %s", all)
-	}
-	if strings.Contains(all, "./...") || strings.Contains(all, "golangci") {
-		t.Errorf("a record holds an expansion's text: %s", all)
+	// Its first run, in one box, waited for a CPU: the next, in another,
+	// goes to a boost.
+	w.ranInBox("dev", "make test", provider.ProcessUsage{CPUUsage: dur(40 * time.Second), CPUWait: dur(24 * time.Second), Wall: time.Minute})
+	if res := w.start(autoStart("other", "make test", "")); !boosted(res) ||
+		res.GetRouted() != "make test: its last run in this 1 vCPU box waited for a CPU 40% of its 1m0s: on a boost of 8 vCPU and 8192Mi" {
+		t.Errorf("after its first run, make test answered %v", res)
 	}
 }
 
@@ -276,18 +213,22 @@ func TestAutoFollowsScripts(t *testing.T) {
 		"test":"node test.js",
 		"loop":"pnpm loop"
 	}}`)
+	w.writeBoxFile("dev", "/workspace/web/package.json", `{"scripts":{"build":"node build.js","lint":"vitest run"}}`)
 	for _, tc := range []struct {
 		line  string
 		boost bool
 		why   string
 	}{
-		{"pnpm lint", false, "pnpm lint: no runs recorded yet, and what it runs (package.json) holds no heavy tool: in the box"},
-		{"pnpm check | tail -20", true, "pnpm check: no runs recorded yet; what it runs (package.json) holds tsc, a heavy tool"},
-		{"npm run build", true, "npm build: no runs recorded yet; what it runs (package.json) holds vite build"},
-		{"npm test", true, "npm test: no runs recorded yet; what it runs (package.json) holds tsc"},
-		{"pnpm test", false, "pnpm test: no runs recorded yet, and what it runs (package.json) holds no heavy tool"},
-		{"pnpm loop", false, "pnpm loop: no runs recorded yet, and what it runs (package.json) holds no heavy tool"},
-		{"pnpm run missing", false, "pnpm missing: no runs recorded yet, and what it runs is not known: its package.json has no such script: in the box"},
+		{"pnpm lint", false, "pnpm lint: no runs recorded yet, and its script runs no heavy tool: in the box"},
+		{"pnpm check | tail -20", true, "pnpm check: no runs recorded yet; its script runs tsc, a heavy tool: on a boost of 8 vCPU and 8192Mi"},
+		{"npm run build", true, "npm build: no runs recorded yet; its script runs vite build, a heavy tool"},
+		{"npm test", true, "npm test: no runs recorded yet; its script runs tsc, a heavy tool"},
+		{"pnpm test", false, "pnpm test: no runs recorded yet, and its script runs no heavy tool"},
+		{"pnpm loop", false, "pnpm loop: no runs recorded yet, and its script runs no heavy tool"},
+		{"pnpm run missing", false, "pnpm missing: no runs recorded yet, and its package.json has no such script: in the box"},
+		// A script under cd is read from that directory's package.json.
+		{"cd web && pnpm build", false, "pnpm build (in web): no runs recorded yet, and its script runs no heavy tool"},
+		{"cd web && pnpm run lint", true, "pnpm lint (in web): no runs recorded yet; its script runs vitest, a heavy tool"},
 		{"pnpm prettier --check .", false, "no task found"},
 	} {
 		res := w.start(autoStart("dev", tc.line, ""))
@@ -308,17 +249,15 @@ func TestAutoRoutesByRecords(t *testing.T) {
 	w := boostWorld(t, nil)
 	w.readyBox("dev", smallBox)
 	w.readyBox("other", smallBox)
-	dry := &fakeDryRun{}
-	dry.install(w)
-	w.writeBoxFile("dev", "/workspace/Makefile", "x:\n")
+	execs := w.execsRun()
 	light := provider.ProcessUsage{MemoryPeak: bytesOf(500 << 20), CPUUsage: dur(10 * time.Second), CPUWait: dur(time.Second), Wall: time.Minute}
 	w.ranInBox("dev", "make test", light)
 	w.ranInBox("dev", "make test", provider.ProcessUsage{CPUUsage: dur(40 * time.Second), CPUWait: dur(24 * time.Second), Wall: time.Minute})
 	w.ranInBox("dev", "make test", light)
 	w.ranInBox("dev", "make busy", provider.ProcessUsage{CPUUsage: dur(57 * time.Second), CPUWait: dur(time.Second), Wall: time.Minute})
-	w.ranInBox("dev", "make mem", provider.ProcessUsage{MemoryPeak: bytesOf(1800 << 20), CPUUsage: dur(time.Second), Wall: time.Minute})
+	w.ranInBox("dev", "make mem", provider.ProcessUsage{MemoryPeak: bytesOf(1100 << 20), CPUUsage: dur(time.Second), Wall: time.Minute})
 	oom := true
-	w.ranInBox("dev", "make oom", provider.ProcessUsage{MemoryPeak: bytesOf(1300 << 20), OOMKilled: &oom, Wall: time.Minute})
+	w.ranInBox("dev", "make oom", provider.ProcessUsage{MemoryPeak: bytesOf(1200 << 20), OOMKilled: &oom, Wall: time.Minute})
 	w.ranInBox("dev", "make lint", light)
 	// A short run that waited is no reason: 30 seconds or more.
 	w.ranInBox("dev", "make short", provider.ProcessUsage{CPUUsage: dur(10 * time.Second), CPUWait: dur(10 * time.Second), Wall: 29 * time.Second})
@@ -330,8 +269,10 @@ func TestAutoRoutesByRecords(t *testing.T) {
 	}{
 		{"make test", true, "make test: of its last 3 runs, one in this 1 vCPU box waited for a CPU 40% of its 1m0s: on a boost of 8 vCPU and 8192Mi"},
 		{"make busy", true, "make busy: its last run kept all the CPUs of this 1 vCPU box busy for 1m0s: on a boost of 8 vCPU and 8192Mi"},
-		{"make mem", true, "make mem: its last run in this box peaked at 1.8Gi of this box's 2.0Gi: on a boost of 5 vCPU and 2700Mi"},
-		{"make oom", true, "make oom: its last run in this box ran out of memory at 1.3Gi of this box's 2.0Gi: on a boost of 3 vCPU and 1950Mi"},
+		// The box of 2Gi holds its processes to 1280Mi; a boost holding
+		// them to 1.5 times a peak T has min(T+768Mi, 2T).
+		{"make mem", true, "make mem: its last run in this box peaked at 1.1Gi, of the 1.2Gi this box holds its processes to: on a boost of 4 vCPU and 2418Mi"},
+		{"make oom", true, "make oom: its last run in this box ran out of memory at 1.2Gi, of the 1.2Gi this box holds its processes to: on a boost of 5 vCPU and 2568Mi"},
 		{"make lint", false, "make lint: its last run came near neither this box's CPUs nor its memory: in the box"},
 		{"make short", false, "make short: its last run came near neither"},
 	} {
@@ -345,8 +286,8 @@ func TestAutoRoutesByRecords(t *testing.T) {
 			}
 		}
 	}
-	if dry.count() != 0 {
-		t.Errorf("tasks with runs were judged by %d dry runs too", dry.count())
+	if n := w.execsRun(); n != execs {
+		t.Errorf("routing ran %d commands in the box", n-execs)
 	}
 
 	// Three light runs since, the one that waited is past what is read.
@@ -401,7 +342,7 @@ func TestAutoAskedAgainKeepsItsRouting(t *testing.T) {
 	w := boostWorld(t, nil)
 	w.readyBox("dev", smallBox)
 	oom := true
-	w.ranInBox("dev", "make oom", provider.ProcessUsage{MemoryPeak: bytesOf(1300 << 20), OOMKilled: &oom, Wall: time.Minute})
+	w.ranInBox("dev", "make oom", provider.ProcessUsage{MemoryPeak: bytesOf(1200 << 20), OOMKilled: &oom, Wall: time.Minute})
 	req := autoStart("dev", "make oom", "")
 	first := w.start(req)
 	if first.GetPending().GetTicket() == "" {
@@ -418,10 +359,10 @@ func TestAutoAskedAgainKeepsItsRouting(t *testing.T) {
 		}
 		return res.GetProcess() != "", res.GetPending().String()
 	})
-	if res.GetRouted() != first.GetRouted() || !strings.Contains(res.GetRouted(), "1950Mi") {
+	if res.GetRouted() != first.GetRouted() || !strings.Contains(res.GetRouted(), "2568Mi") {
 		t.Errorf("started, it says %q; first %q", res.GetRouted(), first.GetRouted())
 	}
-	if b, _ := w.boost("dev"); b.GetSpec().GetResources().GetMemory() != "1950Mi" {
+	if b, _ := w.boost("dev"); b.GetSpec().GetResources().GetMemory() != "2568Mi" {
 		t.Errorf("its boost is of %v", b.GetSpec().GetResources())
 	}
 	// Asked again with its ticket once started: that start.
@@ -436,15 +377,16 @@ func TestAutoAskedAgainKeepsItsRouting(t *testing.T) {
 	}
 }
 
-// planOf sets the target's report of what its Plan has left.
-func (w *world) planOf(cpu, memory string) {
+// planOf sets the target's report of what its Plan has left, and of its
+// whole cpus (0: not told).
+func (w *world) planOf(cpu, memory string, cpus int32) {
 	w.t.Helper()
 	o, err := w.get(registry.Target, "", "t1")
 	if err != nil {
 		w.t.Fatal(err)
 	}
 	st := proto.Clone(o.(*targetsv1alpha1.Target).GetStatus()).(*targetsv1alpha1.TargetStatus)
-	st.Capacity = &targetsv1alpha1.Capacity{MemoryFree: memory, CpuFree: cpu}
+	st.Capacity = &targetsv1alpha1.Capacity{MemoryFree: memory, CpuFree: cpu, Cpus: cpus}
 	if _, err := w.asSystem().generic.UpdateStatus(w.t.Context(), registry.Target, client.Key{Name: "t1"}, st, nil); err != nil {
 		w.t.Fatal(err)
 	}
@@ -457,7 +399,7 @@ func TestAutoThatCanNeverFitRunsInTheBox(t *testing.T) {
 	t.Parallel()
 	w := boostWorld(t, nil)
 	w.readyBox("dev", smallBox)
-	w.planOf("4", "48Gi")
+	w.planOf("4", "48Gi", 0)
 	res := w.start(autoStart("dev", "go test ./...", ""))
 	const why = "go test ./... would go to a boost of 8 vCPU and 8192Mi, but the target can never fit it (its Plan has 4 vCPU"
 	if res.GetProcess() == "" || res.GetRanOn().GetKind() != envv1alpha1.RanOnKind_RAN_ON_KIND_BOX ||
@@ -492,5 +434,101 @@ func TestAutoThatMustWaitStaysPending(t *testing.T) {
 	if res.GetPending().GetReason() != envv1alpha1.PendingReason_PENDING_REASON_QUEUED_BUDGET ||
 		res.GetRouted() != "go test ./...: no runs recorded yet; go test is a heavy tool: on a boost of 8 vCPU and 8192Mi" {
 		t.Errorf("auto past the budget answered %v, want pending QUEUED_BUDGET saying why", res)
+	}
+}
+
+// TestAutoThatComesToNeverFitRunsInTheBox: a queued start asked again
+// once its boost can never fit runs in the box, saying so in its tasks'
+// words as found when it was first asked.
+func TestAutoThatComesToNeverFitRunsInTheBox(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, &targetsv1alpha1.TargetSettings{BoostBudget: &targetsv1alpha1.BoostSize{Cpu: "4", Memory: "4Gi"}})
+	w.readyBox("a", smallBox)
+	w.readyBox("b", smallBox, func(b *envv1alpha1.Box) { b.Spec.Workstream = "ws2" })
+	w.startBoosted(boostOn("a", "true"))
+	req := autoStart("b", "go test ./...", "")
+	first := w.start(req)
+	if first.GetPending().GetReason() != envv1alpha1.PendingReason_PENDING_REASON_QUEUED_BUDGET {
+		t.Fatalf("auto past the budget answered %v", first)
+	}
+	// The Plan shrinks to 4 vCPU in all: a boost of 8 never fits.
+	w.planOf("0", "48Gi", 4)
+	req.Pending = first.GetPending().GetTicket()
+	res := w.start(req)
+	if res.GetRanOn().GetKind() != envv1alpha1.RanOnKind_RAN_ON_KIND_BOX ||
+		!strings.HasPrefix(res.GetRouted(), "go test ./... would go to a boost of 8 vCPU and 8192Mi, but the target can never fit it") {
+		t.Errorf("asked again once it can never fit, it answered %v", res)
+	}
+}
+
+// TestAutoOnAMachineRunsThere: a machine has no boost; auto runs there,
+// its answer saying so.
+func TestAutoOnAMachineRunsThere(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.mustApply(registry.Machine, machine("k3s"))
+	w.waitMachine("k3s", envv1alpha1.MachinePhase_MACHINE_PHASE_READY)
+	req := autoStart("", "go test ./...", "")
+	req.Environment = machineEnv("k3s")
+	if res := w.start(req); res.GetProcess() == "" || res.GetRouted() != "a machine has no boost: it runs on the machine" {
+		t.Errorf("auto on a machine answered %v", res)
+	}
+}
+
+// TestRoutedIsKeptForTheLastProcesses: why the box's processes ran in the
+// box is kept for its last 100 alone.
+func TestRoutedIsKeptForTheLastProcesses(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	w.readyBox("dev", smallBox)
+	var ids []string
+	for range 101 {
+		ids = append(ids, w.start(autoStart("dev", "ls", "")).GetProcess())
+	}
+	o, err := w.store.Get(t.Context(), store.Key{Kind: "BoxProcesses", Project: "web", Name: "dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec struct{ Routed []struct{ ID string } }
+	if err := json.Unmarshal(o.Data, &rec); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.Routed) != 100 || rec.Routed[0].ID != ids[1] || rec.Routed[99].ID != ids[100] {
+		t.Errorf("kept the routed of %d processes, from %v to %v", len(rec.Routed), rec.Routed[0], rec.Routed[len(rec.Routed)-1])
+	}
+}
+
+// TestAutoKeysNoDirectoryItCannotTrust: a directory the box does not
+// have, or whose name is shaped as a token is though it has it, makes the
+// line no task: it reaches no record, no log and no routed answer.
+func TestAutoKeysNoDirectoryItCannotTrust(t *testing.T) {
+	t.Parallel()
+	var logs syncBuffer
+	w := newWorld(t, worldOption{hangar: true, config: func(c *apiserver.Config) {
+		c.Logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	}})
+	w.readyBox("dev", smallBox)
+	const token, missing = "ghp_a1B2c3D4e5F6g7H8i9J0", "hunter-correct-horse"
+	w.writeBoxFile("dev", "/workspace/"+token+"/Makefile", "test:\n")
+	for _, line := range []string{"cd " + token + " && go test ./...", "cd " + missing + " && go test ./...", "go test ./" + missing + "/...", "make -C " + missing + " test"} {
+		res := w.start(autoStart("dev", line, ""))
+		if res.GetRanOn().GetKind() != envv1alpha1.RanOnKind_RAN_ON_KIND_BOX || !strings.HasPrefix(res.GetRouted(), "no task found") {
+			t.Errorf("%q answered %v", line, res)
+		}
+		if err := w.fake.EndProcessWith(w.boxRef("dev"), res.GetProcess(), provider.ProcessExit{Usage: &provider.ProcessUsage{Wall: time.Minute}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := w.as(workstream).envs.ListProcesses(t.Context(), connect.NewRequest(&envv1alpha1.ListProcessesRequest{Environment: boxEnv("dev")})); err != nil {
+		t.Fatal(err)
+	}
+	uses, all := w.taskUses()
+	if len(uses) != 0 {
+		t.Errorf("recorded %s", all)
+	}
+	for _, secret := range []string{token, missing} {
+		if strings.Contains(logs.String(), secret) {
+			t.Errorf("the logs hold %q", secret)
+		}
 	}
 }
