@@ -1321,7 +1321,12 @@ func (x *CopyRefusal) GetMaxBytes() int64 {
 }
 
 type CopyFileResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The copy streamed through tower and passed its scan and limit, as
+	// refuse_secrets or max_bytes asked. False for a copy that stayed on the
+	// target: a caller that asked for either and gets false was answered by
+	// a tower that does not scan, and its copy was not checked.
+	Scanned       bool `protobuf:"varint,1,opt,name=scanned,proto3" json:"scanned,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1354,6 +1359,13 @@ func (x *CopyFileResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CopyFileResponse.ProtoReflect.Descriptor instead.
 func (*CopyFileResponse) Descriptor() ([]byte, []int) {
 	return file_tower_environments_v1alpha1_environment_service_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *CopyFileResponse) GetScanned() bool {
+	if x != nil {
+		return x.Scanned
+	}
+	return false
 }
 
 type FetchOriginRequest struct {
@@ -3338,8 +3350,9 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\x06reason\x18\x01 \x01(\x0e2..tower.environments.v1alpha1.CopyRefusalReasonR\x06reason\x12\x18\n" +
 	"\asecrets\x18\x02 \x03(\tR\asecrets\x12\x12\n" +
 	"\x04form\x18\x03 \x01(\tR\x04form\x12\x1b\n" +
-	"\tmax_bytes\x18\x04 \x01(\x03R\bmaxBytes\"\x12\n" +
-	"\x10CopyFileResponse\"`\n" +
+	"\tmax_bytes\x18\x04 \x01(\x03R\bmaxBytes\",\n" +
+	"\x10CopyFileResponse\x12\x18\n" +
+	"\ascanned\x18\x01 \x01(\bR\ascanned\"`\n" +
 	"\x12FetchOriginRequest\x12J\n" +
 	"\venvironment\x18\x01 \x01(\v2(.tower.environments.v1alpha1.EnvironmentR\venvironment\"a\n" +
 	"\x13FetchOriginResponse\x12J\n" +

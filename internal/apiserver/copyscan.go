@@ -25,15 +25,15 @@ const minScannableSecret = 8
 
 // A piece of a secret (a line, a field) is a weak needle only if it looks
 // like a credential rather than structure: minPiece bytes at least of a
-// token's characters and minPieceEntropy bits a byte, and either letters
-// of both cases and digits, a long hex string, a UUID, or lower case and
-// digits interleaved as a random token's are, with no dot or slash. Then
-// a kubeconfig's "apiVersion: v1" or "server: https://kube1.example.com",
-// a path, a name such as "kubelet-client-2024-01-01" or a .netrc's
-// "machine github.com" never count.
+// token's characters, and either letters of both cases and digits with
+// minPieceEntropy bits a byte, hex digits with letters and digits, a
+// UUID, or lower case and digits interleaved as a random token's are,
+// with no dot or slash. Then a kubeconfig's "apiVersion: v1" or
+// "server: https://<id>.gr7.eu-west-1.eks.amazonaws.com", a path, a name
+// such as "kubelet-client-2024-01-01" or a .netrc's "machine github.com"
+// never count.
 const (
 	minPiece        = 16
-	minHexPiece     = 32
 	minLowerPiece   = 20
 	minPieceEntropy = 3.0
 	// minLowerEntropy, and a letter-digit switch every lowerSwitchEvery
@@ -50,6 +50,12 @@ var (
 	tokenShape = regexp.MustCompile(`^[A-Za-z0-9+/=_.-]+$`)
 	hexShape   = regexp.MustCompile(`^[0-9A-Fa-f]+$`)
 	uuidShape  = regexp.MustCompile(`^[0-9A-Fa-f]{8}-([0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}$`)
+	// hostShape is a DNS name: labels, the last a top-level domain's.
+	hostShape = regexp.MustCompile(`^([A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,24}$`)
+	// envLine is a line of an env file, KEY=value.
+	envLine = regexp.MustCompile(`^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*(.*?)\s*$`)
+	// secretKey is a key whose name says its value is a secret.
+	secretKey = regexp.MustCompile(`(?i)PASS|PASSWORD|SECRET|TOKEN|KEY|CREDENTIAL|AUTH|PRIVATE|APIKEY|API_KEY`)
 	// jsonUnescape is a JSON string's escapes a PEM key in a JSON file, as
 	// a service account's private_key, is written with.
 	jsonUnescape = strings.NewReplacer(`\n`, "\n", `\r`, "\r", `\t`, "\t", `\/`, "/", `\"`, `"`, `\\`, `\`)
@@ -73,11 +79,12 @@ type scanPattern struct {
 }
 
 // secretPatterns is every form scanned for of secrets, and the names of
-// those too short to scan for. Strong: each value whole and trimmed, and
-// a PEM block's base64 body. Weak: each credential-shaped line or field
-// of a value with more than one. Each raw, in hex, in base64 and
-// base64url at each byte alignment, URL-encoded and JSON-escaped; a form
-// both strong and weak is strong.
+// those too short to scan for. Strong needles are each value whole and
+// trimmed and the credentials it holds as fields (strongFields); weak ones
+// its credential-shaped lines and pieces. A JSON value counts each string
+// it holds, unescaped, as a value too. Each needle is looked for raw, in
+// hex, in base64 and base64url at each byte alignment, URL-encoded and
+// JSON-escaped; a form both strong and weak is strong.
 func secretPatterns(secrets []namedSecret) (patterns []scanPattern, tooShort []string) {
 	seen := map[string]bool{}
 	add := func(name string, n []byte, strong bool) {
@@ -94,26 +101,107 @@ func secretPatterns(secrets []namedSecret) (patterns []scanPattern, tooShort []s
 	}
 	var scannable []namedSecret
 	for _, s := range secrets {
-		trimmed := bytes.TrimSpace(s.value)
-		if len(trimmed) < minScannableSecret {
+		if len(bytes.TrimSpace(s.value)) < minScannableSecret {
 			tooShort = append(tooShort, s.name)
 			continue
 		}
 		scannable = append(scannable, s)
-		add(s.name, s.value, true)
-		add(s.name, trimmed, true)
-		for _, v := range unescaped(s.value) {
-			add(s.name, pemBody(v), true)
+		for _, n := range strongNeedles(s.value) {
+			add(s.name, n, true)
 		}
 	}
 	for _, s := range scannable {
-		for _, v := range unescaped(s.value) {
+		values := append(unescaped(s.value), jsonStrings(s.value)...)
+		for _, v := range values {
 			for _, p := range pieces(v) {
 				add(s.name, p, false)
 			}
 		}
 	}
 	return patterns, tooShort
+}
+
+// strongNeedles are what of a value is a credential itself: the value
+// whole and trimmed, a PEM block's base64 body, and its fields
+// (strongFields); in a JSON value, each string it holds that is a PEM
+// block or a token (tokenLike), as the program reading it gets it.
+func strongNeedles(v []byte) [][]byte {
+	out := [][]byte{v, bytes.TrimSpace(v)}
+	for _, u := range unescaped(v) {
+		out = append(out, pemBody(u))
+		out = append(out, strongFields(u)...)
+	}
+	for _, s := range jsonStrings(v) {
+		switch {
+		case bytes.Contains(s, []byte("-----BEGIN ")):
+			out = append(out, s, bytes.TrimSpace(s), pemBody(s))
+		case tokenLike(s):
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// tokenLike reports whether a field's value is a credential by its shape
+// alone: what a weak piece must be, and not a DNS name nor a JWT's header.
+func tokenLike(p []byte) bool {
+	return credentialShaped(p) && !hostShape.Match(p) && !joseHeader(p)
+}
+
+// strongFields are the credentials a value holds as fields: a .netrc's
+// password, and the value of each KEY=value line whose key's name says
+// secret, whatever they look like; a .netrc's login and any other value
+// only if it is tokenLike. So "AWS_REGION=us-east-1" or "login
+// ci-bot-2024" is none, which would refuse every copy naming them.
+func strongFields(v []byte) [][]byte {
+	var out [][]byte
+	field := func(b []byte, always bool) {
+		if always || tokenLike(b) {
+			out = append(out, b)
+		}
+	}
+	words := strings.Fields(string(v))
+	for i, w := range words[:max(len(words)-1, 0)] {
+		switch w {
+		case "password":
+			field([]byte(words[i+1]), true)
+		case "login":
+			field([]byte(words[i+1]), false)
+		}
+	}
+	for line := range strings.Lines(string(v)) {
+		if m := envLine.FindStringSubmatch(line); m != nil {
+			field([]byte(strings.Trim(m[2], `"'`)), secretKey.MatchString(m[1]))
+		}
+	}
+	return out
+}
+
+// jsonStrings are the strings a JSON value holds, its keys' values at any
+// depth, unescaped; none for a value that is not JSON.
+func jsonStrings(v []byte) [][]byte {
+	var doc any
+	if err := json.Unmarshal(v, &doc); err != nil {
+		return nil
+	}
+	var out [][]byte
+	var walk func(any)
+	walk = func(x any) {
+		switch x := x.(type) {
+		case string:
+			out = append(out, []byte(x))
+		case []any:
+			for _, e := range x {
+				walk(e)
+			}
+		case map[string]any:
+			for _, e := range x {
+				walk(e)
+			}
+		}
+	}
+	walk(doc)
+	return out
 }
 
 // unescaped is v, and v with its JSON escapes undone when it has a
@@ -145,33 +233,58 @@ func pemBody(v []byte) []byte {
 	return body
 }
 
-// pieces are the credential-shaped lines and fields of a value made of
-// more than one, none for a value of one.
+// pieces are the credential-shaped lines and pieces of v: each line, and
+// each field split on what separates the parts of a URL, a path or a
+// config line. A DNS name is no piece, nor any of its labels, and a JWT's
+// header, which every token of its algorithm shares, is none either.
 func pieces(v []byte) [][]byte {
-	fields := bytes.FieldsFunc(v, isPieceSeparator)
-	if len(fields) < 2 {
-		return nil
-	}
 	var out [][]byte
 	for line := range bytes.Lines(v) {
-		if l := bytes.TrimSpace(line); credentialShaped(l) {
+		if l := bytes.TrimSpace(line); credentialShaped(l) && !hostShape.Match(l) {
 			out = append(out, l)
 		}
 	}
-	for _, f := range fields {
-		if credentialShaped(f) {
-			out = append(out, f)
+	for _, seg := range bytes.FieldsFunc(v, isPieceSeparator) {
+		if hostShape.Match(seg) {
+			continue
+		}
+		for _, p := range bytes.Split(seg, []byte(".")) {
+			if credentialShaped(p) && !joseHeader(p) {
+				out = append(out, p)
+			}
 		}
 	}
 	return out
 }
 
+// isPieceSeparator splits a value into segments: a DNS name stays whole,
+// to be told apart, and is split on its dots after.
 func isPieceSeparator(r rune) bool {
-	return strings.ContainsRune(" \t\r\n\"'`:,;=@&?<>()[]{}", r)
+	return strings.ContainsRune(" \t\r\n\"'`:/,;=@&?<>()[]{}", r)
+}
+
+// joseHeader reports whether p is a JWT's header: base64url of a JSON
+// object naming its algorithm.
+func joseHeader(p []byte) bool {
+	if !bytes.HasPrefix(p, []byte("eyJ")) {
+		return false
+	}
+	b, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(string(p), "="))
+	if err != nil {
+		return false
+	}
+	var h map[string]any
+	if json.Unmarshal(b, &h) != nil {
+		return false
+	}
+	_, ok := h["alg"]
+	return ok
 }
 
 // credentialShaped reports whether p looks like a credential: a token, a
-// key's line, a long hex string; not a word, a host, a path or a number.
+// key's line, a hex key, a UUID; not a word, a host, a path or a number.
+// Entropy is judged per alphabet: hex has 16 symbols, so a hex key is
+// told by its mix of letters and digits rather than its bits a byte.
 func credentialShaped(p []byte) bool {
 	if len(p) < minPiece || !tokenShape.Match(p) {
 		return false
@@ -183,7 +296,11 @@ func credentialShaped(p []byte) bool {
 		digit = digit || '0' <= c && c <= '9'
 	}
 	switch {
-	case upper && lower && digit, len(p) >= minHexPiece && digit && hexShape.Match(p), uuidShape.Match(p):
+	case hexShape.Match(p):
+		return digit && (upper || lower)
+	case uuidShape.Match(p):
+		return true
+	case upper && lower && digit:
 		return entropy(p) >= minPieceEntropy
 	case !upper && lower && digit && len(p) >= minLowerPiece && !bytes.ContainsAny(p, "./"):
 		return letterDigitSwitches(p)*lowerSwitchEvery >= len(p) && entropy(p) >= minLowerEntropy
@@ -247,6 +364,13 @@ func forms(n []byte) []scanPattern {
 	add("url", []byte(u))
 	add("url", []byte(lowerEscapes(u)))
 	add("url", []byte(url.QueryEscape(string(n))))
+	// Every byte but an unreserved one escaped (Python's quote(safe=""),
+	// curl), and Python's default quote, which keeps slashes.
+	for _, safe := range []string{"", "/"} {
+		q := percentEncode(n, safe)
+		add("url", []byte(q))
+		add("url", []byte(lowerEscapes(q)))
+	}
 	add("url", []byte(url.PathEscape(string(n))))
 	// As a password, and a user, in a URL's userinfo.
 	add("url", []byte(strings.TrimPrefix(url.UserPassword("u", string(n)).String(), "u:")))
@@ -262,6 +386,20 @@ func forms(n []byte) []scanPattern {
 		add("json", []byte(unicodeEscape(string(n), "%04X")))
 	}
 	return out
+}
+
+// percentEncode is b with every byte escaped but the unreserved ones of
+// RFC 3986 and those in safe.
+func percentEncode(b []byte, safe string) string {
+	var sb strings.Builder
+	for _, c := range b {
+		if 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || strings.IndexByte("-_.~"+safe, c) >= 0 {
+			sb.WriteByte(c)
+		} else {
+			fmt.Fprintf(&sb, "%%%02X", c)
+		}
+	}
+	return sb.String()
 }
 
 // uriComponent is b as JavaScript's encodeURIComponent writes it.

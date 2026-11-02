@@ -35,11 +35,11 @@ const (
 	kubeStructure  = "apiVersion: v1\nkind: Config\nclusters:\n- cluster:\n    server: https://kube1.example.com:6443\n  name: prod\ncontexts:\n- context:\n    cluster: prod\n    user: ci\n  name: prod\ncurrent-context: prod\n"
 	copyKubeconfig = kubeStructure + "users:\n- name: ci\n  user:\n    token: " + copyKubeToken + "\n"
 	kubeconfigPath = "/home/dev/.kube/config"
-	// copyNetrc is a second secret of several parts, its password a piece.
-	copyNetrcPassword = "ghp_" + "N3trcPassw0rdValue77AbCd"
-	copyNetrc         = "machine github.com\nlogin ci-bot\npassword " + copyNetrcPassword + "\n"
-	netrcPath         = "/home/dev/.netrc"
-	passwordPath      = "/home/dev/.pw"
+	// copyConf is a second secret of several parts, its key a piece.
+	copyConfKey  = "ghp_" + "C0nfApiKeyValue77AbCdXy"
+	copyConf     = "endpoint: https://api.example.com\napi_key: " + copyConfKey + "\n"
+	confPath     = "/home/dev/.config/tool.yaml"
+	passwordPath = "/home/dev/.pw"
 )
 
 // refusalOf is the CopyRefusal detail of err, nil for none.
@@ -82,13 +82,13 @@ func TestACopyOutIsScannedForTheSourcesSecrets(t *testing.T) {
 		c.Logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	}})
 	w.mustApply(registry.Secret, secret("web", "forge", map[string]string{"GH_TOKEN": copyToken}))
-	w.mustApply(registry.Secret, secret("web", "files", map[string]string{"kube": copyKubeconfig, "pw": copyPassword, "netrc": copyNetrc}))
+	w.mustApply(registry.Secret, secret("web", "files", map[string]string{"kube": copyKubeconfig, "pw": copyPassword, "conf": copyConf}))
 	w.readyBox("priv", func(b *envv1alpha1.Box) {
 		b.Spec.PrivilegedSecrets = []*envv1alpha1.SecretRef{{Secret: "forge", Key: "GH_TOKEN", As: "GH_TOKEN"}}
 		b.Spec.SecretFiles = []*envv1alpha1.SecretFile{
 			{Secret: "files", Key: "kube", Path: kubeconfigPath},
 			{Secret: "files", Key: "pw", Path: passwordPath},
-			{Secret: "files", Key: "netrc", Path: netrcPath},
+			{Secret: "files", Key: "conf", Path: confPath},
 		}
 	})
 	dst := w.readyBox("plain")
@@ -197,7 +197,7 @@ func TestACopyOutIsScannedForTheSourcesSecrets(t *testing.T) {
 			t.Errorf("a piece of the secret allowed: %v, %q", err, w.fake.Files(dstRef)["/tmp/approved-piece"])
 		}
 		// Another secret's piece is still SUSPECT, even beside the allowed one.
-		both := piece + "pw=" + copyNetrcPassword + "\n"
+		both := piece + "key=" + copyConfKey + "\n"
 		if err := writeFile(ctx, envs, boxEnv("priv"), "/tmp/approved/both", both, 0); err != nil {
 			t.Fatal(err)
 		}
@@ -205,7 +205,7 @@ func TestACopyOutIsScannedForTheSourcesSecrets(t *testing.T) {
 			allowed []string
 			named   string
 		}{
-			{[]string{kubeconfigPath}, netrcPath},
+			{[]string{kubeconfigPath}, confPath},
 			{[]string{"$GH_TOKEN", "/home/dev/.other"}, kubeconfigPath},
 		} {
 			err := allowed("/tmp/approved/both", "/tmp/approved-both", tt.allowed...)
@@ -214,7 +214,7 @@ func TestACopyOutIsScannedForTheSourcesSecrets(t *testing.T) {
 			}
 			nothingAt(t, "/tmp/approved-both")
 		}
-		if err := allowed("/tmp/approved/both", "/tmp/approved-both", netrcPath, kubeconfigPath); err != nil {
+		if err := allowed("/tmp/approved/both", "/tmp/approved-both", confPath, kubeconfigPath); err != nil {
 			t.Errorf("both secrets' pieces allowed: %v", err)
 		}
 		for _, tt := range []struct{ name, content, secret string }{
@@ -227,7 +227,7 @@ func TestACopyOutIsScannedForTheSourcesSecrets(t *testing.T) {
 				t.Fatal(err)
 			}
 			to := "/tmp/approved-" + strings.ReplaceAll(tt.name, " ", "-")
-			err := allowed(from, to, kubeconfigPath, passwordPath, "$GH_TOKEN", netrcPath)
+			err := allowed(from, to, kubeconfigPath, passwordPath, "$GH_TOKEN", confPath)
 			if r := refusalOf(err); r.GetReason() != found || !slices.Equal(r.GetSecrets(), []string{tt.secret}) ||
 				!strings.HasPrefix(messageOfErr(err), "copy refused: SECRET_FOUND: ") {
 				t.Errorf("%s, allow_suspect: %v, %v; want SECRET_FOUND of %s", tt.name, err, r, tt.secret)
@@ -273,7 +273,7 @@ func TestACopyOutIsScannedForTheSourcesSecrets(t *testing.T) {
 		t.Fatalf("the log was not captured:\n%s", logs.String())
 	}
 	w.waitSettled()
-	for _, v := range []string{copyToken, strings.TrimSpace(copyPassword), copyKubeToken, copyNetrcPassword} {
+	for _, v := range []string{copyToken, strings.TrimSpace(copyPassword), copyKubeToken, copyConfKey} {
 		w.nowhere(v, &logs)
 	}
 }
@@ -286,7 +286,7 @@ func noValueIn(t *testing.T, err error) {
 	if r := refusalOf(err); r != nil {
 		text += r.String()
 	}
-	for _, v := range []string{copyToken, strings.TrimSpace(copyPassword), copyKubeToken, copyNetrcPassword} {
+	for _, v := range []string{copyToken, strings.TrimSpace(copyPassword), copyKubeToken, copyConfKey} {
 		if strings.Contains(text, v) {
 			t.Errorf("the refusal holds a secret's value: %s", text)
 		}
@@ -369,6 +369,30 @@ func TestCapabilitiesNameTheCopyScan(t *testing.T) {
 	wantCode(t, err, connect.CodePermissionDenied, "an admin's capabilities")
 }
 
+// TestAScannedCopySaysSo: a copy that streamed through tower answers
+// scanned, so a caller can tell it from one a tower ignoring the options
+// made.
+func TestAScannedCopySaysSo(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.readyBox("a")
+	w.readyBox("b")
+	envs := w.as(workstream).envs
+	ctx := t.Context()
+	if err := writeFile(ctx, envs, boxEnv("a"), "/tmp/out", "built", 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, req := range []*envv1alpha1.CopyFileRequest{
+		{From: boxEnv("a"), FromPath: "/tmp/out", To: boxEnv("b"), ToPath: "/tmp/in", RefuseSecrets: true},
+		{From: boxEnv("a"), FromPath: "/tmp/out", To: boxEnv("b"), ToPath: "/tmp/in2", MaxBytes: 1 << 20},
+	} {
+		res, err := envs.CopyFile(ctx, connect.NewRequest(req))
+		if err != nil || !res.Msg.GetScanned() {
+			t.Errorf("a scanned copy: %v, %v", res, err)
+		}
+	}
+}
+
 // TestACopyWithoutOptionsStaysOnTheTarget: without refuse_secrets or
 // max_bytes, a copy is the target's own, never streamed through tower;
 // allow_suspect alone does not change that.
@@ -382,12 +406,18 @@ func TestACopyWithoutOptionsStaysOnTheTarget(t *testing.T) {
 	if err := writeFile(ctx, envs, boxEnv("a"), "/tmp/out", "built", 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := envs.CopyFile(ctx, connect.NewRequest(&envv1alpha1.CopyFileRequest{From: boxEnv("a"), FromPath: "/tmp/out", To: boxEnv("b"), ToPath: "/tmp/in"})); err != nil {
-		t.Fatal(err)
-	}
-	// allow_suspect without refuse_secrets does nothing.
-	if _, err := envs.CopyFile(ctx, connect.NewRequest(&envv1alpha1.CopyFileRequest{From: boxEnv("a"), FromPath: "/tmp/out", To: boxEnv("b"), ToPath: "/tmp/in2", AllowSuspectFor: []string{"$GH_TOKEN"}})); err != nil {
-		t.Fatal(err)
+	for _, req := range []*envv1alpha1.CopyFileRequest{
+		{From: boxEnv("a"), FromPath: "/tmp/out", To: boxEnv("b"), ToPath: "/tmp/in"},
+		// allow_suspect_for without refuse_secrets does nothing.
+		{From: boxEnv("a"), FromPath: "/tmp/out", To: boxEnv("b"), ToPath: "/tmp/in2", AllowSuspectFor: []string{"$GH_TOKEN"}},
+	} {
+		res, err := envs.CopyFile(ctx, connect.NewRequest(req))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Msg.GetScanned() {
+			t.Errorf("a copy that stayed on the target says it was scanned")
+		}
 	}
 	if got := w.fake.Files(provider.Instance{Project: "web", Name: dst.GetStatus().GetInstance()})["/tmp/in"]; got != "built" {
 		t.Errorf("the copy reached b as %q", got)
