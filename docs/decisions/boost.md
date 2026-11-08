@@ -78,7 +78,9 @@ resize a machine's CPUs or memory while it runs (it grows disks only).
   served across workstreams in turn, and its caller is told at once that
   it is queued and for about how long, so the agent decides whether to
   wait, run it in the box, or do something else (decided with the human,
-  2026-10-29).
+  2026-10-29). The target's status says what its boosts hold of the
+  budget and how many starts are queued (`TargetStatus.boosts`), so an
+  agent can see the room before it asks.
 
 ## Routing by task (2026-11-02)
 

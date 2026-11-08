@@ -22,7 +22,7 @@ import (
 
 // TargetDiskPressure says a target has less disk free than its warm budget
 // and a margin need. tower's controllers own it, counts and usage of
-// goldens and instances, last_error, and a hostd target's Reachable
+// goldens and instances, boosts, last_error, and a hostd target's Reachable
 // (reachable); the provider owns the rest of TargetStatus (capacity,
 // facts, a hangar target's Reachable, Reporting, the other usage), which
 // they leave as it is, but for Reporting turned false once the provider
@@ -88,6 +88,22 @@ func (s *Server) lastJobError(target string) string {
 		return ""
 	}
 	return fmt.Sprintf("%s: %s: %s", e.at.UTC().Format(time.RFC3339), e.job, e.err)
+}
+
+// boostUsage is what t's boosts hold of its budget, and how many starts
+// wait for room.
+func (s *Server) boostUsage(ctx context.Context, t *targetsv1alpha1.Target) (*targetsv1alpha1.BoostUsage, error) {
+	v, err := s.boostsOnTargetNow(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	room := roomOf(t, v)
+	size := func(b boostSize) *targetsv1alpha1.BoostSize {
+		return &targetsv1alpha1.BoostSize{Cpu: formatMilliCPU(b.milliCPU), Memory: quantity.FormatMemory(b.memory)}
+	}
+	return &targetsv1alpha1.BoostUsage{
+		Held: size(room.held), Budget: size(room.budget), Queued: int32(s.boosts.queued(t.GetMetadata().GetName(), v.boosts)),
+	}, nil
 }
 
 // silent sets Reporting false in st once the target's provider has not
@@ -163,6 +179,12 @@ func (s *Server) reconcileTargetStatus(ctx context.Context, key controller.Key) 
 		st.Usage = &targetsv1alpha1.Usage{}
 	}
 	st.Usage.Goldens, st.Usage.Instances = quantity.FormatDisk(goldenDisk), quantity.FormatDisk(instanceDisk)
+	st.Boosts = nil
+	if t.GetSpec().GetHangar() != nil {
+		if st.Boosts, err = s.boostUsage(ctx, t); err != nil {
+			return err
+		}
+	}
 	st.LastError = s.lastJobError(key.Name)
 	// Only a provider of tower's own follows the tunnel: one given in
 	// Config says itself whether it answers.

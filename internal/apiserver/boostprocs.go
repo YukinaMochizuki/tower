@@ -535,8 +535,20 @@ func (h environmentService) startBoosted(ctx context.Context, c authz.Caller, e 
 	}
 	set := settingsOf(e.target)
 	boxKey := controller.Key{Project: e.key.Project, Name: e.key.Name}
-	tq := s.boosts.of(e.target.GetMetadata().GetName())
+	target := e.target.GetMetadata().GetName()
+	tq := s.boosts.of(target)
 	tq.mu.Lock()
+	// Run last, once tq is let go: a start queued, admitted, given up or
+	// pruned changes what the target's status counts as queued.
+	queuedBefore := tq.waiting()
+	defer func() {
+		tq.mu.Lock()
+		changed := tq.waiting() != queuedBefore
+		tq.mu.Unlock()
+		if changed {
+			s.boostQueueChanged(target)
+		}
+	}()
 	locked := true
 	defer func() {
 		if locked {

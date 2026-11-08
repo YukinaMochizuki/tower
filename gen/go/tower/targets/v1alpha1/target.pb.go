@@ -755,8 +755,12 @@ type TargetStatus struct {
 	// teardown has listed the target once, as for one that refuses tower
 	// from the start, and what else is on it is not known.
 	RemainingKnown bool `protobuf:"varint,10,opt,name=remaining_known,json=remainingKnown,proto3" json:"remaining_known,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// What the target's boosts hold of its boost budget, as tower counts
+	// them; unset on a hostd target, which has no boosts
+	// (docs/decisions/boost.md).
+	Boosts        *BoostUsage `protobuf:"bytes,11,opt,name=boosts,proto3" json:"boosts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TargetStatus) Reset() {
@@ -859,6 +863,83 @@ func (x *TargetStatus) GetRemainingKnown() bool {
 	return false
 }
 
+func (x *TargetStatus) GetBoosts() *BoostUsage {
+	if x != nil {
+		return x.Boosts
+	}
+	return nil
+}
+
+// BoostUsage is a hangar target's boosts against its budget.
+type BoostUsage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The cpu and memory of every boost that holds room, as admission counts
+	// it: each not FAILED, whether being made, READY, or being deleted until
+	// it is gone.
+	Held *BoostSize `protobuf:"bytes,1,opt,name=held,proto3" json:"held,omitempty"`
+	// settings.boost_budget, or tower's default when it is unset.
+	Budget *BoostSize `protobuf:"bytes,2,opt,name=budget,proto3" json:"budget,omitempty"`
+	// The boosted starts waiting for room in the budget or the Plan, not
+	// yet admitted; a start waiting for its box's own boost to go (being
+	// deleted, FAILED, or smaller than asked) is not one. tower holds them
+	// in memory, so a restarted apiserver counts none until their callers
+	// ask again.
+	Queued        int32 `protobuf:"varint,3,opt,name=queued,proto3" json:"queued,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BoostUsage) Reset() {
+	*x = BoostUsage{}
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BoostUsage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BoostUsage) ProtoMessage() {}
+
+func (x *BoostUsage) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BoostUsage.ProtoReflect.Descriptor instead.
+func (*BoostUsage) Descriptor() ([]byte, []int) {
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *BoostUsage) GetHeld() *BoostSize {
+	if x != nil {
+		return x.Held
+	}
+	return nil
+}
+
+func (x *BoostUsage) GetBudget() *BoostSize {
+	if x != nil {
+		return x.Budget
+	}
+	return nil
+}
+
+func (x *BoostUsage) GetQueued() int32 {
+	if x != nil {
+		return x.Queued
+	}
+	return 0
+}
+
 // Capacity is the target's room, as quantities.
 type Capacity struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
@@ -877,7 +958,7 @@ type Capacity struct {
 
 func (x *Capacity) Reset() {
 	*x = Capacity{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[8]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -889,7 +970,7 @@ func (x *Capacity) String() string {
 func (*Capacity) ProtoMessage() {}
 
 func (x *Capacity) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[8]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -902,7 +983,7 @@ func (x *Capacity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Capacity.ProtoReflect.Descriptor instead.
 func (*Capacity) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{8}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Capacity) GetDiskTotal() string {
@@ -966,7 +1047,7 @@ type Usage struct {
 
 func (x *Usage) Reset() {
 	*x = Usage{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[9]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -978,7 +1059,7 @@ func (x *Usage) String() string {
 func (*Usage) ProtoMessage() {}
 
 func (x *Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[9]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -991,7 +1072,7 @@ func (x *Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Usage.ProtoReflect.Descriptor instead.
 func (*Usage) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{9}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Usage) GetGoldens() string {
@@ -1048,7 +1129,7 @@ type Counts struct {
 
 func (x *Counts) Reset() {
 	*x = Counts{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[10]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1060,7 +1141,7 @@ func (x *Counts) String() string {
 func (*Counts) ProtoMessage() {}
 
 func (x *Counts) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[10]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1073,7 +1154,7 @@ func (x *Counts) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Counts.ProtoReflect.Descriptor instead.
 func (*Counts) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{10}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Counts) GetInstances() map[string]int32 {
@@ -1101,7 +1182,7 @@ type Fact struct {
 
 func (x *Fact) Reset() {
 	*x = Fact{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[11]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1113,7 +1194,7 @@ func (x *Fact) String() string {
 func (*Fact) ProtoMessage() {}
 
 func (x *Fact) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[11]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1126,7 +1207,7 @@ func (x *Fact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Fact.ProtoReflect.Descriptor instead.
 func (*Fact) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{11}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Fact) GetName() string {
@@ -1152,7 +1233,7 @@ type GetTargetRequest struct {
 
 func (x *GetTargetRequest) Reset() {
 	*x = GetTargetRequest{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[12]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1164,7 +1245,7 @@ func (x *GetTargetRequest) String() string {
 func (*GetTargetRequest) ProtoMessage() {}
 
 func (x *GetTargetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[12]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1177,7 +1258,7 @@ func (x *GetTargetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTargetRequest.ProtoReflect.Descriptor instead.
 func (*GetTargetRequest) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{12}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GetTargetRequest) GetName() string {
@@ -1196,7 +1277,7 @@ type GetTargetResponse struct {
 
 func (x *GetTargetResponse) Reset() {
 	*x = GetTargetResponse{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[13]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1208,7 +1289,7 @@ func (x *GetTargetResponse) String() string {
 func (*GetTargetResponse) ProtoMessage() {}
 
 func (x *GetTargetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[13]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1221,7 +1302,7 @@ func (x *GetTargetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTargetResponse.ProtoReflect.Descriptor instead.
 func (*GetTargetResponse) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{13}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GetTargetResponse) GetTarget() *Target {
@@ -1242,7 +1323,7 @@ type ListTargetsRequest struct {
 
 func (x *ListTargetsRequest) Reset() {
 	*x = ListTargetsRequest{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[14]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1254,7 +1335,7 @@ func (x *ListTargetsRequest) String() string {
 func (*ListTargetsRequest) ProtoMessage() {}
 
 func (x *ListTargetsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[14]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1267,7 +1348,7 @@ func (x *ListTargetsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTargetsRequest.ProtoReflect.Descriptor instead.
 func (*ListTargetsRequest) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{14}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ListTargetsRequest) GetLabelSelector() string {
@@ -1302,7 +1383,7 @@ type ListTargetsResponse struct {
 
 func (x *ListTargetsResponse) Reset() {
 	*x = ListTargetsResponse{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[15]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1314,7 +1395,7 @@ func (x *ListTargetsResponse) String() string {
 func (*ListTargetsResponse) ProtoMessage() {}
 
 func (x *ListTargetsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[15]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1327,7 +1408,7 @@ func (x *ListTargetsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTargetsResponse.ProtoReflect.Descriptor instead.
 func (*ListTargetsResponse) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{15}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ListTargetsResponse) GetItems() []*Target {
@@ -1361,7 +1442,7 @@ type WatchTargetsRequest struct {
 
 func (x *WatchTargetsRequest) Reset() {
 	*x = WatchTargetsRequest{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[16]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1373,7 +1454,7 @@ func (x *WatchTargetsRequest) String() string {
 func (*WatchTargetsRequest) ProtoMessage() {}
 
 func (x *WatchTargetsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[16]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1386,7 +1467,7 @@ func (x *WatchTargetsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchTargetsRequest.ProtoReflect.Descriptor instead.
 func (*WatchTargetsRequest) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{16}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *WatchTargetsRequest) GetLabelSelector() string {
@@ -1414,7 +1495,7 @@ type WatchTargetsResponse struct {
 
 func (x *WatchTargetsResponse) Reset() {
 	*x = WatchTargetsResponse{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[17]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1426,7 +1507,7 @@ func (x *WatchTargetsResponse) String() string {
 func (*WatchTargetsResponse) ProtoMessage() {}
 
 func (x *WatchTargetsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[17]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1439,7 +1520,7 @@ func (x *WatchTargetsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchTargetsResponse.ProtoReflect.Descriptor instead.
 func (*WatchTargetsResponse) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{17}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *WatchTargetsResponse) GetType() v1.EventType {
@@ -1474,7 +1555,7 @@ type ApplyTargetRequest struct {
 
 func (x *ApplyTargetRequest) Reset() {
 	*x = ApplyTargetRequest{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[18]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1486,7 +1567,7 @@ func (x *ApplyTargetRequest) String() string {
 func (*ApplyTargetRequest) ProtoMessage() {}
 
 func (x *ApplyTargetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[18]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1499,7 +1580,7 @@ func (x *ApplyTargetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyTargetRequest.ProtoReflect.Descriptor instead.
 func (*ApplyTargetRequest) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{18}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ApplyTargetRequest) GetTarget() *Target {
@@ -1527,7 +1608,7 @@ type ApplyTargetResponse struct {
 
 func (x *ApplyTargetResponse) Reset() {
 	*x = ApplyTargetResponse{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[19]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1539,7 +1620,7 @@ func (x *ApplyTargetResponse) String() string {
 func (*ApplyTargetResponse) ProtoMessage() {}
 
 func (x *ApplyTargetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[19]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1552,7 +1633,7 @@ func (x *ApplyTargetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyTargetResponse.ProtoReflect.Descriptor instead.
 func (*ApplyTargetResponse) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{19}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ApplyTargetResponse) GetTarget() *Target {
@@ -1586,7 +1667,7 @@ type DeleteTargetRequest struct {
 
 func (x *DeleteTargetRequest) Reset() {
 	*x = DeleteTargetRequest{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[20]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1598,7 +1679,7 @@ func (x *DeleteTargetRequest) String() string {
 func (*DeleteTargetRequest) ProtoMessage() {}
 
 func (x *DeleteTargetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[20]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1611,7 +1692,7 @@ func (x *DeleteTargetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteTargetRequest.ProtoReflect.Descriptor instead.
 func (*DeleteTargetRequest) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{20}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *DeleteTargetRequest) GetName() string {
@@ -1637,7 +1718,7 @@ type DeleteTargetResponse struct {
 
 func (x *DeleteTargetResponse) Reset() {
 	*x = DeleteTargetResponse{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[21]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1649,7 +1730,7 @@ func (x *DeleteTargetResponse) String() string {
 func (*DeleteTargetResponse) ProtoMessage() {}
 
 func (x *DeleteTargetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[21]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1662,7 +1743,7 @@ func (x *DeleteTargetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteTargetResponse.ProtoReflect.Descriptor instead.
 func (*DeleteTargetResponse) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{21}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *DeleteTargetResponse) GetTarget() *Target {
@@ -1683,7 +1764,7 @@ type UpdateTargetStatusRequest struct {
 
 func (x *UpdateTargetStatusRequest) Reset() {
 	*x = UpdateTargetStatusRequest{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[22]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1695,7 +1776,7 @@ func (x *UpdateTargetStatusRequest) String() string {
 func (*UpdateTargetStatusRequest) ProtoMessage() {}
 
 func (x *UpdateTargetStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[22]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1708,7 +1789,7 @@ func (x *UpdateTargetStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateTargetStatusRequest.ProtoReflect.Descriptor instead.
 func (*UpdateTargetStatusRequest) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{22}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *UpdateTargetStatusRequest) GetName() string {
@@ -1741,7 +1822,7 @@ type UpdateTargetStatusResponse struct {
 
 func (x *UpdateTargetStatusResponse) Reset() {
 	*x = UpdateTargetStatusResponse{}
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[23]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1753,7 +1834,7 @@ func (x *UpdateTargetStatusResponse) String() string {
 func (*UpdateTargetStatusResponse) ProtoMessage() {}
 
 func (x *UpdateTargetStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[23]
+	mi := &file_tower_targets_v1alpha1_target_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1766,7 +1847,7 @@ func (x *UpdateTargetStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateTargetStatusResponse.ProtoReflect.Descriptor instead.
 func (*UpdateTargetStatusResponse) Descriptor() ([]byte, []int) {
-	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{23}
+	return file_tower_targets_v1alpha1_target_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *UpdateTargetStatusResponse) GetTarget() *Target {
@@ -1844,7 +1925,7 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"TimeWindow\x12\x14\n" +
 	"\x05start\x18\x01 \x01(\tR\x05start\x12\x10\n" +
 	"\x03end\x18\x02 \x01(\tR\x03end\x12\x1b\n" +
-	"\ttime_zone\x18\x03 \x01(\tR\btimeZone\"\x84\x04\n" +
+	"\ttime_zone\x18\x03 \x01(\tR\btimeZone\"\xc0\x04\n" +
 	"\fTargetStatus\x12/\n" +
 	"\x13observed_generation\x18\x01 \x01(\x03R\x12observedGeneration\x128\n" +
 	"\n" +
@@ -1859,7 +1940,13 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\x05facts\x18\b \x03(\v2\x1c.tower.targets.v1alpha1.FactR\x05facts\x12\x1c\n" +
 	"\tremaining\x18\t \x03(\tR\tremaining\x12'\n" +
 	"\x0fremaining_known\x18\n" +
-	" \x01(\bR\x0eremainingKnown\"\xb9\x01\n" +
+	" \x01(\bR\x0eremainingKnown\x12:\n" +
+	"\x06boosts\x18\v \x01(\v2\".tower.targets.v1alpha1.BoostUsageR\x06boosts\"\x96\x01\n" +
+	"\n" +
+	"BoostUsage\x125\n" +
+	"\x04held\x18\x01 \x01(\v2!.tower.targets.v1alpha1.BoostSizeR\x04held\x129\n" +
+	"\x06budget\x18\x02 \x01(\v2!.tower.targets.v1alpha1.BoostSizeR\x06budget\x12\x16\n" +
+	"\x06queued\x18\x03 \x01(\x05R\x06queued\"\xb9\x01\n" +
 	"\bCapacity\x12\x1d\n" +
 	"\n" +
 	"disk_total\x18\x01 \x01(\tR\tdiskTotal\x12\x1b\n" +
@@ -1947,7 +2034,7 @@ func file_tower_targets_v1alpha1_target_proto_rawDescGZIP() []byte {
 	return file_tower_targets_v1alpha1_target_proto_rawDescData
 }
 
-var file_tower_targets_v1alpha1_target_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_tower_targets_v1alpha1_target_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_tower_targets_v1alpha1_target_proto_goTypes = []any{
 	(*Target)(nil),                     // 0: tower.targets.v1alpha1.Target
 	(*TargetSpec)(nil),                 // 1: tower.targets.v1alpha1.TargetSpec
@@ -1957,81 +2044,85 @@ var file_tower_targets_v1alpha1_target_proto_goTypes = []any{
 	(*BoostSize)(nil),                  // 5: tower.targets.v1alpha1.BoostSize
 	(*TimeWindow)(nil),                 // 6: tower.targets.v1alpha1.TimeWindow
 	(*TargetStatus)(nil),               // 7: tower.targets.v1alpha1.TargetStatus
-	(*Capacity)(nil),                   // 8: tower.targets.v1alpha1.Capacity
-	(*Usage)(nil),                      // 9: tower.targets.v1alpha1.Usage
-	(*Counts)(nil),                     // 10: tower.targets.v1alpha1.Counts
-	(*Fact)(nil),                       // 11: tower.targets.v1alpha1.Fact
-	(*GetTargetRequest)(nil),           // 12: tower.targets.v1alpha1.GetTargetRequest
-	(*GetTargetResponse)(nil),          // 13: tower.targets.v1alpha1.GetTargetResponse
-	(*ListTargetsRequest)(nil),         // 14: tower.targets.v1alpha1.ListTargetsRequest
-	(*ListTargetsResponse)(nil),        // 15: tower.targets.v1alpha1.ListTargetsResponse
-	(*WatchTargetsRequest)(nil),        // 16: tower.targets.v1alpha1.WatchTargetsRequest
-	(*WatchTargetsResponse)(nil),       // 17: tower.targets.v1alpha1.WatchTargetsResponse
-	(*ApplyTargetRequest)(nil),         // 18: tower.targets.v1alpha1.ApplyTargetRequest
-	(*ApplyTargetResponse)(nil),        // 19: tower.targets.v1alpha1.ApplyTargetResponse
-	(*DeleteTargetRequest)(nil),        // 20: tower.targets.v1alpha1.DeleteTargetRequest
-	(*DeleteTargetResponse)(nil),       // 21: tower.targets.v1alpha1.DeleteTargetResponse
-	(*UpdateTargetStatusRequest)(nil),  // 22: tower.targets.v1alpha1.UpdateTargetStatusRequest
-	(*UpdateTargetStatusResponse)(nil), // 23: tower.targets.v1alpha1.UpdateTargetStatusResponse
-	nil,                                // 24: tower.targets.v1alpha1.HangarTarget.BaseImagesEntry
-	nil,                                // 25: tower.targets.v1alpha1.Counts.InstancesEntry
-	(*v1.ObjectMeta)(nil),              // 26: tower.meta.v1.ObjectMeta
-	(*durationpb.Duration)(nil),        // 27: google.protobuf.Duration
-	(*v1.Condition)(nil),               // 28: tower.meta.v1.Condition
-	(*timestamppb.Timestamp)(nil),      // 29: google.protobuf.Timestamp
-	(v1.EventType)(0),                  // 30: tower.meta.v1.EventType
+	(*BoostUsage)(nil),                 // 8: tower.targets.v1alpha1.BoostUsage
+	(*Capacity)(nil),                   // 9: tower.targets.v1alpha1.Capacity
+	(*Usage)(nil),                      // 10: tower.targets.v1alpha1.Usage
+	(*Counts)(nil),                     // 11: tower.targets.v1alpha1.Counts
+	(*Fact)(nil),                       // 12: tower.targets.v1alpha1.Fact
+	(*GetTargetRequest)(nil),           // 13: tower.targets.v1alpha1.GetTargetRequest
+	(*GetTargetResponse)(nil),          // 14: tower.targets.v1alpha1.GetTargetResponse
+	(*ListTargetsRequest)(nil),         // 15: tower.targets.v1alpha1.ListTargetsRequest
+	(*ListTargetsResponse)(nil),        // 16: tower.targets.v1alpha1.ListTargetsResponse
+	(*WatchTargetsRequest)(nil),        // 17: tower.targets.v1alpha1.WatchTargetsRequest
+	(*WatchTargetsResponse)(nil),       // 18: tower.targets.v1alpha1.WatchTargetsResponse
+	(*ApplyTargetRequest)(nil),         // 19: tower.targets.v1alpha1.ApplyTargetRequest
+	(*ApplyTargetResponse)(nil),        // 20: tower.targets.v1alpha1.ApplyTargetResponse
+	(*DeleteTargetRequest)(nil),        // 21: tower.targets.v1alpha1.DeleteTargetRequest
+	(*DeleteTargetResponse)(nil),       // 22: tower.targets.v1alpha1.DeleteTargetResponse
+	(*UpdateTargetStatusRequest)(nil),  // 23: tower.targets.v1alpha1.UpdateTargetStatusRequest
+	(*UpdateTargetStatusResponse)(nil), // 24: tower.targets.v1alpha1.UpdateTargetStatusResponse
+	nil,                                // 25: tower.targets.v1alpha1.HangarTarget.BaseImagesEntry
+	nil,                                // 26: tower.targets.v1alpha1.Counts.InstancesEntry
+	(*v1.ObjectMeta)(nil),              // 27: tower.meta.v1.ObjectMeta
+	(*durationpb.Duration)(nil),        // 28: google.protobuf.Duration
+	(*v1.Condition)(nil),               // 29: tower.meta.v1.Condition
+	(*timestamppb.Timestamp)(nil),      // 30: google.protobuf.Timestamp
+	(v1.EventType)(0),                  // 31: tower.meta.v1.EventType
 }
 var file_tower_targets_v1alpha1_target_proto_depIdxs = []int32{
-	26, // 0: tower.targets.v1alpha1.Target.metadata:type_name -> tower.meta.v1.ObjectMeta
+	27, // 0: tower.targets.v1alpha1.Target.metadata:type_name -> tower.meta.v1.ObjectMeta
 	1,  // 1: tower.targets.v1alpha1.Target.spec:type_name -> tower.targets.v1alpha1.TargetSpec
 	7,  // 2: tower.targets.v1alpha1.Target.status:type_name -> tower.targets.v1alpha1.TargetStatus
 	2,  // 3: tower.targets.v1alpha1.TargetSpec.hangar:type_name -> tower.targets.v1alpha1.HangarTarget
 	3,  // 4: tower.targets.v1alpha1.TargetSpec.hostd:type_name -> tower.targets.v1alpha1.HostdTarget
 	4,  // 5: tower.targets.v1alpha1.TargetSpec.settings:type_name -> tower.targets.v1alpha1.TargetSettings
-	24, // 6: tower.targets.v1alpha1.HangarTarget.base_images:type_name -> tower.targets.v1alpha1.HangarTarget.BaseImagesEntry
-	27, // 7: tower.targets.v1alpha1.TargetSettings.idle_stop_after:type_name -> google.protobuf.Duration
-	27, // 8: tower.targets.v1alpha1.TargetSettings.warm_window:type_name -> google.protobuf.Duration
-	27, // 9: tower.targets.v1alpha1.TargetSettings.warm_max_age:type_name -> google.protobuf.Duration
-	27, // 10: tower.targets.v1alpha1.TargetSettings.warm_settle:type_name -> google.protobuf.Duration
+	25, // 6: tower.targets.v1alpha1.HangarTarget.base_images:type_name -> tower.targets.v1alpha1.HangarTarget.BaseImagesEntry
+	28, // 7: tower.targets.v1alpha1.TargetSettings.idle_stop_after:type_name -> google.protobuf.Duration
+	28, // 8: tower.targets.v1alpha1.TargetSettings.warm_window:type_name -> google.protobuf.Duration
+	28, // 9: tower.targets.v1alpha1.TargetSettings.warm_max_age:type_name -> google.protobuf.Duration
+	28, // 10: tower.targets.v1alpha1.TargetSettings.warm_settle:type_name -> google.protobuf.Duration
 	6,  // 11: tower.targets.v1alpha1.TargetSettings.warm_off_peak:type_name -> tower.targets.v1alpha1.TimeWindow
 	5,  // 12: tower.targets.v1alpha1.TargetSettings.boost_resources:type_name -> tower.targets.v1alpha1.BoostSize
 	5,  // 13: tower.targets.v1alpha1.TargetSettings.boost_max:type_name -> tower.targets.v1alpha1.BoostSize
 	5,  // 14: tower.targets.v1alpha1.TargetSettings.boost_budget:type_name -> tower.targets.v1alpha1.BoostSize
-	27, // 15: tower.targets.v1alpha1.TargetSettings.boost_idle:type_name -> google.protobuf.Duration
-	27, // 16: tower.targets.v1alpha1.TargetSettings.boost_start_timeout:type_name -> google.protobuf.Duration
-	28, // 17: tower.targets.v1alpha1.TargetStatus.conditions:type_name -> tower.meta.v1.Condition
-	29, // 18: tower.targets.v1alpha1.TargetStatus.last_report_time:type_name -> google.protobuf.Timestamp
-	8,  // 19: tower.targets.v1alpha1.TargetStatus.capacity:type_name -> tower.targets.v1alpha1.Capacity
-	9,  // 20: tower.targets.v1alpha1.TargetStatus.usage:type_name -> tower.targets.v1alpha1.Usage
-	10, // 21: tower.targets.v1alpha1.TargetStatus.counts:type_name -> tower.targets.v1alpha1.Counts
-	11, // 22: tower.targets.v1alpha1.TargetStatus.facts:type_name -> tower.targets.v1alpha1.Fact
-	25, // 23: tower.targets.v1alpha1.Counts.instances:type_name -> tower.targets.v1alpha1.Counts.InstancesEntry
-	0,  // 24: tower.targets.v1alpha1.GetTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
-	0,  // 25: tower.targets.v1alpha1.ListTargetsResponse.items:type_name -> tower.targets.v1alpha1.Target
-	30, // 26: tower.targets.v1alpha1.WatchTargetsResponse.type:type_name -> tower.meta.v1.EventType
-	0,  // 27: tower.targets.v1alpha1.WatchTargetsResponse.target:type_name -> tower.targets.v1alpha1.Target
-	0,  // 28: tower.targets.v1alpha1.ApplyTargetRequest.target:type_name -> tower.targets.v1alpha1.Target
-	0,  // 29: tower.targets.v1alpha1.ApplyTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
-	0,  // 30: tower.targets.v1alpha1.DeleteTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
-	7,  // 31: tower.targets.v1alpha1.UpdateTargetStatusRequest.status:type_name -> tower.targets.v1alpha1.TargetStatus
-	0,  // 32: tower.targets.v1alpha1.UpdateTargetStatusResponse.target:type_name -> tower.targets.v1alpha1.Target
-	12, // 33: tower.targets.v1alpha1.TargetService.GetTarget:input_type -> tower.targets.v1alpha1.GetTargetRequest
-	14, // 34: tower.targets.v1alpha1.TargetService.ListTargets:input_type -> tower.targets.v1alpha1.ListTargetsRequest
-	16, // 35: tower.targets.v1alpha1.TargetService.WatchTargets:input_type -> tower.targets.v1alpha1.WatchTargetsRequest
-	18, // 36: tower.targets.v1alpha1.TargetService.ApplyTarget:input_type -> tower.targets.v1alpha1.ApplyTargetRequest
-	20, // 37: tower.targets.v1alpha1.TargetService.DeleteTarget:input_type -> tower.targets.v1alpha1.DeleteTargetRequest
-	22, // 38: tower.targets.v1alpha1.TargetService.UpdateTargetStatus:input_type -> tower.targets.v1alpha1.UpdateTargetStatusRequest
-	13, // 39: tower.targets.v1alpha1.TargetService.GetTarget:output_type -> tower.targets.v1alpha1.GetTargetResponse
-	15, // 40: tower.targets.v1alpha1.TargetService.ListTargets:output_type -> tower.targets.v1alpha1.ListTargetsResponse
-	17, // 41: tower.targets.v1alpha1.TargetService.WatchTargets:output_type -> tower.targets.v1alpha1.WatchTargetsResponse
-	19, // 42: tower.targets.v1alpha1.TargetService.ApplyTarget:output_type -> tower.targets.v1alpha1.ApplyTargetResponse
-	21, // 43: tower.targets.v1alpha1.TargetService.DeleteTarget:output_type -> tower.targets.v1alpha1.DeleteTargetResponse
-	23, // 44: tower.targets.v1alpha1.TargetService.UpdateTargetStatus:output_type -> tower.targets.v1alpha1.UpdateTargetStatusResponse
-	39, // [39:45] is the sub-list for method output_type
-	33, // [33:39] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	28, // 15: tower.targets.v1alpha1.TargetSettings.boost_idle:type_name -> google.protobuf.Duration
+	28, // 16: tower.targets.v1alpha1.TargetSettings.boost_start_timeout:type_name -> google.protobuf.Duration
+	29, // 17: tower.targets.v1alpha1.TargetStatus.conditions:type_name -> tower.meta.v1.Condition
+	30, // 18: tower.targets.v1alpha1.TargetStatus.last_report_time:type_name -> google.protobuf.Timestamp
+	9,  // 19: tower.targets.v1alpha1.TargetStatus.capacity:type_name -> tower.targets.v1alpha1.Capacity
+	10, // 20: tower.targets.v1alpha1.TargetStatus.usage:type_name -> tower.targets.v1alpha1.Usage
+	11, // 21: tower.targets.v1alpha1.TargetStatus.counts:type_name -> tower.targets.v1alpha1.Counts
+	12, // 22: tower.targets.v1alpha1.TargetStatus.facts:type_name -> tower.targets.v1alpha1.Fact
+	8,  // 23: tower.targets.v1alpha1.TargetStatus.boosts:type_name -> tower.targets.v1alpha1.BoostUsage
+	5,  // 24: tower.targets.v1alpha1.BoostUsage.held:type_name -> tower.targets.v1alpha1.BoostSize
+	5,  // 25: tower.targets.v1alpha1.BoostUsage.budget:type_name -> tower.targets.v1alpha1.BoostSize
+	26, // 26: tower.targets.v1alpha1.Counts.instances:type_name -> tower.targets.v1alpha1.Counts.InstancesEntry
+	0,  // 27: tower.targets.v1alpha1.GetTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
+	0,  // 28: tower.targets.v1alpha1.ListTargetsResponse.items:type_name -> tower.targets.v1alpha1.Target
+	31, // 29: tower.targets.v1alpha1.WatchTargetsResponse.type:type_name -> tower.meta.v1.EventType
+	0,  // 30: tower.targets.v1alpha1.WatchTargetsResponse.target:type_name -> tower.targets.v1alpha1.Target
+	0,  // 31: tower.targets.v1alpha1.ApplyTargetRequest.target:type_name -> tower.targets.v1alpha1.Target
+	0,  // 32: tower.targets.v1alpha1.ApplyTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
+	0,  // 33: tower.targets.v1alpha1.DeleteTargetResponse.target:type_name -> tower.targets.v1alpha1.Target
+	7,  // 34: tower.targets.v1alpha1.UpdateTargetStatusRequest.status:type_name -> tower.targets.v1alpha1.TargetStatus
+	0,  // 35: tower.targets.v1alpha1.UpdateTargetStatusResponse.target:type_name -> tower.targets.v1alpha1.Target
+	13, // 36: tower.targets.v1alpha1.TargetService.GetTarget:input_type -> tower.targets.v1alpha1.GetTargetRequest
+	15, // 37: tower.targets.v1alpha1.TargetService.ListTargets:input_type -> tower.targets.v1alpha1.ListTargetsRequest
+	17, // 38: tower.targets.v1alpha1.TargetService.WatchTargets:input_type -> tower.targets.v1alpha1.WatchTargetsRequest
+	19, // 39: tower.targets.v1alpha1.TargetService.ApplyTarget:input_type -> tower.targets.v1alpha1.ApplyTargetRequest
+	21, // 40: tower.targets.v1alpha1.TargetService.DeleteTarget:input_type -> tower.targets.v1alpha1.DeleteTargetRequest
+	23, // 41: tower.targets.v1alpha1.TargetService.UpdateTargetStatus:input_type -> tower.targets.v1alpha1.UpdateTargetStatusRequest
+	14, // 42: tower.targets.v1alpha1.TargetService.GetTarget:output_type -> tower.targets.v1alpha1.GetTargetResponse
+	16, // 43: tower.targets.v1alpha1.TargetService.ListTargets:output_type -> tower.targets.v1alpha1.ListTargetsResponse
+	18, // 44: tower.targets.v1alpha1.TargetService.WatchTargets:output_type -> tower.targets.v1alpha1.WatchTargetsResponse
+	20, // 45: tower.targets.v1alpha1.TargetService.ApplyTarget:output_type -> tower.targets.v1alpha1.ApplyTargetResponse
+	22, // 46: tower.targets.v1alpha1.TargetService.DeleteTarget:output_type -> tower.targets.v1alpha1.DeleteTargetResponse
+	24, // 47: tower.targets.v1alpha1.TargetService.UpdateTargetStatus:output_type -> tower.targets.v1alpha1.UpdateTargetStatusResponse
+	42, // [42:48] is the sub-list for method output_type
+	36, // [36:42] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_tower_targets_v1alpha1_target_proto_init() }
@@ -2043,15 +2134,15 @@ func file_tower_targets_v1alpha1_target_proto_init() {
 		(*TargetSpec_Hangar)(nil),
 		(*TargetSpec_Hostd)(nil),
 	}
-	file_tower_targets_v1alpha1_target_proto_msgTypes[20].OneofWrappers = []any{}
-	file_tower_targets_v1alpha1_target_proto_msgTypes[22].OneofWrappers = []any{}
+	file_tower_targets_v1alpha1_target_proto_msgTypes[21].OneofWrappers = []any{}
+	file_tower_targets_v1alpha1_target_proto_msgTypes[23].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tower_targets_v1alpha1_target_proto_rawDesc), len(file_tower_targets_v1alpha1_target_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   26,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

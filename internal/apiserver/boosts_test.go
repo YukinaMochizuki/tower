@@ -287,6 +287,75 @@ func TestBoostsQueueOnTheBudget(t *testing.T) {
 	}
 }
 
+// wantBoostUsage waits for the target's status to say its boosts hold
+// heldCPU and heldMemory of its budget, budgetMemory, with queued starts
+// waiting for room.
+func (w *world) wantBoostUsage(what, heldCPU, heldMemory, budgetMemory string, queued int32) {
+	w.t.Helper()
+	testutil.Eventually(w.t, what, func() (bool, string) {
+		o, err := w.get(registry.Target, "", "t1")
+		if err != nil {
+			w.t.Fatal(err)
+		}
+		b := o.(*targetsv1alpha1.Target).GetStatus().GetBoosts()
+		return b.GetHeld().GetCpu() == heldCPU && b.GetHeld().GetMemory() == heldMemory && b.GetQueued() == queued &&
+			b.GetBudget().GetMemory() == budgetMemory, b.String()
+	})
+}
+
+// TestTheTargetsStatusCountsItsBoosts: a hangar target's status says what
+// its boosts hold of its budget and how many starts wait for room, as
+// boosts are made and starts queue, are given up and expire unasked; a
+// start admitted and waiting for its boost is not queued.
+func TestTheTargetsStatusCountsItsBoosts(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, &targetsv1alpha1.TargetSettings{
+		BoostBudget: &targetsv1alpha1.BoostSize{Cpu: "4", Memory: "4Gi"}, BoostIdle: durationpb.New(time.Hour),
+	})
+	want := func(what, heldCPU, heldMemory string, queued int32) {
+		t.Helper()
+		w.wantBoostUsage(what, heldCPU, heldMemory, "4096Mi", queued)
+	}
+	w.readyBox("a")
+	w.readyBox("b", func(b *envv1alpha1.Box) { b.Spec.Workstream = "ws2" })
+	want("no boost yet", "0", "0Mi", 0)
+
+	// Admitted, its boost being made: held, and not queued.
+	first := w.start(boostOf(boostOn("a", "true"), "3", "3Gi")).GetPending()
+	if first.GetReason() != envv1alpha1.PendingReason_PENDING_REASON_BOOST_STARTING {
+		t.Fatalf("a's first boosted start: %v", first)
+	}
+	want("a's boost being made", "3", "3072Mi", 0)
+	w.startBoosted(func() *envv1alpha1.StartProcessRequest {
+		r := boostOf(boostOn("a", "true"), "3", "3Gi")
+		r.Pending = first.GetTicket()
+		return r
+	}())
+	want("a's boost held", "3", "3072Mi", 0)
+
+	p := w.start(boostOf(boostOn("b", "true"), "2", "2Gi")).GetPending()
+	if p.GetReason() != envv1alpha1.PendingReason_PENDING_REASON_QUEUED_BUDGET {
+		t.Fatalf("b's start past the budget: %v", p)
+	}
+	want("b's start queued", "3", "3072Mi", 1)
+
+	cancel := boostOf(boostOn("b", "true"), "2", "2Gi")
+	cancel.Pending, cancel.Cancel = p.GetTicket(), true
+	w.start(cancel)
+	want("b's start given up", "3", "3072Mi", 0)
+
+	// Queued again and never asked about again: the minute's prune drops
+	// it once boostTicketTTL has passed.
+	if p := w.start(boostOf(boostOn("b", "true"), "2", "2Gi")).GetPending(); p.GetReason() != envv1alpha1.PendingReason_PENDING_REASON_QUEUED_BUDGET {
+		t.Fatalf("b's start past the budget again: %v", p)
+	}
+	want("b's start queued again", "3", "3072Mi", 1)
+	for range 6 {
+		w.advance(time.Minute)
+	}
+	want("b's start expired unasked", "3", "3072Mi", 0)
+}
+
 // TestASmallerBoostIsReplaced: a boost smaller than asked is deleted and
 // made again larger once nothing runs on it; while something does, the
 // start answers that the boost is busy.
@@ -527,6 +596,8 @@ func TestAFailedBoostFreesItsRoom(t *testing.T) {
 	if c := condition(failed.GetStatus().GetConditions(), "Ready"); c.GetReason() != "InstanceFailed" || !strings.Contains(c.GetMessage(), "no room on the node") {
 		t.Errorf("the boost whose instance did not boot says %v", c)
 	}
+	// The target's status holds none of it.
+	w.wantBoostUsage("a FAILED boost holds nothing", "0", "0Mi", "4096Mi", 0)
 	if res := w.startBoosted(boostOn("b", "true")); res.GetProcess() == "" {
 		t.Errorf("a boost beside a FAILED one under a budget for one: %v", res)
 	}

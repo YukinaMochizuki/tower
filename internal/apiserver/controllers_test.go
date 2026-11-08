@@ -912,7 +912,8 @@ func TestTheTargetsStatusCountsWhatItHolds(t *testing.T) {
 	}
 	testutil.Eventually(t, "the target's counts and the provider's report", func() (bool, string) {
 		st := target()
-		return st.GetCounts().GetInstances()["RUNNING"] == 1 && st.GetCounts().GetGoldens() == 1 &&
+		// A hostd target has no boosts to count.
+		return st.GetCounts().GetInstances()["RUNNING"] == 1 && st.GetCounts().GetGoldens() == 1 && st.GetBoosts() == nil &&
 			st.GetCapacity().GetDiskTotal() != "" && len(st.GetFacts()) > 0 &&
 			condition(st.GetConditions(), "Reporting").GetStatus() == metav1.ConditionStatus_CONDITION_STATUS_TRUE &&
 			condition(st.GetConditions(), "DiskPressure").GetStatus() == metav1.ConditionStatus_CONDITION_STATUS_FALSE, st.String()

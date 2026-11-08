@@ -195,6 +195,26 @@ message TargetStatus {
   // teardown has listed the target once, as for one that refuses tower
   // from the start, and what else is on it is not known.
   bool remaining_known = 10;
+  // What the target's boosts hold of its boost budget, as tower counts
+  // them; unset on a hostd target, which has no boosts
+  // (docs/decisions/boost.md).
+  BoostUsage boosts = 11;
+}
+
+// BoostUsage is a hangar target's boosts against its budget.
+message BoostUsage {
+  // The cpu and memory of every boost that holds room, as admission counts
+  // it: each not FAILED, whether being made, READY, or being deleted until
+  // it is gone.
+  BoostSize held = 1;
+  // settings.boost_budget, or tower's default when it is unset.
+  BoostSize budget = 2;
+  // The boosted starts waiting for room in the budget or the Plan, not
+  // yet admitted; a start waiting for its box's own boost to go (being
+  // deleted, FAILED, or smaller than asked) is not one. tower holds them
+  // in memory, so a restarted apiserver counts none until their callers
+  // ask again.
+  int32 queued = 3;
 }
 
 // Capacity is the target's room, as quantities.
