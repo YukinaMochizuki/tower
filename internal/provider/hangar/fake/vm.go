@@ -2,6 +2,7 @@ package fake
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -27,6 +28,7 @@ import (
 	hangarmeta "github.com/YukinaMochizuki/hangar/gen/go/hangar/meta/v1"
 	hangarstorage "github.com/YukinaMochizuki/hangar/gen/go/hangar/storage/v1alpha1"
 
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
 	"github.com/YukinaMochizuki/tower/internal/guest/vmssh"
 	"github.com/YukinaMochizuki/tower/internal/provider/hangar"
 )
@@ -291,6 +293,13 @@ func (f *Fake) vmApplied(vm *hangarcompute.VirtualMachine, isNew bool) error {
 			return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("the project holds %d machines, its limit", *m))
 		}
 	}
+	size, err := vmSizeOf(spec.GetResources())
+	if err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if err := f.memoryFitsLocked(vm.GetMetadata().GetName(), size); err != nil {
+		return err
+	}
 	for _, i := range spec.GetInterfaces() {
 		if _, ok := f.networks.objs[i.GetNetwork()]; !ok {
 			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("network %s is not there", i.GetNetwork()))
@@ -303,12 +312,19 @@ func (f *Fake) vmApplied(vm *hangarcompute.VirtualMachine, isNew bool) error {
 	m, ok := f.machines[name]
 	if !ok {
 		m = &hangarcompute.Machine{
-			Metadata: &hangarmeta.ObjectMeta{Name: name, Project: Project, Uid: f.uidLocked(), CreateTime: timestamppb.New(f.clock.Now()),
+			Metadata: &hangarmeta.ObjectMeta{Name: name, Project: Project, Uid: f.uidLocked(), CreateTime: timestamppb.New(f.clock.Now()), Generation: 1,
 				OwnerReferences: []*hangarmeta.OwnerReference{{Kind: "VirtualMachine", Name: vm.GetMetadata().GetName(), Uid: vm.GetMetadata().GetUid(), Controller: true}}},
-			Spec:   &hangarcompute.MachineSpec{},
-			Status: &hangarcompute.MachineStatus{Phase: hangarcompute.MachinePhase_MACHINE_PHASE_STOPPED},
+			Spec:   &hangarcompute.MachineSpec{Resources: size},
+			Status: &hangarcompute.MachineStatus{Phase: hangarcompute.MachinePhase_MACHINE_PHASE_STOPPED, ObservedGeneration: 1},
 		}
 		f.machines[name] = m
+	}
+	// A new size: hangar holds the machine at the one it has while its node
+	// has no room for more memory, its VM not Ready for it, and restarts it
+	// at one that fits.
+	var held *hangarmeta.Condition
+	if !proto.Equal(m.GetSpec().GetResources(), size) {
+		held = f.resizeLocked(vm, m, size)
 	}
 	st := &hangarcompute.VirtualMachineStatus{RootDisk: disk.GetMetadata().GetName()}
 	m.Spec.Interfaces = nil
@@ -333,9 +349,166 @@ func (f *Fake) vmApplied(vm *hangarcompute.VirtualMachine, isNew bool) error {
 	if !running {
 		ready.Status, ready.Reason = hangarmeta.ConditionStatus_CONDITION_STATUS_FALSE, "Stopped"
 	}
+	if held != nil {
+		ready = held
+	}
+	ready.ObservedGeneration = vm.GetMetadata().GetGeneration()
 	st.Conditions = []*hangarmeta.Condition{ready}
 	vm.Status = st
 	return nil
+}
+
+// vmSizeOf is the size a VM's resources ask of its machine, in hangar's
+// canonical quantities, with hangar's defaults for what they leave out.
+func vmSizeOf(r *hangarcompute.VirtualMachineResources) (*hangarcompute.Resources, error) {
+	cpu, err := quantity.CPU(cmp.Or(r.GetCpu(), "1"))
+	if err != nil {
+		return nil, fmt.Errorf("spec.resources.cpu: %w", err)
+	}
+	memory, err := quantity.Bytes(cmp.Or(r.GetMemory(), "1Gi"))
+	if err != nil {
+		return nil, fmt.Errorf("spec.resources.memory: %w", err)
+	}
+	return &hangarcompute.Resources{Cpu: quantity.FormatCPU(cpu), Memory: quantity.FormatMemory(memory)}, nil
+}
+
+// memoryFitsLocked refuses a VM's size its project's memory quota, counting
+// every other VM's machine, has no room for, as hangar's quota does.
+func (f *Fake) memoryFitsLocked(vm string, size *hangarcompute.Resources) error {
+	limit := f.limitsLocked().GetMemory()
+	if limit == "" {
+		return nil
+	}
+	l, _ := quantity.Bytes(limit)
+	used, _ := quantity.Bytes(size.GetMemory())
+	for name, m := range f.machines {
+		if name != "vm-"+vm && strings.HasPrefix(name, "vm-") {
+			b, _ := quantity.Bytes(m.GetSpec().GetResources().GetMemory())
+			used += b
+		}
+	}
+	if used > l {
+		return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("the project's memory would be %s, over its limit of %s", quantity.FormatMemory(used), limit))
+	}
+	return nil
+}
+
+// resizeLocked gives a VM's machine size, restarting it if it runs, or
+// holds it at the size it has, saying so as its VM's Ready, while the node
+// has less memory free (FillNode) than a running one asks more.
+func (f *Fake) resizeLocked(vm *hangarcompute.VirtualMachine, m *hangarcompute.Machine, size *hangarcompute.Resources) *hangarmeta.Condition {
+	running := m.GetStatus().GetPhase() == hangarcompute.MachinePhase_MACHINE_PHASE_RUNNING
+	have, _ := quantity.Bytes(m.GetSpec().GetResources().GetMemory())
+	want, _ := quantity.Bytes(size.GetMemory())
+	if free, err := quantity.Bytes(f.nodeFree); err == nil && f.nodeFree != "" && running && want > have && want-have > free {
+		return &hangarmeta.Condition{Type: "Ready", Status: hangarmeta.ConditionStatus_CONDITION_STATUS_FALSE, Reason: "ResizeDoesNotFit",
+			Message: fmt.Sprintf("node n1 has %s of memory free; the machine asks %s more", f.nodeFree, quantity.FormatMemory(want-have))}
+	}
+	m.Spec.Resources = size
+	m.Metadata.Generation++
+	m.Status.ObservedGeneration = m.GetMetadata().GetGeneration()
+	if running {
+		f.restartLocked(vm, m)
+	}
+	return nil
+}
+
+// restartLocked restarts a running VM's machine, as its node does for a
+// new size or a grown disk.
+func (f *Fake) restartLocked(vm *hangarcompute.VirtualMachine, m *hangarcompute.Machine) {
+	f.stopVMLocked(vm)
+	if st := f.vmStates[vm.GetMetadata().GetUid()]; st != nil {
+		st.bootedAt = f.clock.Now()
+	}
+	m.Status.BootTime = timestamppb.New(f.clock.Now())
+	f.restarts[vm.GetMetadata().GetName()]++
+}
+
+// Restarts is how many times the VM of the name was restarted for a new
+// size or a grown disk.
+func (f *Fake) Restarts(vm string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.restarts[vm]
+}
+
+// diskApplied grows a disk as hangar does: never below its size, within
+// the project's disk quota, a VM booting from it restarted.
+func (f *Fake) diskApplied(d *hangarstorage.Disk, isNew bool) error {
+	old := f.disks.objs[d.GetMetadata().GetName()]
+	// One that grows by itself takes a size below the one it grew to, and
+	// keeps that.
+	if isNew || old == nil || d.GetSpec().GetGrow() != nil {
+		return nil
+	}
+	was, _ := quantity.Bytes(cmp.Or(old.GetStatus().GetSize(), old.GetSpec().GetSize()))
+	now, err := quantity.Bytes(d.GetSpec().GetSize())
+	if err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("spec.size: %w", err))
+	}
+	if now < was {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("spec.size %s is below the %s the disk has", d.GetSpec().GetSize(), quantity.FormatDisk(was)))
+	}
+	if now == was {
+		return nil
+	}
+	if limit := f.limitsLocked().GetDisk(); limit != "" {
+		l, _ := quantity.Bytes(limit)
+		used, _ := quantity.Bytes(f.usageLocked().GetDisk())
+		if used-was+now > l {
+			return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("the project's disk would be %s, over its limit of %s", quantity.FormatDisk(used-was+now), limit))
+		}
+	}
+	if f.holdGrowth {
+		d.Status = &hangarstorage.DiskStatus{Size: quantity.FormatDisk(was)}
+		f.heldDisks[d.GetMetadata().GetName()] = true
+		return nil
+	}
+	// A node with less disk free than the growth asks keeps the disk at its
+	// size, Allocated False, until FreeRoom.
+	if free, err := quantity.Bytes(f.diskFree); f.diskFree != "" && err == nil && now-was > free {
+		d.Status = &hangarstorage.DiskStatus{Size: quantity.FormatDisk(was), Conditions: []*hangarmeta.Condition{{
+			Type: "Allocated", Status: hangarmeta.ConditionStatus_CONDITION_STATUS_FALSE, Reason: "ResizeDoesNotFit",
+			Message:            fmt.Sprintf("node n1 has %s of disk free; the disk asks %s more", f.diskFree, quantity.FormatDisk(now-was)),
+			ObservedGeneration: d.GetMetadata().GetGeneration(),
+		}}}
+		return nil
+	}
+	f.growLocked(d, now)
+	return nil
+}
+
+// HoldDiskGrowth leaves each disk growth asked from now on not yet granted:
+// its Disk keeps its size and says nothing, as before hangar's disk
+// controller runs. FreeRoom grants them.
+func (f *Fake) HoldDiskGrowth() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.holdGrowth = true
+}
+
+// FillNodeDisk leaves free, too little for a disk growth past it, of the
+// disk of the fake's one node: a growth asked is held, its Disk's Allocated
+// False with reason ResizeDoesNotFit, as hangar's disk controller holds one.
+// FreeRoom grants it.
+func (f *Fake) FillNodeDisk(free string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.diskFree = free
+}
+
+// growLocked grants a disk's growth to now, restarting a running VM that
+// boots from it.
+func (f *Fake) growLocked(d *hangarstorage.Disk, now uint64) {
+	d.Status = &hangarstorage.DiskStatus{Size: quantity.FormatDisk(now)}
+	for _, vm := range f.vms.objs {
+		if vm.GetSpec().GetRootDisk().GetDisk() != d.GetMetadata().GetName() {
+			continue
+		}
+		if m := f.machines["vm-"+vm.GetMetadata().GetName()]; m.GetStatus().GetPhase() == hangarcompute.MachinePhase_MACHINE_PHASE_RUNNING {
+			f.restartLocked(vm, m)
+		}
+	}
 }
 
 // machinesLocked counts the project's machines, containers and VMs.

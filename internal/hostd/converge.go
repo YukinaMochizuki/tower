@@ -97,6 +97,9 @@ type observed struct {
 	disk        *driver.Disk
 	// processes are the container's running processes.
 	processes int32
+	// resizeRefused is why the host keeps a VM's disk at the size it has,
+	// with its words; "" when it applied the size asked.
+	resizeRefused, resizeMsg string
 }
 
 func failed(reason string, err error) observed {
@@ -120,18 +123,19 @@ func (h *Host) converge(ctx context.Context, in *envv1alpha1.Instance) (observed
 	if err != nil {
 		return observed{}, err
 	}
-	// What hostd reported made is gone from the host: tower decides what
-	// to do about it.
+	// What hostd reported made is gone from the host: tower decides what to
+	// do about it. A VM whose guest alone went, as a resize cut short does,
+	// is made again on its disk (docs/decisions/machine-resize.md).
 	switch in.GetStatus().GetPhase() {
 	case envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING, envv1alpha1.InstancePhase_INSTANCE_PHASE_STOPPED, envv1alpha1.InstancePhase_INSTANCE_PHASE_GONE:
-		if !made || disk == nil {
+		if disk == nil || (!made && !vm) {
 			return observed{phase: envv1alpha1.InstancePhase_INSTANCE_PHASE_GONE, reason: "Gone", msg: "the instance is not on the host any more"}, nil
 		}
 	}
 	labels := driver.Labels{driver.LabelOwner: h.cfg.Target, driver.LabelUID: uid, driver.LabelProject: ref.GetProject(), driver.LabelInstance: ref.GetName()}
 	if !made {
 		from := ""
-		if gname := spec.GetDiskGolden(); gname != "" {
+		if gname := spec.GetDiskGolden(); gname != "" && disk == nil {
 			o, err := h.c.Get(ctx, registry.Golden, client.Key{Project: ref.GetProject(), Name: gname})
 			if err != nil && connect.CodeOf(err) != connect.CodeNotFound {
 				return observed{}, err
@@ -153,15 +157,21 @@ func (h *Host) converge(ctx context.Context, in *envv1alpha1.Instance) (observed
 		if vm {
 			kind = driver.Volume
 		}
-		size, _ := quantity.Bytes(spec.GetResources().GetDisk())
-		d, err := h.d.Storage.EnsureDisk(ctx, driver.DiskSpec{Name: diskName(uid), Kind: kind, Size: size, From: from, Labels: labels})
-		switch {
-		case errors.Is(err, driver.ErrNoSpace):
-			return failed("NoSpace", err), nil
-		case errors.Is(err, driver.ErrNotFound):
-			return failed("GoldenNotOnHost", err), nil
-		case err != nil:
-			return observed{}, err
+		// A disk already there is the one the guest is made on, whatever
+		// became of the golden it was cloned from.
+		d := disk
+		if d == nil {
+			size, _ := quantity.Bytes(spec.GetResources().GetDisk())
+			made, err := h.d.Storage.EnsureDisk(ctx, driver.DiskSpec{Name: diskName(uid), Kind: kind, Size: size, From: from, Labels: labels})
+			switch {
+			case errors.Is(err, driver.ErrNoSpace):
+				return failed("NoSpace", err), nil
+			case errors.Is(err, driver.ErrNotFound):
+				return failed("GoldenNotOnHost", err), nil
+			case err != nil:
+				return observed{}, err
+			}
+			d = &made
 		}
 		cpus, _ := quantity.CPU(spec.GetResources().GetCpu())
 		memory, _ := quantity.Bytes(spec.GetResources().GetMemory())
@@ -193,6 +203,12 @@ func (h *Host) converge(ctx context.Context, in *envv1alpha1.Instance) (observed
 			return observed{}, err
 		}
 	}
+	var refused, refusedMsg string
+	if made && vm && disk != nil {
+		if refused, refusedMsg, err = h.resize(ctx, spec.GetResources(), name, disk); err != nil {
+			return observed{}, err
+		}
+	}
 	if spec.GetRunState() == envv1alpha1.RunState_RUN_STATE_STOPPED {
 		if err := g.Stop(ctx, name); err != nil {
 			return observed{}, err
@@ -210,7 +226,7 @@ func (h *Host) converge(ctx context.Context, in *envv1alpha1.Instance) (observed
 	if disk, err = h.disk(ctx, diskName(uid)); err != nil {
 		return observed{}, err
 	}
-	o := observed{phase: envv1alpha1.InstancePhase_INSTANCE_PHASE_STOPPED, reason: "Stopped", guest: &got, disk: disk}
+	o := observed{phase: envv1alpha1.InstancePhase_INSTANCE_PHASE_STOPPED, reason: "Stopped", guest: &got, disk: disk, resizeRefused: refused, resizeMsg: refusedMsg}
 	if got.Running {
 		o.phase, o.reason = envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING, "Running"
 		if !vm {
@@ -220,6 +236,54 @@ func (h *Host) converge(ctx context.Context, in *envv1alpha1.Instance) (observed
 		}
 	}
 	return o, nil
+}
+
+// resize gives a made VM the size r asks, stopping one running for it; the
+// converge that follows starts it again. Its order and what a full pool does
+// are in docs/decisions/machine-resize.md.
+func (h *Host) resize(ctx context.Context, r *envv1alpha1.Resources, name string, disk *driver.Disk) (refused, msg string, err error) {
+	got, err := h.d.VMs.Inspect(ctx, name)
+	if err != nil {
+		return "", "", err
+	}
+	cpus, memory, size := got.CPUs, got.Memory, disk.Size
+	if c, err := quantity.CPU(r.GetCpu()); err == nil {
+		cpus = int(c)
+	}
+	if m, err := quantity.Bytes(r.GetMemory()); err == nil && m > 0 {
+		memory = m
+	}
+	if s, err := quantity.Bytes(r.GetDisk()); err == nil {
+		size = max(size, s)
+	}
+	grown := false
+	if size > disk.Size {
+		d, err := h.d.Storage.GrowDisk(ctx, disk.Name, size)
+		switch {
+		case errors.Is(err, driver.ErrNoSpace):
+			refused, msg = "NoSpace", err.Error()
+		case err != nil:
+			return "", "", err
+		default:
+			grown = d.Size > disk.Size
+		}
+	}
+	resized := cpus != got.CPUs || memory != got.Memory
+	if !grown && !resized {
+		return refused, msg, nil
+	}
+	h.log.Info("resizing a VM", "guest", name, "cpus", cpus, "memory", quantity.FormatMemory(memory), "disk", quantity.FormatDisk(size), "restart", got.Running)
+	if got.Running {
+		if err := h.d.VMs.Stop(ctx, name); err != nil {
+			return "", "", err
+		}
+	}
+	if resized {
+		if err := h.d.VMs.Resize(ctx, name, cpus, memory); err != nil {
+			return "", "", err
+		}
+	}
+	return refused, msg, nil
 }
 
 // image is the name a container of ref is made by on the host, at once
@@ -270,6 +334,14 @@ func (h *Host) report(ctx context.Context, in *envv1alpha1.Instance, o observed)
 	}
 	if o.disk != nil {
 		st.UsedDisk = quantity.FormatDisk(o.disk.Used)
+	}
+	if in.GetSpec().GetKind() == envv1alpha1.InstanceKind_INSTANCE_KIND_VM && o.guest != nil && o.disk != nil {
+		st.Resources = &envv1alpha1.Resources{Cpu: quantity.FormatCPU(int32(o.guest.CPUs)), Memory: quantity.FormatMemory(o.guest.Memory), Disk: quantity.FormatDisk(o.disk.Size)}
+		resized := &metav1.Condition{Type: provider.InstanceResized, Status: metav1.ConditionStatus_CONDITION_STATUS_TRUE, Reason: "Applied", ObservedGeneration: st.ObservedGeneration}
+		if o.resizeRefused != "" {
+			resized.Status, resized.Reason, resized.Message = metav1.ConditionStatus_CONDITION_STATUS_FALSE, o.resizeRefused, o.resizeMsg
+		}
+		st.Conditions = conditions.Set(slices.Clone(st.GetConditions()), resized, h.clock.Now())
 	}
 	ready := &metav1.Condition{Type: InstanceReady, Status: metav1.ConditionStatus_CONDITION_STATUS_FALSE, Reason: o.reason, Message: o.msg, ObservedGeneration: st.ObservedGeneration}
 	if o.phase == envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING {

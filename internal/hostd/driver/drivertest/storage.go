@@ -2,6 +2,7 @@ package drivertest
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ func RunStorage(t *testing.T, h Harness) {
 		fn   func(*testing.T, Harness)
 	}{
 		{"DisksAreMadeOnce", testDisksAreMadeOnce},
+		{"DisksOnlyGrow", testDisksOnlyGrow},
 		{"GoldensOutliveTheirDisk", testGoldensOutliveTheirDisk},
 		{"DiskOfAGuestIsBusy", testDiskOfAGuestIsBusy},
 		{"Pool", testPool},
@@ -47,6 +49,32 @@ func listed(t *testing.T, h Harness, name string) (driver.Disk, bool) {
 		}
 	}
 	return driver.Disk{}, false
+}
+
+// testDisksOnlyGrow: a disk grows to a larger size, a volume's size
+// and a dataset's quota alike; a smaller size changes nothing, and a disk
+// not there is not found.
+func testDisksOnlyGrow(t *testing.T, h Harness) {
+	s, ctx := h.Drivers.Storage, t.Context()
+	for _, kind := range []driver.DiskKind{driver.Volume, driver.Dataset} {
+		spec := driver.DiskSpec{Name: name(t, fmt.Sprint("k", kind)), Kind: kind, Size: 1 << 30, Labels: labels(t)}
+		d := disk(t, h, spec)
+		grown, err := s.GrowDisk(ctx, spec.Name, 2<<30)
+		mustNot(t, "growing the disk", err)
+		if grown.Size != 2<<30 || grown.Path != d.Path {
+			t.Errorf("a %v grown to 2Gi: %s", kind, describe(grown))
+		}
+		if l, _ := listed(t, h, spec.Name); l.Size != 2<<30 {
+			t.Errorf("a %v grown to 2Gi is listed at %d bytes", kind, l.Size)
+		}
+		same, err := s.GrowDisk(ctx, spec.Name, 1<<30)
+		mustNot(t, "growing the disk to less", err)
+		if same.Size != 2<<30 {
+			t.Errorf("a %v of 2Gi asked to grow to 1Gi is %d bytes", kind, same.Size)
+		}
+	}
+	_, err := s.GrowDisk(ctx, name(t, "never-made"), 2<<30)
+	is(t, "growing a disk that is not there", err, driver.ErrNotFound)
 }
 
 func testDisksAreMadeOnce(t *testing.T, h Harness) {

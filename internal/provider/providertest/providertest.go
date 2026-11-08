@@ -31,6 +31,10 @@ type Harness struct {
 	// Stop sets the instance's run_state STOPPED and waits until its
 	// provider reports it STOPPED.
 	Stop func(t *testing.T, in provider.Instance)
+	// Resize, if set, sets the instance's resources as tower's machine
+	// controller does and waits for its provider's answer (ResizeThrough);
+	// unset skips the test of resizing.
+	Resize func(t *testing.T, in provider.Instance, r *envv1alpha1.Resources) *envv1alpha1.InstanceStatus
 	// Delete, if set, deletes an instance and waits until its provider has
 	// released what it held: what a test no longer needs, on a target too
 	// small to hold every test's instances at once. Unset, it is stopped.
@@ -83,6 +87,7 @@ var suite = []struct {
 	{"CaptureAndClone", testCaptureAndClone},
 	{"VMs", testVMs},
 	{"VMCaptureAndClone", testVMCaptureAndClone},
+	{"VMResize", testVMResize},
 	{"MirrorAndCheckout", testMirrorAndCheckout},
 	{"PushNeedsItsLease", testPushNeedsItsLease},
 	{"Ticket", testTicket},

@@ -2,6 +2,7 @@ package hangar
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	hangarstorage "github.com/YukinaMochizuki/hangar/gen/go/hangar/storage/v1alpha1"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
+	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
 	"github.com/YukinaMochizuki/tower/internal/client"
@@ -141,6 +143,13 @@ func (t *Target) convergeVM(ctx context.Context, in *envv1alpha1.Instance) (obse
 			return t.applyFailed(err)
 		}
 	}
+	// What hangar refused of a resize of the VM, which keeps the size it has.
+	var refused *metav1.Condition
+	if disk != nil && vm != nil {
+		if disk, refused, err = t.growRootDisk(ctx, disk, spec.GetResources().GetDisk()); err != nil {
+			return observed{}, err
+		}
+	}
 	if disk == nil {
 		size := spec.GetResources().GetDisk()
 		if size == "" {
@@ -172,11 +181,115 @@ func (t *Target) convergeVM(ctx context.Context, in *envv1alpha1.Instance) (obse
 			return pending("Deleting", "an earlier VM of the name is being deleted"), nil
 		}
 		meta := &hangarmeta.ObjectMeta{Name: name, Labels: t.labels(in)}
-		if vm, err = t.api.VirtualMachines().Apply(ctx, &hangarcompute.VirtualMachine{Metadata: meta, Spec: want}); err != nil {
+		applied, err := t.api.VirtualMachines().Apply(ctx, &hangarcompute.VirtualMachine{Metadata: meta, Spec: want})
+		if err != nil && vm != nil && refusalOf(err) != "" && !proto.Equal(want.GetResources(), vm.GetSpec().GetResources()) {
+			// A size hangar refuses for a VM it has, over quota or outside its
+			// shapes, keeps the size it has; the rest of the spec, such as a
+			// start, is applied at that size.
+			refused = resizeRefused(refusalOf(err), err.Error())
+			keep := proto.Clone(want).(*hangarcompute.VirtualMachineSpec)
+			keep.Resources = vm.GetSpec().GetResources()
+			applied, err = vm, nil
+			if !proto.Equal(keep, vm.GetSpec()) {
+				applied, err = t.api.VirtualMachines().Apply(ctx, &hangarcompute.VirtualMachine{Metadata: meta, Spec: keep})
+			}
+		}
+		if err != nil {
 			return t.applyFailed(err)
 		}
+		vm = applied
 	}
-	return t.observe(ctx, in, vmObj(vm))
+	ob, err := t.observe(ctx, in, vmObj(vm))
+	if err != nil {
+		return ob, err
+	}
+	ob.resources, ob.resized, err = t.vmSize(ctx, in, vm, disk, refused)
+	return ob, err
+}
+
+// growRootDisk asks hangar to grow a VM's root disk to size, and returns the
+// Disk as hangar holds it and, while hangar keeps it at its size (over quota,
+// or Allocated False for want of room), why.
+func (t *Target) growRootDisk(ctx context.Context, disk *hangarstorage.Disk, size string) (*hangarstorage.Disk, *metav1.Condition, error) {
+	// A size that does not parse asks nothing: admission parsed the
+	// Instance's, and hangar writes its own whole.
+	want, _ := quantity.Bytes(size)
+	if asked, _ := quantity.Bytes(disk.GetSpec().GetSize()); want > asked {
+		grown := proto.Clone(disk).(*hangarstorage.Disk)
+		grown.Spec.Size = quantity.FormatDisk(want)
+		grown.Status = nil
+		applied, err := t.api.Disks().Apply(ctx, grown)
+		if r := refusalOf(err); r != "" {
+			return disk, resizeRefused(r, "its disk stays "+diskSize(disk)+": "+err.Error()), nil
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		disk = applied
+	}
+	asked, _ := quantity.Bytes(disk.GetSpec().GetSize())
+	have, _ := quantity.Bytes(diskSize(disk))
+	if a := conditionOf(disk.GetStatus().GetConditions(), "Allocated"); asked > have && a.GetStatus() == hangarmeta.ConditionStatus_CONDITION_STATUS_FALSE {
+		return disk, resizeRefused(a.GetReason(), "its disk stays "+diskSize(disk)+": "+a.GetMessage()), nil
+	}
+	return disk, nil, nil
+}
+
+// diskSize is a Disk's size as hangar holds it: its status's once bound,
+// else its spec's.
+func diskSize(d *hangarstorage.Disk) string {
+	return cmp.Or(d.GetStatus().GetSize(), d.GetSpec().GetSize())
+}
+
+// refusalOf is the reason of a refusal by hangar of an apply, "" for an
+// error that is none: QuotaExceeded for a project out of quota, Refused
+// for a spec hangar does not take.
+func refusalOf(err error) string {
+	switch connect.CodeOf(err) {
+	case connect.CodeResourceExhausted:
+		return "QuotaExceeded"
+	case connect.CodeInvalidArgument, connect.CodeFailedPrecondition, connect.CodePermissionDenied:
+		return "Refused"
+	}
+	return ""
+}
+
+func resizeRefused(reason, msg string) *metav1.Condition {
+	return &metav1.Condition{Type: provider.InstanceResized, Status: metav1.ConditionStatus_CONDITION_STATUS_FALSE, Reason: reason, Message: msg}
+}
+
+// vmSize is a VM's size as hangar applied it, and its Resized condition
+// (docs/decisions/machine-resize.md); a VM not placed yet has none.
+func (t *Target) vmSize(ctx context.Context, in *envv1alpha1.Instance, vm *hangarcompute.VirtualMachine, disk *hangarstorage.Disk, refused *metav1.Condition) (*envv1alpha1.Resources, *metav1.Condition, error) {
+	m, err := t.api.Machine(ctx, vmMachineOf(vm.GetMetadata().GetName()))
+	if errors.Is(err, ErrNotFound) || (err == nil && !ownedBy(m, vm.GetMetadata().GetUid())) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	r := &envv1alpha1.Resources{Cpu: in.GetStatus().GetResources().GetCpu(), Memory: in.GetStatus().GetResources().GetMemory(), Disk: diskSize(disk)}
+	stopped := m.GetSpec().GetRunState() == hangarcompute.MachineRunState_MACHINE_RUN_STATE_STOPPED && m.GetStatus().GetPhase() == hangarcompute.MachinePhase_MACHINE_PHASE_STOPPED
+	if m.GetStatus().GetObservedGeneration() == m.GetMetadata().GetGeneration() || stopped {
+		r.Cpu, r.Memory = m.GetSpec().GetResources().GetCpu(), m.GetSpec().GetResources().GetMemory()
+	}
+	resized := refused
+	if resized == nil {
+		// Not refused: Applied once hangar runs the size asked, Applying until
+		// then, as while a Disk just grown waits for hangar's disk controller.
+		resized = &metav1.Condition{Type: provider.InstanceResized, Status: metav1.ConditionStatus_CONDITION_STATUS_TRUE, Reason: "Applied"}
+		if !provider.SizeApplied(in.GetSpec().GetResources(), r) {
+			resized.Reason = "Applying"
+		}
+		asked := vm.GetSpec().GetResources()
+		held := !provider.SameResources(&envv1alpha1.Resources{Cpu: asked.GetCpu(), Memory: asked.GetMemory()},
+			&envv1alpha1.Resources{Cpu: m.GetSpec().GetResources().GetCpu(), Memory: m.GetSpec().GetResources().GetMemory()})
+		if rd := conditionOf(vm.GetStatus().GetConditions(), "Ready"); held && rd.GetStatus() == hangarmeta.ConditionStatus_CONDITION_STATUS_FALSE &&
+			rd.GetObservedGeneration() == vm.GetMetadata().GetGeneration() {
+			resized = resizeRefused(rd.GetReason(), rd.GetMessage())
+		}
+	}
+	return r, resized, nil
 }
 
 // baseImageSource is the source of a VM's root disk made from the hangar

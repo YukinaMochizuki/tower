@@ -45,6 +45,23 @@ func (s storage) EnsureDisk(_ context.Context, spec driver.DiskSpec) (driver.Dis
 	return out, err
 }
 
+func (s storage) GrowDisk(_ context.Context, name string, size uint64) (driver.Disk, error) {
+	var out driver.Disk
+	err := s.h.change("storage.GrowDisk", func() error {
+		d := s.h.st.Disks[name]
+		if d == nil {
+			return fmt.Errorf("disk %s: %w", name, driver.ErrNotFound)
+		}
+		// A dataset without a quota holds what the pool does.
+		if d.Spec.Size < size && (d.Spec.Kind != driver.Dataset || d.Spec.Size != 0) {
+			d.Spec.Size = size
+		}
+		out = s.h.diskOf(name, d)
+		return nil
+	})
+	return out, err
+}
+
 // diskOf is the disk as the driver lists it. The caller holds h.mu.
 func (h *Host) diskOf(name string, d *disk) driver.Disk {
 	spec := d.Spec

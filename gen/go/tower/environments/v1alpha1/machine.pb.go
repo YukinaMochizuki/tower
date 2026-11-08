@@ -12,6 +12,7 @@ import (
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	structpb "google.golang.org/protobuf/types/known/structpb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -179,8 +180,16 @@ type MachineSpec struct {
 	Blueprint  *Blueprint `protobuf:"bytes,2,opt,name=blueprint,proto3" json:"blueprint,omitempty"`
 	// This machine's own variables, given in its configure phase only; they
 	// never enter its golden.
-	Vars      *structpb.Struct `protobuf:"bytes,3,opt,name=vars,proto3" json:"vars,omitempty"`
-	Resources *Resources       `protobuf:"bytes,4,opt,name=resources,proto3" json:"resources,omitempty"`
+	Vars *structpb.Struct `protobuf:"bytes,3,opt,name=vars,proto3" json:"vars,omitempty"`
+	// Its size. A field left empty is tower's default as the machine is made,
+	// and the size it has after. Changed later, it resizes the machine: a
+	// running one restarts at the new size (its ready check runs again, its
+	// configure phase does not); a stopped one takes it and stays stopped. A
+	// disk only grows: a smaller one is refused, and the rest applied. A size
+	// the target has no room for is held, the machine keeping the size it has,
+	// and applied once there is room. Condition Resized says where it stands
+	// (docs/decisions/machine-resize.md).
+	Resources *Resources `protobuf:"bytes,4,opt,name=resources,proto3" json:"resources,omitempty"`
 	// The blueprint's required secrets, given in the configure phase only.
 	Secrets       []*SecretRef `protobuf:"bytes,5,rep,name=secrets,proto3" json:"secrets,omitempty"`
 	RunState      RunState     `protobuf:"varint,6,opt,name=run_state,json=runState,proto3,enum=tower.environments.v1alpha1.RunState" json:"run_state,omitempty"`
@@ -565,7 +574,17 @@ type MachineStatus struct {
 	Instance           string                 `protobuf:"bytes,6,opt,name=instance,proto3" json:"instance,omitempty"`
 	Alias              string                 `protobuf:"bytes,7,opt,name=alias,proto3" json:"alias,omitempty"`
 	// Its address on the workstream's network.
-	Address       string `protobuf:"bytes,8,opt,name=address,proto3" json:"address,omitempty"`
+	Address string `protobuf:"bytes,8,opt,name=address,proto3" json:"address,omitempty"`
+	// The size its instance has as its target last reported it
+	// (InstanceStatus.resources); empty until reported. While it differs from
+	// spec.resources, a resize is under way, or held for want of room or
+	// refused, as condition Resized says.
+	Resources *Resources `protobuf:"bytes,9,opt,name=resources,proto3" json:"resources,omitempty"`
+	// When its instance last started, as tower last read it from its target:
+	// empty while the instance is stopped, and kept as it was while tower does
+	// not read the instance (while it waits for its target or makes the
+	// instance again). A restart, for a new size or otherwise, changes it.
+	StartTime     *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -654,6 +673,20 @@ func (x *MachineStatus) GetAddress() string {
 		return x.Address
 	}
 	return ""
+}
+
+func (x *MachineStatus) GetResources() *Resources {
+	if x != nil {
+		return x.Resources
+	}
+	return nil
+}
+
+func (x *MachineStatus) GetStartTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartTime
+	}
+	return nil
 }
 
 type GetMachineRequest struct {
@@ -1335,7 +1368,7 @@ var File_tower_environments_v1alpha1_machine_proto protoreflect.FileDescriptor
 
 const file_tower_environments_v1alpha1_machine_proto_rawDesc = "" +
 	"\n" +
-	")tower/environments/v1alpha1/machine.proto\x12\x1btower.environments.v1alpha1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a(tower/environments/v1alpha1/common.proto\x1a\x18tower/meta/v1/meta.proto\x1a\x1btower/meta/v1/options.proto\"\x96\x02\n" +
+	")tower/environments/v1alpha1/machine.proto\x12\x1btower.environments.v1alpha1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a(tower/environments/v1alpha1/common.proto\x1a\x18tower/meta/v1/meta.proto\x1a\x1btower/meta/v1/options.proto\"\x96\x02\n" +
 	"\aMachine\x12\x1f\n" +
 	"\vapi_version\x18\x01 \x01(\tR\n" +
 	"apiVersion\x12\x12\n" +
@@ -1374,7 +1407,7 @@ const file_tower_environments_v1alpha1_machine_proto_rawDesc = "" +
 	"\tSecretRef\x12\x16\n" +
 	"\x06secret\x18\x01 \x01(\tR\x06secret\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x0e\n" +
-	"\x02as\x18\x03 \x01(\tR\x02as\"\xb7\x02\n" +
+	"\x02as\x18\x03 \x01(\tR\x02as\"\xb8\x03\n" +
 	"\rMachineStatus\x12/\n" +
 	"\x13observed_generation\x18\x01 \x01(\x03R\x12observedGeneration\x128\n" +
 	"\n" +
@@ -1385,7 +1418,11 @@ const file_tower_environments_v1alpha1_machine_proto_rawDesc = "" +
 	"\x06golden\x18\x05 \x01(\tR\x06golden\x12\x1a\n" +
 	"\binstance\x18\x06 \x01(\tR\binstance\x12\x14\n" +
 	"\x05alias\x18\a \x01(\tR\x05alias\x12\x18\n" +
-	"\aaddress\x18\b \x01(\tR\aaddress\"A\n" +
+	"\aaddress\x18\b \x01(\tR\aaddress\x12D\n" +
+	"\tresources\x18\t \x01(\v2&.tower.environments.v1alpha1.ResourcesR\tresources\x129\n" +
+	"\n" +
+	"start_time\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\"A\n" +
 	"\x11GetMachineRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"T\n" +
@@ -1492,7 +1529,8 @@ var file_tower_environments_v1alpha1_machine_proto_goTypes = []any{
 	(RunState)(0),                       // 23: tower.environments.v1alpha1.RunState
 	(*durationpb.Duration)(nil),         // 24: google.protobuf.Duration
 	(*v1.Condition)(nil),                // 25: tower.meta.v1.Condition
-	(v1.EventType)(0),                   // 26: tower.meta.v1.EventType
+	(*timestamppb.Timestamp)(nil),       // 26: google.protobuf.Timestamp
+	(v1.EventType)(0),                   // 27: tower.meta.v1.EventType
 }
 var file_tower_environments_v1alpha1_machine_proto_depIdxs = []int32{
 	20, // 0: tower.environments.v1alpha1.Machine.metadata:type_name -> tower.meta.v1.ObjectMeta
@@ -1509,32 +1547,34 @@ var file_tower_environments_v1alpha1_machine_proto_depIdxs = []int32{
 	24, // 11: tower.environments.v1alpha1.ReadyCheck.timeout:type_name -> google.protobuf.Duration
 	25, // 12: tower.environments.v1alpha1.MachineStatus.conditions:type_name -> tower.meta.v1.Condition
 	0,  // 13: tower.environments.v1alpha1.MachineStatus.phase:type_name -> tower.environments.v1alpha1.MachinePhase
-	1,  // 14: tower.environments.v1alpha1.GetMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
-	1,  // 15: tower.environments.v1alpha1.ListMachinesResponse.items:type_name -> tower.environments.v1alpha1.Machine
-	26, // 16: tower.environments.v1alpha1.WatchMachinesResponse.type:type_name -> tower.meta.v1.EventType
-	1,  // 17: tower.environments.v1alpha1.WatchMachinesResponse.machine:type_name -> tower.environments.v1alpha1.Machine
-	1,  // 18: tower.environments.v1alpha1.ApplyMachineRequest.machine:type_name -> tower.environments.v1alpha1.Machine
-	1,  // 19: tower.environments.v1alpha1.ApplyMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
-	1,  // 20: tower.environments.v1alpha1.DeleteMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
-	7,  // 21: tower.environments.v1alpha1.UpdateMachineStatusRequest.status:type_name -> tower.environments.v1alpha1.MachineStatus
-	1,  // 22: tower.environments.v1alpha1.UpdateMachineStatusResponse.machine:type_name -> tower.environments.v1alpha1.Machine
-	8,  // 23: tower.environments.v1alpha1.MachineService.GetMachine:input_type -> tower.environments.v1alpha1.GetMachineRequest
-	10, // 24: tower.environments.v1alpha1.MachineService.ListMachines:input_type -> tower.environments.v1alpha1.ListMachinesRequest
-	12, // 25: tower.environments.v1alpha1.MachineService.WatchMachines:input_type -> tower.environments.v1alpha1.WatchMachinesRequest
-	14, // 26: tower.environments.v1alpha1.MachineService.ApplyMachine:input_type -> tower.environments.v1alpha1.ApplyMachineRequest
-	16, // 27: tower.environments.v1alpha1.MachineService.DeleteMachine:input_type -> tower.environments.v1alpha1.DeleteMachineRequest
-	18, // 28: tower.environments.v1alpha1.MachineService.UpdateMachineStatus:input_type -> tower.environments.v1alpha1.UpdateMachineStatusRequest
-	9,  // 29: tower.environments.v1alpha1.MachineService.GetMachine:output_type -> tower.environments.v1alpha1.GetMachineResponse
-	11, // 30: tower.environments.v1alpha1.MachineService.ListMachines:output_type -> tower.environments.v1alpha1.ListMachinesResponse
-	13, // 31: tower.environments.v1alpha1.MachineService.WatchMachines:output_type -> tower.environments.v1alpha1.WatchMachinesResponse
-	15, // 32: tower.environments.v1alpha1.MachineService.ApplyMachine:output_type -> tower.environments.v1alpha1.ApplyMachineResponse
-	17, // 33: tower.environments.v1alpha1.MachineService.DeleteMachine:output_type -> tower.environments.v1alpha1.DeleteMachineResponse
-	19, // 34: tower.environments.v1alpha1.MachineService.UpdateMachineStatus:output_type -> tower.environments.v1alpha1.UpdateMachineStatusResponse
-	29, // [29:35] is the sub-list for method output_type
-	23, // [23:29] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	22, // 14: tower.environments.v1alpha1.MachineStatus.resources:type_name -> tower.environments.v1alpha1.Resources
+	26, // 15: tower.environments.v1alpha1.MachineStatus.start_time:type_name -> google.protobuf.Timestamp
+	1,  // 16: tower.environments.v1alpha1.GetMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
+	1,  // 17: tower.environments.v1alpha1.ListMachinesResponse.items:type_name -> tower.environments.v1alpha1.Machine
+	27, // 18: tower.environments.v1alpha1.WatchMachinesResponse.type:type_name -> tower.meta.v1.EventType
+	1,  // 19: tower.environments.v1alpha1.WatchMachinesResponse.machine:type_name -> tower.environments.v1alpha1.Machine
+	1,  // 20: tower.environments.v1alpha1.ApplyMachineRequest.machine:type_name -> tower.environments.v1alpha1.Machine
+	1,  // 21: tower.environments.v1alpha1.ApplyMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
+	1,  // 22: tower.environments.v1alpha1.DeleteMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
+	7,  // 23: tower.environments.v1alpha1.UpdateMachineStatusRequest.status:type_name -> tower.environments.v1alpha1.MachineStatus
+	1,  // 24: tower.environments.v1alpha1.UpdateMachineStatusResponse.machine:type_name -> tower.environments.v1alpha1.Machine
+	8,  // 25: tower.environments.v1alpha1.MachineService.GetMachine:input_type -> tower.environments.v1alpha1.GetMachineRequest
+	10, // 26: tower.environments.v1alpha1.MachineService.ListMachines:input_type -> tower.environments.v1alpha1.ListMachinesRequest
+	12, // 27: tower.environments.v1alpha1.MachineService.WatchMachines:input_type -> tower.environments.v1alpha1.WatchMachinesRequest
+	14, // 28: tower.environments.v1alpha1.MachineService.ApplyMachine:input_type -> tower.environments.v1alpha1.ApplyMachineRequest
+	16, // 29: tower.environments.v1alpha1.MachineService.DeleteMachine:input_type -> tower.environments.v1alpha1.DeleteMachineRequest
+	18, // 30: tower.environments.v1alpha1.MachineService.UpdateMachineStatus:input_type -> tower.environments.v1alpha1.UpdateMachineStatusRequest
+	9,  // 31: tower.environments.v1alpha1.MachineService.GetMachine:output_type -> tower.environments.v1alpha1.GetMachineResponse
+	11, // 32: tower.environments.v1alpha1.MachineService.ListMachines:output_type -> tower.environments.v1alpha1.ListMachinesResponse
+	13, // 33: tower.environments.v1alpha1.MachineService.WatchMachines:output_type -> tower.environments.v1alpha1.WatchMachinesResponse
+	15, // 34: tower.environments.v1alpha1.MachineService.ApplyMachine:output_type -> tower.environments.v1alpha1.ApplyMachineResponse
+	17, // 35: tower.environments.v1alpha1.MachineService.DeleteMachine:output_type -> tower.environments.v1alpha1.DeleteMachineResponse
+	19, // 36: tower.environments.v1alpha1.MachineService.UpdateMachineStatus:output_type -> tower.environments.v1alpha1.UpdateMachineStatusResponse
+	31, // [31:37] is the sub-list for method output_type
+	25, // [25:31] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_tower_environments_v1alpha1_machine_proto_init() }

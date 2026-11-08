@@ -51,6 +51,7 @@ import (
 	hangarstorage "github.com/YukinaMochizuki/hangar/gen/go/hangar/storage/v1alpha1"
 	hangartenancy "github.com/YukinaMochizuki/hangar/gen/go/hangar/tenancy/v1alpha1"
 
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
 	"github.com/YukinaMochizuki/tower/internal/guest"
 	"github.com/YukinaMochizuki/tower/internal/guest/guestbin"
 	"github.com/YukinaMochizuki/tower/internal/guest/proclog"
@@ -105,6 +106,16 @@ type Fake struct {
 	// nodeFree, while set, is the memory free on the fake's one node, too
 	// little for any container to start (FillNode).
 	nodeFree string
+	// diskFree, while set, is the disk free on that node, too little for a
+	// disk growth past it (FillNodeDisk).
+	diskFree string
+	// holdGrowth, while set, leaves a disk growth asked not yet granted, its
+	// Disk at its size with no condition, as before hangar's disk controller
+	// runs (HoldDiskGrowth); heldDisks are those held so.
+	holdGrowth bool
+	heldDisks  map[string]bool
+	// restarts counts each VM's restarts for a new size or a grown disk.
+	restarts map[string]int
 	// installs counts tower-guest written in, in every container.
 	installs int
 	// execsAs are the operations tower-guest shim ran, with the user each
@@ -144,7 +155,7 @@ var _ hangar.API = (*Fake)(nil)
 // New returns an empty project whose containers run guest, tower-guest,
 // each in a directory under dir.
 func New(guest, dir string, clock clockwork.Clock) *Fake {
-	f := &Fake{clock: clock, guest: guest, dir: dir, machines: map[string]*hangarcompute.Machine{}, installed: map[string]string{}, vmStates: map[string]*vmState{}}
+	f := &Fake{clock: clock, guest: guest, dir: dir, machines: map[string]*hangarcompute.Machine{}, installed: map[string]string{}, vmStates: map[string]*vmState{}, restarts: map[string]int{}, heldDisks: map[string]bool{}}
 	f.networks = &kind[*hangarnetwork.Network]{f: f, what: "network", objs: map[string]*hangarnetwork.Network{}, keepStatus: true}
 	f.networks.applied = f.networkApplied
 	f.epsvcs = &kind[*hangarnetwork.EndpointService]{f: f, what: "endpoint service", objs: map[string]*hangarnetwork.EndpointService{}, gated: true}
@@ -165,6 +176,7 @@ func New(guest, dir string, clock clockwork.Clock) *Fake {
 	f.images.applied = f.imageApplied
 	f.images.deleting = f.imageDeleting
 	f.disks.deleting = f.diskDeleting
+	f.disks.applied = f.diskApplied
 	f.networks.deleting = f.networkDeleting
 	f.containers.applied = f.containerApplied
 	f.containers.deleting = f.containerDeleting
@@ -329,6 +341,32 @@ func (f *Fake) FreeRoom() {
 		}
 		ct.Status = nil
 		m.Status.Phase, m.Status.BootTime = hangarcompute.MachinePhase_MACHINE_PHASE_RUNNING, timestamppb.New(f.clock.Now())
+	}
+	f.diskFree, f.holdGrowth = "", false
+	for name := range f.heldDisks {
+		if d, ok := f.disks.objs[name]; ok {
+			now, _ := quantity.Bytes(d.GetSpec().GetSize())
+			f.growLocked(d, now)
+		}
+		delete(f.heldDisks, name)
+	}
+	// A disk growth held for room is granted.
+	for _, d := range f.disks.objs {
+		if r := d.GetStatus().GetConditions(); len(r) > 0 && r[0].GetReason() == "ResizeDoesNotFit" {
+			now, _ := quantity.Bytes(d.GetSpec().GetSize())
+			f.growLocked(d, now)
+		}
+	}
+	// A VM held at its size takes the one it asks.
+	for _, vm := range f.vms.objs {
+		m := f.machines["vm-"+vm.GetMetadata().GetName()]
+		if r := vm.GetStatus().GetConditions(); m == nil || len(r) == 0 || r[0].GetReason() != "ResizeDoesNotFit" {
+			continue
+		}
+		if size, err := vmSizeOf(vm.GetSpec().GetResources()); err == nil && f.resizeLocked(vm, m, size) == nil {
+			vm.Status.Conditions = []*hangarmeta.Condition{{Type: "Ready", Status: hangarmeta.ConditionStatus_CONDITION_STATUS_TRUE, Reason: "Running",
+				ObservedGeneration: vm.GetMetadata().GetGeneration()}}
+		}
 	}
 }
 

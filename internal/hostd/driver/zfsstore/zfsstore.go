@@ -451,6 +451,42 @@ func (s *Store) EnsureDisk(ctx context.Context, spec driver.DiskSpec) (driver.Di
 	return d, err
 }
 
+func (s *Store) GrowDisk(ctx context.Context, name string, size uint64) (driver.Disk, error) {
+	ds, err := s.diskName(name)
+	if err != nil {
+		return driver.Disk{}, err
+	}
+	unlock := s.locks.Lock("disk/" + name)
+	defer unlock()
+	d, ok, err := s.disk(ctx, name)
+	if err != nil {
+		return driver.Disk{}, err
+	}
+	if !ok {
+		return driver.Disk{}, fmt.Errorf("disk %s: %w", name, driver.ErrNotFound)
+	}
+	// A dataset without a quota holds what the pool does.
+	if d.Size >= size || (d.Kind == driver.Dataset && d.Size == 0) {
+		return d, nil
+	}
+	// A volume's size is its own, a whole number of its blocks, which a
+	// whole MiB is; a dataset's is its quota.
+	prop := "volsize"
+	if d.Kind == driver.Dataset {
+		prop = "quota"
+	} else {
+		size = (size + 1<<20 - 1) &^ (1<<20 - 1)
+	}
+	if _, err := zfs(ctx, "set", prop+"="+strconv.FormatUint(size, 10), ds); err != nil {
+		return driver.Disk{}, err
+	}
+	d, ok, err = s.disk(ctx, name)
+	if err == nil && !ok {
+		err = fmt.Errorf("disk %s was grown and is not there", name)
+	}
+	return d, err
+}
+
 func (s *Store) DestroyDisk(ctx context.Context, name string) error {
 	ds, err := s.diskName(name)
 	if err != nil {

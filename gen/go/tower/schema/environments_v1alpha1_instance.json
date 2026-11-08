@@ -132,6 +132,10 @@
           "format": "int32",
           "type": "integer"
         },
+        "resources": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.Resources",
+          "description": "A VM's size as its provider last applied it: the vCPUs and memory it runs with (or, stopped, starts with next) and its disk's size. Empty until reported, and for a container. A disk only grows. While it differs from spec.resources the provider is resizing it, or holds it at this size for want of room or because the target refused the new one; condition Resized, False, then says why (docs/decisions/machine-resize.md)."
+        },
         "rootDisk": {
           "type": "string"
         },

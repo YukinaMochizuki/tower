@@ -145,6 +145,10 @@ type Storage interface {
 	// the name made otherwise (another kind or golden) is ErrConflict; a
 	// golden that is not there, or deferred, ErrNotFound.
 	EnsureDisk(ctx context.Context, spec DiskSpec) (Disk, error)
+	// GrowDisk grows a disk to size, in bytes, never shrinking one, and
+	// returns it; a volume's guest sees it from its next boot. One not there
+	// is ErrNotFound; a pool without room for it, ErrNoSpace.
+	GrowDisk(ctx context.Context, name string, size uint64) (Disk, error)
 	Disks(ctx context.Context) ([]Disk, error)
 	// DestroyDisk destroys a disk; one a guest is made on is ErrBusy.
 	DestroyDisk(ctx context.Context, name string) error
@@ -319,6 +323,9 @@ type VMs interface {
 	// Create makes a VM, stopped, once: one of the name made otherwise is
 	// ErrConflict.
 	Create(ctx context.Context, spec VMSpec) error
+	// Resize gives a stopped VM the vCPUs and memory it starts with from
+	// then on, keeping its disk and all else; a running one is ErrBusy.
+	Resize(ctx context.Context, name string, cpus int, memory uint64) error
 }
 
 // Images pulls from tower's registry and builds into it. An image built on

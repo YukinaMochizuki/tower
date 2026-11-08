@@ -119,6 +119,7 @@ func RunGuests(t *testing.T, h Harness, k GuestKind) {
 		fn   func(*testing.T, Harness, GuestKind)
 	}{
 		{"Lifecycle", testLifecycle},
+		{"VMResize", testVMResize},
 		{"Networks", testNetworks},
 		{"Exec", testGuestExec},
 		{"EnvironmentIsPerCommand", testGuestEnv},
@@ -183,6 +184,35 @@ func testLifecycle(t *testing.T, h Harness, k GuestKind) {
 	if _, ok := listed(t, h, d.Name); !ok {
 		t.Error("removing a guest took its disk")
 	}
+}
+
+// testVMResize: a stopped VM takes new vCPUs and memory, and starts with
+// them on the disk it had, its files there; a running one is busy.
+func testVMResize(t *testing.T, h Harness, k GuestKind) {
+	if k.DiskKind != driver.Volume {
+		t.Skip("a container is not resized")
+	}
+	v, ctx := h.Drivers.VMs, t.Context()
+	n := k.guestWithDisk(t, h, "resize")
+	before, err := v.Inspect(ctx, n)
+	mustNot(t, "inspecting", err)
+	file := k.Workspace + "/kept"
+	mustNot(t, "writing a file", v.WriteFile(ctx, n, file, 0o644, 0, strings.NewReader("kept")))
+	is(t, "resizing a running VM", v.Resize(ctx, n, 2, 2<<30), driver.ErrBusy)
+
+	mustNot(t, "stopping", v.Stop(ctx, n))
+	mustNot(t, "resizing", v.Resize(ctx, n, 2, 2<<30))
+	mustNot(t, "resizing again to the same", v.Resize(ctx, n, 2, 2<<30))
+	got, err := v.Inspect(ctx, n)
+	mustNot(t, "inspecting", err)
+	if got.CPUs != 2 || got.Memory != 2<<30 || got.Running || got.Disk != before.Disk || !maps.Equal(got.Labels, before.Labels) {
+		t.Errorf("a VM resized: %+v; was %+v", got.GuestSpec, before.GuestSpec)
+	}
+	mustNot(t, "starting", v.Start(ctx, n))
+	if got := readFile(t, v, n, file); got != "kept" {
+		t.Errorf("a VM resized reads %q of what it wrote before", got)
+	}
+	is(t, "resizing a VM that is not there", v.Resize(ctx, name(t, "never-made"), 1, 1<<30), driver.ErrNotFound)
 }
 
 func testNetworks(t *testing.T, h Harness, k GuestKind) {
