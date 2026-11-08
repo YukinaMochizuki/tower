@@ -4,6 +4,7 @@ package tower.environments.v1alpha1;
 
 import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 import "tower/environments/v1alpha1/common.proto";
 import "tower/meta/v1/meta.proto";
 import "tower/meta/v1/options.proto";
@@ -34,6 +35,14 @@ message MachineSpec {
   // This machine's own variables, given in its configure phase only; they
   // never enter its golden.
   google.protobuf.Struct vars = 3 [(tower.meta.v1.field).immutable = true];
+  // Its size. A field left empty is tower's default as the machine is made,
+  // and the size it has after. Changed later, it resizes the machine: a
+  // running one restarts at the new size (its ready check runs again, its
+  // configure phase does not); a stopped one takes it and stays stopped. A
+  // disk only grows: a smaller one is refused, and the rest applied. A size
+  // the target has no room for is held, the machine keeping the size it has,
+  // and applied once there is room. Condition Resized says where it stands
+  // (docs/decisions/machine-resize.md).
   Resources resources = 4;
   // The blueprint's required secrets, given in the configure phase only.
   repeated SecretRef secrets = 5 [(tower.meta.v1.field).immutable = true];
@@ -129,6 +138,16 @@ message MachineStatus {
   string alias = 7;
   // Its address on the workstream's network.
   string address = 8;
+  // The size its instance has as its target last reported it
+  // (InstanceStatus.resources); empty until reported. While it differs from
+  // spec.resources, a resize is under way, or held for want of room or
+  // refused, as condition Resized says.
+  Resources resources = 9;
+  // When its instance last started, as tower last read it from its target:
+  // empty while the instance is stopped, and kept as it was while tower does
+  // not read the instance (while it waits for its target or makes the
+  // instance again). A restart, for a new size or otherwise, changes it.
+  google.protobuf.Timestamp start_time = 10;
 }
 
 // MachineService manages machines.

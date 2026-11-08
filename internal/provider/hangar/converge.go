@@ -141,6 +141,10 @@ type observed struct {
 	// The sizes hangar reports of a container's /workspace Disk and root
 	// disk, "" where it reports none.
 	workspaceDisk, rootDisk string
+	// A VM's size as hangar applied it, and its Resized condition; nil
+	// leaves what was reported.
+	resources *envv1alpha1.Resources
+	resized   *metav1.Condition
 }
 
 func failed(reason string, err error) observed {
@@ -520,6 +524,13 @@ func (t *Target) report(ctx context.Context, in *envv1alpha1.Instance, o observe
 	if m := o.rootStart; m != nil {
 		m.ObservedGeneration = st.ObservedGeneration
 		st.Conditions = conditions.Set(st.Conditions, m, t.clock.Now())
+	}
+	if o.resources != nil {
+		st.Resources = o.resources
+	}
+	if r := o.resized; r != nil {
+		r.ObservedGeneration = st.ObservedGeneration
+		st.Conditions = conditions.Set(st.Conditions, r, t.clock.Now())
 	}
 	if proto.Equal(st, in.GetStatus()) {
 		return nil

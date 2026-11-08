@@ -62,6 +62,30 @@ func (v vms) Create(_ context.Context, spec driver.VMSpec) error {
 	return v.create("vms.Create", spec.GuestSpec, spec.BaseImage, nil)
 }
 
+func (v vms) Resize(_ context.Context, name string, cpus int, memory uint64) error {
+	cut := false
+	err := v.h.change("vms.Resize", func() error {
+		gu, err := v.get(name)
+		if err != nil {
+			return err
+		}
+		if gu.Running {
+			return fmt.Errorf("vm %s runs: %w", name, driver.ErrBusy)
+		}
+		if cut = v.h.cutResizes[name]; cut {
+			delete(v.h.cutResizes, name)
+			delete(v.h.st.Guests, v.key(name))
+			return nil
+		}
+		gu.Spec.CPUs, gu.Spec.Memory = cpus, memory
+		return nil
+	})
+	if err == nil && cut {
+		err = fmt.Errorf("vm %s: its resize was cut short once its guest was removed", name)
+	}
+	return err
+}
+
 func (g guests) op(name string) string {
 	if g.kind == "vm" {
 		return "vms." + name

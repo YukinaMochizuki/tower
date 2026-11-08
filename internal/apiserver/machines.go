@@ -15,7 +15,9 @@ import (
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
 	"github.com/YukinaMochizuki/tower/gen/go/tower/registry"
+	targetsv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/targets/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/conditions"
+	"github.com/YukinaMochizuki/tower/internal/apimachinery/quantity"
 	"github.com/YukinaMochizuki/tower/internal/apimachinery/resource"
 	"github.com/YukinaMochizuki/tower/internal/controller"
 	"github.com/YukinaMochizuki/tower/internal/provider"
@@ -26,6 +28,13 @@ const (
 	MachineGoldenBuilt = "GoldenBuilt"
 	MachineConfigured  = "Configured"
 	MachineReady       = "Ready"
+	// MachineResized says whether the machine has the size its spec asks:
+	// False while it restarts at it (MachineResizing), while the target
+	// has no room for it or refuses it, or for a disk asked to shrink.
+	MachineResized = "Resized"
+	// MachineResizing is the reason of a machine's Ready and Resized while
+	// it restarts at a new size.
+	MachineResizing = "Resizing"
 	// configuredAnnotation marks an instance whose configure phase has run.
 	configuredAnnotation = registry.Domain + "/configured"
 	// readyAnnotation is the run of an instance (runOf) its blueprint's
@@ -96,6 +105,9 @@ func (s *Server) machineSteps(ctx context.Context, key controller.Key, m *envv1a
 	if st.Phase == envv1alpha1.MachinePhase_MACHINE_PHASE_UNSPECIFIED {
 		st.Phase = envv1alpha1.MachinePhase_MACHINE_PHASE_PENDING
 	}
+	// The target as read, nil for one placed in this reconcile, which has no
+	// instance to resize yet.
+	var target *targetsv1alpha1.Target
 	if st.Target == "" {
 		t, reason, err := s.placedTarget(ctx, key.Project)
 		if err != nil {
@@ -106,11 +118,13 @@ func (s *Server) machineSteps(ctx context.Context, key controller.Key, m *envv1a
 			return nil
 		}
 		st.Target = t.GetMetadata().GetName()
-	} else if _, live, err := s.liveTarget(ctx, st.Target); err != nil {
+	} else if t, live, err := s.liveTarget(ctx, st.Target); err != nil {
 		return err
 	} else if !live {
 		not(envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED, "TargetGone", fmt.Sprintf("its target %q is gone", st.Target))
 		return nil
+	} else {
+		target = t
 	}
 	p, err := s.providerFor(st.Target)
 	if err != nil {
@@ -195,12 +209,34 @@ func (s *Server) machineSteps(ctx context.Context, key controller.Key, m *envv1a
 	// The alias the instance has: one made before machines were named by
 	// their own names keeps its blueprint's until it is made again.
 	st.Instance, st.Alias, st.Address = name, in.GetSpec().GetAlias(), in.GetStatus().GetAddress()
-	if in.GetSpec().GetRunState() != desired {
-		if err := s.setRunState(ctx, in, desired); err != nil {
-			return err
+	phase := in.GetStatus().GetPhase()
+
+	// Its size: what the spec asks now goes to the instance, unless the
+	// target has no room for it (docs/decisions/machine-resize.md).
+	want, shrink := resizeOf(in.GetSpec().GetResources(), spec.GetResources())
+	resize := !provider.SameResources(want, in.GetSpec().GetResources())
+	noRoom := ""
+	if resize {
+		running := desired == envv1alpha1.RunState_RUN_STATE_RUNNING && phase == envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING
+		if noRoom = hostdRoomFor(target, in.GetSpec().GetResources(), want, running); noRoom != "" {
+			resize = false
 		}
 	}
-	phase := in.GetStatus().GetPhase()
+	if resize || in.GetSpec().GetRunState() != desired {
+		updated := proto.Clone(in).(*envv1alpha1.Instance)
+		updated.Spec.RunState = desired
+		if resize {
+			updated.Spec.Resources = want
+		}
+		res, err := s.backend(registry.Instance).Apply(s.system(ctx), updated)
+		if err != nil {
+			return err
+		}
+		in = res.Object.(*envv1alpha1.Instance)
+	}
+	st.Resources, st.StartTime = in.GetStatus().GetResources(), in.GetStatus().GetStartTime()
+	resizing := s.resizedCond(st, in, noRoom, shrink)
+
 	if desired == envv1alpha1.RunState_RUN_STATE_STOPPED {
 		if phase == envv1alpha1.InstancePhase_INSTANCE_PHASE_STOPPED {
 			st.Phase = envv1alpha1.MachinePhase_MACHINE_PHASE_STOPPED
@@ -208,12 +244,16 @@ func (s *Server) machineSteps(ctx context.Context, key controller.Key, m *envv1a
 		s.machineCond(st, MachineReady, false, "Stopped", "stopped: "+stoppedRequested)
 		return nil
 	}
-	switch phase {
-	case envv1alpha1.InstancePhase_INSTANCE_PHASE_FAILED:
+	switch {
+	case phase == envv1alpha1.InstancePhase_INSTANCE_PHASE_FAILED:
 		not(envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED, "InstanceFailed", conditions.Find(in.GetStatus().GetConditions(), "Ready").GetMessage())
 		return nil
-	case envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING:
-	default:
+	case resizing != "":
+		// Restarting at its new size, or about to: what it ran before the
+		// restart is not what it is ready as.
+		not(envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING, MachineResizing, resizing)
+		return nil
+	case phase != envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING:
 		not(envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING, "Starting", "its instance is starting")
 		return nil
 	}
@@ -373,4 +413,91 @@ func (s *Server) configureMachine(ctx context.Context, key controller.Key, m *en
 		return s.stepPassed(ctx, step)
 	})
 	return nil
+}
+
+// resizeOf is the size a machine's instance is to have, from the one it has
+// and the one its spec asks; shrink says why a smaller disk asked is not
+// (docs/decisions/machine-resize.md).
+func resizeOf(have, asked *envv1alpha1.Resources) (want *envv1alpha1.Resources, shrink string) {
+	want = &envv1alpha1.Resources{Cpu: have.GetCpu(), Memory: have.GetMemory(), Disk: have.GetDisk()}
+	if c := asked.GetCpu(); c != "" && !provider.SameResources(&envv1alpha1.Resources{Cpu: c}, &envv1alpha1.Resources{Cpu: want.GetCpu()}) {
+		want.Cpu = c
+	}
+	if m := asked.GetMemory(); m != "" && !provider.SameResources(&envv1alpha1.Resources{Memory: m}, &envv1alpha1.Resources{Memory: want.GetMemory()}) {
+		want.Memory = m
+	}
+	if d := asked.GetDisk(); d != "" {
+		a, aerr := quantity.Bytes(d)
+		h, herr := quantity.Bytes(have.GetDisk())
+		switch {
+		case aerr != nil || herr != nil:
+			if d != have.GetDisk() {
+				want.Disk = d
+			}
+		case a < h:
+			shrink = fmt.Sprintf("spec.resources.disk %s is below the %s its disk has; a disk only grows, so it keeps %s", d, have.GetDisk(), have.GetDisk())
+		case a > h:
+			want.Disk = d
+		}
+	}
+	return want, shrink
+}
+
+// hostdRoomFor says why a hostd host has no room to resize an instance from
+// have to want, "" when it has or the target is not a hostd one; what it
+// checks is in docs/decisions/machine-resize.md.
+func hostdRoomFor(t *targetsv1alpha1.Target, have, want *envv1alpha1.Resources, running bool) string {
+	if t.GetSpec().GetHostd() == nil {
+		return ""
+	}
+	c := t.GetStatus().GetCapacity()
+	if n := c.GetCpus(); n > 0 {
+		if cpus, err := quantity.CPU(want.GetCpu()); err == nil && cpus > n {
+			return fmt.Sprintf("it asks for %d vCPUs; the host has %d", cpus, n)
+		}
+	}
+	if !running || c.GetMemoryFree() == "" {
+		return ""
+	}
+	free, ferr := quantity.Bytes(c.GetMemoryFree())
+	h, herr := quantity.Bytes(have.GetMemory())
+	w, werr := quantity.Bytes(want.GetMemory())
+	if ferr != nil || herr != nil || werr != nil || w <= h || w-h <= free {
+		return ""
+	}
+	return fmt.Sprintf("it asks for %s more memory; the host has %s free", quantity.FormatMemory(w-h), quantity.FormatMemory(free))
+}
+
+// resizedCond sets the machine's Resized condition, and returns what the
+// instance is being resized to while nothing holds it back, "" otherwise. An
+// instance's Resized speaks only for the generation it observed.
+func (s *Server) resizedCond(st *envv1alpha1.MachineStatus, in *envv1alpha1.Instance, noRoom, shrink string) string {
+	asked, have := in.GetSpec().GetResources(), in.GetStatus().GetResources()
+	refused := conditions.Find(in.GetStatus().GetConditions(), provider.InstanceResized)
+	if refused.GetStatus() != metav1.ConditionStatus_CONDITION_STATUS_FALSE || refused.GetObservedGeneration() != in.GetMetadata().GetGeneration() {
+		refused = nil
+	}
+	switch {
+	case noRoom != "":
+		s.machineCond(st, MachineResized, false, "ResizeDoesNotFit", noRoom+"; it keeps the size it has until the target has room")
+	case refused != nil:
+		s.machineCond(st, MachineResized, false, refused.GetReason(), refused.GetMessage()+"; it keeps the size it has")
+	case have == nil:
+		s.machineCond(st, MachineResized, false, "NotReported", "its target has not reported the size it applied")
+	case !provider.SizeApplied(asked, have):
+		msg := "being resized to " + sizeWords(asked)
+		s.machineCond(st, MachineResized, false, MachineResizing, msg)
+		return msg
+	case shrink != "":
+		s.machineCond(st, MachineResized, false, "DiskCannotShrink", shrink)
+	default:
+		s.machineCond(st, MachineResized, true, "Resized", "")
+	}
+	return ""
+}
+
+// sizeWords is a size as a person reads it: "2 vCPUs, 4Gi memory, 20Gi
+// disk".
+func sizeWords(r *envv1alpha1.Resources) string {
+	return fmt.Sprintf("%s vCPUs, %s memory, %s disk", r.GetCpu(), r.GetMemory(), r.GetDisk())
 }

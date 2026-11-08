@@ -62,6 +62,8 @@ type Host struct {
 	// The faults, never kept in the state file.
 	failures   map[string]error
 	startFails map[string]string
+	// cutResizes are the VMs whose next Resize is cut short (CutResize).
+	cutResizes map[string]bool
 	free       *uint64
 	health     string
 	onExec     func(guest string, spec driver.ExecSpec) (int, bool)
@@ -163,7 +165,7 @@ type Exec struct {
 func New(opts Options) (*Host, error) {
 	h := &Host{
 		clock: cmp.Or[clockwork.Clock](opts.Clock, clockwork.NewRealClock()), path: opts.Path,
-		failures: map[string]error{}, startFails: map[string]string{}, health: "ONLINE",
+		failures: map[string]error{}, startFails: map[string]string{}, cutResizes: map[string]bool{}, health: "ONLINE",
 		st: state{
 			PoolSize: cmp.Or(opts.PoolSize, DefaultPoolSize), Disks: map[string]*disk{}, Goldens: map[string]*golden{},
 			Networks: map[string]*network{}, Guests: map[string]*guest{}, Registry: map[string]bool{}, Pulled: map[string]bool{},
@@ -261,6 +263,16 @@ func (h *Host) FailStart(name, why string) {
 	} else {
 		h.startFails[name] = why
 	}
+}
+
+// CutResize cuts the next Resize of the VM of the name short once its
+// guest is removed and before it is made again, as chvm's Resize does when
+// it fails between the two or hostd stops there: the guest is gone, its disk
+// and state stay, and Resize fails.
+func (h *Host) CutResize(name string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cutResizes[name] = true
 }
 
 // SetFree fixes what the pool has free, as a full pool does; nil counts it

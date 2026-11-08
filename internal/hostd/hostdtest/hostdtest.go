@@ -300,9 +300,12 @@ func (w *World) Harness(p provider.Provider) providertest.Harness {
 			}
 			return key.Name
 		},
+		Resize: providertest.ResizeThrough(w.Env.AsSystem(), apiservertest.Project, testutil.Wait),
 		Remote: Remote, Branch: "main", RemoteHead: "c3", RemoteDockerfile: "docker/Dockerfile",
 	}
 	if r := w.real; r != nil {
+		// A real VM restarts at its new size in about a minute.
+		h.Resize = providertest.ResizeThrough(w.Env.AsSystem(), apiservertest.Project, 5*time.Minute)
 		h.Image, h.BaseImage = r.Image, r.BaseImage
 		h.Remote, h.Branch, h.RemoteHead, h.RemoteDockerfile = r.Remote, r.Branch, r.RemoteHead, r.RemoteDockerfile
 	}

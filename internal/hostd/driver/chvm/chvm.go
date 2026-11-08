@@ -549,6 +549,29 @@ func (d *Driver) Stop(ctx context.Context, name string) error {
 	return err
 }
 
+// Resize makes a stopped VM's container again with the vCPUs and memory in
+// its spec label and its memory limit, as prepareBoot makes one again for
+// a new disk device; its state directory (host key, user, logs) stays.
+func (d *Driver) Resize(ctx context.Context, name string, cpus int, memory uint64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	c, s, err := d.inspect(ctx, name)
+	if err != nil {
+		return err
+	}
+	if c.State != nil && c.State.Running {
+		return fmt.Errorf("VM %s runs: %w", name, driver.ErrBusy)
+	}
+	if s.CPUs == cpus && s.Memory == memory {
+		return nil
+	}
+	s.CPUs, s.Memory = cpus, memory
+	if _, err := d.cli.ContainerRemove(ctx, name, client.ContainerRemoveOptions{}); err != nil && !cerrdefs.IsNotFound(err) {
+		return err
+	}
+	return d.createContainer(ctx, name, s, hostdLabels(c.Config.Labels))
+}
+
 func (d *Driver) Remove(ctx context.Context, name string) error {
 	if _, _, err := d.inspect(ctx, name); errors.Is(err, driver.ErrNotFound) {
 		return nil

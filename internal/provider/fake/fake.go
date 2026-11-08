@@ -99,6 +99,9 @@ type Fake struct {
 	artifactN int
 	// The faults.
 	bootFailures map[string]string
+	// resizeRefusals are the instances, by name, whose resize the target
+	// refuses, with its reason and words (RefuseResize).
+	resizeRefusals map[string][2]string
 	// noRoom, while set, is what the target says of an instance asked to
 	// run that does not run yet: it waits for room (FillTarget).
 	noRoom      string
@@ -127,8 +130,10 @@ type Fake struct {
 	writeHold    *writeHold
 	diskTotal    uint64
 	diskFree     *uint64
-	captureSize  func(provider.Instance) uint64
-	onExec       func(provider.ExecRequest) (code int, handled bool)
+	// memoryFree is the memory Report says the host has free (SetMemoryFree).
+	memoryFree  string
+	captureSize func(provider.Instance) uint64
+	onExec      func(provider.ExecRequest) (code int, handled bool)
 	// guestInBackground: GuestProcessesInBackground.
 	guestInBackground bool
 	// The process limits: a log's cap and the finished processes kept.
@@ -162,6 +167,12 @@ type instance struct {
 	// The sizes its /workspace and root disks have grown to (GrowDisks),
 	// "" until they grew.
 	workspaceDisk, rootDisk string
+	// A VM's size as applied, and, while its resize is refused, the
+	// target's reason and words.
+	resources                       *envv1alpha1.Resources
+	resizeRefused, resizeRefusedMsg string
+	// restarts counts its restarts for a resize.
+	restarts int
 }
 
 // resolve is the file a path of the instance names: what a link there
@@ -373,7 +384,7 @@ func New(target string, clock clockwork.Clock) *Fake {
 		instances: map[provider.Instance]*instance{}, artifacts: map[string]*artifact{}, images: map[string]bool{}, contexts: map[string][]byte{},
 		users: map[string]string{}, envs: map[string][]string{}, imageConfigs: map[string]provider.ImageConfig{}, missingImages: map[string]bool{},
 		mirrors: map[string]*repo{}, remotes: map[string]*repo{}, seen: map[provider.Instance]bool{},
-		bootFailures: map[string]string{}, vanished: map[string]bool{}, diskTotal: DefaultDiskTotal,
+		memoryFree: "48Gi", bootFailures: map[string]string{}, resizeRefusals: map[string][2]string{}, vanished: map[string]bool{}, diskTotal: DefaultDiskTotal,
 		processLogCap: provider.DefaultProcessLogCap, finishedProcesses: provider.DefaultFinishedProcesses,
 	}
 }
@@ -497,6 +508,9 @@ func (f *Fake) realize(in *envv1alpha1.Instance, base *artifact) (envv1alpha1.In
 		}
 		f.instances[ref] = local
 	}
+	if in.GetSpec().GetKind() == envv1alpha1.InstanceKind_INSTANCE_KIND_VM {
+		f.resize(ref, local, in.GetSpec().GetResources())
+	}
 	if in.GetSpec().GetRunState() == envv1alpha1.RunState_RUN_STATE_STOPPED {
 		local.running = false
 		// What it holds in memory goes as it stops.
@@ -522,6 +536,37 @@ func (f *Fake) realize(in *envv1alpha1.Instance, base *artifact) (envv1alpha1.In
 	return envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING, "Running", ""
 }
 
+// resize gives a VM the size asked, as hostd does: a disk only grows, and
+// one running restarts, its processes ending; a size the target refuses
+// (RefuseResize) is not applied. The caller holds f.mu.
+func (f *Fake) resize(ref provider.Instance, local *instance, asked *envv1alpha1.Resources) {
+	local.resizeRefused, local.resizeRefusedMsg = "", ""
+	if local.resources == nil {
+		local.resources = proto.Clone(asked).(*envv1alpha1.Resources)
+		return
+	}
+	if provider.SizeApplied(asked, local.resources) {
+		return
+	}
+	if why, ok := f.resizeRefusals[ref.Name]; ok {
+		local.resizeRefused, local.resizeRefusedMsg = why[0], why[1]
+		return
+	}
+	disk := asked.GetDisk()
+	if provider.SizeApplied(&envv1alpha1.Resources{Disk: disk}, local.resources) {
+		disk = local.resources.GetDisk()
+	}
+	local.resources = &envv1alpha1.Resources{Cpu: asked.GetCpu(), Memory: asked.GetMemory(), Disk: disk}
+	if local.running {
+		for _, p := range local.processes {
+			p.end(provider.Killed(provider.SignalKill))
+		}
+		f.pruneProcesses(local)
+		local.started = f.clock.Now()
+		local.restarts++
+	}
+}
+
 // report writes the instance's status as hostd would, when it changed.
 func (f *Fake) report(ctx context.Context, c *client.Client, in *envv1alpha1.Instance, phase envv1alpha1.InstancePhase, reason, msg string) error {
 	ref := provider.Instance{Project: in.GetMetadata().GetProject(), Name: in.GetMetadata().GetName()}
@@ -543,6 +588,15 @@ func (f *Fake) report(ctx context.Context, c *client.Client, in *envv1alpha1.Ins
 		st.ProcessesRunning = int32(local.processesRunning())
 		st.StreamsOpen = int32(local.streams)
 		st.WorkspaceDisk, st.RootDisk = local.workspaceDisk, local.rootDisk
+		st.Resources = nil
+		if local.resources != nil {
+			st.Resources = proto.Clone(local.resources).(*envv1alpha1.Resources)
+			resized := &metav1.Condition{Type: provider.InstanceResized, Status: metav1.ConditionStatus_CONDITION_STATUS_TRUE, Reason: "Applied", ObservedGeneration: st.ObservedGeneration}
+			if local.resizeRefused != "" {
+				resized.Status, resized.Reason, resized.Message = metav1.ConditionStatus_CONDITION_STATUS_FALSE, local.resizeRefused, local.resizeRefusedMsg
+			}
+			st.Conditions = conditions.Set(st.GetConditions(), resized, f.clock.Now())
+		}
 	} else {
 		st.Address, st.UsedDisk, st.StartTime, st.ProcessesRunning, st.StreamsOpen = "", "", nil, 0, 0
 		st.WorkspaceDisk, st.RootDisk = "", ""
@@ -567,7 +621,7 @@ func (f *Fake) report(ctx context.Context, c *client.Client, in *envv1alpha1.Ins
 func (f *Fake) Report(ctx context.Context) error {
 	f.mu.Lock()
 	down, c := f.unavailable, f.c
-	total, free := f.diskTotal, f.free()
+	total, free, memoryFree := f.diskTotal, f.free(), f.memoryFree
 	f.mu.Unlock()
 	if down || c == nil {
 		return nil
@@ -584,7 +638,7 @@ func (f *Fake) Report(ctx context.Context) error {
 		}
 		st.Capacity = &targetsv1alpha1.Capacity{
 			DiskTotal: quantity.FormatDisk(total), DiskFree: quantity.FormatDisk(free),
-			MemoryTotal: "64Gi", MemoryFree: "48Gi", Cpus: 16,
+			MemoryTotal: "64Gi", MemoryFree: memoryFree, Cpus: 16,
 		}
 		st.Facts = []*targetsv1alpha1.Fact{{Name: "provider", Value: "fake"}, {Name: "zfs", Value: "ONLINE"}}
 		st.LastReportTime = timestamppb.New(f.clock.Now())
@@ -633,6 +687,35 @@ func (f *Fake) FillTarget(msg string) {
 	for _, ref := range refs {
 		f.enqueue(ref)
 	}
+}
+
+// RefuseResize makes the target refuse the resize of the VM instance of
+// the name, as hangar refuses one over quota, with its reason and words: it
+// keeps the size it has. An empty reason lets it be resized again.
+func (f *Fake) RefuseResize(name, reason, msg string) {
+	f.mu.Lock()
+	if reason == "" {
+		delete(f.resizeRefusals, name)
+	} else {
+		f.resizeRefusals[name] = [2]string{reason, msg}
+	}
+	refs := slices.Collect(maps.Keys(f.seen))
+	f.mu.Unlock()
+	for _, ref := range refs {
+		if ref.Name == name {
+			f.enqueue(ref)
+		}
+	}
+}
+
+// Restarts is how many times the instance restarted for a resize.
+func (f *Fake) Restarts(ref provider.Instance) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if local := f.instances[ref]; local != nil {
+		return local.restarts
+	}
+	return 0
 }
 
 // GrowDisks reports the instance's /workspace and root disks grown to
@@ -769,6 +852,9 @@ func (f *Fake) HoldWriteFiles() (held <-chan struct{}, release func()) {
 
 // FailCommands makes every command whose program is one of names exit 1.
 func (f *Fake) FailCommands(names ...string) { f.mu.Lock(); f.failCommands = names; f.mu.Unlock() }
+
+// SetMemoryFree sets the memory Report says the host has free.
+func (f *Fake) SetMemoryFree(free string) { f.mu.Lock(); f.memoryFree = free; f.mu.Unlock() }
 
 // SetDiskFree fixes what the target has free, as a full disk does; nil
 // counts it from what it holds again.

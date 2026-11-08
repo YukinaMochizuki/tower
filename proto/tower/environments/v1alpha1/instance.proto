@@ -131,6 +131,13 @@ message InstanceStatus {
   // root not grown, or a provider that does not grow disks.
   string workspace_disk = 10;
   string root_disk = 11;
+  // A VM's size as its provider last applied it: the vCPUs and memory it runs
+  // with (or, stopped, starts with next) and its disk's size. Empty until
+  // reported, and for a container. A disk only grows. While it differs from
+  // spec.resources the provider is resizing it, or holds it at this size for
+  // want of room or because the target refused the new one; condition
+  // Resized, False, then says why (docs/decisions/machine-resize.md).
+  Resources resources = 12;
 }
 
 // InstanceService manages instances.
