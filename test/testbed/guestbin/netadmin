@@ -1,0 +1,14 @@
+#!/bin/sh
+# netadmin: each process of the container but its first, one line each,
+# "NAME BND EFF": 1 where its bounding and effective sets hold NET_ADMIN
+# (capability 12).
+for s in /proc/[0-9]*/status; do
+	pid=${s#/proc/}
+	pid=${pid%/status}
+	[ "$pid" = 1 ] && continue
+	name=$(sed -n 's/^Name:[[:space:]]*//p' "$s" 2>/dev/null)
+	bnd=$(sed -n 's/^CapBnd:[[:space:]]*//p' "$s" 2>/dev/null)
+	eff=$(sed -n 's/^CapEff:[[:space:]]*//p' "$s" 2>/dev/null)
+	[ -n "$name" ] && [ -n "$bnd" ] && [ -n "$eff" ] || continue
+	echo "$name $(((0x$bnd >> 12) & 1)) $(((0x$eff >> 12) & 1))"
+done

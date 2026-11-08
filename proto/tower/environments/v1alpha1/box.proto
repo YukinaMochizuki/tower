@@ -79,6 +79,14 @@ message BoxSpec {
   // setup "auto" falls back to them. Empty is tower's --default-box-image;
   // a box with neither fails. Not with image or image_build.
   string fallback_image = 13 [(tower.meta.v1.field).immutable = true];
+  // Joins the box to a tailnet as a node of its own, with its own TUN
+  // device; a box without it is on no tailnet. Changed on a live box, it
+  // is applied to it: added, it joins; removed, it logs out and its node
+  // is forgotten; a new hostname or accept_routes is set on its node. On
+  // a hostd target, adding or removing it makes the box's container again,
+  // as a restart does, keeping /workspace. Whether it joined is its
+  // TailnetJoined condition (docs/decisions/tailnet.md).
+  Tailnet tailnet = 14;
 }
 
 // SecretFile is one value of a Secret written into a box as a file. The
@@ -145,7 +153,11 @@ message BoxStatus {
   // failed, when ("failed at") and when it is built again ("built again
   // at"); Rebuilding while it is built again; and BuiltSince once it is
   // built, when a box made now is made of it. The box itself stays on the
-  // image it fell back to.
+  // image it fell back to. TailnetJoined, for a box with spec.tailnet,
+  // says whether it joined its tailnet: reason Joined; KeyRejected, NoKey
+  // (its auth_secret is not there, or holds no "authkey"), Starting or
+  // Failed, with a message. It never holds the box back from READY, and
+  // goes with spec.tailnet.
   repeated tower.meta.v1.Condition conditions = 2;
   BoxPhase phase = 3;
   // Why a STOPPED box stopped: "Requested" (run_state) or "Idle".

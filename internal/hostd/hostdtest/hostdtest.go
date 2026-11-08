@@ -303,6 +303,11 @@ func (w *World) Harness(p provider.Provider) providertest.Harness {
 		Resize: providertest.ResizeThrough(w.Env.AsSystem(), apiservertest.Project, testutil.Wait),
 		Remote: Remote, Branch: "main", RemoteHead: "c3", RemoteDockerfile: "docker/Dockerfile",
 	}
+	if w.real == nil {
+		// A real host joins a real tailnet, which refuses the suite's key.
+		h.Tailnet = providertest.TailnetThrough(w.Env.AsSystem(), apiservertest.Project, testutil.Wait)
+	}
+
 	if r := w.real; r != nil {
 		// A real VM restarts at its new size in about a minute.
 		h.Resize = providertest.ResizeThrough(w.Env.AsSystem(), apiservertest.Project, 5*time.Minute)

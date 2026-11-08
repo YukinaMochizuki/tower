@@ -99,7 +99,8 @@ func (t *Target) reconcile(ctx context.Context, key controller.Key) error {
 	// NotFound alone says the Instance is gone; any other error says
 	// nothing of it, and hangar is left as it is.
 	if connect.CodeOf(err) == connect.CodeNotFound {
-		return t.release(ctx, key, "")
+		_, err := t.release(ctx, key, "", false)
+		return err
 	}
 	if err != nil {
 		return err
@@ -111,12 +112,18 @@ func (t *Target) reconcile(ctx context.Context, key controller.Key) error {
 	// What an earlier Instance of the name left goes as hangar lets it,
 	// read again at each resync; it holds up nothing of this one, whose
 	// objects are named apart.
-	if err := t.release(ctx, key, in.GetMetadata().GetUid()); err != nil && !errors.Is(err, controller.ErrWaiting) {
+	staleKey, err := t.release(ctx, key, in.GetMetadata().GetUid(), in.GetSpec().GetTailnet() != nil)
+	if err != nil && !errors.Is(err, controller.ErrWaiting) {
 		return err
 	}
 	ob, err := t.converge(ctx, in)
 	if err != nil {
 		return err
+	}
+	if staleKey != "" {
+		if err := t.dropTailnetKey(ctx, objectName(in.GetMetadata().GetUid()), staleKey); err != nil {
+			return err
+		}
 	}
 	if err := t.report(ctx, in, ob); err != nil {
 		return err
@@ -145,6 +152,8 @@ type observed struct {
 	// leaves what was reported.
 	resources *envv1alpha1.Resources
 	resized   *metav1.Condition
+	// tailnet is a running container's TailnetJoined, nil for any other.
+	tailnet *metav1.Condition
 }
 
 func failed(reason string, err error) observed {
@@ -234,6 +243,10 @@ func (t *Target) converge(ctx context.Context, in *envv1alpha1.Instance) (ob obs
 	if err != nil {
 		return t.applyFailed(err)
 	}
+	// Its tailnet's key before hangar first starts it, which joins it.
+	if err := t.ensureTailnetKey(ctx, in, name); err != nil {
+		return observed{}, err
+	}
 	want := t.containerSpec(in, name, network, pull)
 	if ct == nil || !proto.Equal(ct.GetSpec(), want) {
 		if ct.GetMetadata().GetDeleteTime() != nil {
@@ -244,7 +257,12 @@ func (t *Target) converge(ctx context.Context, in *envv1alpha1.Instance) (ob obs
 			return t.applyFailed(err)
 		}
 	}
-	return t.observe(ctx, in, containerObj(ct))
+	ob, err = t.observe(ctx, in, containerObj(ct))
+	if err != nil {
+		return observed{}, err
+	}
+	ob.tailnet = tailnetCondition(in, ct, ob.phase == envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING && !ob.wait)
+	return ob, nil
 }
 
 // applyFailed is what an apply hangar refused says of the instance: a
@@ -305,6 +323,7 @@ func (t *Target) containerSpec(in *envv1alpha1.Instance, name, network, pull str
 		s.Env = append(s.Env, &hangarcompute.EnvVar{Name: k, Value: spec.GetEnv()[k]})
 	}
 	s.Interfaces = interfaces(network, spec.GetAlias())
+	s.Tailscale = tailscaleOf(in, name)
 	if pull != "" {
 		s.ImagePullSecrets = []string{pull}
 	}
@@ -532,6 +551,14 @@ func (t *Target) report(ctx context.Context, in *envv1alpha1.Instance, o observe
 		r.ObservedGeneration = st.ObservedGeneration
 		st.Conditions = conditions.Set(st.Conditions, r, t.clock.Now())
 	}
+	if in.GetSpec().GetTailnet() == nil {
+		// It goes with the spec's tailnet.
+		st.Conditions = slices.DeleteFunc(st.Conditions, func(c *metav1.Condition) bool { return c.GetType() == provider.InstanceTailnetJoined })
+	}
+	if c := o.tailnet; c != nil {
+		c.ObservedGeneration = st.ObservedGeneration
+		st.Conditions = conditions.Set(st.Conditions, c, t.clock.Now())
+	}
 	if proto.Equal(st, in.GetStatus()) {
 		return nil
 	}
@@ -545,14 +572,18 @@ func (t *Target) report(ctx context.Context, in *envv1alpha1.Instance, o observe
 
 // release deletes from hangar what this target made for the instance of
 // key but for the uid keep (none when empty): what an earlier Instance of
-// the name, or a deleted one, left. A disk goes once its container or VM
-// has: hangar refuses to delete a disk a machine has, so until then the
-// key is read again. Networks go with the sweep.
-func (t *Target) release(ctx context.Context, key controller.Key, keep string) error {
+// the name, or a deleted one, left. A container that joins a tailnet
+// leaves it first, its spec.tailscale dropped, so hangar logs its node out
+// before it goes. A disk goes once its container or VM has: hangar refuses
+// to delete a disk a machine has, so until then the key is read again.
+// Networks go with the sweep. It returns keep's tailnet key's Secret when
+// keepTailnet says keep joins no tailnet any more, for the caller to
+// delete once its Container no longer names it (dropTailnetKey).
+func (t *Target) release(ctx context.Context, key controller.Key, keep string, keepTailnet bool) (staleKey string, err error) {
 	sel := t.selector(LabelProject+"="+key.Project, LabelInstance+"="+key.Name)
 	cts, err := t.api.Containers().List(ctx, sel)
 	if err != nil {
-		return err
+		return "", err
 	}
 	held := map[string]bool{}
 	for _, ct := range cts {
@@ -562,16 +593,22 @@ func (t *Target) release(ctx context.Context, key controller.Key, keep string) e
 		}
 		held[uid] = true
 		if ct.GetMetadata().GetDeleteTime() == nil {
+			if ct.GetSpec().GetTailscale() != nil {
+				left := proto.Clone(ct).(*hangarcompute.Container)
+				left.Spec.Tailscale = nil
+				// Tried: a delete goes on whether or not hangar left.
+				_, _ = t.api.Containers().Apply(ctx, &hangarcompute.Container{Metadata: &hangarmeta.ObjectMeta{Name: left.GetMetadata().GetName(), Labels: left.GetMetadata().GetLabels()}, Spec: left.GetSpec()})
+			}
 			t.log.Info("deleting a container of an instance gone", "project", key.Project, "instance", key.Name, "container", ct.GetMetadata().GetName())
 			if err := t.api.Containers().Delete(ctx, ct.GetMetadata().GetName()); err != nil {
-				return err
+				return "", err
 			}
 		}
 		t.procs.forget(ct.GetMetadata().GetUid())
 	}
 	vms, err := t.api.VirtualMachines().List(ctx, sel)
 	if err != nil {
-		return err
+		return "", err
 	}
 	for _, vm := range vms {
 		uid := vm.GetMetadata().GetLabels()[LabelUID]
@@ -582,15 +619,37 @@ func (t *Target) release(ctx context.Context, key controller.Key, keep string) e
 		if vm.GetMetadata().GetDeleteTime() == nil {
 			t.log.Info("deleting a VM of an instance gone", "project", key.Project, "instance", key.Name, "vm", vm.GetMetadata().GetName())
 			if err := t.api.VirtualMachines().Delete(ctx, vm.GetMetadata().GetName()); err != nil {
-				return err
+				return "", err
 			}
 		}
 		t.procs.forget(vm.GetMetadata().GetUid())
 		t.vms.forget(vm.GetMetadata().GetUid())
 	}
+	// Its tailnet's key goes with it, or with its tailnet: hangar no
+	// longer joins it.
+	secrets, err := t.api.Secrets().List(ctx, sel)
+	if err != nil {
+		return "", err
+	}
+	for _, sec := range secrets {
+		meta := sec.GetMetadata()
+		if !t.mine(meta.GetLabels()) || meta.GetDeleteTime() != nil {
+			continue
+		}
+		if meta.GetLabels()[LabelUID] == keep {
+			if !keepTailnet {
+				staleKey = meta.GetName()
+			}
+			continue
+		}
+		if err := t.api.Secrets().Delete(ctx, meta.GetName()); err != nil {
+			return "", err
+		}
+		t.tailnetKeys.Delete(meta.GetName())
+	}
 	disks, err := t.api.Disks().List(ctx, sel)
 	if err != nil {
-		return err
+		return "", err
 	}
 	var waiting []string
 	for _, d := range disks {
@@ -603,11 +662,11 @@ func (t *Target) release(ctx context.Context, key controller.Key, keep string) e
 			continue
 		}
 		if err := t.api.Disks().Delete(ctx, d.GetMetadata().GetName()); err != nil {
-			return err
+			return "", err
 		}
 	}
 	if len(waiting) > 0 {
-		return fmt.Errorf("disks %v wait for their machines to go: %w", waiting, controller.ErrWaiting)
+		return staleKey, fmt.Errorf("disks %v wait for their machines to go: %w", waiting, controller.ErrWaiting)
 	}
-	return nil
+	return staleKey, nil
 }

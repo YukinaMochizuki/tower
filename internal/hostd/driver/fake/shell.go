@@ -18,8 +18,13 @@ import (
 //   - cat [FILE...]: the files, or stdin with none
 //   - emit ARG...: each "out:text" or "err:text" writes a line of text to
 //     stdout or stderr, in order
-//   - sh -c LINE: LINE split on spaces, run as a command
+//   - sh -c LINE [ARG...]: LINE split on spaces, run as a command
 //   - children: how many children of the guest's processes are alive
+//   - test -e|-c PATH: whether the guest has the file
+//   - netadmin: each process of the guest but its first, as "NAME BND EFF",
+//     1 where its bounding and effective sets hold NET_ADMIN: the command
+//     itself, and the tailscaled of a container that joins a tailnet, the
+//     only one holding it
 //   - sleep (in Exec): until it is killed
 //
 // Any other command exits 0, so a guest takes any install step. The caller
@@ -98,8 +103,23 @@ func (s shell) run(command []string) int {
 			n += p.Children
 		}
 		_, _ = fmt.Fprintln(stdout, n)
+	case "test":
+		if len(args) != 2 || (args[0] != "-e" && args[0] != "-c") {
+			return 2
+		}
+		files, k := s.g.files(s.gu, s.d, args[1])
+		if _, ok := files[k]; !ok {
+			return 1
+		}
+	case "netadmin":
+		_, _ = fmt.Fprintln(stdout, "netadmin 0 0")
+		if s.gu.Tailnet != nil {
+			_, _ = fmt.Fprintln(stdout, "tailscaled 1 1")
+		}
 	case "sh":
-		if len(args) == 2 && args[0] == "-c" {
+		// $0 and the positional arguments after LINE are given to it as
+		// to sh, and LINE names none of them here.
+		if len(args) >= 2 && args[0] == "-c" {
 			return s.run(strings.Fields(args[1]))
 		}
 		_, _ = io.WriteString(stderr, "sh: only sh -c LINE runs here\n")

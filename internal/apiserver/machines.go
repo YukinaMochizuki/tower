@@ -257,10 +257,15 @@ func (s *Server) machineSteps(ctx context.Context, key controller.Key, m *envv1a
 		not(envv1alpha1.MachinePhase_MACHINE_PHASE_CONFIGURING, "Starting", "its instance is starting")
 		return nil
 	}
+	s.machineTailnetCond(m, in, st)
 	if in.GetMetadata().GetAnnotations()[configuredAnnotation] != "true" {
 		return s.configureMachine(ctx, key, m, in, p, st, not)
 	}
 	s.machineCond(st, MachineConfigured, true, "Configured", "")
+	// A change of its tailnet since, which holds nothing back.
+	if err := s.machineTailnet(ctx, key, m, in, p, st); err != nil {
+		return err
+	}
 	if m.GetSpec().GetBlueprint().GetReadyCheck() != nil && in.GetMetadata().GetAnnotations()[readyAnnotation] != runOf(in) {
 		return s.checkReady(ctx, key, m, in, p, st, not)
 	}
@@ -373,6 +378,25 @@ func (s *Server) configureMachine(ctx context.Context, key controller.Key, m *en
 		// it may start this one: the mark, read again, says it is done.
 		if done, err := s.instanceMarked(ctx, key.Project, ref.Name, configuredAnnotation); err != nil || done {
 			return err
+		}
+		// Its own node on its tailnet, before its configure phase, which
+		// goes on however the join went.
+		if tn := spec.GetTailnet(); tn != nil {
+			ts, err := s.joinMachineTailnet(ctx, p, ref, key.Project, tn)
+			applied := tn
+			if err != nil {
+				// Not applied: machineTailnet joins it again once it is
+				// configured, as its step's backoff allows.
+				applied, ts = nil, tailnetStatus{Reason: provider.TailnetStarting, Message: "its join is tried again: " + err.Error()}
+			}
+			if err := s.markTailnet(ctx, key.Project, ref.Name, applied, &ts); err != nil {
+				return err
+			}
+			// Not joined with its key: tried again after the wait, not at
+			// once once it is configured.
+			if err := s.markTried(ctx, ref, tn, &ts); err != nil {
+				return err
+			}
 		}
 		env := map[string]string{}
 		for _, sr := range spec.GetSecrets() {

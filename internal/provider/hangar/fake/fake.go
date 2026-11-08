@@ -118,6 +118,12 @@ type Fake struct {
 	restarts map[string]int
 	// installs counts tower-guest written in, in every container.
 	installs int
+	// writes are the applies and deletes hangar took, in order (Writes).
+	writes []Write
+	// tailnetNodes are the containers, by uid, whose node joined its
+	// tailnet; tailnetJoins counts the joins.
+	tailnetNodes map[string]bool
+	tailnetJoins int
 	// execsAs are the operations tower-guest shim ran, with the user each
 	// was run as; noRoot fails every shim run as root.
 	execsAs []ExecAs
@@ -172,6 +178,7 @@ func New(guest, dir string, clock clockwork.Clock) *Fake {
 	f.vms.applied = f.vmApplied
 	f.vms.deleting = f.vmDeleting
 	f.secrets = &kind[*hangarsecrets.Secret]{f: f, what: "secret", objs: map[string]*hangarsecrets.Secret{}}
+	f.secrets.applied = secretApplied
 	f.images = &kind[*hangarstorage.CustomImage]{f: f, what: "custom image", objs: map[string]*hangarstorage.CustomImage{}}
 	f.images.applied = f.imageApplied
 	f.images.deleting = f.imageDeleting
@@ -180,7 +187,88 @@ func New(guest, dir string, clock clockwork.Clock) *Fake {
 	f.networks.deleting = f.networkDeleting
 	f.containers.applied = f.containerApplied
 	f.containers.deleting = f.containerDeleting
+	f.containers.read = f.containerRead
+	f.tailnetNodes = map[string]bool{}
 	return f
+}
+
+// containerRead says, in a running container's TailnetJoined, how its
+// join to the tailnet its spec.tailscale names stands, as hangar does once
+// it joined with the key its Secret holds: Joined, and so from then on,
+// its node's state on its disk; KeyRejected for a key the fake tailnet
+// refuses (one starting "tskey-rejected"); NoKey while the Secret is not
+// there or holds no "authkey". A container whose spec.tailscale went has
+// left, its node forgotten, and says nothing. f.mu is held.
+func (f *Fake) containerRead(ct *hangarcompute.Container) {
+	ts := ct.GetSpec().GetTailscale()
+	uid := ct.GetMetadata().GetUid()
+	if ts == nil {
+		delete(f.tailnetNodes, uid)
+		if ct.Status != nil {
+			ct.Status.Conditions = slices.DeleteFunc(ct.Status.Conditions, func(x *hangarmeta.Condition) bool { return x.GetType() == "TailnetJoined" })
+		}
+		return
+	}
+	m := f.machines["ct-"+ct.GetMetadata().GetName()]
+	if m == nil || m.GetStatus().GetPhase() != hangarcompute.MachinePhase_MACHINE_PHASE_RUNNING {
+		return
+	}
+	c := &hangarmeta.Condition{Type: "TailnetJoined", Status: hangarmeta.ConditionStatus_CONDITION_STATUS_FALSE, ObservedGeneration: ct.GetMetadata().GetGeneration()}
+	key := string(f.secrets.objs[ts.GetAuthSecret()].GetSpec().GetData()["authkey"])
+	switch {
+	case f.tailnetNodes[uid]:
+		c.Status, c.Reason, c.Message = hangarmeta.ConditionStatus_CONDITION_STATUS_TRUE, "Joined", "joined as "+ts.GetHostname()
+	case key == "":
+		c.Reason, c.Message = "NoKey", "secret "+ts.GetAuthSecret()+" holds no authkey"
+	case strings.HasPrefix(key, "tskey-rejected"):
+		c.Reason, c.Message = "KeyRejected", "the tailnet refused its key"
+	default:
+		f.tailnetNodes[uid] = true
+		f.tailnetJoins++
+		c.Status, c.Reason, c.Message = hangarmeta.ConditionStatus_CONDITION_STATUS_TRUE, "Joined", "joined as "+ts.GetHostname()
+	}
+	if ct.Status == nil {
+		ct.Status = &hangarcompute.ContainerStatus{}
+	}
+	ct.Status.Conditions = slices.DeleteFunc(ct.Status.Conditions, func(x *hangarmeta.Condition) bool { return x.GetType() == "TailnetJoined" })
+	ct.Status.Conditions = append(ct.Status.Conditions, c)
+}
+
+// secretApplied refuses a secret of no type, as hangar does, and a
+// tailscale-auth one holding anything but its key.
+func secretApplied(s *hangarsecrets.Secret, _ bool) error {
+	switch s.GetSpec().GetType() {
+	case hangarsecrets.SecretType_SECRET_TYPE_UNSPECIFIED:
+		return connectError("invalid_argument", "spec.type is required")
+	case hangarsecrets.SecretType_SECRET_TYPE_TAILSCALE_AUTH:
+		if d := s.GetSpec().GetData(); len(d) != 1 || len(d["authkey"]) == 0 {
+			return connectError("invalid_argument", "a tailscale-auth secret's data holds one key, \"authkey\"")
+		}
+	}
+	return nil
+}
+
+// Write is an apply or a delete hangar took: Op "apply" or "delete",
+// Kind as its errors name it ("container", "secret"), and for an apply
+// the object as applied.
+type Write struct {
+	Op, Kind, Name string
+	Object         proto.Message
+}
+
+// Writes are the applies and deletes hangar took, in the order it took
+// them.
+func (f *Fake) Writes() []Write {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.writes)
+}
+
+// TailnetJoins counts the containers that joined their tailnet.
+func (f *Fake) TailnetJoins() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.tailnetJoins
 }
 
 // Close ends every process of every container, as the host going would:
@@ -985,6 +1073,7 @@ func (k *kind[T]) Apply(_ context.Context, obj T) (T, error) {
 		}
 	}
 	k.objs[meta.GetName()] = o
+	k.f.writes = append(k.f.writes, Write{Op: "apply", Kind: k.what, Name: meta.GetName(), Object: proto.Clone(o)})
 	return proto.Clone(o).(T), nil
 }
 
@@ -1001,6 +1090,7 @@ func (k *kind[T]) Delete(_ context.Context, name string) error {
 	if !ok {
 		return nil
 	}
+	k.f.writes = append(k.f.writes, Write{Op: "delete", Kind: k.what, Name: name})
 	if k.f.holdDeletes {
 		if o.GetMetadata().GetDeleteTime() == nil {
 			o.GetMetadata().DeleteTime = timestamppb.New(k.f.clock.Now())

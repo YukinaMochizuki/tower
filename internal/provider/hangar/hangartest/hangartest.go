@@ -204,7 +204,8 @@ func (w *World) Harness() providertest.Harness {
 	return providertest.Harness{
 		Provider: w.Target, Target: Target, Image: w.opts.Image, BaseImage: w.opts.BaseImage,
 		Remote: w.opts.Remote, Branch: w.opts.Branch, RemoteHead: w.opts.RemoteHead, RemoteDockerfile: w.opts.RemoteDockerfile,
-		Resize: providertest.ResizeThrough(w.Env.AsSystem(), apiservertest.Project, w.within()),
+		Resize:  providertest.ResizeThrough(w.Env.AsSystem(), apiservertest.Project, w.within()),
+		Tailnet: providertest.TailnetThrough(w.Env.AsSystem(), apiservertest.Project, w.within()),
 		Golden: func(t *testing.T, art provider.Artifact) string {
 			t.Helper()
 			key := client.Key{Project: apiservertest.Project, Name: "golden-" + strings.ToLower(art.Name)}

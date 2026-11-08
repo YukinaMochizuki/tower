@@ -309,3 +309,21 @@ func (h *Host) Ticket(ctx context.Context, in provider.Instance, port int32) (pr
 	u := strings.TrimSuffix(h.cfg.StreamURL, "/") + StreamPath + url.PathEscape(in.Project) + "/" + url.PathEscape(in.Name) + "/" + strconv.Itoa(int(port))
 	return provider.Ticket{URL: u}, nil
 }
+
+// JoinTailnet joins a running container whose spec joins a tailnet with
+// the key tower gave, held for the call alone, and reads the instance
+// again, whose TailnetJoined says how it went.
+func (h *Host) JoinTailnet(ctx context.Context, req provider.TailnetJoin) error {
+	p, err := h.running(ctx, req.Instance)
+	if err != nil {
+		return err
+	}
+	if p.in.GetSpec().GetKind() != envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER || p.in.GetSpec().GetTailnet() == nil {
+		return fmt.Errorf("instance %s/%s joins no tailnet: %w", req.Instance.Project, req.Instance.Name, provider.ErrFailed)
+	}
+	if err := h.d.Containers.JoinTailnet(ctx, p.name, req.Key); err != nil {
+		return providerError(err)
+	}
+	h.changed(req.Instance)
+	return nil
+}

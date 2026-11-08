@@ -73,6 +73,74 @@ func (RunState) EnumDescriptor() ([]byte, []int) {
 	return file_tower_environments_v1alpha1_common_proto_rawDescGZIP(), []int{0}
 }
 
+// Tailnet joins a box or machine to a tailnet as a node of its own, the
+// first time its instance starts; after that its node's state is kept with
+// the instance and it comes back as the same node.
+type Tailnet struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A Secret in the same project holding, under "authkey", the key to join
+	// with. Its value never enters a spec of a lower layer, a status, a log
+	// or an event (docs/decisions/secrets.md).
+	AuthSecret string `protobuf:"bytes,1,opt,name=auth_secret,json=authSecret,proto3" json:"auth_secret,omitempty"`
+	// The node's hostname on the tailnet.
+	Hostname string `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	// Accept the subnet routes the tailnet offers the node.
+	AcceptRoutes  bool `protobuf:"varint,3,opt,name=accept_routes,json=acceptRoutes,proto3" json:"accept_routes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Tailnet) Reset() {
+	*x = Tailnet{}
+	mi := &file_tower_environments_v1alpha1_common_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Tailnet) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Tailnet) ProtoMessage() {}
+
+func (x *Tailnet) ProtoReflect() protoreflect.Message {
+	mi := &file_tower_environments_v1alpha1_common_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Tailnet.ProtoReflect.Descriptor instead.
+func (*Tailnet) Descriptor() ([]byte, []int) {
+	return file_tower_environments_v1alpha1_common_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *Tailnet) GetAuthSecret() string {
+	if x != nil {
+		return x.AuthSecret
+	}
+	return ""
+}
+
+func (x *Tailnet) GetHostname() string {
+	if x != nil {
+		return x.Hostname
+	}
+	return ""
+}
+
+func (x *Tailnet) GetAcceptRoutes() bool {
+	if x != nil {
+		return x.AcceptRoutes
+	}
+	return false
+}
+
 // Resources is a shape, as quantities; an empty one takes tower's default.
 type Resources struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -88,7 +156,7 @@ type Resources struct {
 
 func (x *Resources) Reset() {
 	*x = Resources{}
-	mi := &file_tower_environments_v1alpha1_common_proto_msgTypes[0]
+	mi := &file_tower_environments_v1alpha1_common_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -100,7 +168,7 @@ func (x *Resources) String() string {
 func (*Resources) ProtoMessage() {}
 
 func (x *Resources) ProtoReflect() protoreflect.Message {
-	mi := &file_tower_environments_v1alpha1_common_proto_msgTypes[0]
+	mi := &file_tower_environments_v1alpha1_common_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -113,7 +181,7 @@ func (x *Resources) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Resources.ProtoReflect.Descriptor instead.
 func (*Resources) Descriptor() ([]byte, []int) {
-	return file_tower_environments_v1alpha1_common_proto_rawDescGZIP(), []int{0}
+	return file_tower_environments_v1alpha1_common_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Resources) GetCpu() string {
@@ -141,7 +209,12 @@ var File_tower_environments_v1alpha1_common_proto protoreflect.FileDescriptor
 
 const file_tower_environments_v1alpha1_common_proto_rawDesc = "" +
 	"\n" +
-	"(tower/environments/v1alpha1/common.proto\x12\x1btower.environments.v1alpha1\"I\n" +
+	"(tower/environments/v1alpha1/common.proto\x12\x1btower.environments.v1alpha1\"k\n" +
+	"\aTailnet\x12\x1f\n" +
+	"\vauth_secret\x18\x01 \x01(\tR\n" +
+	"authSecret\x12\x1a\n" +
+	"\bhostname\x18\x02 \x01(\tR\bhostname\x12#\n" +
+	"\raccept_routes\x18\x03 \x01(\bR\facceptRoutes\"I\n" +
 	"\tResources\x12\x10\n" +
 	"\x03cpu\x18\x01 \x01(\tR\x03cpu\x12\x16\n" +
 	"\x06memory\x18\x02 \x01(\tR\x06memory\x12\x12\n" +
@@ -165,10 +238,11 @@ func file_tower_environments_v1alpha1_common_proto_rawDescGZIP() []byte {
 }
 
 var file_tower_environments_v1alpha1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_tower_environments_v1alpha1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_tower_environments_v1alpha1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_tower_environments_v1alpha1_common_proto_goTypes = []any{
 	(RunState)(0),     // 0: tower.environments.v1alpha1.RunState
-	(*Resources)(nil), // 1: tower.environments.v1alpha1.Resources
+	(*Tailnet)(nil),   // 1: tower.environments.v1alpha1.Tailnet
+	(*Resources)(nil), // 2: tower.environments.v1alpha1.Resources
 }
 var file_tower_environments_v1alpha1_common_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -189,7 +263,7 @@ func file_tower_environments_v1alpha1_common_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tower_environments_v1alpha1_common_proto_rawDesc), len(file_tower_environments_v1alpha1_common_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   1,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

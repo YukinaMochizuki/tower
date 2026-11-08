@@ -94,7 +94,8 @@ func (w World) WaitPhase(t *testing.T, name string, phase envv1alpha1.InstancePh
 func (w World) Harness(p provider.Provider) providertest.Harness {
 	return providertest.Harness{
 		Provider: p, Target: Target, Image: "registry.tower.internal/base@sha256:00", BaseImage: "ubuntu-24.04",
-		Resize: providertest.ResizeThrough(w.Env.AsSystem(), apiservertest.Project, testutil.Wait),
+		Resize:  providertest.ResizeThrough(w.Env.AsSystem(), apiservertest.Project, testutil.Wait),
+		Tailnet: providertest.TailnetThrough(w.Env.AsSystem(), apiservertest.Project, testutil.Wait),
 		Start: func(t *testing.T, name string, spec *envv1alpha1.InstanceSpec) (provider.Instance, *envv1alpha1.InstanceStatus) {
 			t.Helper()
 			if _, err := w.Env.AsSystem().Apply(t.Context(), registry.Instance, &envv1alpha1.Instance{

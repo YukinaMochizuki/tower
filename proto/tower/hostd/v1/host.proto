@@ -78,6 +78,11 @@ service HostService {
   // ListProcesses lists an instance's processes, running and finished,
   // oldest first.
   rpc ListProcesses(ListProcessesRequest) returns (ListProcessesResponse);
+  // JoinTailnet gives a running container whose spec joins a tailnet the
+  // key to join with: it joins now unless its node has state already. The
+  // key is held in memory for the call alone; the instance's status
+  // reports how the join went (docs/decisions/tailnet.md).
+  rpc JoinTailnet(JoinTailnetRequest) returns (JoinTailnetResponse);
 }
 
 // Instance names an Instance object of the target.
@@ -316,6 +321,14 @@ message TicketRequest {
   Instance instance = 1;
   int32 port = 2;
 }
+
+message JoinTailnetRequest {
+  Instance instance = 1;
+  // The auth key, a secret value: the host never writes or logs it.
+  string key = 2;
+}
+
+message JoinTailnetResponse {}
 
 message StartProcessRequest {
   Instance instance = 1;

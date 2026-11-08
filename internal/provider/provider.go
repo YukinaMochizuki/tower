@@ -12,7 +12,8 @@
 //
 // A provider holds no policy (docs/decisions/layers.md): it does what it is
 // asked and says what happened. Secret values reach it only as the
-// environment of one command, never in an object. providertest is the
+// environment of one command, or as the key of a tailnet an instance joins
+// (TailnetJoin, TailnetKeys), never in an object. providertest is the
 // contract every provider is held to.
 package provider
 
@@ -60,6 +61,43 @@ const GuestBinary = "/.tower/tower-guest"
 // provider reports it for hangar's StartDoesNotFit and for a machine no
 // node has the memory or disk for (docs/decisions/boost.md).
 const ReasonWaitingForRoom = "WaitingForRoom"
+
+// InstanceTailnetJoined is the condition of a container Instance whose spec
+// joins a tailnet: whether it joined, as its provider last saw it
+// (docs/decisions/tailnet.md). Its reasons are the Tailnet* below.
+const InstanceTailnetJoined = "TailnetJoined"
+
+// The reasons of a TailnetJoined condition, the instance's and its box's
+// or machine's alike.
+const (
+	TailnetJoined      = "Joined"
+	TailnetKeyRejected = "KeyRejected"
+	// TailnetNoKey, on an instance, says its provider has no key to join
+	// with and its node no state: tower gives it one (JoinTailnet).
+	TailnetNoKey    = "NoKey"
+	TailnetStarting = "Starting"
+	TailnetFailed   = "Failed"
+)
+
+// TailnetKeyName is the key of a Tailnet's auth_secret that holds the
+// auth key.
+const TailnetKeyName = "authkey"
+
+// TailnetJoin is what a container instance whose spec joins a tailnet
+// joins with: its spec's hostname and routes, and the key, which tower
+// opens from the spec's auth_secret. A provider holds the key in memory
+// for the call alone, and never logs it or writes it into an object of
+// tower's.
+type TailnetJoin struct {
+	Instance Instance
+	Key      string
+}
+
+// TailnetKeys opens the auth key of a Tailnet's auth_secret in project,
+// for a provider that joins an instance to its tailnet as it makes it (a
+// hangar target's): tower's, which opens the Secret for the call alone.
+// A Secret not there, or holding no TailnetKeyName, is ErrNotFound.
+type TailnetKeys func(ctx context.Context, project, secret string) (string, error)
 
 // Instance names an Instance object of the target, by its project and
 // name.
@@ -374,4 +412,11 @@ type Provider interface {
 	SignalProcess(ctx context.Context, in Instance, id string, sig Signal) error
 	// ListProcesses lists the instance's processes, oldest first.
 	ListProcesses(ctx context.Context, in Instance) ([]Process, error)
+
+	// JoinTailnet gives a container instance whose spec joins a tailnet the
+	// key to join with, as tower does once its TailnetJoined says NoKey: a
+	// running one joins now unless its node has state already, and one made
+	// as it joins (hangar's) has its key for its next join. Its status says
+	// how it went. One whose spec joins no tailnet is ErrFailed.
+	JoinTailnet(ctx context.Context, req TailnetJoin) error
 }

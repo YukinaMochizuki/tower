@@ -376,7 +376,7 @@ A hostd host needs a ZFS pool (`docs/decisions/hostd-storage.md`), KVM
 ### 1. What its drivers run on
 
 ```sh
-deploy/hostd/install-deps.sh        # ZFS, Docker (live-restore), Cloud Hypervisor, its firmware, BuildKit and its build network
+deploy/hostd/install-deps.sh        # ZFS, Docker (live-restore), Cloud Hypervisor, its firmware, BuildKit and its build network, the tailscale boxes run
 zfs create -o mountpoint=none <pool>/hostd   # or tower/hostd on a pool named tower
 deploy/hostd/base-image.sh ubuntu-24.04      # the base image machines boot, with ansible
 install -m 0755 bin/hostd /usr/local/bin/
@@ -384,7 +384,10 @@ install -D -m 0755 bin/tower-guest /usr/local/lib/tower/tower-guest
 ```
 
 hostd's flags default to these paths and to the dataset `tower/hostd`;
-change `--zfs-dataset` in the unit for another pool.
+change `--zfs-dataset` in the unit for another pool. A box that joins a
+tailnet (`docs/decisions/tailnet.md`) runs the tailscale install-deps.sh
+puts in `/usr/local/lib/tower/tailscale` (`--tailscaled`, `--tailscale`);
+a host without it fails such a box and says so in its log at start.
 
 Build steps run on the bridge `tower-build0`, on 10.231.0.0/24
 (`docs/decisions/images.md`); where the host already has that network,

@@ -59,6 +59,9 @@ type Harness struct {
 	// that builds from Image with the repository's root as its context;
 	// empty skips building from a mirror.
 	RemoteDockerfile string
+	// Tailnet, if set, sets an instance's tailnet and reads its
+	// TailnetJoined (TailnetThrough); nil skips the test of joining one.
+	Tailnet *TailnetHarness
 }
 
 // Names are the suite's tests, as Harness.Skip names them.
@@ -96,6 +99,7 @@ var suite = []struct {
 	{"ProcessSignalAndList", testProcessSignalAndList},
 	{"ProcessesDieWithTheirInstance", testProcessesDieWithTheirInstance},
 	{"ProcessLimits", testProcessLimits},
+	{"Tailnet", testTailnet},
 }
 
 // Run runs the suite.

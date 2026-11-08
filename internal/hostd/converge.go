@@ -100,6 +100,9 @@ type observed struct {
 	// resizeRefused is why the host keeps a VM's disk at the size it has,
 	// with its words; "" when it applied the size asked.
 	resizeRefused, resizeMsg string
+	// tailnet is how the join of a running container that joins a tailnet
+	// stands, nil for any other.
+	tailnet *driver.TailnetState
 }
 
 func failed(reason string, err error) observed {
@@ -114,7 +117,7 @@ func (h *Host) converge(ctx context.Context, in *envv1alpha1.Instance) (observed
 	g := h.guests(in)
 	vm := spec.GetKind() == envv1alpha1.InstanceKind_INSTANCE_KIND_VM
 	name := guestName(uid)
-	_, err := g.Inspect(ctx, name)
+	cur, err := g.Inspect(ctx, name)
 	if err != nil && !errors.Is(err, driver.ErrNotFound) {
 		return observed{}, err
 	}
@@ -189,7 +192,11 @@ func (h *Host) converge(ctx context.Context, in *envv1alpha1.Instance) (observed
 			case image == "":
 				return observed{phase: envv1alpha1.InstancePhase_INSTANCE_PHASE_PENDING, reason: "Pulling", msg: "its image " + spec.GetImage() + " is being pulled"}, nil
 			}
-			err = h.d.Containers.Create(ctx, driver.ContainerSpec{GuestSpec: gs, Image: image, Env: spec.GetEnv()})
+			err = h.d.Containers.Create(ctx, driver.ContainerSpec{GuestSpec: gs, Image: image, Env: spec.GetEnv(), Tailnet: containerTailnet(spec)})
+			if errors.Is(err, driver.ErrStartFailed) {
+				// A host without tailscale for a box that joins a tailnet.
+				return failed("CannotCreate", err), nil
+			}
 			if errors.Is(err, driver.ErrNotFound) {
 				// Gone from the host since it was pulled: pulled again.
 				h.pulls.forget(spec.GetImage())
@@ -198,6 +205,17 @@ func (h *Host) converge(ctx context.Context, in *envv1alpha1.Instance) (observed
 		}
 		if errors.Is(err, driver.ErrConflict) {
 			return failed("Conflict", err), nil
+		}
+		if err != nil {
+			return observed{}, err
+		}
+	}
+	// A tailnet added, removed or changed since the container was made
+	// (docs/decisions/tailnet.md).
+	if made && !vm && !sameTailnet(cur.Tailnet, containerTailnet(spec)) {
+		err := h.d.Containers.SetTailnet(ctx, name, containerTailnet(spec))
+		if errors.Is(err, driver.ErrStartFailed) {
+			return failed("CannotCreate", err), nil
 		}
 		if err != nil {
 			return observed{}, err
@@ -233,9 +251,30 @@ func (h *Host) converge(ctx context.Context, in *envv1alpha1.Instance) (observed
 			if o.processes, err = h.processesRunning(ctx, name); err != nil {
 				return observed{}, err
 			}
+			if spec.GetTailnet() != nil {
+				st, err := h.d.Containers.Tailnet(ctx, name)
+				if err != nil {
+					return observed{}, err
+				}
+				o.tailnet = &st
+			}
 		}
 	}
 	return o, nil
+}
+
+// containerTailnet is the tailnet a container instance's spec joins, nil
+// for none.
+func containerTailnet(spec *envv1alpha1.InstanceSpec) *driver.ContainerTailnet {
+	t := spec.GetTailnet()
+	if t == nil {
+		return nil
+	}
+	return &driver.ContainerTailnet{Hostname: t.GetHostname(), AcceptRoutes: t.GetAcceptRoutes()}
+}
+
+func sameTailnet(a, b *driver.ContainerTailnet) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
 // resize gives a made VM the size r asks, stopping one running for it; the
@@ -342,6 +381,17 @@ func (h *Host) report(ctx context.Context, in *envv1alpha1.Instance, o observed)
 			resized.Status, resized.Reason, resized.Message = metav1.ConditionStatus_CONDITION_STATUS_FALSE, o.resizeRefused, o.resizeMsg
 		}
 		st.Conditions = conditions.Set(slices.Clone(st.GetConditions()), resized, h.clock.Now())
+	}
+	if in.GetSpec().GetTailnet() == nil {
+		// It goes with the spec's tailnet.
+		st.Conditions = slices.DeleteFunc(slices.Clone(st.GetConditions()), func(c *metav1.Condition) bool { return c.GetType() == provider.InstanceTailnetJoined })
+	}
+	if t := o.tailnet; t != nil {
+		joined := &metav1.Condition{Type: provider.InstanceTailnetJoined, Status: metav1.ConditionStatus_CONDITION_STATUS_FALSE, Reason: t.Reason, Message: t.Message, ObservedGeneration: st.ObservedGeneration}
+		if t.Reason == provider.TailnetJoined {
+			joined.Status = metav1.ConditionStatus_CONDITION_STATUS_TRUE
+		}
+		st.Conditions = conditions.Set(slices.Clone(st.GetConditions()), joined, h.clock.Now())
 	}
 	ready := &metav1.Condition{Type: InstanceReady, Status: metav1.ConditionStatus_CONDITION_STATUS_FALSE, Reason: o.reason, Message: o.msg, ObservedGeneration: st.ObservedGeneration}
 	if o.phase == envv1alpha1.InstancePhase_INSTANCE_PHASE_RUNNING {

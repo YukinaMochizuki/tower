@@ -188,6 +188,9 @@ type Guest struct {
 	StartedAt time.Time
 	Address   string
 	Created   time.Time
+	// Tailnet is the tailnet a container joins as it is now, nil for none
+	// and for a VM.
+	Tailnet *ContainerTailnet
 }
 
 // Network is a workstream network on the host.
@@ -253,6 +256,26 @@ type ContainerSpec struct {
 	// Env is its environment over the image's, each value as written, for
 	// every command and process in it.
 	Env map[string]string `json:",omitempty"`
+	// Tailnet, set, joins it to a tailnet as a node of its own; nil joins
+	// none, and it has no TUN device and no NET_ADMIN.
+	Tailnet *ContainerTailnet `json:",omitempty"`
+}
+
+// ContainerTailnet is a tailnet a container joins: it gets a TUN device
+// and NET_ADMIN, which only its tailscaled keeps, started before its
+// image's entrypoint with its state on the host apart from its disk
+// (docs/decisions/tailnet.md). It joins once given the key
+// (Containers.JoinTailnet), as Hostname.
+type ContainerTailnet struct {
+	Hostname     string
+	AcceptRoutes bool `json:",omitempty"`
+}
+
+// TailnetState is how a container's join to its tailnet stands, as the
+// guest last said: a reason of provider.InstanceTailnetJoined's, and words
+// for people, which never hold the key.
+type TailnetState struct {
+	Reason, Message string
 }
 
 // Containers runs containers: Docker on a real host.
@@ -260,8 +283,28 @@ type Containers interface {
 	Guests
 	Processes
 	// Create makes a container, stopped, once: one of the name made
-	// otherwise is ErrConflict.
+	// otherwise is ErrConflict. A host without tailscale refuses one that
+	// joins a tailnet with ErrStartFailed.
 	Create(ctx context.Context, spec ContainerSpec) error
+	// Tailnet says how the join of a container that joins a tailnet
+	// stands; one that joins none is ErrNotFound.
+	Tailnet(ctx context.Context, name string) (TailnetState, error)
+	// JoinTailnet joins a running container to its tailnet with key, which
+	// it holds for the call alone and never logs or writes, unless its node
+	// has state already. Tailnet says how it went. One that joins no
+	// tailnet is ErrNotFound.
+	JoinTailnet(ctx context.Context, name, key string) error
+	// SetTailnet changes the tailnet a made container joins, nil for none.
+	// One that joins a tailnet or stops joining one is made again, stopped,
+	// as Create makes it, on the same disk, its processes' records kept and
+	// the rest of its root filesystem not: one that leaves has its node
+	// logged out first, started for it if stopped, and its state goes; a
+	// container removed that joins a tailnet logs its node out so too. A
+	// new hostname or routes are set on a running one's node as it runs;
+	// one stopped takes them at the call after it starts again, Inspect's
+	// Tailnet saying the old ones until then. A host without tailscale
+	// refuses one to join with ErrStartFailed.
+	SetTailnet(ctx context.Context, name string, t *ContainerTailnet) error
 }
 
 // What a process is started with and read back as, internal/guest's,

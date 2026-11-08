@@ -60,6 +60,14 @@ message InstanceSpec {
   // they are made with. tower sets it from the target's settings
   // (TargetSettings).
   DiskGrowth disk_growth = 11 [(tower.meta.v1.field).immutable = true];
+  // The tailnet a container joins as a node of its own, its box's: the
+  // Secret named, never its value, which reaches the provider from tower
+  // alone (provider.TailnetJoin). Changed, it is applied to the running
+  // container: added, it joins; removed, it leaves and its node's state
+  // goes; a hostname or accept_routes is set on its node. Its provider
+  // reports condition TailnetJoined while it is set. A VM's join is
+  // tower's, over its SSH.
+  Tailnet tailnet = 12;
 }
 
 // DiskGrowth is how a container's two disks grow: its /workspace disk from
@@ -99,7 +107,10 @@ message InstanceStatus {
   // process, RootStart: whether a root supervisor starts its processes,
   // each as its user, which measuring them needs (they are measured where
   // the guest's cgroups allow it too), and, false (NoRoot), why not
-  // (docs/decisions/process-usage.md).
+  // (docs/decisions/process-usage.md). For a container with spec.tailnet,
+  // TailnetJoined: reason Joined, KeyRejected, Starting, Failed, or NoKey
+  // while the provider has no key to join with, which tower then gives it
+  // (docs/decisions/tailnet.md).
   repeated tower.meta.v1.Condition conditions = 2;
   InstancePhase phase = 3;
   // Its address on its network.

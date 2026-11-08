@@ -31,21 +31,141 @@ type containers struct{ guests }
 type vms struct{ guests }
 
 func (c containers) Create(_ context.Context, spec driver.ContainerSpec) error {
-	err := c.create("containers.Create", spec.GuestSpec, spec.Image, func() error {
+	return c.create("containers.Create", spec.GuestSpec, spec.Image, func(cur *guest) error {
+		if cur != nil {
+			if (cur.Tailnet == nil) != (spec.Tailnet == nil) {
+				return fmt.Errorf("container %s is there, made otherwise: %w", spec.Name, driver.ErrConflict)
+			}
+			if cur.Env == nil {
+				cur.Env = maps.Clone(spec.Env)
+			}
+			return nil
+		}
 		if !c.h.st.Pulled[spec.Image] {
 			return fmt.Errorf("image %s is not pulled: %w", spec.Image, driver.ErrNotFound)
 		}
 		return nil
+	}, func(gu *guest) {
+		gu.Env = maps.Clone(spec.Env)
+		if spec.Tailnet != nil {
+			t := *spec.Tailnet
+			gu.Tailnet = &t
+			// Its TUN device, which no other container has.
+			gu.Files[tunDevice] = nil
+		}
 	})
-	if err != nil {
-		return err
-	}
-	return c.h.change("", func() error {
-		if gu := c.h.st.Guests[c.key(spec.Name)]; gu != nil && gu.Env == nil {
-			gu.Env = maps.Clone(spec.Env)
+}
+
+// tunDevice is the TUN device a container that joins a tailnet has.
+const tunDevice = "/dev/net/tun"
+
+// rejectedKey says the fake tailnet refuses a key, as a control server
+// refuses one invalid, expired or used up.
+func rejectedKey(key string) bool { return strings.HasPrefix(key, "tskey-rejected") }
+
+func (c containers) Tailnet(_ context.Context, name string) (driver.TailnetState, error) {
+	var st driver.TailnetState
+	err := c.h.read("containers.Tailnet", func() error {
+		gu, err := c.get(name)
+		if err != nil {
+			return err
+		}
+		switch {
+		case gu.Tailnet == nil:
+			return fmt.Errorf("container %s joins no tailnet: %w", name, driver.ErrNotFound)
+		case !gu.Running:
+			st = driver.TailnetState{Reason: "Starting", Message: "its tailscaled has not started yet"}
+		case gu.Node:
+			st = driver.TailnetState{Reason: "Joined", Message: "joined as " + gu.Tailnet.Hostname}
+		case gu.Rejected != "":
+			st = driver.TailnetState{Reason: "KeyRejected", Message: gu.Rejected}
+		default:
+			st = driver.TailnetState{Reason: "NoKey", Message: "its node has no state, and no key was given to join with"}
 		}
 		return nil
 	})
+	return st, err
+}
+
+// JoinTailnet joins as tower-guest tailnet-up does: only a node with no
+// state, the key held for the call alone.
+func (c containers) JoinTailnet(_ context.Context, name, key string) error {
+	return c.h.change("containers.JoinTailnet", func() error {
+		gu, _, err := c.running(name)
+		if err != nil {
+			return err
+		}
+		if gu.Tailnet == nil {
+			return fmt.Errorf("container %s joins no tailnet: %w", name, driver.ErrNotFound)
+		}
+		switch {
+		case gu.Node:
+		case rejectedKey(key):
+			gu.Rejected = "the tailnet refused its key: invalid key"
+		default:
+			gu.Node, gu.Rejected = true, ""
+			gu.Joins++
+		}
+		return nil
+	})
+}
+
+// SetTailnet changes the tailnet a container joins as Docker's driver
+// does: one that joins or leaves is made again, stopped, its processes
+// ended and its files outside /workspace gone, a node it leaves logged out
+// and forgotten; a new hostname or routes are set on a running one's node,
+// one stopped taking them at the call after its start.
+func (c containers) SetTailnet(_ context.Context, name string, t *driver.ContainerTailnet) error {
+	return c.h.change("containers.SetTailnet", func() error {
+		gu, err := c.get(name)
+		if err != nil {
+			return err
+		}
+		switch {
+		case gu.Tailnet == nil && t == nil:
+			return nil
+		case gu.Tailnet != nil && t != nil:
+			if *gu.Tailnet != *t && gu.Running {
+				nt := *t
+				gu.Tailnet = &nt
+				gu.TailnetSets++
+			}
+			return nil
+		}
+		c.endProcs(gu, syscall.SIGTERM)
+		gu.Running, gu.Address = false, ""
+		gu.Files = map[string][]byte{}
+		gu.Node, gu.Rejected, gu.Tailnet = false, "", nil
+		if t != nil {
+			nt := *t
+			gu.Tailnet = &nt
+			gu.Files[tunDevice] = nil
+		}
+		gu.Remade++
+		return nil
+	})
+}
+
+// TailnetSets is how many times a running container's hostname or routes
+// were set on its node; Remade how many times it was made again to join
+// or leave a tailnet.
+func (h *Host) TailnetSets(name string) (sets, remade int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if gu := h.st.Guests["container/"+name]; gu != nil {
+		return gu.TailnetSets, gu.Remade
+	}
+	return 0, 0
+}
+
+// TailnetJoins is how many times a container joined its tailnet.
+func (h *Host) TailnetJoins(name string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if gu := h.st.Guests["container/"+name]; gu != nil {
+		return gu.Joins
+	}
+	return 0
 }
 
 // envOf is a command's environment in a guest: the guest's, then its own.
@@ -59,7 +179,7 @@ func envOf(gu *guest, own map[string]string) map[string]string {
 }
 
 func (v vms) Create(_ context.Context, spec driver.VMSpec) error {
-	return v.create("vms.Create", spec.GuestSpec, spec.BaseImage, nil)
+	return v.create("vms.Create", spec.GuestSpec, spec.BaseImage, nil, nil)
 }
 
 func (v vms) Resize(_ context.Context, name string, cpus int, memory uint64) error {
@@ -95,11 +215,16 @@ func (g guests) op(name string) string {
 
 func (g guests) key(name string) string { return g.kind + "/" + name }
 
-func (g guests) create(op string, spec driver.GuestSpec, image string, check func() error) error {
+// create makes a guest once: check, if set, sees the one there (nil for
+// none) and may refuse; made, if set, finishes one made now.
+func (g guests) create(op string, spec driver.GuestSpec, image string, check func(cur *guest) error, made func(*guest)) error {
 	return g.h.change(op, func() error {
 		if cur := g.h.st.Guests[g.key(spec.Name)]; cur != nil {
 			if cur.Image != image || cur.Spec.Disk != spec.Disk || cur.Spec.Network != spec.Network || cur.Spec.Alias != spec.Alias {
 				return fmt.Errorf("%s %s is there, made otherwise: %w", g.kind, spec.Name, driver.ErrConflict)
+			}
+			if check != nil {
+				return check(cur)
 			}
 			return nil
 		}
@@ -110,12 +235,16 @@ func (g guests) create(op string, spec driver.GuestSpec, image string, check fun
 			return fmt.Errorf("network %s: %w", spec.Network, driver.ErrNotFound)
 		}
 		if check != nil {
-			if err := check(); err != nil {
+			if err := check(nil); err != nil {
 				return err
 			}
 		}
 		spec.Labels = maps.Clone(spec.Labels)
-		g.h.st.Guests[g.key(spec.Name)] = &guest{Spec: spec, Image: image, Created: g.h.clock.Now(), Files: map[string][]byte{}}
+		gu := &guest{Spec: spec, Image: image, Created: g.h.clock.Now(), Files: map[string][]byte{}}
+		if made != nil {
+			made(gu)
+		}
+		g.h.st.Guests[g.key(spec.Name)] = gu
 		return nil
 	})
 }
@@ -229,7 +358,12 @@ func (g guests) Remove(_ context.Context, name string) error {
 func (g guests) guestOf(gu *guest) driver.Guest {
 	spec := gu.Spec
 	spec.Labels = maps.Clone(spec.Labels)
-	return driver.Guest{GuestSpec: spec, Image: gu.Image, Running: gu.Running, StartedAt: gu.StartedAt, Address: gu.Address, Created: gu.Created}
+	var t *driver.ContainerTailnet
+	if gu.Tailnet != nil {
+		nt := *gu.Tailnet
+		t = &nt
+	}
+	return driver.Guest{GuestSpec: spec, Image: gu.Image, Running: gu.Running, StartedAt: gu.StartedAt, Address: gu.Address, Created: gu.Created, Tailnet: t}
 }
 
 func (g guests) Inspect(_ context.Context, name string) (driver.Guest, error) {

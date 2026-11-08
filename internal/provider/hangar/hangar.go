@@ -125,6 +125,10 @@ type Config struct {
 	// TailnetAuthKey joins the system container to the tailnet, once: its
 	// state is kept on its disk.
 	TailnetAuthKey string
+	// TailnetKeys opens the key a box's container joins its own tailnet
+	// with, as the provider makes it (tailnet.go); nil leaves every key for
+	// tower to give through JoinTailnet.
+	TailnetKeys provider.TailnetKeys
 	// ReportEvery is how often the Target's status is reported, the system
 	// container checked and every Instance read back; SweepEvery how often
 	// the sweep runs, SweepGrace its grace. Zero is each one's default.
@@ -171,6 +175,9 @@ type Target struct {
 	// pullWritten says the pull secret is in hangar, as of this run.
 	pullMu      sync.Mutex
 	pullWritten bool
+	// tailnetKeys are the hangar Secrets of containers' tailnet keys known
+	// written, by name, as of this run.
+	tailnetKeys sync.Map
 	// tearingDown says the target is in teardown (Teardown).
 	tearingDown atomic.Bool
 	// mirrorOps holds a token for each mirror operation running

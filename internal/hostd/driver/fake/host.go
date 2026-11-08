@@ -134,6 +134,17 @@ type guest struct {
 	Procs []*proc
 	ProcN int
 	Keep  int
+	// Tailnet is the tailnet a container joins, nil for none; Node says
+	// its node has state, which it keeps across starts; Joins counts the
+	// joins it made, and Rejected is why its last join tried was not one.
+	Tailnet  *driver.ContainerTailnet `json:",omitempty"`
+	Node     bool                     `json:",omitempty"`
+	Joins    int                      `json:",omitempty"`
+	Rejected string                   `json:",omitempty"`
+	// TailnetSets counts the hostnames and routes set on its running node,
+	// Remade the times it was made again to join or leave a tailnet.
+	TailnetSets int `json:",omitempty"`
+	Remade      int `json:",omitempty"`
 }
 
 // repo is a remote repository or a mirror of it: its commits on its one

@@ -392,3 +392,16 @@ func (c *Client) Ticket(ctx context.Context, in provider.Instance, port int32) (
 	}
 	return tk, nil
 }
+
+func (c *Client) JoinTailnet(ctx context.Context, req provider.TailnetJoin) error {
+	k, err := c.begin(ctx, req.Instance)
+	if err != nil {
+		return err
+	}
+	defer k.release()
+	_, err = k.host.JoinTailnet(ctx, connect.NewRequest(&hostdv1.JoinTailnetRequest{Instance: instance(req.Instance), Key: req.Key}))
+	if err != nil {
+		return k.failed(ctx, err)
+	}
+	return nil
+}

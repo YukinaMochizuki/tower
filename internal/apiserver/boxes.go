@@ -276,6 +276,14 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 	}
 	st.Instance, st.Alias = name, key.Name
 	st.Disks = boxDiskStatus(in)
+	// Its tailnet as its spec asks now, applied to its instance as it runs
+	// (docs/decisions/tailnet.md).
+	if in, err = s.syncInstanceTailnet(ctx, in, spec.GetTailnet()); err != nil {
+		return err
+	}
+	if spec.GetTailnet() == nil {
+		st.Conditions = dropTailnetJoined(st.GetConditions())
+	}
 
 	boosted, err := s.boostActivity(ctx, key)
 	if err != nil {
@@ -351,6 +359,10 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		}
 		bs.not(envv1alpha1.BoxPhase_BOX_PHASE_STARTING, "Starting", "its instance is starting")
 		return nil
+	}
+	// Its tailnet, which holds nothing back.
+	if err := s.boxTailnet(ctx, key, box, in, p, bs); err != nil {
+		return err
 	}
 	// Its secret files, at each start, before anything runs in it.
 	if len(spec.GetSecretFiles()) > 0 && in.GetMetadata().GetAnnotations()[secretFilesAnnotation] != runOf(in) {
@@ -597,6 +609,11 @@ func (s *Server) makeBoxInstance(ctx context.Context, key controller.Key, box *e
 		return err
 	}
 	is.Alias, is.RunState = key.Name, envv1alpha1.RunState_RUN_STATE_RUNNING
+	// The box's own node: never its boost's, which boxInstanceSpec makes
+	// too.
+	if tn := spec.GetTailnet(); tn != nil {
+		is.Tailnet = proto.Clone(tn).(*envv1alpha1.Tailnet)
+	}
 	if spec.GetRunState() == envv1alpha1.RunState_RUN_STATE_STOPPED {
 		is.RunState = envv1alpha1.RunState_RUN_STATE_STOPPED
 	}

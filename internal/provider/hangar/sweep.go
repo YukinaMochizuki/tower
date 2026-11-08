@@ -173,18 +173,20 @@ func (t *Target) Sweep(ctx context.Context) error {
 			return err
 		}
 	}
-	// A registry login the target no longer pulls with goes.
+	// A registry login the target no longer pulls with goes, and an
+	// instance's tailnet key once the instance has (tailnet.go).
 	secrets, err := t.api.Secrets().List(ctx, t.selector())
 	if err != nil {
 		return err
 	}
 	for _, sec := range secrets {
 		meta := sec.GetMetadata()
-		if !t.mine(meta.GetLabels()) || meta.GetDeleteTime() != nil ||
+		if !t.mine(meta.GetLabels()) || meta.GetDeleteTime() != nil || live[meta.GetLabels()[LabelUID]] ||
 			(len(t.cfg.PullSecret) > 0 && meta.GetName() == pullSecretName(t.cfg.Target)) {
 			continue
 		}
-		t.log.Info("sweeping a registry login the target no longer pulls with", "secret", meta.GetName())
+		t.tailnetKeys.Delete(meta.GetName())
+		t.log.Info("sweeping a secret nothing of the target uses", "secret", meta.GetName())
 		if err := t.api.Secrets().Delete(ctx, meta.GetName()); err != nil {
 			return err
 		}

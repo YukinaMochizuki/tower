@@ -222,6 +222,14 @@ type BoxSpec struct {
 	// setup "auto" falls back to them. Empty is tower's --default-box-image;
 	// a box with neither fails. Not with image or image_build.
 	FallbackImage string `protobuf:"bytes,13,opt,name=fallback_image,json=fallbackImage,proto3" json:"fallback_image,omitempty"`
+	// Joins the box to a tailnet as a node of its own, with its own TUN
+	// device; a box without it is on no tailnet. Changed on a live box, it
+	// is applied to it: added, it joins; removed, it logs out and its node
+	// is forgotten; a new hostname or accept_routes is set on its node. On
+	// a hostd target, adding or removing it makes the box's container again,
+	// as a restart does, keeping /workspace. Whether it joined is its
+	// TailnetJoined condition (docs/decisions/tailnet.md).
+	Tailnet       *Tailnet `protobuf:"bytes,14,opt,name=tailnet,proto3" json:"tailnet,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -331,6 +339,13 @@ func (x *BoxSpec) GetFallbackImage() string {
 		return x.FallbackImage
 	}
 	return ""
+}
+
+func (x *BoxSpec) GetTailnet() *Tailnet {
+	if x != nil {
+		return x.Tailnet
+	}
+	return nil
 }
 
 // SecretFile is one value of a Secret written into a box as a file. The
@@ -533,7 +548,11 @@ type BoxStatus struct {
 	// failed, when ("failed at") and when it is built again ("built again
 	// at"); Rebuilding while it is built again; and BuiltSince once it is
 	// built, when a box made now is made of it. The box itself stays on the
-	// image it fell back to.
+	// image it fell back to. TailnetJoined, for a box with spec.tailnet,
+	// says whether it joined its tailnet: reason Joined; KeyRejected, NoKey
+	// (its auth_secret is not there, or holds no "authkey"), Starting or
+	// Failed, with a message. It never holds the box back from READY, and
+	// goes with spec.tailnet.
 	Conditions []*v1.Condition `protobuf:"bytes,2,rep,name=conditions,proto3" json:"conditions,omitempty"`
 	Phase      BoxPhase        `protobuf:"varint,3,opt,name=phase,proto3,enum=tower.environments.v1alpha1.BoxPhase" json:"phase,omitempty"`
 	// Why a STOPPED box stopped: "Requested" (run_state) or "Idle".
@@ -1476,7 +1495,7 @@ const file_tower_environments_v1alpha1_box_proto_rawDesc = "" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x128\n" +
 	"\x04spec\x18\x04 \x01(\v2$.tower.environments.v1alpha1.BoxSpecR\x04spec\x12>\n" +
 	"\x06status\x18\x05 \x01(\v2&.tower.environments.v1alpha1.BoxStatusR\x06status:\x16\xca\xf3\x18\x12\n" +
-	"\x03Box\x12\x05boxes\x1a\x02bx \x01\"\xbe\x05\n" +
+	"\x03Box\x12\x05boxes\x1a\x02bx \x01\"\xfe\x05\n" +
 	"\aBoxSpec\x12&\n" +
 	"\n" +
 	"workstream\x18\x01 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\n" +
@@ -1492,7 +1511,8 @@ const file_tower_environments_v1alpha1_box_proto_rawDesc = "" +
 	"\fsecret_files\x18\v \x03(\v2'.tower.environments.v1alpha1.SecretFileB\x06\xca\xf3\x18\x02\b\x01R\vsecretFiles\x12P\n" +
 	"\vimage_build\x18\f \x01(\v2'.tower.environments.v1alpha1.ImageBuildB\x06\xca\xf3\x18\x02\b\x01R\n" +
 	"imageBuild\x12-\n" +
-	"\x0efallback_image\x18\r \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\rfallbackImageJ\x04\b\a\x10\bJ\x04\b\x05\x10\x06R\x0fbackground_workR\x11privileged_secret\"^\n" +
+	"\x0efallback_image\x18\r \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\rfallbackImage\x12>\n" +
+	"\atailnet\x18\x0e \x01(\v2$.tower.environments.v1alpha1.TailnetR\atailnetJ\x04\b\a\x10\bJ\x04\b\x05\x10\x06R\x0fbackground_workR\x11privileged_secret\"^\n" +
 	"\n" +
 	"SecretFile\x12\x16\n" +
 	"\x06secret\x18\x01 \x01(\tR\x06secret\x12\x10\n" +
@@ -1645,10 +1665,11 @@ var file_tower_environments_v1alpha1_box_proto_goTypes = []any{
 	(RunState)(0),                   // 22: tower.environments.v1alpha1.RunState
 	(*Resources)(nil),               // 23: tower.environments.v1alpha1.Resources
 	(*SecretRef)(nil),               // 24: tower.environments.v1alpha1.SecretRef
-	(*v1.Condition)(nil),            // 25: tower.meta.v1.Condition
-	(*timestamppb.Timestamp)(nil),   // 26: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),     // 27: google.protobuf.Duration
-	(v1.EventType)(0),               // 28: tower.meta.v1.EventType
+	(*Tailnet)(nil),                 // 25: tower.environments.v1alpha1.Tailnet
+	(*v1.Condition)(nil),            // 26: tower.meta.v1.Condition
+	(*timestamppb.Timestamp)(nil),   // 27: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),     // 28: google.protobuf.Duration
+	(v1.EventType)(0),               // 29: tower.meta.v1.EventType
 }
 var file_tower_environments_v1alpha1_box_proto_depIdxs = []int32{
 	21, // 0: tower.environments.v1alpha1.Box.metadata:type_name -> tower.meta.v1.ObjectMeta
@@ -1660,38 +1681,39 @@ var file_tower_environments_v1alpha1_box_proto_depIdxs = []int32{
 	24, // 6: tower.environments.v1alpha1.BoxSpec.privileged_secrets:type_name -> tower.environments.v1alpha1.SecretRef
 	3,  // 7: tower.environments.v1alpha1.BoxSpec.secret_files:type_name -> tower.environments.v1alpha1.SecretFile
 	4,  // 8: tower.environments.v1alpha1.BoxSpec.image_build:type_name -> tower.environments.v1alpha1.ImageBuild
-	20, // 9: tower.environments.v1alpha1.ImageBuild.files:type_name -> tower.environments.v1alpha1.ImageBuild.FilesEntry
-	25, // 10: tower.environments.v1alpha1.BoxStatus.conditions:type_name -> tower.meta.v1.Condition
-	0,  // 11: tower.environments.v1alpha1.BoxStatus.phase:type_name -> tower.environments.v1alpha1.BoxPhase
-	26, // 12: tower.environments.v1alpha1.BoxStatus.last_use_time:type_name -> google.protobuf.Timestamp
-	7,  // 13: tower.environments.v1alpha1.BoxStatus.disks:type_name -> tower.environments.v1alpha1.BoxDisk
-	27, // 14: tower.environments.v1alpha1.BoxDisk.check_interval:type_name -> google.protobuf.Duration
-	1,  // 15: tower.environments.v1alpha1.GetBoxResponse.box:type_name -> tower.environments.v1alpha1.Box
-	1,  // 16: tower.environments.v1alpha1.ListBoxesResponse.items:type_name -> tower.environments.v1alpha1.Box
-	28, // 17: tower.environments.v1alpha1.WatchBoxesResponse.type:type_name -> tower.meta.v1.EventType
-	1,  // 18: tower.environments.v1alpha1.WatchBoxesResponse.box:type_name -> tower.environments.v1alpha1.Box
-	1,  // 19: tower.environments.v1alpha1.ApplyBoxRequest.box:type_name -> tower.environments.v1alpha1.Box
-	1,  // 20: tower.environments.v1alpha1.ApplyBoxResponse.box:type_name -> tower.environments.v1alpha1.Box
-	1,  // 21: tower.environments.v1alpha1.DeleteBoxResponse.box:type_name -> tower.environments.v1alpha1.Box
-	6,  // 22: tower.environments.v1alpha1.UpdateBoxStatusRequest.status:type_name -> tower.environments.v1alpha1.BoxStatus
-	1,  // 23: tower.environments.v1alpha1.UpdateBoxStatusResponse.box:type_name -> tower.environments.v1alpha1.Box
-	8,  // 24: tower.environments.v1alpha1.BoxService.GetBox:input_type -> tower.environments.v1alpha1.GetBoxRequest
-	10, // 25: tower.environments.v1alpha1.BoxService.ListBoxes:input_type -> tower.environments.v1alpha1.ListBoxesRequest
-	12, // 26: tower.environments.v1alpha1.BoxService.WatchBoxes:input_type -> tower.environments.v1alpha1.WatchBoxesRequest
-	14, // 27: tower.environments.v1alpha1.BoxService.ApplyBox:input_type -> tower.environments.v1alpha1.ApplyBoxRequest
-	16, // 28: tower.environments.v1alpha1.BoxService.DeleteBox:input_type -> tower.environments.v1alpha1.DeleteBoxRequest
-	18, // 29: tower.environments.v1alpha1.BoxService.UpdateBoxStatus:input_type -> tower.environments.v1alpha1.UpdateBoxStatusRequest
-	9,  // 30: tower.environments.v1alpha1.BoxService.GetBox:output_type -> tower.environments.v1alpha1.GetBoxResponse
-	11, // 31: tower.environments.v1alpha1.BoxService.ListBoxes:output_type -> tower.environments.v1alpha1.ListBoxesResponse
-	13, // 32: tower.environments.v1alpha1.BoxService.WatchBoxes:output_type -> tower.environments.v1alpha1.WatchBoxesResponse
-	15, // 33: tower.environments.v1alpha1.BoxService.ApplyBox:output_type -> tower.environments.v1alpha1.ApplyBoxResponse
-	17, // 34: tower.environments.v1alpha1.BoxService.DeleteBox:output_type -> tower.environments.v1alpha1.DeleteBoxResponse
-	19, // 35: tower.environments.v1alpha1.BoxService.UpdateBoxStatus:output_type -> tower.environments.v1alpha1.UpdateBoxStatusResponse
-	30, // [30:36] is the sub-list for method output_type
-	24, // [24:30] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	25, // 9: tower.environments.v1alpha1.BoxSpec.tailnet:type_name -> tower.environments.v1alpha1.Tailnet
+	20, // 10: tower.environments.v1alpha1.ImageBuild.files:type_name -> tower.environments.v1alpha1.ImageBuild.FilesEntry
+	26, // 11: tower.environments.v1alpha1.BoxStatus.conditions:type_name -> tower.meta.v1.Condition
+	0,  // 12: tower.environments.v1alpha1.BoxStatus.phase:type_name -> tower.environments.v1alpha1.BoxPhase
+	27, // 13: tower.environments.v1alpha1.BoxStatus.last_use_time:type_name -> google.protobuf.Timestamp
+	7,  // 14: tower.environments.v1alpha1.BoxStatus.disks:type_name -> tower.environments.v1alpha1.BoxDisk
+	28, // 15: tower.environments.v1alpha1.BoxDisk.check_interval:type_name -> google.protobuf.Duration
+	1,  // 16: tower.environments.v1alpha1.GetBoxResponse.box:type_name -> tower.environments.v1alpha1.Box
+	1,  // 17: tower.environments.v1alpha1.ListBoxesResponse.items:type_name -> tower.environments.v1alpha1.Box
+	29, // 18: tower.environments.v1alpha1.WatchBoxesResponse.type:type_name -> tower.meta.v1.EventType
+	1,  // 19: tower.environments.v1alpha1.WatchBoxesResponse.box:type_name -> tower.environments.v1alpha1.Box
+	1,  // 20: tower.environments.v1alpha1.ApplyBoxRequest.box:type_name -> tower.environments.v1alpha1.Box
+	1,  // 21: tower.environments.v1alpha1.ApplyBoxResponse.box:type_name -> tower.environments.v1alpha1.Box
+	1,  // 22: tower.environments.v1alpha1.DeleteBoxResponse.box:type_name -> tower.environments.v1alpha1.Box
+	6,  // 23: tower.environments.v1alpha1.UpdateBoxStatusRequest.status:type_name -> tower.environments.v1alpha1.BoxStatus
+	1,  // 24: tower.environments.v1alpha1.UpdateBoxStatusResponse.box:type_name -> tower.environments.v1alpha1.Box
+	8,  // 25: tower.environments.v1alpha1.BoxService.GetBox:input_type -> tower.environments.v1alpha1.GetBoxRequest
+	10, // 26: tower.environments.v1alpha1.BoxService.ListBoxes:input_type -> tower.environments.v1alpha1.ListBoxesRequest
+	12, // 27: tower.environments.v1alpha1.BoxService.WatchBoxes:input_type -> tower.environments.v1alpha1.WatchBoxesRequest
+	14, // 28: tower.environments.v1alpha1.BoxService.ApplyBox:input_type -> tower.environments.v1alpha1.ApplyBoxRequest
+	16, // 29: tower.environments.v1alpha1.BoxService.DeleteBox:input_type -> tower.environments.v1alpha1.DeleteBoxRequest
+	18, // 30: tower.environments.v1alpha1.BoxService.UpdateBoxStatus:input_type -> tower.environments.v1alpha1.UpdateBoxStatusRequest
+	9,  // 31: tower.environments.v1alpha1.BoxService.GetBox:output_type -> tower.environments.v1alpha1.GetBoxResponse
+	11, // 32: tower.environments.v1alpha1.BoxService.ListBoxes:output_type -> tower.environments.v1alpha1.ListBoxesResponse
+	13, // 33: tower.environments.v1alpha1.BoxService.WatchBoxes:output_type -> tower.environments.v1alpha1.WatchBoxesResponse
+	15, // 34: tower.environments.v1alpha1.BoxService.ApplyBox:output_type -> tower.environments.v1alpha1.ApplyBoxResponse
+	17, // 35: tower.environments.v1alpha1.BoxService.DeleteBox:output_type -> tower.environments.v1alpha1.DeleteBoxResponse
+	19, // 36: tower.environments.v1alpha1.BoxService.UpdateBoxStatus:output_type -> tower.environments.v1alpha1.UpdateBoxStatusResponse
+	31, // [31:37] is the sub-list for method output_type
+	25, // [25:31] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_tower_environments_v1alpha1_box_proto_init() }
