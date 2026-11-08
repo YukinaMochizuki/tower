@@ -191,16 +191,49 @@ func (q *boostQueues) of(target string) *targetBoosts {
 	return t
 }
 
-// pruneAll prunes each target's tickets, as prune does.
-func (q *boostQueues) pruneAll(now time.Time) {
+// queued is how many of the target's starts wait for room: not yet
+// admitted, and whose box has none of boosts, as admitBoosts takes them.
+// One whose box's boost is there (going, FAILED and being replaced, or
+// smaller than asked) waits for that boost to go, not for room.
+func (q *boostQueues) queued(target string, boosts []*envv1alpha1.Boost) int {
 	q.mu.Lock()
-	targets := slices.Collect(maps.Values(q.targets))
+	t, ok := q.targets[target]
 	q.mu.Unlock()
-	for _, t := range targets {
+	if !ok {
+		return 0
+	}
+	has := map[controller.Key]bool{}
+	for _, b := range boosts {
+		has[controller.Key{Project: b.GetMetadata().GetProject(), Name: b.GetMetadata().GetName()}] = true
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := 0
+	for _, tk := range t.tickets {
+		if !tk.admitted && !has[tk.box] {
+			n++
+		}
+	}
+	return n
+}
+
+// pruneAll prunes each target's tickets, as prune does, and says the
+// targets whose starts waiting for room it dropped.
+func (q *boostQueues) pruneAll(now time.Time) []string {
+	q.mu.Lock()
+	targets := maps.Clone(q.targets)
+	q.mu.Unlock()
+	var changed []string
+	for name, t := range targets {
 		t.mu.Lock()
+		before := t.waiting()
 		t.prune(now)
+		if t.waiting() != before {
+			changed = append(changed, name)
+		}
 		t.mu.Unlock()
 	}
+	return changed
 }
 
 // runTicketPrune prunes the targets' tickets each minute, whether or not
@@ -213,7 +246,9 @@ func (s *Server) runTicketPrune(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.Chan():
-			s.boosts.pruneAll(s.clock.Now())
+			for _, target := range s.boosts.pruneAll(s.clock.Now()) {
+				s.boostQueueChanged(target)
+			}
 		}
 	}
 }
@@ -230,6 +265,26 @@ func (t *targetBoosts) prune(now time.Time) {
 		if st.res != nil && now.Sub(st.at) > boostTicketTTL {
 			delete(t.started, id)
 		}
+	}
+}
+
+// waiting counts the tickets not yet admitted, of which queued counts
+// those waiting for room: a change to it is what has the target's status
+// counted again. Held mu.
+func (t *targetBoosts) waiting() int {
+	n := 0
+	for _, tk := range t.tickets {
+		if !tk.admitted {
+			n++
+		}
+	}
+	return n
+}
+
+// boostQueueChanged has the target's status count its queue again.
+func (s *Server) boostQueueChanged(target string) {
+	if s.targetCtrl != nil {
+		s.targetCtrl.Enqueue(controller.Key{Name: target})
 	}
 }
 
@@ -465,6 +520,15 @@ func emptyRoomOf(t *targetsv1alpha1.Target, v boostsNow) boostRoom {
 // is not passed by smaller ones forever. A workstream's turn is spent
 // only on a boost made. Held tq.mu.
 func (s *Server) admitBoosts(ctx context.Context, t *targetsv1alpha1.Target, tq *targetBoosts) error {
+	// It prunes, drops the tickets of boxes gone, and admits: each may
+	// change what the target's status counts as queued, and the first two
+	// write nothing a watch would see.
+	before := tq.waiting()
+	defer func() {
+		if tq.waiting() != before {
+			s.boostQueueChanged(t.GetMetadata().GetName())
+		}
+	}()
 	now := s.clock.Now()
 	tq.prune(now)
 	order := tq.order()

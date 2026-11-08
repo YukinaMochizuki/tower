@@ -79,6 +79,8 @@ func (s *Server) newControllers() []*controller.Controller {
 		controller.Watch{Kind: registry.Target.Kind, Map: controller.Self},
 		controller.Watch{Kind: registry.Instance.Kind, Map: instanceTarget, SkipResync: true},
 		controller.Watch{Kind: registry.Golden.Kind, Map: goldenTarget, SkipResync: true},
+		// What its boosts hold is in its status.
+		controller.Watch{Kind: registry.Boost.Kind, Map: boostTarget, SkipResync: true},
 	)
 	s.boostCtrl = c("boost", s.reconcileBoost,
 		controller.Watch{Kind: registry.Boost.Kind, Map: controller.Self},
@@ -384,6 +386,14 @@ func goldenTarget(_ context.Context, o store.Object) []controller.Key {
 		return nil
 	}
 	return []controller.Key{{Name: g.GetSpec().GetTarget()}}
+}
+
+func boostTarget(_ context.Context, o store.Object) []controller.Key {
+	var b envv1alpha1.Boost
+	if proto.Unmarshal(o.Data, &b) != nil {
+		return nil
+	}
+	return []controller.Key{{Name: b.GetSpec().GetTarget()}}
 }
 
 func instanceTarget(_ context.Context, o store.Object) []controller.Key {

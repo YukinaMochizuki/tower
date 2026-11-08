@@ -153,6 +153,26 @@
       },
       "type": "object"
     },
+    "tower.targets.v1alpha1.BoostUsage": {
+      "additionalProperties": false,
+      "description": "BoostUsage is a hangar target's boosts against its budget.",
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/tower.targets.v1alpha1.BoostSize",
+          "description": "settings.boost_budget, or tower's default when it is unset."
+        },
+        "held": {
+          "$ref": "#/$defs/tower.targets.v1alpha1.BoostSize",
+          "description": "The cpu and memory of every boost that holds room, as admission counts it: each not FAILED, whether being made, READY, or being deleted until it is gone."
+        },
+        "queued": {
+          "description": "The boosted starts waiting for room in the budget or the Plan, not yet admitted; a start waiting for its box's own boost to go (being deleted, FAILED, or smaller than asked) is not one. tower holds them in memory, so a restarted apiserver counts none until their callers ask again.",
+          "format": "int32",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "tower.targets.v1alpha1.Capacity": {
       "additionalProperties": false,
       "description": "Capacity is the target's room, as quantities.",
@@ -395,6 +415,10 @@
       "additionalProperties": false,
       "description": "TargetStatus is the target's state as its provider last reported it and as tower counts it: enough to see what is wrong without logging in to it.",
       "properties": {
+        "boosts": {
+          "$ref": "#/$defs/tower.targets.v1alpha1.BoostUsage",
+          "description": "What the target's boosts hold of its boost budget, as tower counts them; unset on a hostd target, which has no boosts (docs/decisions/boost.md)."
+        },
         "capacity": {
           "$ref": "#/$defs/tower.targets.v1alpha1.Capacity"
         },

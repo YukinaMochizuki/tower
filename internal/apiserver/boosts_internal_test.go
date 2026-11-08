@@ -69,6 +69,33 @@ func equal(a, b []string) bool {
 	return true
 }
 
+// TestQueuedCountsStartsWaitingForRoom: a target's queued starts are its
+// tickets not yet admitted whose box has no boost; one admitted, or one
+// waiting for its box's own boost to go, is not queued, and another
+// target's are not counted.
+func TestQueuedCountsStartsWaitingForRoom(t *testing.T) {
+	key := func(name string) controller.Key { return controller.Key{Project: "p", Name: name} }
+	boost := func(name string) *envv1alpha1.Boost {
+		return &envv1alpha1.Boost{Metadata: &metav1.ObjectMeta{Project: "p", Name: name}}
+	}
+	q := &boostQueues{}
+	t1 := q.of("t1")
+	t1.tickets["waits"] = &boostTicket{id: "waits", box: key("a")}
+	t1.tickets["admitted"] = &boostTicket{id: "admitted", box: key("b"), admitted: true}
+	t1.tickets["its-boost-goes"] = &boostTicket{id: "its-boost-goes", box: key("c")}
+	q.of("t2").tickets["elsewhere"] = &boostTicket{id: "elsewhere", box: key("d")}
+
+	if got := q.queued("t1", []*envv1alpha1.Boost{boost("b"), boost("c")}); got != 1 {
+		t.Errorf("queued on t1 = %d, want 1: only the start whose box has no boost and is not admitted", got)
+	}
+	if got := q.queued("t1", []*envv1alpha1.Boost{boost("b")}); got != 2 {
+		t.Errorf("queued on t1 once c's boost is gone = %d, want 2", got)
+	}
+	if got := q.queued("none", nil); got != 0 {
+		t.Errorf("queued on a target with no queue = %d, want 0", got)
+	}
+}
+
 // TestBoostSizes: a size is held to the max, then its vCPUs moved into
 // hangar's shapes; the room a target has lets one boost in whatever the
 // budget, and a Plan's quota left caps it.
