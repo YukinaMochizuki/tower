@@ -112,12 +112,18 @@ theirs to share.
   systemd-resolved sends to the workstream network's resolver
   (`internal/guest/vmssh`); a tailnet whose DNS settings override the
   local resolver would take them from it if tailscale managed the VM's
-  DNS. So a VM too joins with `--accept-dns=false`, and a drop-in of
-  tailscaled's routes `~ts.net` alone to `100.100.100.100` on
-  `tailscale0`: aliases resolve as before, MagicDNS names through the
-  node. A VM without systemd-resolved running is left as it is, and
-  resolves no MagicDNS name: reach its peers by their tailnet addresses.
-  This is not yet checked on a real VM.
+  DNS. So a VM too joins with `--accept-dns=false`, and systemd-resolved's
+  global configuration (`/etc/systemd/resolved.conf.d/tower-tailnet.conf`,
+  `DNS=100.100.100.100`, `Domains=~ts.net`) routes ts.net names alone to
+  MagicDNS: aliases and every other name resolve through the VM's own
+  link as before. It is global, not `tailscale0`'s, because tailscaled
+  resets that link's DNS as `tailscale up` brings it up (with
+  `--accept-dns=false`, to nothing), undoing anything set there first.
+  Checked on an Ubuntu 24.04 VM (systemd 255): with that global
+  configuration a public name is answered by the link's server and a
+  ts.net name goes to the global server alone. A VM without
+  systemd-resolved running is left as it is, and resolves no MagicDNS
+  name: reach its peers by their tailnet addresses.
 
 ## Consequences
 
