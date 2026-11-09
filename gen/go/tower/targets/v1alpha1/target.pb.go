@@ -433,8 +433,20 @@ type TargetSettings struct {
 	// setup steps at their 3-minute bound each, and 3 minutes for the
 	// instance's start and the box's checkouts.
 	BoostStartTimeout *durationpb.Duration `protobuf:"bytes,20,opt,name=boost_start_timeout,json=boostStartTimeout,proto3" json:"boost_start_timeout,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// How much disk the goldens other than warm ones, a machine's, may hold
+	// on this target, as a quantity; unset, 200Gi. A box image is in the
+	// registry and holds none.
+	// Over it, the least recently used that nothing references are deleted
+	// until they hold golden_budget_low at most. Below the free disk
+	// DiskPressure needs and a 10Gi cushion, they are deleted the same way
+	// until it is free again. A golden is never deleted for its age alone.
+	GoldenBudget string `protobuf:"bytes,21,opt,name=golden_budget,json=goldenBudget,proto3" json:"golden_budget,omitempty"`
+	// What goldens over golden_budget are brought down to, at most
+	// golden_budget; unset, 150Gi, or three quarters of a golden_budget set
+	// alone.
+	GoldenBudgetLow string `protobuf:"bytes,22,opt,name=golden_budget_low,json=goldenBudgetLow,proto3" json:"golden_budget_low,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *TargetSettings) Reset() {
@@ -605,6 +617,20 @@ func (x *TargetSettings) GetBoostStartTimeout() *durationpb.Duration {
 		return x.BoostStartTimeout
 	}
 	return nil
+}
+
+func (x *TargetSettings) GetGoldenBudget() string {
+	if x != nil {
+		return x.GoldenBudget
+	}
+	return ""
+}
+
+func (x *TargetSettings) GetGoldenBudgetLow() string {
+	if x != nil {
+		return x.GoldenBudgetLow
+	}
+	return ""
 }
 
 // BoostSize is an amount of cpu and memory, as quantities such as "8" and
@@ -1890,7 +1916,8 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\x0fBaseImagesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\r\n" +
-	"\vHostdTarget\"\xb1\t\n" +
+	"\vHostdTarget\"\x82\n" +
+	"\n" +
 	"\x0eTargetSettings\x12A\n" +
 	"\x0fidle_stop_after\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\ridleStopAfter\x12\x1f\n" +
 	"\vwarm_budget\x18\x02 \x01(\tR\n" +
@@ -1917,7 +1944,9 @@ const file_tower_targets_v1alpha1_target_proto_rawDesc = "" +
 	"\fboost_budget\x18\x12 \x01(\v2!.tower.targets.v1alpha1.BoostSizeR\vboostBudget\x128\n" +
 	"\n" +
 	"boost_idle\x18\x13 \x01(\v2\x19.google.protobuf.DurationR\tboostIdle\x12I\n" +
-	"\x13boost_start_timeout\x18\x14 \x01(\v2\x19.google.protobuf.DurationR\x11boostStartTimeout\"5\n" +
+	"\x13boost_start_timeout\x18\x14 \x01(\v2\x19.google.protobuf.DurationR\x11boostStartTimeout\x12#\n" +
+	"\rgolden_budget\x18\x15 \x01(\tR\fgoldenBudget\x12*\n" +
+	"\x11golden_budget_low\x18\x16 \x01(\tR\x0fgoldenBudgetLow\"5\n" +
 	"\tBoostSize\x12\x10\n" +
 	"\x03cpu\x18\x01 \x01(\tR\x03cpu\x12\x16\n" +
 	"\x06memory\x18\x02 \x01(\tR\x06memory\"Q\n" +

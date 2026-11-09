@@ -130,6 +130,9 @@ func validateTarget(_ context.Context, _ *Server, _ authz.Caller, _, obj proto.M
 			return invalid("spec.settings.warm_budget: %v", err)
 		}
 	}
+	if _, _, err := goldenBudgetOf(set); err != nil {
+		return invalid("spec.settings.%v", err)
+	}
 	if set.GetWarmMaxCommitsBehind() < 0 {
 		return invalid("spec.settings.warm_max_commits_behind must be zero or more")
 	}

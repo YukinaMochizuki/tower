@@ -147,6 +147,18 @@ message TargetSettings {
   // setup steps at their 3-minute bound each, and 3 minutes for the
   // instance's start and the box's checkouts.
   google.protobuf.Duration boost_start_timeout = 20;
+  // How much disk the goldens other than warm ones, a machine's, may hold
+  // on this target, as a quantity; unset, 200Gi. A box image is in the
+  // registry and holds none.
+  // Over it, the least recently used that nothing references are deleted
+  // until they hold golden_budget_low at most. Below the free disk
+  // DiskPressure needs and a 10Gi cushion, they are deleted the same way
+  // until it is free again. A golden is never deleted for its age alone.
+  string golden_budget = 21;
+  // What goldens over golden_budget are brought down to, at most
+  // golden_budget; unset, 150Gi, or three quarters of a golden_budget set
+  // alone.
+  string golden_budget_low = 22;
 }
 
 // BoostSize is an amount of cpu and memory, as quantities such as "8" and

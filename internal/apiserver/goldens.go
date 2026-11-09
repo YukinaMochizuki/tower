@@ -152,7 +152,7 @@ func (s *Server) liveGolden(ctx context.Context, project, name string) (*envv1al
 }
 
 // goldenUsed records that an environment was made from the golden now,
-// which pruning reads.
+// which the golden budget orders its goldens by.
 func (s *Server) goldenUsed(ctx context.Context, project, name string) error {
 	for range maxRetries {
 		g, ok, err := getTyped[*envv1alpha1.Golden](ctx, s, registry.Golden, resource.Key{Project: project, Name: name})
@@ -328,9 +328,10 @@ func (s *Server) reconcileGolden(ctx context.Context, key controller.Key) error 
 		if asked, err := s.retryGolden(ctx, g); err != nil || asked {
 			return err
 		}
-		return s.pruneGolden(ctx, g)
+		return s.pruneFailedGolden(ctx, g)
 	case envv1alpha1.GoldenPhase_GOLDEN_PHASE_READY:
-		return s.pruneGolden(ctx, g)
+		// What it holds is the golden budget's to weigh (goldenbudget.go).
+		return nil
 	case envv1alpha1.GoldenPhase_GOLDEN_PHASE_UNSPECIFIED:
 		return s.setGolden(ctx, g, envv1alpha1.GoldenPhase_GOLDEN_PHASE_BUILDING, "Building", "", nil)
 	}
@@ -863,19 +864,15 @@ func (s *Server) deleteGoldenArtifact(ctx context.Context, key controller.Key, g
 	return nil
 }
 
-// pruneGolden deletes a golden nothing was made from for GoldenPruneAfter
-// and nothing references: no live box or machine made of it, no instance
-// cloned from it, no golden made on it, and no warm golden the warm
-// controller holds.
-func (s *Server) pruneGolden(ctx context.Context, g *envv1alpha1.Golden) error {
+// pruneFailedGolden deletes a failed golden nothing was made from for
+// FailedGoldenKeptFor and nothing references, but a warm golden the warm
+// controller holds. It holds no disk; a ready golden is deleted only for
+// the disk it holds (goldenbudget.go).
+func (s *Server) pruneFailedGolden(ctx context.Context, g *envv1alpha1.Golden) error {
 	if _, held := g.GetMetadata().GetLabels()[warmLabel]; held {
 		return nil
 	}
-	since := g.GetMetadata().GetCreateTime().AsTime()
-	if t := g.GetStatus().GetLastUseTime(); t != nil && t.AsTime().After(since) {
-		since = t.AsTime()
-	}
-	if s.clock.Since(since) < s.cfg.GoldenPruneAfter {
+	if s.clock.Since(goldenLastUse(g)) < FailedGoldenKeptFor {
 		return nil
 	}
 	used, err := s.goldenReferenced(ctx, g)
@@ -886,9 +883,19 @@ func (s *Server) pruneGolden(ctx context.Context, g *envv1alpha1.Golden) error {
 	rv := meta.GetResourceVersion()
 	_, err = s.backend(registry.Golden).Delete(s.system(ctx), resource.Key{Project: meta.GetProject(), Name: meta.GetName()}, &rv)
 	if err == nil {
-		s.log.Info("pruned a golden", "project", meta.GetProject(), "name", meta.GetName())
+		s.log.Info("pruned a failed golden", "project", meta.GetProject(), "name", meta.GetName())
 	}
 	return err
+}
+
+// goldenLastUse is when something was last made from the golden, or when
+// it was made if nothing has been.
+func goldenLastUse(g *envv1alpha1.Golden) time.Time {
+	since := g.GetMetadata().GetCreateTime().AsTime()
+	if t := g.GetStatus().GetLastUseTime(); t != nil && t.AsTime().After(since) {
+		since = t.AsTime()
+	}
+	return since
 }
 
 // queueGoldensOn queues the FAILED goldens made on the golden key, which
@@ -907,55 +914,77 @@ func (s *Server) queueGoldensOn(ctx context.Context, key controller.Key) error {
 }
 
 func (s *Server) goldenReferenced(ctx context.Context, g *envv1alpha1.Golden) (bool, error) {
-	project, name := g.GetMetadata().GetProject(), g.GetMetadata().GetName()
-	boxes, err := listTyped[*envv1alpha1.Box](ctx, s, registry.Box, project)
+	refs, err := s.goldenRefsIn(ctx, g.GetMetadata().GetProject())
 	if err != nil {
 		return false, err
+	}
+	return refs.has(g), nil
+}
+
+// goldenRefs are what a project's environments, instances and goldens
+// reference of its goldens: by name, and by artifact for an instance made
+// of an image.
+type goldenRefs struct {
+	names, images map[string]bool
+}
+
+// has reports whether g, of the refs' project, is referenced.
+func (r goldenRefs) has(g *envv1alpha1.Golden) bool {
+	art := g.GetStatus().GetArtifact()
+	return r.names[g.GetMetadata().GetName()] || (art != "" && r.images[art])
+}
+
+// goldenRefsIn reads what references the project's goldens: a live box or
+// boost made of one, a machine, an instance cloned from one or made of its
+// image, and a golden made on one.
+func (s *Server) goldenRefsIn(ctx context.Context, project string) (goldenRefs, error) {
+	refs := goldenRefs{names: map[string]bool{}, images: map[string]bool{}}
+	boxes, err := listTyped[*envv1alpha1.Box](ctx, s, registry.Box, project)
+	if err != nil {
+		return refs, err
 	}
 	for _, b := range boxes {
 		// A box that fell back from its devcontainer's image asks for it
 		// until it is built (followDevcontainerGolden).
-		if b.GetStatus().GetImageGolden() == name || b.GetStatus().GetWarmGolden() == name || b.GetStatus().GetDevcontainerGolden() == name {
-			return true, nil
+		for _, n := range []string{b.GetStatus().GetImageGolden(), b.GetStatus().GetWarmGolden(), b.GetStatus().GetDevcontainerGolden()} {
+			refs.names[n] = true
 		}
 	}
 	boosts, err := listTyped[*envv1alpha1.Boost](ctx, s, registry.Boost, project)
 	if err != nil {
-		return false, err
+		return refs, err
 	}
 	for _, b := range boosts {
-		if b.GetStatus().GetImageGolden() == name || b.GetStatus().GetWarmGolden() == name {
-			return true, nil
-		}
+		refs.names[b.GetStatus().GetImageGolden()] = true
+		refs.names[b.GetStatus().GetWarmGolden()] = true
 	}
 	machines, err := listTyped[*envv1alpha1.Machine](ctx, s, registry.Machine, project)
 	if err != nil {
-		return false, err
+		return refs, err
 	}
 	for _, m := range machines {
-		if m.GetStatus().GetGolden() == name {
-			return true, nil
-		}
+		refs.names[m.GetStatus().GetGolden()] = true
 	}
 	instances, err := listTyped[*envv1alpha1.Instance](ctx, s, registry.Instance, project)
 	if err != nil {
-		return false, err
+		return refs, err
 	}
 	for _, in := range instances {
-		if in.GetSpec().GetDiskGolden() == name || (g.GetStatus().GetArtifact() != "" && in.GetSpec().GetImage() == g.GetStatus().GetArtifact()) {
-			return true, nil
-		}
+		refs.names[in.GetSpec().GetDiskGolden()] = true
+		refs.images[in.GetSpec().GetImage()] = true
 	}
 	goldens, err := listTyped[*envv1alpha1.Golden](ctx, s, registry.Golden, project)
 	if err != nil {
-		return false, err
+		return refs, err
 	}
 	for _, other := range goldens {
-		if other.GetSpec().GetParent() == name && other.GetMetadata().GetDeleteTime() == nil {
-			return true, nil
+		if other.GetMetadata().GetDeleteTime() == nil {
+			refs.names[other.GetSpec().GetParent()] = true
 		}
 	}
-	return false, nil
+	delete(refs.names, "")
+	delete(refs.images, "")
+	return refs, nil
 }
 
 // structJSON is a Struct as JSON, which hashes the same for the same

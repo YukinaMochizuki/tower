@@ -865,34 +865,6 @@ func TestWarmGoldensFollowUse(t *testing.T) {
 	}
 }
 
-// TestAnUnusedGoldenIsPruned: a golden nothing was made from for the prune
-// delay and nothing references is deleted; one a box still uses is not.
-func TestAnUnusedGoldenIsPruned(t *testing.T) {
-	t.Parallel()
-	w := newWorld(t)
-	kept := w.readyBox("kept")
-	keptGolden, _ := w.golden(kept.GetStatus().GetImageGolden())
-	gone := w.readyBox("gone", func(b *envv1alpha1.Box) { b.Spec.Addons = []string{"desktop"} })
-	if _, err := w.asSystem().generic.Delete(t.Context(), registry.Box, client.Key{Project: "web", Name: "gone"}); err != nil {
-		t.Fatal(err)
-	}
-	w.advance(pruneAfter / 2)
-	if _, ok := w.golden(gone.GetStatus().GetImageGolden()); !ok {
-		t.Fatal("a golden was pruned before its delay")
-	}
-	w.advance(pruneAfter)
-	testutil.Eventually(t, "the unused golden pruned", func() bool {
-		_, ok := w.golden(gone.GetStatus().GetImageGolden())
-		return !ok
-	})
-	w.waitSettled()
-	// The same golden: a box whose golden went would make another of its
-	// name.
-	if g, ok := w.golden(kept.GetStatus().GetImageGolden()); !ok || g.GetMetadata().GetUid() != keptGolden.GetMetadata().GetUid() {
-		t.Error("the golden a box uses was pruned")
-	}
-}
-
 // TestTheTargetsStatusCountsWhatItHolds: tower writes its counts and usage
 // into the target's status, beside what the provider reports there, and
 // DiskPressure when free disk is under the warm budget and a margin.

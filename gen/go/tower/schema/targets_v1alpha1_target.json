@@ -342,6 +342,14 @@
         "boxWorkspaceDiskMax": {
           "type": "string"
         },
+        "goldenBudget": {
+          "description": "How much disk the goldens other than warm ones, a machine's, may hold on this target, as a quantity; unset, 200Gi. A box image is in the registry and holds none. Over it, the least recently used that nothing references are deleted until they hold golden_budget_low at most. Below the free disk DiskPressure needs and a 10Gi cushion, they are deleted the same way until it is free again. A golden is never deleted for its age alone.",
+          "type": "string"
+        },
+        "goldenBudgetLow": {
+          "description": "What goldens over golden_budget are brought down to, at most golden_budget; unset, 150Gi, or three quarters of a golden_budget set alone.",
+          "type": "string"
+        },
         "idleStopAfter": {
           "description": "A box unused for this long is stopped (its disk kept) until it is used again. Zero is tower's default; a box workstream keeps, or that runs background work, is never stopped for idleness.",
           "examples": [

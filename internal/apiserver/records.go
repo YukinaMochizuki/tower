@@ -30,6 +30,10 @@ const (
 	// stepBackoffKind holds, per box or machine and instance step, how the
 	// step failed and when it runs again (stepBackoff).
 	stepBackoffKind = "StepBackoff"
+	// goldenEvictedKind holds, per target, the disk its golden budget's
+	// last evictions freed, until its reports show it
+	// (goldenEvictedRecord).
+	goldenEvictedKind = "GoldenEvicted"
 )
 
 // getRecord reads the record of key into v, reporting whether there is

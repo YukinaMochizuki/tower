@@ -49,9 +49,19 @@ const (
 	// DiskPressureMargin is how much more than the warm budget a target
 	// must have free not to be under DiskPressure.
 	DiskPressureMargin = "20Gi"
-	// DefaultGoldenPruneAfter is how long a golden nothing was made from,
-	// and nothing references, is kept.
-	DefaultGoldenPruneAfter = 7 * 24 * time.Hour
+	// DefaultGoldenBudget is how much disk the goldens other than warm ones
+	// may hold on a target before the least recently used go
+	// (goldenbudget.go).
+	DefaultGoldenBudget = "200Gi"
+	// DefaultGoldenBudgetLow is what they are brought down to then.
+	DefaultGoldenBudgetLow = "150Gi"
+	// GoldenEvictCushion is how much more than DiskPressure needs a target
+	// keeps free by deleting goldens, so they go before it is under
+	// DiskPressure.
+	GoldenEvictCushion = "10Gi"
+	// FailedGoldenKeptFor is how long a failed golden nothing asks for is
+	// kept: it holds no disk, only the record of why it failed.
+	FailedGoldenKeptFor = 7 * 24 * time.Hour
 	// MirrorFetchEvery is how often a repository's mirror is fetched again.
 	MirrorFetchEvery = 10 * time.Minute
 	// LastUseFlushEvery is how often Touch's uses are written to the boxes.
@@ -116,13 +126,16 @@ func withDefaults(kind envv1alpha1.InstanceKind, r *envv1alpha1.Resources) *envv
 // settings are a target's policy settings with tower's defaults in place
 // of those unset.
 type settings struct {
-	idleStopAfter        time.Duration
-	warmBudget           uint64
-	warmWindow           time.Duration
-	warmMaxAge           time.Duration
-	warmMaxCommitsBehind int
-	warmMinHold          time.Duration
-	warmSettle           time.Duration
+	idleStopAfter time.Duration
+	warmBudget    uint64
+	// What the goldens other than warm ones may hold, and what they are
+	// brought down to once over it.
+	goldenBudget, goldenBudgetLow uint64
+	warmWindow                    time.Duration
+	warmMaxAge                    time.Duration
+	warmMaxCommitsBehind          int
+	warmMinHold                   time.Duration
+	warmSettle                    time.Duration
 	// warmOffPeak is when a warm golden is rebuilt for staleness alone,
 	// nil at any time.
 	warmOffPeak *dailyWindow
@@ -141,6 +154,7 @@ func settingsOf(t *targetsv1alpha1.Target) settings {
 	set := t.GetSpec().GetSettings()
 	s := settings{
 		idleStopAfter: DefaultIdleStopAfter, warmBudget: mustBytes(DefaultWarmBudget), warmWindow: DefaultWarmWindow,
+		goldenBudget: mustBytes(DefaultGoldenBudget), goldenBudgetLow: mustBytes(DefaultGoldenBudgetLow),
 		warmMaxAge: DefaultWarmMaxAge, warmMaxCommitsBehind: DefaultWarmMaxCommitsBehind, warmMinHold: DefaultWarmMinHold,
 		warmSettle: DefaultWarmSettle, workspaceDisk: DefaultBoxWorkspaceDisk, workspaceDiskMax: DefaultBoxWorkspaceDiskMax,
 		rootDisk: DefaultBoxRootDisk, rootDiskMax: DefaultBoxRootDiskMax,
@@ -193,6 +207,9 @@ func settingsOf(t *targetsv1alpha1.Target) settings {
 	if b, err := quantity.Bytes(set.GetWarmBudget()); err == nil && set.GetWarmBudget() != "" {
 		s.warmBudget = b
 	}
+	if high, low, err := goldenBudgetOf(set); err == nil {
+		s.goldenBudget, s.goldenBudgetLow = high, low
+	}
 	if d := set.GetWarmWindow(); d != nil && d.AsDuration() > 0 {
 		s.warmWindow = d.AsDuration()
 	}
@@ -211,6 +228,29 @@ func settingsOf(t *targetsv1alpha1.Target) settings {
 		}
 	}
 	return s
+}
+
+// goldenBudgetOf reads golden_budget and golden_budget_low with tower's
+// defaults in place of those unset, a high one set alone bringing its
+// low one to three quarters of it. They are read as a pair, as
+// validateTarget checks them: low may not be over high.
+func goldenBudgetOf(set *targetsv1alpha1.TargetSettings) (high, low uint64, err error) {
+	high, low = mustBytes(DefaultGoldenBudget), mustBytes(DefaultGoldenBudgetLow)
+	if q := set.GetGoldenBudget(); q != "" {
+		if high, err = quantity.Bytes(q); err != nil {
+			return 0, 0, fmt.Errorf("golden_budget: %w", err)
+		}
+		low = high / 4 * 3
+	}
+	if q := set.GetGoldenBudgetLow(); q != "" {
+		if low, err = quantity.Bytes(q); err != nil {
+			return 0, 0, fmt.Errorf("golden_budget_low: %w", err)
+		}
+	}
+	if low > high {
+		return 0, 0, fmt.Errorf("golden_budget_low %s is over golden_budget %s", quantity.FormatDisk(low), quantity.FormatDisk(high))
+	}
+	return high, low, nil
 }
 
 // dailyWindow is a TimeWindow read: minutes into the day in loc.

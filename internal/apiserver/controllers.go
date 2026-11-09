@@ -79,6 +79,16 @@ func (s *Server) newControllers() []*controller.Controller {
 		controller.Watch{Kind: registry.Box.Kind, Map: boxTarget, SkipResync: true},
 		controller.Watch{Kind: registry.Machine.Kind, Map: machineTarget, SkipResync: true},
 	)
+	s.goldenBudgetCtrl = c("golden-budget", s.reconcileGoldenBudget,
+		// Its report is the free disk it reads.
+		controller.Watch{Kind: registry.Target.Kind, Map: controller.Self},
+		controller.Watch{Kind: registry.Golden.Kind, Map: goldenTarget, SkipResync: true},
+		// What references a golden going lets it be evicted.
+		controller.Watch{Kind: registry.Instance.Kind, Map: instanceTarget, SkipResync: true},
+		controller.Watch{Kind: registry.Box.Kind, Map: boxTarget, SkipResync: true},
+		controller.Watch{Kind: registry.Machine.Kind, Map: machineTarget, SkipResync: true},
+		controller.Watch{Kind: registry.Boost.Kind, Map: boostTarget, SkipResync: true},
+	)
 	s.targetCtrl = c("target", s.reconcileTargetStatus,
 		controller.Watch{Kind: registry.Target.Kind, Map: controller.Self},
 		controller.Watch{Kind: registry.Instance.Kind, Map: instanceTarget, SkipResync: true},
@@ -95,7 +105,7 @@ func (s *Server) newControllers() []*controller.Controller {
 	)
 	// Idleness is time passing: looked at more often than the default.
 	s.boostCtrl.Resync = boostResync
-	return []*controller.Controller{s.placementCtrl, s.repositoryCtrl, s.boxCtrl, s.machineCtrl, s.goldenCtrl, s.warmCtrl, s.targetCtrl, s.boostCtrl}
+	return []*controller.Controller{s.placementCtrl, s.repositoryCtrl, s.boxCtrl, s.machineCtrl, s.goldenCtrl, s.warmCtrl, s.goldenBudgetCtrl, s.targetCtrl, s.boostCtrl}
 }
 
 // againOnConflict runs a reconcile again at once when a write of it lost a

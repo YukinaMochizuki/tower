@@ -324,6 +324,11 @@ only if the fetch does not bring the commit either.
 - **The apiserver's log**: `journalctl -u tower-apiserver`. hangar's front
   door refusing tower is logged as `hangar's front door refused requests`
   (deploy.md, "hangar's front door").
+- **A golden built again cold** was deleted for the disk it held: the
+  log's `evicted a golden` line says its size, when it was last used, and
+  why (`over budget`: the target's `golden_budget`; `low on disk`: free
+  disk near DiskPressure). Raise `golden_budget` in the target's settings
+  to keep more.
 - **The system container's own log** is hangar's: `hangar logs container
   tower-sys-<hash> -p <hangar project>`, and `hangar exec container
   tower-sys-<hash> -p <hangar project> -- <command>` to look inside it.
