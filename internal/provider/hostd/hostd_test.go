@@ -126,22 +126,28 @@ func TestErrorsCrossTheTunnel(t *testing.T) {
 }
 
 // TestStdinReachesTheCommand: what the caller gives as stdin crosses the
-// tunnel; the fake's cat with no file echoes it.
+// tunnel; the fake's cat with no file echoes it. Its end reaches the
+// command as io.EOF itself, which io.Copy (a VM's guestops copy into the
+// shim) takes for the end: anything else, and the shim's stdin ends
+// without its end frame and the shim kills the command.
 func TestStdinReachesTheCommand(t *testing.T) {
 	c := newCarried(t, nil)
 	in, _ := c.Harness(c.client).Start(t, "stdin", container())
 	var out bytes.Buffer
+	var copyErr error
 	c.Fake.OnExec(func(req provider.ExecRequest) (int, bool) {
 		if req.Stdin == nil {
 			return 2, true
 		}
-		b, _ := io.ReadAll(req.Stdin)
-		_, _ = req.Stdout.Write(b)
+		_, copyErr = io.Copy(req.Stdout, req.Stdin)
 		return 0, true
 	})
 	code, err := c.client.Exec(t.Context(), provider.ExecRequest{Instance: in, Command: []string{"read"}, Stdin: strings.NewReader("typed"), Stdout: &out})
 	if err != nil || code != 0 || out.String() != "typed" {
 		t.Errorf("stdin came back as %q, exit %d, %v", out.String(), code, err)
+	}
+	if copyErr != nil {
+		t.Errorf("stdin ended with %v, not io.EOF: a copy of it into a VM's shim fails", copyErr)
 	}
 	code, err = c.client.Exec(t.Context(), provider.ExecRequest{Instance: in, Command: []string{"read"}})
 	if err != nil || code != 2 {

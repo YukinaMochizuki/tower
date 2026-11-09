@@ -100,6 +100,11 @@ func (s service) Exec(ctx context.Context, stream *connect.BidiStream[hostdv1.Ex
 	if start.GetStdin() {
 		req.Stdin = &received{next: func() ([]byte, error) {
 			m, err := stream.Receive()
+			// The stream's end is io.EOF itself: connect answers it
+			// wrapped, and io.Copy (a VM's guestops) compares with ==.
+			if errors.Is(err, io.EOF) {
+				return nil, io.EOF
+			}
 			if err != nil {
 				return nil, err
 			}

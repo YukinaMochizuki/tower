@@ -86,8 +86,8 @@ func TestAVMJoinsWithItsKeyOnStdin(t *testing.T) {
 		if slices.ContainsFunc(cmd, func(a string) bool { return strings.Contains(a, key) }) || len(tt.v.req.Env) > 0 {
 			t.Errorf("%s: the key or an environment reached the command: %q %v", tt.name, cmd, tt.v.req.Env)
 		}
-		if !tt.v.req.AsRoot {
-			t.Errorf("%s: the join ran as the machine's run_as user, not as root", tt.name)
+		if tt.v.req.AsRoot {
+			t.Errorf("%s: the join asked for AsRoot, which hostd refuses; a VM's exec is root already", tt.name)
 		}
 		if want := []string{"sh", "-c", joinVMTailnet, "tower-tailnet", tailscaleVersion, tailscaleSHA256, "k3s-1", "1", vmUnits}; !slices.Equal(cmd, want) {
 			t.Errorf("%s: ran %q", tt.name, cmd[3:])
@@ -95,23 +95,23 @@ func TestAVMJoinsWithItsKeyOnStdin(t *testing.T) {
 	}
 }
 
-// TestAVMsTailnetScriptsRunAsRoot: leaving, a change and reading the
-// node's state run as root, as the join does, whatever user the machine's
-// blueprint runs as: they install, write units and drive tailscaled.
-func TestAVMsTailnetScriptsRunAsRoot(t *testing.T) {
+// TestAVMsTailnetScriptsAskNoAsRoot: leaving, a change and reading the
+// node's state ask no AsRoot, as the join does not: a VM's exec runs as
+// root already, over its root SSH, and hostd refuses AsRoot outright.
+func TestAVMsTailnetScriptsAskNoAsRoot(t *testing.T) {
 	t.Parallel()
 	ref := provider.Instance{Project: "web", Name: "mc-k3s"}
 	leave := &vmExec{}
-	if err := runVM(t.Context(), leave, ref, leaveVMTailnet, vmTailnetState, vmUnits); err != nil || !leave.req.AsRoot {
-		t.Errorf("leave: %v, as root %v", err, leave.req.AsRoot)
+	if err := runVM(t.Context(), leave, ref, leaveVMTailnet, vmTailnetState, vmUnits); err != nil || leave.req.AsRoot {
+		t.Errorf("leave: %v, AsRoot %v", err, leave.req.AsRoot)
 	}
 	set := &vmExec{}
-	if err := runVM(t.Context(), set, ref, setVMTailnet, "k3s-2", ""); err != nil || !set.req.AsRoot {
-		t.Errorf("set: %v, as root %v", err, set.req.AsRoot)
+	if err := runVM(t.Context(), set, ref, setVMTailnet, "k3s-2", ""); err != nil || set.req.AsRoot {
+		t.Errorf("set: %v, AsRoot %v", err, set.req.AsRoot)
 	}
 	state := &vmExec{out: "Running\n"}
-	if _, err := vmTailnetStatus(t.Context(), state, ref); err != nil || !state.req.AsRoot {
-		t.Errorf("state: %v, as root %v", err, state.req.AsRoot)
+	if _, err := vmTailnetStatus(t.Context(), state, ref); err != nil || state.req.AsRoot {
+		t.Errorf("state: %v, AsRoot %v", err, state.req.AsRoot)
 	}
 }
 
