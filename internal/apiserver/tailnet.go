@@ -391,7 +391,7 @@ func (s *Server) machineTailnet(ctx context.Context, key controller.Key, m *envv
 		return nil
 	case want == nil:
 		act = func(ctx context.Context, ref provider.Instance) (*tailnetStatus, error) {
-			return nil, runVM(ctx, p, ref, leaveVMTailnet, vmTailnetState, vmUnits)
+			return nil, runVM(ctx, p, ref, leaveVMTailnet, vmTailnetState, vmUnits, vmResolved)
 		}
 	case have == nil:
 		act = join
@@ -557,24 +557,27 @@ func vmTailnetStatus(ctx context.Context, p provider.Provider, ref provider.Inst
 }
 
 // Where tower keeps a VM's node, as its scripts are given them: its state,
-// and the systemd units tailscaled runs as.
+// and the systemd units tailscaled runs as, and where systemd-resolved
+// reads tower's DNS split.
 const (
 	vmTailnetState = "/var/lib/tailscale"
 	vmUnits        = "/etc/systemd/system"
+	vmResolved     = "/etc/systemd/resolved.conf.d"
 )
 
 // vmBackendState prints the BackendState tailscale status says.
 const vmBackendState = `tailscale status --json --peers=false </dev/null 2>/dev/null | sed -n 's/^[[:space:]]*"BackendState":[[:space:]]*"\([A-Za-z]*\)".*/\1/p' | head -n1`
 
 // leaveVMTailnet takes a VM off its tailnet: sh -c leaveVMTailnet
-// tower-tailnet STATE UNITS. Its node logs out, which the tailnet forgets,
-// tailscaled stops and is disabled, and its state and tower's DNS split go,
-// so a later join is a new node.
-const leaveVMTailnet = `state=$1 units=$2
+// tower-tailnet STATE UNITS RESOLVED. Its node logs out, which the tailnet
+// forgets, tailscaled stops and is disabled, and its state and tower's DNS
+// split go, so a later join is a new node.
+const leaveVMTailnet = `state=$1 units=$2 resolved=$3
 tailscale logout </dev/null >/dev/null 2>&1 || true
 systemctl disable --now tailscaled.service </dev/null >/dev/null 2>&1 || true
-rm -rf "$state" "$units/tailscaled.service.d/tower-dns.conf"
+rm -rf "$state" "$units/tailscaled.service.d/tower-dns.conf" "$resolved/tower-tailnet.conf"
 systemctl daemon-reload </dev/null >/dev/null 2>&1 || true
+systemctl try-reload-or-restart systemd-resolved.service </dev/null >/dev/null 2>&1 || true
 echo left`
 
 // setVMTailnet sets a VM node's hostname and routes as it runs: sh -c
@@ -619,7 +622,7 @@ func joinVM(ctx context.Context, p provider.Provider, ref provider.Instance, key
 	}
 	var out bytes.Buffer
 	code, err := p.Exec(ctx, provider.ExecRequest{
-		Instance: ref, Command: []string{"sh", "-c", joinVMTailnet, "tower-tailnet", tailscaleVersion, tailscaleSHA256, tn.GetHostname(), routes, vmUnits},
+		Instance: ref, Command: []string{"sh", "-c", joinVMTailnet, "tower-tailnet", tailscaleVersion, tailscaleSHA256, tn.GetHostname(), routes, vmUnits, vmResolved},
 		Stdin: strings.NewReader(key + "\n"), Stdout: &out, Stderr: &out,
 	})
 	if err != nil {
@@ -650,18 +653,18 @@ func lastLine(s string) string {
 var tailnetKeyRejected = regexp.MustCompile(`(?i)invalid key|auth ?key|key (has )?expired|not valid|unable to validate`)
 
 // joinVMTailnet joins a VM to its tailnet, as root: sh -c joinVMTailnet
-// tower-tailnet VERSION SHA256 HOSTNAME ACCEPT_ROUTES UNITS, the key on
-// its stdin, which tailscale up alone reads (every other command's stdin
-// is /dev/null), never in an argument or a file. tailscaled, installed at
-// VERSION if the VM has none, runs as tailscaled.service, its state in
-// /var/lib/tailscale; tailscale up runs only while the node has none.
-// It joins with --accept-dns=false, and a drop-in of tailscaled's sends
-// ts.net names alone to MagicDNS through systemd-resolved, so the VM's
-// peers' aliases resolve as before; a VM without systemd-resolved running
-// skips it at once, and resolves no MagicDNS name
-// (docs/decisions/tailnet.md).
+// tower-tailnet VERSION SHA256 HOSTNAME ACCEPT_ROUTES UNITS RESOLVED, the
+// key on its stdin, which tailscale up alone reads (every other command's
+// stdin is /dev/null), never in an argument or a file. tailscaled,
+// installed at VERSION if the VM has none, runs as tailscaled.service,
+// its state in /var/lib/tailscale; tailscale up runs only while the node
+// has none. It joins with --accept-dns=false, and systemd-resolved's
+// global configuration sends ts.net names alone to MagicDNS, so the VM's
+// peers' aliases resolve as before. Global, not tailscale0's: tailscaled
+// resets that link's DNS as it comes up. A VM without systemd-resolved
+// running resolves no MagicDNS name (docs/decisions/tailnet.md).
 const joinVMTailnet = `set -eu
-ver=$1 sum=$2 host=$3 routes=$4 units=$5
+ver=$1 sum=$2 host=$3 routes=$4 units=$5 resolved=$6
 if ! command -v tailscaled >/dev/null 2>&1; then
 	case $(uname -m) in x86_64) ;; *) echo "tower installs tailscale on amd64 alone; this VM is $(uname -m)" >&2; exit 11 ;; esac
 	tmp=$(mktemp -d)
@@ -690,11 +693,12 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 fi
-mkdir -p "$units/tailscaled.service.d"
-cat >"$units/tailscaled.service.d/tower-dns.conf" <<'EOF'
-[Service]
-ExecStartPost=-/bin/sh -c 'command -v resolvectl >/dev/null 2>&1 && systemctl is-active --quiet systemd-resolved || exit 0; n=0; until resolvectl dns tailscale0 100.100.100.100 2>/dev/null; do n=$$((n + 1)); [ $$n -ge 30 ] && exit 0; sleep 1; done; resolvectl domain tailscale0 "~ts.net"'
-EOF
+rm -f "$units/tailscaled.service.d/tower-dns.conf"
+if command -v resolvectl >/dev/null 2>&1 && systemctl is-active --quiet systemd-resolved.service </dev/null; then
+	mkdir -p "$resolved"
+	printf '[Resolve]\nDNS=100.100.100.100\nDomains=~ts.net\n' >"$resolved/tower-tailnet.conf"
+	systemctl try-reload-or-restart systemd-resolved.service </dev/null >/dev/null 2>&1 || true
+fi
 systemctl daemon-reload </dev/null
 systemctl enable tailscaled.service </dev/null >/dev/null 2>&1 || exit 12
 systemctl restart tailscaled.service </dev/null >/dev/null 2>&1 || exit 12

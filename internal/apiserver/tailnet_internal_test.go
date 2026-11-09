@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	"github.com/YukinaMochizuki/tower/internal/provider"
@@ -89,7 +88,7 @@ func TestAVMJoinsWithItsKeyOnStdin(t *testing.T) {
 		if tt.v.req.AsRoot {
 			t.Errorf("%s: the join asked for AsRoot, which hostd refuses; a VM's exec is root already", tt.name)
 		}
-		if want := []string{"sh", "-c", joinVMTailnet, "tower-tailnet", tailscaleVersion, tailscaleSHA256, "k3s-1", "1", vmUnits}; !slices.Equal(cmd, want) {
+		if want := []string{"sh", "-c", joinVMTailnet, "tower-tailnet", tailscaleVersion, tailscaleSHA256, "k3s-1", "1", vmUnits, vmResolved}; !slices.Equal(cmd, want) {
 			t.Errorf("%s: ran %q", tt.name, cmd[3:])
 		}
 	}
@@ -102,7 +101,7 @@ func TestAVMsTailnetScriptsAskNoAsRoot(t *testing.T) {
 	t.Parallel()
 	ref := provider.Instance{Project: "web", Name: "mc-k3s"}
 	leave := &vmExec{}
-	if err := runVM(t.Context(), leave, ref, leaveVMTailnet, vmTailnetState, vmUnits); err != nil || leave.req.AsRoot {
+	if err := runVM(t.Context(), leave, ref, leaveVMTailnet, vmTailnetState, vmUnits, vmResolved); err != nil || leave.req.AsRoot {
 		t.Errorf("leave: %v, AsRoot %v", err, leave.req.AsRoot)
 	}
 	set := &vmExec{}
@@ -145,6 +144,7 @@ up) key=$(cat /dev/stdin); echo "up-stdin $key" >>`+v.log+`
 esac
 `)
 	write("tailscaled", "exit 0\n")
+	write("resolvectl", "exit 0\n")
 	write("systemctl", `echo "systemctl $*" >>`+v.log+"\n")
 	write("sleep", "exit 0\n")
 	if err := os.WriteFile(v.state, []byte(backend), 0o644); err != nil {
@@ -174,15 +174,23 @@ func (v *fakeVM) logged() string {
 
 // TestTheVMJoinScript: a node with no state is joined with the key from
 // stdin, given to tailscale up on its stdin alone, without accepting
-// DNS, and a drop-in routes ts.net alone to MagicDNS; a node with state
-// is left as it is; a refused key exits as tailscale up failing; a
-// tailscaled not ready is an exit to try again.
+// DNS, and systemd-resolved's global configuration routes ts.net alone
+// to MagicDNS (the drop-in of before, which tailscale up undid, goes); a
+// node with state is left as it is; a refused key exits as tailscale up
+// failing; a tailscaled not ready is an exit to try again.
 func TestTheVMJoinScript(t *testing.T) {
 	t.Parallel()
 	const key = "tskey-auth-kScript-Zz11"
 	v := newFakeVM(t, "NeedsLogin")
-	units := t.TempDir()
-	code, out := v.run(t, key+"\n", joinVMTailnet, "1.0", "sum", "k3s-1", "1", units)
+	units, resolved := t.TempDir(), filepath.Join(t.TempDir(), "resolved.conf.d")
+	old := filepath.Join(units, "tailscaled.service.d", "tower-dns.conf")
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, []byte("[Service]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out := v.run(t, key+"\n", joinVMTailnet, "1.0", "sum", "k3s-1", "1", units, resolved)
 	logged := v.logged()
 	if code != 0 || !strings.Contains(logged, "up-stdin "+key) {
 		t.Fatalf("joined: exit %d: %s; log %s", code, out, logged)
@@ -197,35 +205,41 @@ func TestTheVMJoinScript(t *testing.T) {
 			t.Errorf("tailscale up was not given %s: %s", want, logged)
 		}
 	}
-	dropIn, err := os.ReadFile(filepath.Join(units, "tailscaled.service.d", "tower-dns.conf"))
-	if err != nil || !strings.Contains(string(dropIn), `"~ts.net"`) {
-		t.Errorf("the DNS split: %q, %v", dropIn, err)
+	split, err := os.ReadFile(filepath.Join(resolved, "tower-tailnet.conf"))
+	if err != nil || string(split) != "[Resolve]\nDNS=100.100.100.100\nDomains=~ts.net\n" {
+		t.Errorf("the DNS split: %q, %v", split, err)
 	}
-	// On a VM without systemd-resolved, the split is skipped at once.
-	_, line, _ := strings.Cut(string(dropIn), "ExecStartPost=-/bin/sh -c '")
-	line = strings.ReplaceAll(strings.TrimSuffix(strings.TrimSpace(line), "'"), "$$", "$")
-	start := time.Now()
-	bare := t.TempDir()
-	// A sleep that waits, so retries a guard missed would show.
-	if err := os.WriteFile(filepath.Join(bare, "sleep"), []byte("#!/bin/sh\nexec /bin/sleep 0.2\n"), 0o755); err != nil {
+	if !strings.Contains(logged, "systemctl try-reload-or-restart systemd-resolved.service") {
+		t.Errorf("systemd-resolved was not told of the split: %s", logged)
+	}
+	if _, err := os.Stat(old); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the drop-in tailscale up undid is still there: %v", err)
+	}
+	// A VM without systemd-resolved running gets no split. (Its systemctl
+	// says the unit is inactive; the host's own resolvectl, if any, is on
+	// PATH after the fake's.)
+	bare := newFakeVM(t, "NeedsLogin")
+	if err := os.WriteFile(filepath.Join(bare.bin, "systemctl"), []byte("#!/bin/sh\necho \"systemctl $*\" >>"+bare.log+"\n[ \"$1\" = is-active ] && exit 3\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("/bin/sh", "-c", line)
-	cmd.Env = []string{"PATH=" + bare}
-	if out, err := cmd.CombinedOutput(); err != nil || time.Since(start) > 2*time.Second {
-		t.Errorf("the split on a VM without resolvectl: %v after %v: %s", err, time.Since(start), out)
+	bareResolved := filepath.Join(t.TempDir(), "resolved.conf.d")
+	if code, out := bare.run(t, key+"\n", joinVMTailnet, "1.0", "sum", "k3s-1", "", t.TempDir(), bareResolved); code != 0 {
+		t.Errorf("a VM without systemd-resolved: exit %d: %s", code, out)
+	}
+	if _, err := os.Stat(bareResolved); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a VM without systemd-resolved got a split: %v", err)
 	}
 
 	again := newFakeVM(t, "Running")
-	if code, out := again.run(t, key, joinVMTailnet, "1.0", "sum", "k3s-1", "", units); code != 0 || strings.Contains(again.logged(), "tailscale up") {
+	if code, out := again.run(t, key, joinVMTailnet, "1.0", "sum", "k3s-1", "", units, resolved); code != 0 || strings.Contains(again.logged(), "tailscale up") {
 		t.Errorf("a node with state: exit %d: %s; log %s", code, out, again.logged())
 	}
 	refused := newFakeVM(t, "NeedsLogin")
-	if code, _ := refused.run(t, "tskey-rejected-x", joinVMTailnet, "1.0", "sum", "k3s-1", "", units); code != exitTailnetUp {
+	if code, _ := refused.run(t, "tskey-rejected-x", joinVMTailnet, "1.0", "sum", "k3s-1", "", units, resolved); code != exitTailnetUp {
 		t.Errorf("a refused key exited %d", code)
 	}
 	starting := newFakeVM(t, "Starting")
-	if code, _ := starting.run(t, key, joinVMTailnet, "1.0", "sum", "k3s-1", "", units); code == 0 || code == exitTailnetUp || code == exitTailnetState {
+	if code, _ := starting.run(t, key, joinVMTailnet, "1.0", "sum", "k3s-1", "", units, resolved); code == 0 || code == exitTailnetUp || code == exitTailnetState {
 		t.Errorf("a tailscaled not ready exited %d; want one to try again", code)
 	}
 }
@@ -235,8 +249,8 @@ func TestTheVMJoinScript(t *testing.T) {
 func TestTheVMLeaveScript(t *testing.T) {
 	t.Parallel()
 	v := newFakeVM(t, "Running")
-	state, units := filepath.Join(t.TempDir(), "tailscale"), t.TempDir()
-	for _, f := range []string{filepath.Join(state, "tailscaled.state"), filepath.Join(units, "tailscaled.service.d", "tower-dns.conf")} {
+	state, units, resolved := filepath.Join(t.TempDir(), "tailscale"), t.TempDir(), t.TempDir()
+	for _, f := range []string{filepath.Join(state, "tailscaled.state"), filepath.Join(units, "tailscaled.service.d", "tower-dns.conf"), filepath.Join(resolved, "tower-tailnet.conf")} {
 		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -244,14 +258,14 @@ func TestTheVMLeaveScript(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if code, out := v.run(t, "", leaveVMTailnet, state, units); code != 0 {
+	if code, out := v.run(t, "", leaveVMTailnet, state, units, resolved); code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
 	logged := v.logged()
 	if !strings.Contains(logged, "tailscale logout") || !strings.Contains(logged, "systemctl disable --now tailscaled.service") {
 		t.Errorf("it did not log out and stop tailscaled: %s", logged)
 	}
-	for _, f := range []string{state, filepath.Join(units, "tailscaled.service.d", "tower-dns.conf")} {
+	for _, f := range []string{state, filepath.Join(units, "tailscaled.service.d", "tower-dns.conf"), filepath.Join(resolved, "tower-tailnet.conf")} {
 		if _, err := os.Stat(f); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("%s is still there", f)
 		}
