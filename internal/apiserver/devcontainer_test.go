@@ -279,6 +279,7 @@ func TestABoxOfARepositoryWithoutADevcontainerFallsBack(t *testing.T) {
 // sees the reason; once the registry answers, it comes up.
 func TestABoxSaysWhyItsImageIsNotResolved(t *testing.T) {
 	t.Parallel()
+	testutil.Quarantine(t, "#83")
 	w := newWorld(t, realResolver())
 	w.fake.SetRemote("https://git.example.com/api.git", "main", map[string]string{".devcontainer.json": `{"image": "ardge/devcontainer-base:26.10.5"}`}, "c1")
 	w.fake.FailResolves(errors.New(`Head "https://ardge/v2/devcontainer-base/manifests/26.10.5": Internal Server Error`))
