@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -27,6 +28,7 @@ var df struct {
 	cloudHypervisor, firmware, baseImages    string
 	buildkit, registry, registryUser, pwFile string
 	guestDNS                                 string
+	tailscaled, tailscale                    string
 }
 
 func driverFlags() {
@@ -40,6 +42,8 @@ func driverFlags() {
 	flag.StringVar(&df.registry, "registry", "", "tower's registry, host[:port], which images are pulled from and pushed to")
 	flag.StringVar(&df.registryUser, "registry-user", "", "the registry user hostd signs in as; empty is anonymous")
 	flag.StringVar(&df.pwFile, "registry-password-file", "", "file holding the registry user's password, only its owner may read it")
+	flag.StringVar(&df.tailscaled, "tailscaled", "/usr/local/lib/tower/tailscale/tailscaled", "tailscaled, statically linked, which each box that joins a tailnet runs (deploy/hostd/install-deps.sh); not there, the host makes no such box")
+	flag.StringVar(&df.tailscale, "tailscale", "/usr/local/lib/tower/tailscale/tailscale", "tailscale's CLI, statically linked, beside --tailscaled")
 	flag.StringVar(&df.guestDNS, "guest-dns", "1.1.1.1,9.9.9.9", "the DNS servers every guest resolves through, comma-separated public addresses: the host's firewall drops what a guest sends to a private one (deploy/hostd/guest-network.nft)")
 }
 
@@ -86,7 +90,14 @@ func drivers(f flags, log *slog.Logger) (driver.Drivers, error) {
 	if err != nil {
 		return driver.Drivers{}, fmt.Errorf("storage: %w", err)
 	}
-	containers, err := docker.New(ctx, docker.Config{Client: cli, StateDir: f.stateDir, GuestBinary: df.guestBinary, DNS: dns})
+	tailscaled, tailscale := df.tailscaled, df.tailscale
+	if !exists(tailscaled) || !exists(tailscale) {
+		log.Warn("tailscale is not installed; a box that joins a tailnet fails on this host", "tailscaled", tailscaled, "tailscale", tailscale)
+		tailscaled, tailscale = "", ""
+	}
+	containers, err := docker.New(ctx, docker.Config{
+		Client: cli, StateDir: f.stateDir, GuestBinary: df.guestBinary, DNS: dns, Tailscaled: tailscaled, Tailscale: tailscale,
+	})
 	if err != nil {
 		return driver.Drivers{}, fmt.Errorf("containers: %w", err)
 	}
@@ -114,4 +125,10 @@ func drivers(f flags, log *slog.Logger) (driver.Drivers, error) {
 		return driver.Drivers{}, fmt.Errorf("git: %w", err)
 	}
 	return driver.Drivers{Storage: storage, Containers: containers, VMs: vms, Images: imgs, Git: git, Host: hostinfo.Host{}}, nil
+}
+
+// exists reports whether a file is there.
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

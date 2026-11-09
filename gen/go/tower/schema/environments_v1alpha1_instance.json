@@ -87,6 +87,10 @@
           ],
           "type": "string"
         },
+        "tailnet": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.Tailnet",
+          "description": "The tailnet a container joins as a node of its own, its box's: the Secret named, never its value, which reaches the provider from tower alone (provider.TailnetJoin). Changed, it is applied to the running container: added, it joins; removed, it leaves and its node's state goes; a hostname or accept_routes is set on its node. Its provider reports condition TailnetJoined while it is set. A VM's join is tower's, over its SSH."
+        },
         "target": {
           "type": "string"
         }
@@ -102,7 +106,7 @@
           "type": "string"
         },
         "conditions": {
-          "description": "Ready; and, for a hangar target's container once it started a process, RootStart: whether a root supervisor starts its processes, each as its user, which measuring them needs (they are measured where the guest's cgroups allow it too), and, false (NoRoot), why not (docs/decisions/process-usage.md).",
+          "description": "Ready; and, for a hangar target's container once it started a process, RootStart: whether a root supervisor starts its processes, each as its user, which measuring them needs (they are measured where the guest's cgroups allow it too), and, false (NoRoot), why not (docs/decisions/process-usage.md). For a container with spec.tailnet, TailnetJoined: reason Joined, KeyRejected, Starting, Failed, or NoKey while the provider has no key to join with, which tower then gives it (docs/decisions/tailnet.md).",
           "items": {
             "$ref": "#/$defs/tower.meta.v1.Condition"
           },
@@ -177,6 +181,25 @@
         },
         "memory": {
           "description": "Such as \"4Gi\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.Tailnet": {
+      "additionalProperties": false,
+      "description": "Tailnet joins a box or machine to a tailnet as a node of its own, the first time its instance starts; after that its node's state is kept with the instance and it comes back as the same node.",
+      "properties": {
+        "acceptRoutes": {
+          "description": "Accept the subnet routes the tailnet offers the node.",
+          "type": "boolean"
+        },
+        "authSecret": {
+          "description": "A Secret in the same project holding, under \"authkey\", the key to join with. Its value never enters a spec of a lower layer, a status, a log or an event (docs/decisions/secrets.md).",
+          "type": "string"
+        },
+        "hostname": {
+          "description": "The node's hostname on the tailnet.",
           "type": "string"
         }
       },

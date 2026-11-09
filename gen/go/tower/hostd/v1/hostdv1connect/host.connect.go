@@ -86,6 +86,8 @@ const (
 	// HostServiceListProcessesProcedure is the fully-qualified name of the HostService's ListProcesses
 	// RPC.
 	HostServiceListProcessesProcedure = "/tower.hostd.v1.HostService/ListProcesses"
+	// HostServiceJoinTailnetProcedure is the fully-qualified name of the HostService's JoinTailnet RPC.
+	HostServiceJoinTailnetProcedure = "/tower.hostd.v1.HostService/JoinTailnet"
 )
 
 // HostServiceClient is a client for the tower.hostd.v1.HostService service.
@@ -154,6 +156,11 @@ type HostServiceClient interface {
 	// ListProcesses lists an instance's processes, running and finished,
 	// oldest first.
 	ListProcesses(context.Context, *connect.Request[v1.ListProcessesRequest]) (*connect.Response[v1.ListProcessesResponse], error)
+	// JoinTailnet gives a running container whose spec joins a tailnet the
+	// key to join with: it joins now unless its node has state already. The
+	// key is held in memory for the call alone; the instance's status
+	// reports how the join went (docs/decisions/tailnet.md).
+	JoinTailnet(context.Context, *connect.Request[v1.JoinTailnetRequest]) (*connect.Response[v1.JoinTailnetResponse], error)
 }
 
 // NewHostServiceClient constructs a client for the tower.hostd.v1.HostService service. By default,
@@ -281,6 +288,12 @@ func NewHostServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(hostServiceMethods.ByName("ListProcesses")),
 			connect.WithClientOptions(opts...),
 		),
+		joinTailnet: connect.NewClient[v1.JoinTailnetRequest, v1.JoinTailnetResponse](
+			httpClient,
+			baseURL+HostServiceJoinTailnetProcedure,
+			connect.WithSchema(hostServiceMethods.ByName("JoinTailnet")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -305,6 +318,7 @@ type hostServiceClient struct {
 	attachProcess  *connect.Client[v1.AttachProcessRequest, v1.AttachProcessResponse]
 	signalProcess  *connect.Client[v1.SignalProcessRequest, v1.SignalProcessResponse]
 	listProcesses  *connect.Client[v1.ListProcessesRequest, v1.ListProcessesResponse]
+	joinTailnet    *connect.Client[v1.JoinTailnetRequest, v1.JoinTailnetResponse]
 }
 
 // Exec calls tower.hostd.v1.HostService.Exec.
@@ -402,6 +416,11 @@ func (c *hostServiceClient) ListProcesses(ctx context.Context, req *connect.Requ
 	return c.listProcesses.CallUnary(ctx, req)
 }
 
+// JoinTailnet calls tower.hostd.v1.HostService.JoinTailnet.
+func (c *hostServiceClient) JoinTailnet(ctx context.Context, req *connect.Request[v1.JoinTailnetRequest]) (*connect.Response[v1.JoinTailnetResponse], error) {
+	return c.joinTailnet.CallUnary(ctx, req)
+}
+
 // HostServiceHandler is an implementation of the tower.hostd.v1.HostService service.
 type HostServiceHandler interface {
 	// Exec runs a command in a running instance for as long as the call
@@ -468,6 +487,11 @@ type HostServiceHandler interface {
 	// ListProcesses lists an instance's processes, running and finished,
 	// oldest first.
 	ListProcesses(context.Context, *connect.Request[v1.ListProcessesRequest]) (*connect.Response[v1.ListProcessesResponse], error)
+	// JoinTailnet gives a running container whose spec joins a tailnet the
+	// key to join with: it joins now unless its node has state already. The
+	// key is held in memory for the call alone; the instance's status
+	// reports how the join went (docs/decisions/tailnet.md).
+	JoinTailnet(context.Context, *connect.Request[v1.JoinTailnetRequest]) (*connect.Response[v1.JoinTailnetResponse], error)
 }
 
 // NewHostServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -591,6 +615,12 @@ func NewHostServiceHandler(svc HostServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(hostServiceMethods.ByName("ListProcesses")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hostServiceJoinTailnetHandler := connect.NewUnaryHandler(
+		HostServiceJoinTailnetProcedure,
+		svc.JoinTailnet,
+		connect.WithSchema(hostServiceMethods.ByName("JoinTailnet")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/tower.hostd.v1.HostService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case HostServiceExecProcedure:
@@ -631,6 +661,8 @@ func NewHostServiceHandler(svc HostServiceHandler, opts ...connect.HandlerOption
 			hostServiceSignalProcessHandler.ServeHTTP(w, r)
 		case HostServiceListProcessesProcedure:
 			hostServiceListProcessesHandler.ServeHTTP(w, r)
+		case HostServiceJoinTailnetProcedure:
+			hostServiceJoinTailnetHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -714,4 +746,8 @@ func (UnimplementedHostServiceHandler) SignalProcess(context.Context, *connect.R
 
 func (UnimplementedHostServiceHandler) ListProcesses(context.Context, *connect.Request[v1.ListProcessesRequest]) (*connect.Response[v1.ListProcessesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.hostd.v1.HostService.ListProcesses is not implemented"))
+}
+
+func (UnimplementedHostServiceHandler) JoinTailnet(context.Context, *connect.Request[v1.JoinTailnetRequest]) (*connect.Response[v1.JoinTailnetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("tower.hostd.v1.HostService.JoinTailnet is not implemented"))
 }

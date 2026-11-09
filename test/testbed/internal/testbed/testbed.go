@@ -132,7 +132,10 @@ func (e Env) Drivers(ctx context.Context) (driver.Drivers, error) {
 	if err != nil {
 		return driver.Drivers{}, err
 	}
-	containers, err := docker.New(ctx, docker.Config{Client: cli, StateDir: e.StateDir(), GuestBinary: e.GuestBinary(), DNS: GuestDNS})
+	containers, err := docker.New(ctx, docker.Config{
+		Client: cli, StateDir: e.StateDir(), GuestBinary: e.GuestBinary(), DNS: GuestDNS,
+		Tailscaled: Tailscale + "/tailscaled", Tailscale: Tailscale + "/tailscale",
+	})
 	if err != nil {
 		return driver.Drivers{}, err
 	}
@@ -213,6 +216,10 @@ func (e Env) RemoteWith(files map[string]string) (url, head string, err error) {
 	}
 	return "file://" + dir, strings.TrimSpace(string(out)), nil
 }
+
+// Tailscale is where deploy/hostd/install-deps.sh installs the tailscale
+// boxes that join a tailnet run.
+const Tailscale = "/usr/local/lib/tower/tailscale"
 
 // What test/testbed/setup.sh installs for the VMs.
 const (

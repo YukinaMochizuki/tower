@@ -50,6 +50,11 @@ make e2e-host                 # every package, one after another
 make e2e-host PKG=drivers RUN='TestVMs'
 ```
 
+`TestContainerTailnet` joins boxes to a tailnet only given an auth key of
+one the testbed may join, reusable and ephemeral (it joins twice and
+leaves nodes behind), in `TOWER_TESTBED_TAILNET_KEY` (`sudo -E` passes
+it); without it, its join cases are skipped.
+
 The tests are built as you and run as root (`go test -exec 'sudo -E'`);
 they build `tower-guest` (and, in e2e, the three binaries) with the `go`
 setup.sh linked into `/usr/local/bin`. A run takes about an hour: a VM of

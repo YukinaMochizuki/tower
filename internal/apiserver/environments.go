@@ -382,7 +382,29 @@ func validateBox(ctx context.Context, s *Server, _ authz.Caller, old, obj proto.
 			}
 		}
 	}
+	if err := validTailnet(spec.GetTailnet()); err != nil {
+		return err
+	}
 	return validResources("spec.resources", spec.GetResources())
+}
+
+// validTailnet checks a box's or machine's tailnet: a Secret named, which
+// need not be there yet (its TailnetJoined says NoKey until it is), and a
+// hostname that is a DNS label.
+func validTailnet(t *envv1alpha1.Tailnet) error {
+	if t == nil {
+		return nil
+	}
+	if t.GetAuthSecret() == "" {
+		return invalid("spec.tailnet.auth_secret is required")
+	}
+	if err := ValidName(t.GetAuthSecret()); err != nil {
+		return invalid("spec.tailnet.auth_secret: %v", err)
+	}
+	if err := ValidName(t.GetHostname()); err != nil {
+		return invalid("spec.tailnet.hostname: %v", err)
+	}
+	return nil
 }
 
 // MaxImageBuild bounds an ImageBuild's Dockerfile and files, in all.
@@ -562,6 +584,9 @@ func validateMachine(ctx context.Context, s *Server, _ authz.Caller, old, obj pr
 				return err
 			}
 		}
+	}
+	if err := validTailnet(spec.GetTailnet()); err != nil {
+		return err
 	}
 	return validResources("spec.resources", spec.GetResources())
 }

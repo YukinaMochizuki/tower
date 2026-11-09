@@ -141,6 +141,11 @@ type Fake struct {
 	finishedProcesses int
 	following         atomic.Int32
 
+	// joinFault, if set, fails every JoinTailnet (FailJoinTailnet).
+	joinFault func(key string) error
+	// onCommand, if set, sees every command first (OnCommand).
+	onCommand func(provider.ExecRequest) (code int, handled bool)
+
 	// ctrl is set once Run starts.
 	ctrl atomic.Pointer[controller.Controller]
 	c    *client.Client
@@ -173,6 +178,15 @@ type instance struct {
 	resizeRefused, resizeRefusedMsg string
 	// restarts counts its restarts for a resize.
 	restarts int
+	// tailnet says its spec joins a tailnet; node that its node has state,
+	// which it keeps across starts; joins counts its joins, and rejected
+	// says why its last join tried was not one.
+	tailnet  bool
+	node     bool
+	joins    int
+	rejected string
+	// gives counts the keys it was given.
+	gives int
 }
 
 // resolve is the file a path of the instance names: what a link there
@@ -368,8 +382,10 @@ type Exec struct {
 	Command  []string
 	Env      map[string]string
 	ExitCode int
-	// AsRoot says it was asked to run as root.
+	// AsRoot says it was asked to run as root; Stdin that it was given a
+	// stdin.
 	AsRoot bool
+	Stdin  bool
 	// Process says it was started as a process (StartProcess), whose
 	// exit ListProcesses tells, and MemoryMax what it was asked to be held
 	// to.
@@ -511,6 +527,11 @@ func (f *Fake) realize(in *envv1alpha1.Instance, base *artifact) (envv1alpha1.In
 	if in.GetSpec().GetKind() == envv1alpha1.InstanceKind_INSTANCE_KIND_VM {
 		f.resize(ref, local, in.GetSpec().GetResources())
 	}
+	local.tailnet = in.GetSpec().GetKind() == envv1alpha1.InstanceKind_INSTANCE_KIND_CONTAINER && in.GetSpec().GetTailnet() != nil
+	if !local.tailnet {
+		// It left its tailnet, which forgets its node.
+		local.node, local.rejected = false, ""
+	}
 	if in.GetSpec().GetRunState() == envv1alpha1.RunState_RUN_STATE_STOPPED {
 		local.running = false
 		// What it holds in memory goes as it stops.
@@ -596,6 +617,21 @@ func (f *Fake) report(ctx context.Context, c *client.Client, in *envv1alpha1.Ins
 				resized.Status, resized.Reason, resized.Message = metav1.ConditionStatus_CONDITION_STATUS_FALSE, local.resizeRefused, local.resizeRefusedMsg
 			}
 			st.Conditions = conditions.Set(st.GetConditions(), resized, f.clock.Now())
+		}
+		if !local.tailnet {
+			st.Conditions = slices.DeleteFunc(st.GetConditions(), func(c *metav1.Condition) bool { return c.GetType() == provider.InstanceTailnetJoined })
+		}
+		if local.tailnet && local.running {
+			joined := &metav1.Condition{Type: provider.InstanceTailnetJoined, Status: metav1.ConditionStatus_CONDITION_STATUS_FALSE, ObservedGeneration: st.ObservedGeneration}
+			switch {
+			case local.node:
+				joined.Status, joined.Reason, joined.Message = metav1.ConditionStatus_CONDITION_STATUS_TRUE, provider.TailnetJoined, "joined"
+			case local.rejected != "":
+				joined.Reason, joined.Message = provider.TailnetKeyRejected, local.rejected
+			default:
+				joined.Reason, joined.Message = provider.TailnetNoKey, "its node has no state, and no key was given to join with"
+			}
+			st.Conditions = conditions.Set(st.GetConditions(), joined, f.clock.Now())
 		}
 	} else {
 		st.Address, st.UsedDisk, st.StartTime, st.ProcessesRunning, st.StreamsOpen = "", "", nil, 0, 0
@@ -994,8 +1030,22 @@ func (f *Fake) Exec(ctx context.Context, req provider.ExecRequest) (int, error) 
 		f.mu.Unlock()
 		return 0, err
 	}
-	f.execs = append(f.execs, Exec{Instance: req.Instance, Command: slices.Clone(req.Command), Env: maps.Clone(req.Env), ExitCode: -1, AsRoot: req.AsRoot})
+	f.execs = append(f.execs, Exec{Instance: req.Instance, Command: slices.Clone(req.Command), Env: maps.Clone(req.Env), ExitCode: -1, AsRoot: req.AsRoot, Stdin: req.Stdin != nil})
 	i := len(f.execs) - 1
+	if onCommand := f.onCommand; onCommand != nil {
+		f.mu.Unlock()
+		if code, ok := onCommand(req); ok {
+			f.mu.Lock()
+			f.execs[i].ExitCode = code
+			f.mu.Unlock()
+			return code, nil
+		}
+		f.mu.Lock()
+		if local, err = f.running(req.Instance); err != nil {
+			f.mu.Unlock()
+			return 0, err
+		}
+	}
 	if onExec := f.onExec; onExec != nil && len(req.Command) > 0 && req.Command[0] == provider.GuestBinary {
 		// A test's hook sees tower-guest's commands first.
 		f.mu.Unlock()
@@ -1796,4 +1846,76 @@ func filesSize(files map[string][]byte) int {
 		n += len(b)
 	}
 	return n
+}
+
+// RejectedTailnetKey says the fake tailnet refuses a key, as a control
+// server refuses one invalid, expired or used up.
+func RejectedTailnetKey(key string) bool { return strings.HasPrefix(key, "tskey-rejected") }
+
+// JoinTailnet joins a running container whose spec joins a tailnet unless
+// its node has state, as hostd does; the key is held for the call alone.
+func (f *Fake) JoinTailnet(_ context.Context, req provider.TailnetJoin) error {
+	f.mu.Lock()
+	if fail := f.joinFault; fail != nil {
+		f.mu.Unlock()
+		return fail(req.Key)
+	}
+	local, err := f.running(req.Instance)
+	if err != nil {
+		f.mu.Unlock()
+		return err
+	}
+	if !local.tailnet {
+		f.mu.Unlock()
+		return fmt.Errorf("instance %s/%s joins no tailnet: %w", req.Instance.Project, req.Instance.Name, provider.ErrFailed)
+	}
+	local.gives++
+	switch {
+	case local.node:
+	case RejectedTailnetKey(req.Key):
+		local.rejected = "the tailnet refused its key: invalid key"
+	default:
+		local.node, local.rejected = true, ""
+		local.joins++
+	}
+	f.mu.Unlock()
+	f.enqueue(req.Instance)
+	return nil
+}
+
+// OnCommand has fn see every command run in an instance before the fake
+// runs it: one it handles exits with its code, fn having written what it
+// writes; nil sees none.
+func (f *Fake) OnCommand(fn func(provider.ExecRequest) (code int, handled bool)) {
+	f.mu.Lock()
+	f.onCommand = fn
+	f.mu.Unlock()
+}
+
+// FailJoinTailnet fails every JoinTailnet with what fail makes of the key
+// given, as a target that quotes it in its error might; nil fails none.
+func (f *Fake) FailJoinTailnet(fail func(key string) error) {
+	f.mu.Lock()
+	f.joinFault = fail
+	f.mu.Unlock()
+}
+
+// TailnetGives is how many times an instance was given its tailnet's key.
+func (f *Fake) TailnetGives(ref provider.Instance) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if local := f.instances[ref]; local != nil {
+		return local.gives
+	}
+	return 0
+}
+
+// TailnetJoins is how many times an instance joined its tailnet.
+func (f *Fake) TailnetJoins(ref provider.Instance) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if local := f.instances[ref]; local != nil {
+		return local.joins
+	}
+	return 0
 }

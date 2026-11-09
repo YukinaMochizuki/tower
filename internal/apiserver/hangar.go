@@ -266,7 +266,7 @@ func (s *Server) hangarConfig(ctx context.Context, t *targetsv1alpha1.Target) (h
 		Target: name, API: api(h.GetEndpoint(), h.GetProject(), token, hc), Client: s.systemClient(), PullSecret: pull,
 		Guest: s.cfg.TowerGuest, StreamPrefix: HangarStreamPath + name + "/", Clock: s.clock, Log: s.log,
 		SystemImage: s.cfg.SystemImage, Registry: s.cfg.Registry, RegistryHost: h.GetRegistryHost(), RegistryPlainHTTP: s.cfg.RegistryPlainHTTP,
-		PushLogin: push, TailnetAuthKey: authKey, Teardown: t.GetMetadata().GetDeleteTime() != nil,
+		PushLogin: push, TailnetAuthKey: authKey, TailnetKeys: s.TailnetKeys, Teardown: t.GetMetadata().GetDeleteTime() != nil,
 		SSHKey: sshKey, BaseImages: maps.Clone(baseImages), MirrorOps: s.cfg.HangarMirrorOps,
 	}
 	if s.cfg.Tickets != nil {

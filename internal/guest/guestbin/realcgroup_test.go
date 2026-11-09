@@ -35,12 +35,13 @@ const (
 )
 
 const (
-	helperSleep  = "sleep"
-	helperAlloc  = "alloc"
-	helperHold   = "hold"
-	helperWork   = "work"
-	helperWho    = "who"
-	helperAttack = "attack"
+	helperSleep   = "sleep"
+	helperAlloc   = "alloc"
+	helperHold    = "hold"
+	helperWork    = "work"
+	helperWho     = "who"
+	helperAttack  = "attack"
+	helperDropCap = "dropcap"
 )
 
 func TestMain(m *testing.M) {
@@ -109,6 +110,8 @@ func helper(name string) int {
 		return who()
 	case helperAttack:
 		return attack()
+	case helperDropCap:
+		return dropCapHelper()
 	}
 	return 2
 }

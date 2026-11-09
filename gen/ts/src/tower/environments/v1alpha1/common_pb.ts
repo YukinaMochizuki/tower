@@ -10,7 +10,46 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file tower/environments/v1alpha1/common.proto.
  */
 export const file_tower_environments_v1alpha1_common: GenFile = /*@__PURE__*/
-  fileDesc("Cih0b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTEvY29tbW9uLnByb3RvEht0b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEiNgoJUmVzb3VyY2VzEgsKA2NwdRgBIAEoCRIOCgZtZW1vcnkYAiABKAkSDAoEZGlzaxgDIAEoCSpTCghSdW5TdGF0ZRIZChVSVU5fU1RBVEVfVU5TUEVDSUZJRUQQABIVChFSVU5fU1RBVEVfUlVOTklORxABEhUKEVJVTl9TVEFURV9TVE9QUEVEEAJClgIKH2NvbS50b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTFCC0NvbW1vblByb3RvUAFaWGdpdGh1Yi5jb20vWXVraW5hTW9jaGl6dWtpL3Rvd2VyL2dlbi9nby90b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTE7ZW52aXJvbm1lbnRzdjFhbHBoYTGiAgNURViqAhtUb3dlci5FbnZpcm9ubWVudHMuVjFhbHBoYTHKAhtUb3dlclxFbnZpcm9ubWVudHNcVjFhbHBoYTHiAidUb3dlclxFbnZpcm9ubWVudHNcVjFhbHBoYTFcR1BCTWV0YWRhdGHqAh1Ub3dlcjo6RW52aXJvbm1lbnRzOjpWMWFscGhhMWIGcHJvdG8z");
+  fileDesc("Cih0b3dlci9lbnZpcm9ubWVudHMvdjFhbHBoYTEvY29tbW9uLnByb3RvEht0b3dlci5lbnZpcm9ubWVudHMudjFhbHBoYTEiRwoHVGFpbG5ldBITCgthdXRoX3NlY3JldBgBIAEoCRIQCghob3N0bmFtZRgCIAEoCRIVCg1hY2NlcHRfcm91dGVzGAMgASgIIjYKCVJlc291cmNlcxILCgNjcHUYASABKAkSDgoGbWVtb3J5GAIgASgJEgwKBGRpc2sYAyABKAkqUwoIUnVuU3RhdGUSGQoVUlVOX1NUQVRFX1VOU1BFQ0lGSUVEEAASFQoRUlVOX1NUQVRFX1JVTk5JTkcQARIVChFSVU5fU1RBVEVfU1RPUFBFRBACQpYCCh9jb20udG93ZXIuZW52aXJvbm1lbnRzLnYxYWxwaGExQgtDb21tb25Qcm90b1ABWlhnaXRodWIuY29tL1l1a2luYU1vY2hpenVraS90b3dlci9nZW4vZ28vdG93ZXIvZW52aXJvbm1lbnRzL3YxYWxwaGExO2Vudmlyb25tZW50c3YxYWxwaGExogIDVEVYqgIbVG93ZXIuRW52aXJvbm1lbnRzLlYxYWxwaGExygIbVG93ZXJcRW52aXJvbm1lbnRzXFYxYWxwaGEx4gInVG93ZXJcRW52aXJvbm1lbnRzXFYxYWxwaGExXEdQQk1ldGFkYXRh6gIdVG93ZXI6OkVudmlyb25tZW50czo6VjFhbHBoYTFiBnByb3RvMw");
+
+/**
+ * Tailnet joins a box or machine to a tailnet as a node of its own, the
+ * first time its instance starts; after that its node's state is kept with
+ * the instance and it comes back as the same node.
+ *
+ * @generated from message tower.environments.v1alpha1.Tailnet
+ */
+export type Tailnet = Message<"tower.environments.v1alpha1.Tailnet"> & {
+  /**
+   * A Secret in the same project holding, under "authkey", the key to join
+   * with. Its value never enters a spec of a lower layer, a status, a log
+   * or an event (docs/decisions/secrets.md).
+   *
+   * @generated from field: string auth_secret = 1;
+   */
+  authSecret: string;
+
+  /**
+   * The node's hostname on the tailnet.
+   *
+   * @generated from field: string hostname = 2;
+   */
+  hostname: string;
+
+  /**
+   * Accept the subnet routes the tailnet offers the node.
+   *
+   * @generated from field: bool accept_routes = 3;
+   */
+  acceptRoutes: boolean;
+};
+
+/**
+ * Describes the message tower.environments.v1alpha1.Tailnet.
+ * Use `create(TailnetSchema)` to create a new message.
+ */
+export const TailnetSchema: GenMessage<Tailnet> = /*@__PURE__*/
+  messageDesc(file_tower_environments_v1alpha1_common, 0);
 
 /**
  * Resources is a shape, as quantities; an empty one takes tower's default.
@@ -45,7 +84,7 @@ export type Resources = Message<"tower.environments.v1alpha1.Resources"> & {
  * Use `create(ResourcesSchema)` to create a new message.
  */
 export const ResourcesSchema: GenMessage<Resources> = /*@__PURE__*/
-  messageDesc(file_tower_environments_v1alpha1_common, 0);
+  messageDesc(file_tower_environments_v1alpha1_common, 1);
 
 /**
  * RunState is whether an environment should be running. Stopped keeps its

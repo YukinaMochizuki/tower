@@ -21,6 +21,7 @@ func harness(t *testing.T, h *fake.Host) drivertest.Harness {
 	return drivertest.Harness{
 		Drivers: h.Drivers(), Image: image, MissingImage: fake.Registry + "/base@sha256:ff", BaseImage: "ubuntu-24.04", EchoPort: 7,
 		Remote: "https://git.example.com/drivertest.git", Branch: "main", RemoteHead: "c2",
+		TailnetKey: "tskey-auth-drivertest", TailnetRejectedKey: "tskey-rejected-drivertest",
 	}
 }
 

@@ -282,3 +282,10 @@ func (s service) Ticket(ctx context.Context, req *connect.Request[hostdv1.Ticket
 	}
 	return connect.NewResponse(res), nil
 }
+
+func (s service) JoinTailnet(ctx context.Context, req *connect.Request[hostdv1.JoinTailnetRequest]) (*connect.Response[hostdv1.JoinTailnetResponse], error) {
+	if err := s.p.JoinTailnet(ctx, provider.TailnetJoin{Instance: instanceOf(req.Msg.GetInstance()), Key: req.Msg.GetKey()}); err != nil {
+		return nil, toConnect(err)
+	}
+	return connect.NewResponse(&hostdv1.JoinTailnetResponse{}), nil
+}

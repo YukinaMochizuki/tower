@@ -50,12 +50,16 @@ func (s *Server) newControllers() []*controller.Controller {
 		controller.Watch{Kind: registry.Boost.Kind, Map: s.ownerOf(registry.Box), SkipResync: true},
 		controller.Watch{Kind: registry.Golden.Kind, Map: s.inProject(registry.Box), SkipResync: true},
 		controller.Watch{Kind: registry.Repository.Kind, Map: s.inProject(registry.Box), SkipResync: true},
+		// A tailnet's key set after its box is given then (boxTailnet).
+		controller.Watch{Kind: registry.Secret.Kind, Map: s.inProject(registry.Box), SkipResync: true},
 	)
 	s.machineCtrl = c("machine", s.reconcileMachine,
 		controller.Watch{Kind: registry.Machine.Kind, Map: controller.Self},
 		controller.Watch{Kind: registry.Placement.Kind, Map: s.inProjectOfPlacement(registry.Machine), SkipResync: true},
 		controller.Watch{Kind: registry.Instance.Kind, Map: s.ownerOf(registry.Machine), SkipResync: true},
 		controller.Watch{Kind: registry.Golden.Kind, Map: s.inProject(registry.Machine), SkipResync: true},
+		// A tailnet's key set after its machine said NoKey joins it then.
+		controller.Watch{Kind: registry.Secret.Kind, Map: s.inProject(registry.Machine), SkipResync: true},
 	)
 	s.goldenCtrl = c("golden", s.reconcileGolden,
 		controller.Watch{Kind: registry.Golden.Kind, Map: controller.Self},

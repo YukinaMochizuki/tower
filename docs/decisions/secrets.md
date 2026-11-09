@@ -41,6 +41,10 @@ boxes in the background, where no intent is in flight.
 - tower is where a leak of product credentials would come from, and is held
   to that.
 - Secrets reach the target they are used on, hangar or hostd.
+- A tailnet's auth key reaches a hangar target as a hangar Secret of the
+  one container that joins with it, deleted with the container or its
+  tailnet (`tailnet.md`): hangar's Secrets are sealed as tower's are, and
+  no Container spec holds the value.
 - A Secret keeps the values it held before, sealed, for 90 days and 16
   values, so a copy out of an environment can be scanned for every value
   it was given (`copy-out-scan.md`).

@@ -11,6 +11,20 @@ enum RunState {
   RUN_STATE_STOPPED = 2;
 }
 
+// Tailnet joins a box or machine to a tailnet as a node of its own, the
+// first time its instance starts; after that its node's state is kept with
+// the instance and it comes back as the same node.
+message Tailnet {
+  // A Secret in the same project holding, under "authkey", the key to join
+  // with. Its value never enters a spec of a lower layer, a status, a log
+  // or an event (docs/decisions/secrets.md).
+  string auth_secret = 1;
+  // The node's hostname on the tailnet.
+  string hostname = 2;
+  // Accept the subnet routes the tailnet offers the node.
+  bool accept_routes = 3;
+}
+
 // Resources is a shape, as quantities; an empty one takes tower's default.
 message Resources {
   // Such as "2".

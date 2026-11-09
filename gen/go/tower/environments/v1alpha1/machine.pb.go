@@ -191,8 +191,13 @@ type MachineSpec struct {
 	// (docs/decisions/machine-resize.md).
 	Resources *Resources `protobuf:"bytes,4,opt,name=resources,proto3" json:"resources,omitempty"`
 	// The blueprint's required secrets, given in the configure phase only.
-	Secrets       []*SecretRef `protobuf:"bytes,5,rep,name=secrets,proto3" json:"secrets,omitempty"`
-	RunState      RunState     `protobuf:"varint,6,opt,name=run_state,json=runState,proto3,enum=tower.environments.v1alpha1.RunState" json:"run_state,omitempty"`
+	Secrets  []*SecretRef `protobuf:"bytes,5,rep,name=secrets,proto3" json:"secrets,omitempty"`
+	RunState RunState     `protobuf:"varint,6,opt,name=run_state,json=runState,proto3,enum=tower.environments.v1alpha1.RunState" json:"run_state,omitempty"`
+	// Joins the machine to a tailnet as a node of its own, before its
+	// configure phase; never its golden. Changed on a live machine, it is
+	// applied to it, as a box's is, without a restart. Whether it joined is
+	// its TailnetJoined condition (docs/decisions/tailnet.md).
+	Tailnet       *Tailnet `protobuf:"bytes,7,opt,name=tailnet,proto3" json:"tailnet,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -267,6 +272,13 @@ func (x *MachineSpec) GetRunState() RunState {
 		return x.RunState
 	}
 	return RunState_RUN_STATE_UNSPECIFIED
+}
+
+func (x *MachineSpec) GetTailnet() *Tailnet {
+	if x != nil {
+		return x.Tailnet
+	}
+	return nil
 }
 
 // Blueprint is what a machine is: workstream's blueprint, carried whole, as
@@ -567,12 +579,16 @@ func (x *SecretRef) GetAs() string {
 type MachineStatus struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	ObservedGeneration int64                  `protobuf:"varint,1,opt,name=observed_generation,json=observedGeneration,proto3" json:"observed_generation,omitempty"`
-	Conditions         []*v1.Condition        `protobuf:"bytes,2,rep,name=conditions,proto3" json:"conditions,omitempty"`
-	Phase              MachinePhase           `protobuf:"varint,3,opt,name=phase,proto3,enum=tower.environments.v1alpha1.MachinePhase" json:"phase,omitempty"`
-	Target             string                 `protobuf:"bytes,4,opt,name=target,proto3" json:"target,omitempty"`
-	Golden             string                 `protobuf:"bytes,5,opt,name=golden,proto3" json:"golden,omitempty"`
-	Instance           string                 `protobuf:"bytes,6,opt,name=instance,proto3" json:"instance,omitempty"`
-	Alias              string                 `protobuf:"bytes,7,opt,name=alias,proto3" json:"alias,omitempty"`
+	// Ready, with GoldenBuilt, Configured and Resized; and TailnetJoined,
+	// for a machine with spec.tailnet, as a box's (BoxStatus.conditions),
+	// which never holds the machine back from READY and goes with
+	// spec.tailnet.
+	Conditions []*v1.Condition `protobuf:"bytes,2,rep,name=conditions,proto3" json:"conditions,omitempty"`
+	Phase      MachinePhase    `protobuf:"varint,3,opt,name=phase,proto3,enum=tower.environments.v1alpha1.MachinePhase" json:"phase,omitempty"`
+	Target     string          `protobuf:"bytes,4,opt,name=target,proto3" json:"target,omitempty"`
+	Golden     string          `protobuf:"bytes,5,opt,name=golden,proto3" json:"golden,omitempty"`
+	Instance   string          `protobuf:"bytes,6,opt,name=instance,proto3" json:"instance,omitempty"`
+	Alias      string          `protobuf:"bytes,7,opt,name=alias,proto3" json:"alias,omitempty"`
 	// Its address on the workstream's network.
 	Address string `protobuf:"bytes,8,opt,name=address,proto3" json:"address,omitempty"`
 	// The size its instance has as its target last reported it
@@ -1376,7 +1392,7 @@ const file_tower_environments_v1alpha1_machine_proto_rawDesc = "" +
 	"\bmetadata\x18\x03 \x01(\v2\x19.tower.meta.v1.ObjectMetaR\bmetadata\x12<\n" +
 	"\x04spec\x18\x04 \x01(\v2(.tower.environments.v1alpha1.MachineSpecR\x04spec\x12B\n" +
 	"\x06status\x18\x05 \x01(\v2*.tower.environments.v1alpha1.MachineStatusR\x06status:\x1d\xca\xf3\x18\x19\n" +
-	"\aMachine\x12\bmachines\x1a\x02mc \x01\"\x8c\x03\n" +
+	"\aMachine\x12\bmachines\x1a\x02mc \x01\"\xcc\x03\n" +
 	"\vMachineSpec\x12&\n" +
 	"\n" +
 	"workstream\x18\x01 \x01(\tB\x06\xca\xf3\x18\x02\b\x01R\n" +
@@ -1385,7 +1401,8 @@ const file_tower_environments_v1alpha1_machine_proto_rawDesc = "" +
 	"\x04vars\x18\x03 \x01(\v2\x17.google.protobuf.StructB\x06\xca\xf3\x18\x02\b\x01R\x04vars\x12D\n" +
 	"\tresources\x18\x04 \x01(\v2&.tower.environments.v1alpha1.ResourcesR\tresources\x12H\n" +
 	"\asecrets\x18\x05 \x03(\v2&.tower.environments.v1alpha1.SecretRefB\x06\xca\xf3\x18\x02\b\x01R\asecrets\x12B\n" +
-	"\trun_state\x18\x06 \x01(\x0e2%.tower.environments.v1alpha1.RunStateR\brunState\"\xd7\x02\n" +
+	"\trun_state\x18\x06 \x01(\x0e2%.tower.environments.v1alpha1.RunStateR\brunState\x12>\n" +
+	"\atailnet\x18\a \x01(\v2$.tower.environments.v1alpha1.TailnetR\atailnet\"\xd7\x02\n" +
 	"\tBlueprint\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x1d\n" +
@@ -1527,10 +1544,11 @@ var file_tower_environments_v1alpha1_machine_proto_goTypes = []any{
 	(*structpb.Struct)(nil),             // 21: google.protobuf.Struct
 	(*Resources)(nil),                   // 22: tower.environments.v1alpha1.Resources
 	(RunState)(0),                       // 23: tower.environments.v1alpha1.RunState
-	(*durationpb.Duration)(nil),         // 24: google.protobuf.Duration
-	(*v1.Condition)(nil),                // 25: tower.meta.v1.Condition
-	(*timestamppb.Timestamp)(nil),       // 26: google.protobuf.Timestamp
-	(v1.EventType)(0),                   // 27: tower.meta.v1.EventType
+	(*Tailnet)(nil),                     // 24: tower.environments.v1alpha1.Tailnet
+	(*durationpb.Duration)(nil),         // 25: google.protobuf.Duration
+	(*v1.Condition)(nil),                // 26: tower.meta.v1.Condition
+	(*timestamppb.Timestamp)(nil),       // 27: google.protobuf.Timestamp
+	(v1.EventType)(0),                   // 28: tower.meta.v1.EventType
 }
 var file_tower_environments_v1alpha1_machine_proto_depIdxs = []int32{
 	20, // 0: tower.environments.v1alpha1.Machine.metadata:type_name -> tower.meta.v1.ObjectMeta
@@ -1541,40 +1559,41 @@ var file_tower_environments_v1alpha1_machine_proto_depIdxs = []int32{
 	22, // 5: tower.environments.v1alpha1.MachineSpec.resources:type_name -> tower.environments.v1alpha1.Resources
 	6,  // 6: tower.environments.v1alpha1.MachineSpec.secrets:type_name -> tower.environments.v1alpha1.SecretRef
 	23, // 7: tower.environments.v1alpha1.MachineSpec.run_state:type_name -> tower.environments.v1alpha1.RunState
-	21, // 8: tower.environments.v1alpha1.Blueprint.golden_vars:type_name -> google.protobuf.Struct
-	5,  // 9: tower.environments.v1alpha1.Blueprint.ready_check:type_name -> tower.environments.v1alpha1.ReadyCheck
-	4,  // 10: tower.environments.v1alpha1.Blueprint.run_as:type_name -> tower.environments.v1alpha1.RunAs
-	24, // 11: tower.environments.v1alpha1.ReadyCheck.timeout:type_name -> google.protobuf.Duration
-	25, // 12: tower.environments.v1alpha1.MachineStatus.conditions:type_name -> tower.meta.v1.Condition
-	0,  // 13: tower.environments.v1alpha1.MachineStatus.phase:type_name -> tower.environments.v1alpha1.MachinePhase
-	22, // 14: tower.environments.v1alpha1.MachineStatus.resources:type_name -> tower.environments.v1alpha1.Resources
-	26, // 15: tower.environments.v1alpha1.MachineStatus.start_time:type_name -> google.protobuf.Timestamp
-	1,  // 16: tower.environments.v1alpha1.GetMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
-	1,  // 17: tower.environments.v1alpha1.ListMachinesResponse.items:type_name -> tower.environments.v1alpha1.Machine
-	27, // 18: tower.environments.v1alpha1.WatchMachinesResponse.type:type_name -> tower.meta.v1.EventType
-	1,  // 19: tower.environments.v1alpha1.WatchMachinesResponse.machine:type_name -> tower.environments.v1alpha1.Machine
-	1,  // 20: tower.environments.v1alpha1.ApplyMachineRequest.machine:type_name -> tower.environments.v1alpha1.Machine
-	1,  // 21: tower.environments.v1alpha1.ApplyMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
-	1,  // 22: tower.environments.v1alpha1.DeleteMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
-	7,  // 23: tower.environments.v1alpha1.UpdateMachineStatusRequest.status:type_name -> tower.environments.v1alpha1.MachineStatus
-	1,  // 24: tower.environments.v1alpha1.UpdateMachineStatusResponse.machine:type_name -> tower.environments.v1alpha1.Machine
-	8,  // 25: tower.environments.v1alpha1.MachineService.GetMachine:input_type -> tower.environments.v1alpha1.GetMachineRequest
-	10, // 26: tower.environments.v1alpha1.MachineService.ListMachines:input_type -> tower.environments.v1alpha1.ListMachinesRequest
-	12, // 27: tower.environments.v1alpha1.MachineService.WatchMachines:input_type -> tower.environments.v1alpha1.WatchMachinesRequest
-	14, // 28: tower.environments.v1alpha1.MachineService.ApplyMachine:input_type -> tower.environments.v1alpha1.ApplyMachineRequest
-	16, // 29: tower.environments.v1alpha1.MachineService.DeleteMachine:input_type -> tower.environments.v1alpha1.DeleteMachineRequest
-	18, // 30: tower.environments.v1alpha1.MachineService.UpdateMachineStatus:input_type -> tower.environments.v1alpha1.UpdateMachineStatusRequest
-	9,  // 31: tower.environments.v1alpha1.MachineService.GetMachine:output_type -> tower.environments.v1alpha1.GetMachineResponse
-	11, // 32: tower.environments.v1alpha1.MachineService.ListMachines:output_type -> tower.environments.v1alpha1.ListMachinesResponse
-	13, // 33: tower.environments.v1alpha1.MachineService.WatchMachines:output_type -> tower.environments.v1alpha1.WatchMachinesResponse
-	15, // 34: tower.environments.v1alpha1.MachineService.ApplyMachine:output_type -> tower.environments.v1alpha1.ApplyMachineResponse
-	17, // 35: tower.environments.v1alpha1.MachineService.DeleteMachine:output_type -> tower.environments.v1alpha1.DeleteMachineResponse
-	19, // 36: tower.environments.v1alpha1.MachineService.UpdateMachineStatus:output_type -> tower.environments.v1alpha1.UpdateMachineStatusResponse
-	31, // [31:37] is the sub-list for method output_type
-	25, // [25:31] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	24, // 8: tower.environments.v1alpha1.MachineSpec.tailnet:type_name -> tower.environments.v1alpha1.Tailnet
+	21, // 9: tower.environments.v1alpha1.Blueprint.golden_vars:type_name -> google.protobuf.Struct
+	5,  // 10: tower.environments.v1alpha1.Blueprint.ready_check:type_name -> tower.environments.v1alpha1.ReadyCheck
+	4,  // 11: tower.environments.v1alpha1.Blueprint.run_as:type_name -> tower.environments.v1alpha1.RunAs
+	25, // 12: tower.environments.v1alpha1.ReadyCheck.timeout:type_name -> google.protobuf.Duration
+	26, // 13: tower.environments.v1alpha1.MachineStatus.conditions:type_name -> tower.meta.v1.Condition
+	0,  // 14: tower.environments.v1alpha1.MachineStatus.phase:type_name -> tower.environments.v1alpha1.MachinePhase
+	22, // 15: tower.environments.v1alpha1.MachineStatus.resources:type_name -> tower.environments.v1alpha1.Resources
+	27, // 16: tower.environments.v1alpha1.MachineStatus.start_time:type_name -> google.protobuf.Timestamp
+	1,  // 17: tower.environments.v1alpha1.GetMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
+	1,  // 18: tower.environments.v1alpha1.ListMachinesResponse.items:type_name -> tower.environments.v1alpha1.Machine
+	28, // 19: tower.environments.v1alpha1.WatchMachinesResponse.type:type_name -> tower.meta.v1.EventType
+	1,  // 20: tower.environments.v1alpha1.WatchMachinesResponse.machine:type_name -> tower.environments.v1alpha1.Machine
+	1,  // 21: tower.environments.v1alpha1.ApplyMachineRequest.machine:type_name -> tower.environments.v1alpha1.Machine
+	1,  // 22: tower.environments.v1alpha1.ApplyMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
+	1,  // 23: tower.environments.v1alpha1.DeleteMachineResponse.machine:type_name -> tower.environments.v1alpha1.Machine
+	7,  // 24: tower.environments.v1alpha1.UpdateMachineStatusRequest.status:type_name -> tower.environments.v1alpha1.MachineStatus
+	1,  // 25: tower.environments.v1alpha1.UpdateMachineStatusResponse.machine:type_name -> tower.environments.v1alpha1.Machine
+	8,  // 26: tower.environments.v1alpha1.MachineService.GetMachine:input_type -> tower.environments.v1alpha1.GetMachineRequest
+	10, // 27: tower.environments.v1alpha1.MachineService.ListMachines:input_type -> tower.environments.v1alpha1.ListMachinesRequest
+	12, // 28: tower.environments.v1alpha1.MachineService.WatchMachines:input_type -> tower.environments.v1alpha1.WatchMachinesRequest
+	14, // 29: tower.environments.v1alpha1.MachineService.ApplyMachine:input_type -> tower.environments.v1alpha1.ApplyMachineRequest
+	16, // 30: tower.environments.v1alpha1.MachineService.DeleteMachine:input_type -> tower.environments.v1alpha1.DeleteMachineRequest
+	18, // 31: tower.environments.v1alpha1.MachineService.UpdateMachineStatus:input_type -> tower.environments.v1alpha1.UpdateMachineStatusRequest
+	9,  // 32: tower.environments.v1alpha1.MachineService.GetMachine:output_type -> tower.environments.v1alpha1.GetMachineResponse
+	11, // 33: tower.environments.v1alpha1.MachineService.ListMachines:output_type -> tower.environments.v1alpha1.ListMachinesResponse
+	13, // 34: tower.environments.v1alpha1.MachineService.WatchMachines:output_type -> tower.environments.v1alpha1.WatchMachinesResponse
+	15, // 35: tower.environments.v1alpha1.MachineService.ApplyMachine:output_type -> tower.environments.v1alpha1.ApplyMachineResponse
+	17, // 36: tower.environments.v1alpha1.MachineService.DeleteMachine:output_type -> tower.environments.v1alpha1.DeleteMachineResponse
+	19, // 37: tower.environments.v1alpha1.MachineService.UpdateMachineStatus:output_type -> tower.environments.v1alpha1.UpdateMachineStatusResponse
+	32, // [32:38] is the sub-list for method output_type
+	26, // [26:32] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_tower_environments_v1alpha1_machine_proto_init() }

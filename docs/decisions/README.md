@@ -20,6 +20,7 @@ the change.
 | `machine-blueprints.md` | A machine's golden is its playbook but the tasks tagged configure, which each machine runs; every VM has the hostname `machine` |
 | `machine-resize.md` | A machine given a new size restarts at it (its ready check runs again, configure does not), a stopped one takes it stopped; a disk only grows; a size the target has no room for keeps the old one, Resized False saying why, and is applied once there is room |
 | `repositories.md` | tower mirrors repositories with its own credentials and pushes branches after workstream's approval; pull requests stay workstream's |
+| `tailnet.md` | A box or machine joins a tailnet as a node of its own, a provider primitive, as its mutable spec says, applied live: tower opens the key for the one call that hands it on; on hostd only tailscaled holds NET_ADMIN, and DNS splits `ts.net` to MagicDNS in the box; a machine joins over tower's SSH before its configure phase, never in its golden |
 | `secrets.md` | Every product secret is tower's, sealed at rest; a secret reaches only the environment that uses it; privileged boxes run through tower |
 | `copy-out-scan.md` | A copy asked to refuse secrets or bound its size streams through tower, scanned for the source's secret values in their common encodings, and lands only once all of it passed |
 | `authentication.md` | Service tokens with one fixed role each (admin, workstream, hostd); root on the host through a unix socket; tailnet only |

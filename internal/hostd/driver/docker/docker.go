@@ -7,9 +7,11 @@
 // goes through tower-guest shim, by docker exec (internal/guest/guestops).
 // Its workstream networks are Docker bridge networks, which the VM driver
 // puts its VMs on too (Networks); a guest on no network is on Docker's
-// default bridge. What the driver makes carries the label
-// tower.hangarlab.cloud/driver, and its spec as a label of its own; what
-// does not is never listed, changed or removed.
+// default bridge. A container that joins a tailnet runs as root, its
+// tailscaled alone keeping NET_ADMIN, and everything else as the image's
+// user without it (docs/decisions/tailnet.md). What the driver makes
+// carries the label tower.hangarlab.cloud/driver, and its spec as a label
+// of its own; what does not is never listed, changed or removed.
 package docker
 
 import (
@@ -32,6 +34,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -41,6 +44,7 @@ import (
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 
+	"github.com/YukinaMochizuki/tower/internal/guest"
 	"github.com/YukinaMochizuki/tower/internal/guest/guestops"
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
 )
@@ -88,6 +92,10 @@ type Config struct {
 	StateDir string
 	// GuestBinary is tower-guest on the host, statically linked.
 	GuestBinary string
+	// Tailscaled and Tailscale are tailscale's daemon and CLI on the host,
+	// bound into each container that joins a tailnet, whose state is kept
+	// in StateDir/tailnet/<container>; empty, the host makes none.
+	Tailscaled, Tailscale string
 	// DNS are the servers a container resolves through (Docker's resolver
 	// forwards to them), public ones: the host's firewall drops what a
 	// guest sends to a private address, the host's own resolver's among
@@ -115,6 +123,14 @@ func New(ctx context.Context, cfg Config) (*Driver, error) {
 	}
 	if _, err := os.Stat(cfg.GuestBinary); err != nil {
 		return nil, fmt.Errorf("tower-guest: %w", err)
+	}
+	for _, p := range []string{cfg.Tailscaled, cfg.Tailscale} {
+		if p == "" {
+			continue
+		}
+		if _, err := os.Stat(p); err != nil {
+			return nil, fmt.Errorf("tailscale: %w", err)
+		}
 	}
 	if _, err := cfg.Client.Ping(ctx, client.PingOptions{}); err != nil {
 		return nil, fmt.Errorf("docker: %w", err)
@@ -148,6 +164,22 @@ type spec struct {
 	CPUs    int    `json:"cpus,omitempty"`
 	Memory  uint64 `json:"memory,omitempty"`
 	Image   string `json:"image"`
+	// Tailnet is the tailnet it joins, nil for none. User is then the
+	// image's user, which the container, run as root, runs all but its
+	// tailscaled as.
+	Tailnet *driver.ContainerTailnet `json:"tailnet,omitempty"`
+	User    string                   `json:"user,omitempty"`
+}
+
+// user is the user its processes run as: the image's.
+func (s spec) user(c container.InspectResponse) string {
+	if s.Tailnet != nil {
+		return s.User
+	}
+	if c.Config != nil {
+		return c.Config.User
+	}
+	return ""
 }
 
 func specOf(labels map[string]string) (spec, bool) {
@@ -178,13 +210,53 @@ func (d *Driver) processesDir(name string) string {
 	return filepath.Join(d.cfg.StateDir, "processes", name)
 }
 
+// tailnetDir is where a container that joins a tailnet keeps its node's
+// state, on the host: not on its disk, which a boost or a golden copies.
+func (d *Driver) tailnetDir(name string) string {
+	return filepath.Join(d.cfg.StateDir, "tailnet", name)
+}
+
+// tailnetControl is the directory bound read-only into a container that
+// joins a tailnet at guest.TailnetControlDir, where the driver tells its
+// init to leave (guest.TailnetLeaveFile): beside tailnetSettings, out of
+// the box's reach.
+func (d *Driver) tailnetControl(name string) string {
+	return filepath.Join(d.cfg.StateDir, "tailnet-control", name)
+}
+
+// tailnetSettings is where a container's tailnet's hostname and routes are
+// kept as SetTailnet last set them on its node, which its spec label, fixed
+// at its making, cannot: outside the directory bound into it.
+func (d *Driver) tailnetSettings(name string) string {
+	return filepath.Join(d.cfg.StateDir, "tailnet-settings", name+".json")
+}
+
+// tailnetOf is the tailnet a container joins now: its spec's, with the
+// hostname and routes SetTailnet last set.
+func (d *Driver) tailnetOf(name string, s spec) *driver.ContainerTailnet {
+	if s.Tailnet == nil {
+		return nil
+	}
+	t := *s.Tailnet
+	if b, err := os.ReadFile(d.tailnetSettings(name)); err == nil {
+		_ = json.Unmarshal(b, &t)
+	}
+	return &t
+}
+
 func (d *Driver) Create(ctx context.Context, cs driver.ContainerSpec) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	want := spec{Disk: cs.Disk, Network: cs.Network, Alias: cs.Alias, CPUs: cs.CPUs, Memory: cs.Memory, Image: cs.Image}
+	return d.create(ctx, cs)
+}
+
+// create is Create, d.mu held.
+func (d *Driver) create(ctx context.Context, cs driver.ContainerSpec) error {
+	want := spec{Disk: cs.Disk, Network: cs.Network, Alias: cs.Alias, CPUs: cs.CPUs, Memory: cs.Memory, Image: cs.Image, Tailnet: cs.Tailnet}
 	if cur, err := d.cli.ContainerInspect(ctx, cs.Name, client.ContainerInspectOptions{}); err == nil {
 		have, ours := specOf(cur.Container.Config.Labels)
-		if !ours || have.Image != want.Image || have.Disk != want.Disk || have.Network != want.Network || have.Alias != want.Alias {
+		if !ours || have.Image != want.Image || have.Disk != want.Disk || have.Network != want.Network || have.Alias != want.Alias ||
+			(have.Tailnet == nil) != (want.Tailnet == nil) {
 			return fmt.Errorf("container %s is there, made otherwise: %w", cs.Name, driver.ErrConflict)
 		}
 		return nil
@@ -209,10 +281,20 @@ func (d *Driver) Create(ctx context.Context, cs driver.ContainerSpec) error {
 	if err != nil {
 		return err
 	}
+	if cs.Tailnet != nil && (d.cfg.Tailscaled == "" || d.cfg.Tailscale == "") {
+		return fmt.Errorf("container %s joins a tailnet, and this host has no tailscale (hostd's --tailscaled and --tailscale): %w", cs.Name, driver.ErrStartFailed)
+	}
 	// The image's own entrypoint and command run under init.
 	var argv []string
 	if c := img.Config; c != nil {
 		argv = append(slices.Clone(c.Entrypoint), c.Cmd...)
+	}
+	var imageEnv []string
+	if img.Config != nil {
+		imageEnv = img.Config.Env
+		if cs.Tailnet != nil {
+			want.User = img.Config.User
+		}
 	}
 	specJSON, err := json.Marshal(want)
 	if err != nil {
@@ -228,18 +310,56 @@ func (d *Driver) Create(ctx context.Context, cs driver.ContainerSpec) error {
 		return err
 	}
 	stop := int(d.cfg.StopTimeout / time.Second)
+	initArgs := []string{GuestBinary, "init"}
+	if cs.Tailnet != nil {
+		initArgs = append(initArgs, "--tailnet", "--as", want.User)
+		if !homeSet(imageEnv, cs.Env) {
+			initArgs = append(initArgs, "--as-home")
+		}
+	}
 	cfg := &container.Config{
 		Image: cs.Image, Labels: labels, Hostname: hostname(cs),
-		Entrypoint: append([]string{GuestBinary, "init", "--"}, argv...), Cmd: []string{},
+		Entrypoint: append(append(initArgs, "--"), argv...), Cmd: []string{},
 		StopTimeout: &stop,
 	}
 	if img.Config != nil {
 		cfg.WorkingDir, cfg.User = img.Config.WorkingDir, img.Config.User
 	}
+	if cs.Tailnet != nil {
+		// Its init starts tailscaled as root, then runs the image's
+		// command as its user without NET_ADMIN.
+		cfg.User = "0"
+	}
 	// Over the image's, as docker run -e gives them: each value as it is.
 	for _, k := range slices.Sorted(maps.Keys(cs.Env)) {
 		cfg.Env = append(cfg.Env, k+"="+cs.Env[k])
 	}
+	if cs.Tailnet != nil {
+		for _, dir := range []string{d.tailnetDir(cs.Name), d.tailnetControl(cs.Name)} {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return err
+			}
+		}
+	}
+	host := d.hostConfig(cs, netName, procs)
+	endpoint := &network.EndpointSettings{}
+	if cs.Alias != "" && netName != DefaultNetwork {
+		endpoint.Aliases = []string{cs.Alias}
+	}
+	_, err = d.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Name: cs.Name, Config: cfg, HostConfig: host,
+		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{netName: endpoint}},
+	})
+	if cerrdefs.IsConflict(err) {
+		return fmt.Errorf("container %s: %w: %w", cs.Name, err, driver.ErrConflict)
+	}
+	return err
+}
+
+// hostConfig is how Docker is to run a container of cs on netName, its
+// processes kept in procs: a TUN device, NET_ADMIN and tailscale for one
+// that joins a tailnet alone.
+func (d *Driver) hostConfig(cs driver.ContainerSpec, netName, procs string) *container.HostConfig {
 	host := &container.HostConfig{
 		Mounts: []mount.Mount{
 			{Type: mount.TypeBind, Source: cs.Disk, Target: Workspace},
@@ -261,18 +381,29 @@ func (d *Driver) Create(ctx context.Context, cs driver.ContainerSpec) error {
 		NetworkMode:   container.NetworkMode(netName),
 		DNS:           d.cfg.DNS,
 	}
-	endpoint := &network.EndpointSettings{}
-	if cs.Alias != "" && netName != DefaultNetwork {
-		endpoint.Aliases = []string{cs.Alias}
+	if cs.Tailnet != nil {
+		// tailscaled's TUN device and NET_ADMIN, which init drops for all
+		// else (docs/decisions/tailnet.md).
+		host.CapAdd = []string{"NET_ADMIN"}
+		host.Devices = []container.DeviceMapping{{PathOnHost: "/dev/net/tun", PathInContainer: "/dev/net/tun", CgroupPermissions: "rwm"}}
+		host.Mounts = append(host.Mounts,
+			mount.Mount{Type: mount.TypeBind, Source: d.cfg.Tailscaled, Target: guest.Tailscaled, ReadOnly: true},
+			mount.Mount{Type: mount.TypeBind, Source: d.cfg.Tailscale, Target: guest.Tailscale, ReadOnly: true},
+			mount.Mount{Type: mount.TypeBind, Source: d.tailnetDir(cs.Name), Target: guest.TailnetDir},
+			mount.Mount{Type: mount.TypeBind, Source: d.tailnetControl(cs.Name), Target: guest.TailnetControlDir, ReadOnly: true},
+		)
 	}
-	_, err = d.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Name: cs.Name, Config: cfg, HostConfig: host,
-		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{netName: endpoint}},
-	})
-	if cerrdefs.IsConflict(err) {
-		return fmt.Errorf("container %s: %w: %w", cs.Name, err, driver.ErrConflict)
+	return host
+}
+
+// homeSet reports whether a container's environment sets HOME, its
+// image's (each "NAME=value") or its spec's; one that does not takes its
+// user's from its passwd entry, as Docker gives it.
+func homeSet(image []string, env map[string]string) bool {
+	if _, ok := env["HOME"]; ok {
+		return true
 	}
-	return err
+	return slices.ContainsFunc(image, func(e string) bool { return strings.HasPrefix(e, "HOME=") })
 }
 
 // hostname is a container's: its alias, or its name.
@@ -305,22 +436,23 @@ func (d *Driver) inspect(ctx context.Context, name string) (container.InspectRes
 }
 
 // running reads a running container of the driver's.
-func (d *Driver) running(ctx context.Context, name string) (container.InspectResponse, error) {
-	c, _, err := d.inspect(ctx, name)
+func (d *Driver) running(ctx context.Context, name string) (container.InspectResponse, spec, error) {
+	c, s, err := d.inspect(ctx, name)
 	if err != nil {
-		return c, err
+		return c, s, err
 	}
 	if c.State == nil || !c.State.Running {
-		return c, fmt.Errorf("container %s: %w", name, driver.ErrNotRunning)
+		return c, s, fmt.Errorf("container %s: %w", name, driver.ErrNotRunning)
 	}
-	return c, nil
+	return c, s, nil
 }
 
-func guestOf(c container.InspectResponse, s spec) driver.Guest {
+func (d *Driver) guestOf(c container.InspectResponse, s spec) driver.Guest {
 	name := strings.TrimPrefix(c.Name, "/")
 	g := driver.Guest{
 		GuestSpec: driver.GuestSpec{Name: name, Disk: s.Disk, Network: s.Network, Alias: s.Alias, CPUs: s.CPUs, Memory: s.Memory, Labels: hostdLabels(c.Config.Labels)},
 		Image:     s.Image,
+		Tailnet:   d.tailnetOf(name, s),
 	}
 	g.Created, _ = time.Parse(time.RFC3339Nano, c.Created)
 	if c.State != nil && c.State.Running {
@@ -344,7 +476,7 @@ func (d *Driver) Inspect(ctx context.Context, name string) (driver.Guest, error)
 	if err != nil {
 		return driver.Guest{}, err
 	}
-	return guestOf(c, s), nil
+	return d.guestOf(c, s), nil
 }
 
 func (d *Driver) List(ctx context.Context) ([]driver.Guest, error) {
@@ -361,7 +493,7 @@ func (d *Driver) List(ctx context.Context) ([]driver.Guest, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, guestOf(r, s))
+		out = append(out, d.guestOf(r, s))
 	}
 	slices.SortFunc(out, func(a, b driver.Guest) int { return strings.Compare(a.Name, b.Name) })
 	return out, nil
@@ -390,10 +522,7 @@ func (d *Driver) Start(ctx context.Context, name string) error {
 // numbered, is looked up in the container's own /etc/passwd and
 // /etc/group, which the host's do not speak for.
 func (d *Driver) giveUser(ctx context.Context, c container.InspectResponse, s spec, procs string) error {
-	user := ""
-	if c.Config != nil {
-		user = c.Config.User
-	}
+	user := s.user(c)
 	if user == "" {
 		return nil
 	}
@@ -425,41 +554,20 @@ func (d *Driver) giveUser(ctx context.Context, c container.InspectResponse, s sp
 }
 
 // giveRepos makes ReposDir in the container as root, on its own root file
-// system, and gives it to uid:gid while it is empty. An image with no
-// shell is left as it is: nothing in it could use the directory but
-// tower-guest, whose checkout then says why it cannot make it.
+// system, and gives it to uid:gid while it is empty, through tower-guest
+// give-dir: nothing of the image's runs as root, and without NET_ADMIN.
+// Every exec the driver runs in a container is tower-guest's, by its
+// absolute path, and drops NET_ADMIN before anything else.
 func (d *Driver) giveRepos(ctx context.Context, id string, uid, gid int) error {
-	line := fmt.Sprintf("mkdir -p %[1]s && if [ -z \"$(ls -A %[1]s)\" ]; then chown %[2]d:%[3]d %[1]s; fi", ReposDir, uid, gid)
-	ex, err := d.cli.ExecCreate(ctx, id, client.ExecCreateOptions{User: "0", Cmd: []string{"/bin/sh", "-c", line}, AttachStdout: true, AttachStderr: true})
-	if err != nil {
+	if err := d.asRoot(ctx, id, giveReposArgs(uid, gid)...); err != nil {
 		return fmt.Errorf("giving %s to the container's user: %w", ReposDir, err)
 	}
-	att, err := d.cli.ExecAttach(ctx, ex.ID, client.ExecAttachOptions{})
-	if err != nil {
-		return fmt.Errorf("giving %s to the container's user: %w", ReposDir, err)
-	}
-	var out bytes.Buffer
-	_, err = stdcopy.StdCopy(&out, &out, bufio.NewReader(att.Reader))
-	att.Close()
-	if err != nil {
-		return fmt.Errorf("giving %s to the container's user: %w", ReposDir, err)
-	}
-	for range 100 {
-		in, err := d.cli.ExecInspect(ctx, ex.ID, client.ExecInspectOptions{})
-		if err != nil {
-			return err
-		}
-		if in.Running {
-			time.Sleep(10 * time.Millisecond)
-			continue
-		}
-		switch in.ExitCode {
-		case 0, 126, 127: // done, or no shell to run it
-			return nil
-		}
-		return fmt.Errorf("giving %s to the container's user: exit %d: %s", ReposDir, in.ExitCode, strings.TrimSpace(out.String()))
-	}
-	return fmt.Errorf("giving %s to the container's user: it did not end", ReposDir)
+	return nil
+}
+
+// giveReposArgs are tower-guest's arguments that give ReposDir to uid:gid.
+func giveReposArgs(uid, gid int) []string {
+	return []string{"give-dir", strconv.Itoa(uid), strconv.Itoa(gid), ReposDir}
 }
 
 // chownRoots gives dir to uid:gid if root owns it, as hostd made it.
@@ -576,16 +684,41 @@ func (d *Driver) Stop(ctx context.Context, name string) error {
 }
 
 func (d *Driver) Remove(ctx context.Context, name string) error {
-	if _, _, err := d.inspect(ctx, name); errors.Is(err, driver.ErrNotFound) {
+	c, s, err := d.inspect(ctx, name)
+	if errors.Is(err, driver.ErrNotFound) {
 		return nil
 	} else if err != nil {
 		return err
 	}
-	if _, err := d.cli.ContainerRemove(ctx, name, client.ContainerRemoveOptions{Force: true}); err != nil && !cerrdefs.IsNotFound(err) {
+	if err := retire(ctx, dockerNode{d, name}, d.tailnetOf(name, s) != nil, c.State != nil && c.State.Running); err != nil {
 		return err
 	}
 	// Its processes go with it.
 	return os.RemoveAll(d.processesDir(name))
+}
+
+// retire removes a container and what the host keeps of its node, which,
+// if it joins a tailnet, logs out first, so its tailnet forgets it.
+func retire(ctx context.Context, n nodeOps, joins, running bool) error {
+	if joins {
+		leaveTailnet(ctx, n, running)
+	}
+	if err := n.remove(ctx); err != nil {
+		return err
+	}
+	return n.forget()
+}
+
+// forgetNode removes what the host keeps of a container's node: its
+// state, its status, and the hostname and routes last set on it.
+func (d *Driver) forgetNode(name string) error {
+	if err := os.Remove(d.tailnetSettings(name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.RemoveAll(d.tailnetControl(name)); err != nil {
+		return err
+	}
+	return os.RemoveAll(d.tailnetDir(name))
 }
 
 func (d *Driver) EnsureNetwork(ctx context.Context, name string, labels driver.Labels) error {
@@ -601,43 +734,59 @@ func (d *Driver) RemoveNetwork(ctx context.Context, name string) error {
 }
 
 // ops are the operations in a container, through tower-guest shim.
-func (d *Driver) ops(name string) guestops.Ops {
-	return guestops.Ops{R: runner{d.cli, name}, ProcRoot: ProcessesDir, HostProcRoot: d.processesDir(name)}
+func (d *Driver) ops(name string, s spec, c container.InspectResponse) guestops.Ops {
+	r := runner{cli: d.cli, container: name}
+	if s.Tailnet != nil {
+		// Run as root, which drops NET_ADMIN and becomes the image's user
+		// before anything else.
+		r.user = "0"
+		r.env = []string{guest.RunAsEnv + "=" + s.User}
+		// Its Config.Env holds the image's environment and its spec's.
+		if c.Config == nil || !homeSet(c.Config.Env, nil) {
+			r.env = append(r.env, guest.RunAsHomeEnv+"=1")
+		}
+	}
+	return guestops.Ops{R: r, ProcRoot: ProcessesDir, HostProcRoot: d.processesDir(name)}
 }
 
 func (d *Driver) Exec(ctx context.Context, name string, spec driver.ExecSpec) (int, error) {
-	if _, err := d.running(ctx, name); err != nil {
+	c, s, err := d.running(ctx, name)
+	if err != nil {
 		return 0, err
 	}
-	return d.ops(name).Exec(ctx, spec)
+	return d.ops(name, s, c).Exec(ctx, spec)
 }
 
 func (d *Driver) ReadFile(ctx context.Context, name, path string, w io.Writer) error {
-	if _, err := d.running(ctx, name); err != nil {
+	c, s, err := d.running(ctx, name)
+	if err != nil {
 		return err
 	}
-	return d.ops(name).ReadFile(ctx, path, w)
+	return d.ops(name, s, c).ReadFile(ctx, path, w)
 }
 
 func (d *Driver) WriteFile(ctx context.Context, name, path string, mode os.FileMode, offset int64, r io.Reader) error {
-	if _, err := d.running(ctx, name); err != nil {
+	c, s, err := d.running(ctx, name)
+	if err != nil {
 		return err
 	}
-	return d.ops(name).WriteFile(ctx, path, mode, offset, r)
+	return d.ops(name, s, c).WriteFile(ctx, path, mode, offset, r)
 }
 
 func (d *Driver) CopyOut(ctx context.Context, name, path string, w io.Writer) error {
-	if _, err := d.running(ctx, name); err != nil {
+	c, s, err := d.running(ctx, name)
+	if err != nil {
 		return err
 	}
-	return d.ops(name).CopyOut(ctx, path, w)
+	return d.ops(name, s, c).CopyOut(ctx, path, w)
 }
 
 func (d *Driver) CopyIn(ctx context.Context, name, dir string, r io.Reader) error {
-	if _, err := d.running(ctx, name); err != nil {
+	c, s, err := d.running(ctx, name)
+	if err != nil {
 		return err
 	}
-	return d.ops(name).CopyIn(ctx, dir, r)
+	return d.ops(name, s, c).CopyIn(ctx, dir, r)
 }
 
 func (d *Driver) Dial(ctx context.Context, name string, port int32) (net.Conn, error) {
@@ -645,7 +794,7 @@ func (d *Driver) Dial(ctx context.Context, name string, port int32) (net.Conn, e
 	if err != nil {
 		return nil, err
 	}
-	g := guestOf(c, s)
+	g := d.guestOf(c, s)
 	if !g.Running || g.Address == "" {
 		return nil, fmt.Errorf("container %s: %w", name, driver.ErrNotRunning)
 	}
@@ -654,29 +803,32 @@ func (d *Driver) Dial(ctx context.Context, name string, port int32) (net.Conn, e
 }
 
 func (d *Driver) StartProcess(ctx context.Context, name string, spec driver.ProcessSpec) (string, error) {
-	if _, err := d.running(ctx, name); err != nil {
+	c, s, err := d.running(ctx, name)
+	if err != nil {
 		return "", err
 	}
-	return d.ops(name).StartProcess(ctx, spec)
+	return d.ops(name, s, c).StartProcess(ctx, spec)
 }
 
 func (d *Driver) ListProcesses(ctx context.Context, name string) ([]driver.ProcessInfo, error) {
-	if _, _, err := d.inspect(ctx, name); err != nil {
+	c, s, err := d.inspect(ctx, name)
+	if err != nil {
 		return nil, err
 	}
-	return d.ops(name).ListProcesses(ctx)
+	return d.ops(name, s, c).ListProcesses(ctx)
 }
 
 func (d *Driver) ReadProcessLog(ctx context.Context, name, id string, from int64, follow bool, out func(driver.LogChunk) error) (driver.LogEnd, error) {
-	if _, _, err := d.inspect(ctx, name); err != nil {
+	c, s, err := d.inspect(ctx, name)
+	if err != nil {
 		return driver.LogEnd{}, err
 	}
-	end, err := d.ops(name).ReadProcessLog(ctx, id, from, follow, out)
+	end, err := d.ops(name, s, c).ReadProcessLog(ctx, id, from, follow, out)
 	return end, driver.FromGuest(err)
 }
 
 func (d *Driver) SignalProcess(ctx context.Context, name, id string, sig int) error {
-	c, _, err := d.inspect(ctx, name)
+	c, s, err := d.inspect(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -684,18 +836,25 @@ func (d *Driver) SignalProcess(ctx context.Context, name, id string, sig int) er
 		// Its processes ended with it.
 		return nil
 	}
-	return driver.FromGuest(d.ops(name).SignalProcess(ctx, id, sig))
+	return driver.FromGuest(d.ops(name, s, c).SignalProcess(ctx, id, sig))
 }
 
-// runner runs tower-guest shim in a container by docker exec.
+// runner runs tower-guest shim in a container by docker exec, as user
+// with env when set.
 type runner struct {
 	cli       *client.Client
 	container string
+	user      string
+	env       []string
 }
 
 func (r runner) RunShim(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
+	return r.run(ctx, []string{GuestBinary, "shim"}, stdin, stdout, stderr)
+}
+
+func (r runner) run(ctx context.Context, cmd []string, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
 	ex, err := r.cli.ExecCreate(ctx, r.container, client.ExecCreateOptions{
-		Cmd: []string{GuestBinary, "shim"}, AttachStdin: true, AttachStdout: true, AttachStderr: true,
+		Cmd: cmd, User: r.user, Env: r.env, AttachStdin: true, AttachStdout: true, AttachStderr: true,
 	})
 	if cerrdefs.IsNotFound(err) {
 		return 0, fmt.Errorf("container %s: %w", r.container, driver.ErrNotFound)
@@ -854,4 +1013,316 @@ func (n Networks) Gateway(ctx context.Context, name string) (netip.Prefix, error
 		}
 	}
 	return netip.Prefix{}, fmt.Errorf("network %s has no IPv4 subnet", name)
+}
+
+func (d *Driver) Tailnet(ctx context.Context, name string) (driver.TailnetState, error) {
+	_, s, err := d.inspect(ctx, name)
+	if err != nil {
+		return driver.TailnetState{}, err
+	}
+	if s.Tailnet == nil {
+		return driver.TailnetState{}, fmt.Errorf("container %s joins no tailnet: %w", name, driver.ErrNotFound)
+	}
+	return tailnetStatusIn(ctx, d.tailnetDir(name)), nil
+}
+
+// tailnetStatusIn is how the join stands as tower-guest says it in a
+// container's tailnet directory, which the guest holds: what is not a
+// status file tower-guest wrote whole says so, and is never trusted.
+func tailnetStatusIn(ctx context.Context, dir string) driver.TailnetState {
+	b, err := readGuestFile(ctx, dir, guest.TailnetStatusFile, maxTailnetStatus)
+	if errors.Is(err, os.ErrNotExist) {
+		return driver.TailnetState{Reason: "Starting", Message: "its tailscaled has not started yet"}
+	}
+	if err != nil {
+		return driver.TailnetState{Reason: "Failed", Message: "its status cannot be read: " + err.Error()}
+	}
+	// tower-guest writes it whole, by a rename: one that does not parse
+	// says no reason, as one not written yet.
+	var st guest.TailnetStatus
+	_ = json.Unmarshal(b, &st)
+	if st.Reason == "" {
+		return driver.TailnetState{Reason: "Starting", Message: "its status says nothing yet"}
+	}
+	return driver.TailnetState{Reason: st.Reason, Message: st.Message}
+}
+
+func (d *Driver) JoinTailnet(ctx context.Context, name, key string) error {
+	_, s, err := d.running(ctx, name)
+	if err != nil {
+		return err
+	}
+	if s.Tailnet == nil {
+		return fmt.Errorf("container %s joins no tailnet: %w", name, driver.ErrNotFound)
+	}
+	cmd := append([]string{GuestBinary, "tailnet-up"}, tailnetArgs(d.tailnetOf(name, s))...)
+	// As root, keeping NET_ADMIN, with the key on its stdin alone.
+	var out bytes.Buffer
+	code, err := runner{cli: d.cli, container: name, user: "0"}.run(ctx, cmd, strings.NewReader(key), &out, &out)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("container %s: tower-guest tailnet-up exited %d: %s", name, code, strings.TrimSpace(strings.ReplaceAll(out.String(), key, "[key]")))
+	}
+	return nil
+}
+
+// maxTailnetStatus bounds the status file hostd reads of a container's
+// node.
+const maxTailnetStatus = 64 << 10
+
+// guestReadTimeout bounds a read of a file a guest wrote.
+const guestReadTimeout = 5 * time.Second
+
+// readGuestFile reads a file the guest writes in a directory it holds,
+// bound into it, as proclog reads a process's: confined to dir, never
+// through a link (O_NOFOLLOW), a regular file alone, opened without
+// blocking, at most limit bytes, within guestReadTimeout. A link, a FIFO,
+// a device or a file too large the guest put there is an error, never
+// followed, waited on or read whole.
+func readGuestFile(ctx context.Context, dir, name string, limit int64) ([]byte, error) {
+	type result struct {
+		b   []byte
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		b, err := func() ([]byte, error) {
+			r, err := os.OpenRoot(dir)
+			if err != nil {
+				return nil, err
+			}
+			defer func() { _ = r.Close() }()
+			// os.Root follows a link that stays in it: the name itself must
+			// not be one, and what is opened must be what was looked at.
+			lst, err := r.Lstat(name)
+			if err != nil {
+				return nil, err
+			}
+			if !lst.Mode().IsRegular() {
+				return nil, fmt.Errorf("%s is not a regular file", name)
+			}
+			f, err := r.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
+			if err != nil {
+				return nil, err
+			}
+			defer func() { _ = f.Close() }()
+			st, err := f.Stat()
+			if err != nil {
+				return nil, err
+			}
+			if !st.Mode().IsRegular() || !os.SameFile(lst, st) {
+				return nil, fmt.Errorf("%s changed as it was opened", name)
+			}
+			b, err := io.ReadAll(io.LimitReader(f, limit+1))
+			if err == nil && int64(len(b)) > limit {
+				err = fmt.Errorf("%s is over %d bytes", name, limit)
+			}
+			return b, err
+		}()
+		done <- result{b, err}
+	}()
+	ctx, cancel := context.WithTimeout(ctx, guestReadTimeout)
+	defer cancel()
+	select {
+	case r := <-done:
+		return r.b, r.err
+	case <-ctx.Done():
+		return nil, fmt.Errorf("reading %s: %w", name, ctx.Err())
+	}
+}
+
+// guestCommand is a tower-guest subcommand as the driver execs it in a
+// container: by its absolute path, never a name the box's PATH resolves.
+func guestCommand(args ...string) []string {
+	return append([]string{GuestBinary}, args...)
+}
+
+// tailnetArgs are tower-guest's flags for a tailnet's hostname and routes.
+func tailnetArgs(t *driver.ContainerTailnet) []string {
+	args := []string{"--hostname", t.Hostname}
+	if t.AcceptRoutes {
+		args = append(args, "--accept-routes")
+	}
+	return args
+}
+
+// asRoot runs a tower-guest subcommand in a running container as root,
+// keeping its capabilities, and fails with its words on a code other
+// than 0.
+func (d *Driver) asRoot(ctx context.Context, name string, args ...string) error {
+	var out bytes.Buffer
+	code, err := runner{cli: d.cli, container: name, user: "0"}.run(ctx, guestCommand(args...), strings.NewReader(""), &out, &out)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("container %s: tower-guest %s exited %d: %s", name, args[0], code, strings.TrimSpace(out.String()))
+	}
+	return nil
+}
+
+func (d *Driver) SetTailnet(ctx context.Context, name string, t *driver.ContainerTailnet) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	c, s, err := d.inspect(ctx, name)
+	if err != nil {
+		return err
+	}
+	if t != nil && d.tailnetOf(name, s) == nil && (d.cfg.Tailscaled == "" || d.cfg.Tailscale == "") {
+		return fmt.Errorf("container %s joins a tailnet, and this host has no tailscale (hostd's --tailscaled and --tailscale): %w", name, driver.ErrStartFailed)
+	}
+	g := d.guestOf(c, s)
+	cs := driver.ContainerSpec{GuestSpec: g.GuestSpec, Image: s.Image, Env: map[string]string{}, Tailnet: t}
+	cs.Labels = hostdLabels(c.Config.Labels)
+	// Its Config.Env holds the image's environment and its spec's: given
+	// again whole, each value as it was.
+	for _, e := range c.Config.Env {
+		k, v, _ := strings.Cut(e, "=")
+		cs.Env[k] = v
+	}
+	return changeTailnet(ctx, dockerNode{d, name}, d.tailnetOf(name, s), t, c.State != nil && c.State.Running, cs)
+}
+
+// nodeOps are what a change of a container's tailnet does to it, apart
+// from Docker for its tests.
+type nodeOps interface {
+	// hasState says its node has state to log out; leaveStopped starts the
+	// stopped container in leave mode, whose init logs its node out and
+	// exits, running nothing of the image's; down logs a running one's
+	// node out (tower-guest tailnet-down); set sets its node's hostname
+	// and routes as it runs (tower-guest tailnet-set) and keeps them; stop
+	// and remove stop and remove the container, keeping its disk and
+	// processes' records; forget removes what the host keeps of its node;
+	// create makes it again, stopped.
+	hasState() bool
+	leaveStopped(ctx context.Context) error
+	down(ctx context.Context) error
+	set(ctx context.Context, t *driver.ContainerTailnet) error
+	stop(ctx context.Context) error
+	remove(ctx context.Context) error
+	forget() error
+	create(ctx context.Context, cs driver.ContainerSpec) error
+}
+
+// changeTailnet changes the tailnet a container joins from have to want,
+// running or not: a hostname or routes are set on a running node, one
+// stopped taking them after its start; a container that joins or leaves
+// is made again as cs, its node, if it leaves, logged out first, started
+// for it if stopped, and forgotten.
+func changeTailnet(ctx context.Context, n nodeOps, have, want *driver.ContainerTailnet, running bool, cs driver.ContainerSpec) error {
+	switch {
+	case have == nil && want == nil:
+		return nil
+	case have != nil && want != nil:
+		if *have == *want || !running {
+			return nil
+		}
+		return n.set(ctx, want)
+	}
+	if have != nil {
+		leaveTailnet(ctx, n, running)
+	}
+	// Docker gives a container its devices and capabilities as it makes
+	// it: one that joins or leaves is made again, on the same disk.
+	if err := n.stop(ctx); err != nil {
+		return err
+	}
+	if err := n.remove(ctx); err != nil {
+		return err
+	}
+	if err := n.forget(); err != nil {
+		return err
+	}
+	return n.create(ctx, cs)
+}
+
+// leaveTailnet logs a container's node out, so its tailnet forgets it: a
+// running one's through tower-guest; a stopped one's by starting it in
+// leave mode, its init starting tailscaled to log out and nothing of the
+// image's, and only if its node has state, there being nothing to log out
+// otherwise. It is tried, not required: a node that cannot log out (a
+// container that does not start, a tailnet out of reach) leaves all the
+// same, its state deleted after, and workstream deletes its device.
+func leaveTailnet(ctx context.Context, n nodeOps, running bool) {
+	switch {
+	case running:
+		_ = n.down(ctx)
+	case n.hasState():
+		_ = n.leaveStopped(ctx)
+	}
+}
+
+// dockerNode is nodeOps on the driver's container of the name.
+type dockerNode struct {
+	d    *Driver
+	name string
+}
+
+func (n dockerNode) hasState() bool {
+	_, err := os.Lstat(filepath.Join(n.d.tailnetDir(n.name), guest.TailnetStateFile))
+	return err == nil
+}
+
+// leaveTimeout bounds a stopped container's start in leave mode: its init
+// waits up to 20 seconds for tailscaled and 30 for the logout.
+const leaveTimeout = 90 * time.Second
+
+func (n dockerNode) leaveStopped(ctx context.Context) error {
+	marker := filepath.Join(n.d.tailnetControl(n.name), guest.TailnetLeaveFile)
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(marker) }()
+	ctx, cancel := context.WithTimeout(ctx, leaveTimeout)
+	defer cancel()
+	if _, err := n.d.cli.ContainerStart(ctx, n.name, client.ContainerStartOptions{}); err != nil {
+		return err
+	}
+	wait := n.d.cli.ContainerWait(ctx, n.name, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
+	select {
+	case <-wait.Result:
+		return nil
+	case err := <-wait.Error:
+		_ = n.stop(context.WithoutCancel(ctx))
+		return err
+	}
+}
+
+func (n dockerNode) down(ctx context.Context) error { return n.d.asRoot(ctx, n.name, "tailnet-down") }
+
+func (n dockerNode) set(ctx context.Context, t *driver.ContainerTailnet) error {
+	if err := n.d.asRoot(ctx, n.name, append([]string{"tailnet-set"}, tailnetArgs(t)...)...); err != nil {
+		return err
+	}
+	b, err := json.Marshal(t)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(n.d.tailnetSettings(n.name)), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(n.d.tailnetSettings(n.name), b, 0o600)
+}
+
+func (n dockerNode) stop(ctx context.Context) error {
+	timeout := int(n.d.cfg.StopTimeout / time.Second)
+	if _, err := n.d.cli.ContainerStop(ctx, n.name, client.ContainerStopOptions{Timeout: &timeout}); err != nil && !cerrdefs.IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+func (n dockerNode) remove(ctx context.Context) error {
+	if _, err := n.d.cli.ContainerRemove(ctx, n.name, client.ContainerRemoveOptions{Force: true}); err != nil && !cerrdefs.IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+func (n dockerNode) forget() error { return n.d.forgetNode(n.name) }
+
+func (n dockerNode) create(ctx context.Context, cs driver.ContainerSpec) error {
+	return n.d.create(ctx, cs)
 }

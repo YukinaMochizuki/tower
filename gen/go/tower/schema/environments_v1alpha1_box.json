@@ -96,6 +96,10 @@
           },
           "type": "array"
         },
+        "tailnet": {
+          "$ref": "#/$defs/tower.environments.v1alpha1.Tailnet",
+          "description": "Joins the box to a tailnet as a node of its own, with its own TUN device; a box without it is on no tailnet. Changed on a live box, it is applied to it: added, it joins; removed, it logs out and its node is forgotten; a new hostname or accept_routes is set on its node. On a hostd target, adding or removing it makes the box's container again, as a restart does, keeping /workspace. Whether it joined is its TailnetJoined condition (docs/decisions/tailnet.md)."
+        },
         "workstream": {
           "description": "The workstream the box belongs to, by id. A workstream's boxes and machines share a network and reach each other by alias.",
           "type": "string"
@@ -112,7 +116,7 @@
           "type": "string"
         },
         "conditions": {
-          "description": "Ready, with ImageBuilt and Materialized on the way to it; SetUp, which says whether its devcontainer's setup steps passed: one that did not leaves the box READY; KernelLimits, on a hangar target, which says whether its instance's inotify limits were raised at its last start, and leaves it READY when they were not; and DevcontainerFellBack, true when its image is the one to fall back to, saying why. Fallen back from an image that did not build, its reason is BuildFailed while that image's golden is FAILED, its message naming the golden, why it failed, when (\"failed at\") and when it is built again (\"built again at\"); Rebuilding while it is built again; and BuiltSince once it is built, when a box made now is made of it. The box itself stays on the image it fell back to.",
+          "description": "Ready, with ImageBuilt and Materialized on the way to it; SetUp, which says whether its devcontainer's setup steps passed: one that did not leaves the box READY; KernelLimits, on a hangar target, which says whether its instance's inotify limits were raised at its last start, and leaves it READY when they were not; and DevcontainerFellBack, true when its image is the one to fall back to, saying why. Fallen back from an image that did not build, its reason is BuildFailed while that image's golden is FAILED, its message naming the golden, why it failed, when (\"failed at\") and when it is built again (\"built again at\"); Rebuilding while it is built again; and BuiltSince once it is built, when a box made now is made of it. The box itself stays on the image it fell back to. TailnetJoined, for a box with spec.tailnet, says whether it joined its tailnet: reason Joined; KeyRejected, NoKey (its auth_secret is not there, or holds no \"authkey\"), Starting or Failed, with a message. It never holds the box back from READY, and goes with spec.tailnet.",
           "items": {
             "$ref": "#/$defs/tower.meta.v1.Condition"
           },
@@ -266,6 +270,25 @@
         },
         "secret": {
           "description": "A Secret in the same project.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "tower.environments.v1alpha1.Tailnet": {
+      "additionalProperties": false,
+      "description": "Tailnet joins a box or machine to a tailnet as a node of its own, the first time its instance starts; after that its node's state is kept with the instance and it comes back as the same node.",
+      "properties": {
+        "acceptRoutes": {
+          "description": "Accept the subnet routes the tailnet offers the node.",
+          "type": "boolean"
+        },
+        "authSecret": {
+          "description": "A Secret in the same project holding, under \"authkey\", the key to join with. Its value never enters a spec of a lower layer, a status, a log or an event (docs/decisions/secrets.md).",
+          "type": "string"
+        },
+        "hostname": {
+          "description": "The node's hostname on the tailnet.",
           "type": "string"
         }
       },

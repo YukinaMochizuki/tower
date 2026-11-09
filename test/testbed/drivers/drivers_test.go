@@ -66,6 +66,9 @@ func harness(t *testing.T) drivertest.Harness {
 			return again
 		},
 		HostFiles: env.StateDir(),
+		// A single-use key of a tailnet the testbed may join, which the
+		// join cases skip without; a bogus key every tailnet refuses.
+		TailnetKey: os.Getenv("TOWER_TESTBED_TAILNET_KEY"), TailnetRejectedKey: "tskey-auth-kDrivertest-Bogus",
 	}
 }
 
@@ -79,6 +82,8 @@ func TestContainers(t *testing.T) {
 }
 
 func TestContainerProcesses(t *testing.T) { drivertest.RunProcesses(t, harness(t)) }
+
+func TestContainerTailnet(t *testing.T) { drivertest.RunTailnet(t, harness(t)) }
 
 func TestVMs(t *testing.T) {
 	h := harness(t)

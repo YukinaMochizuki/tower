@@ -47,6 +47,11 @@ message MachineSpec {
   // The blueprint's required secrets, given in the configure phase only.
   repeated SecretRef secrets = 5 [(tower.meta.v1.field).immutable = true];
   RunState run_state = 6;
+  // Joins the machine to a tailnet as a node of its own, before its
+  // configure phase; never its golden. Changed on a live machine, it is
+  // applied to it, as a box's is, without a restart. Whether it joined is
+  // its TailnetJoined condition (docs/decisions/tailnet.md).
+  Tailnet tailnet = 7;
 }
 
 // Blueprint is what a machine is: workstream's blueprint, carried whole, as
@@ -130,6 +135,10 @@ enum MachinePhase {
 // MachineStatus is what tower reports about the machine.
 message MachineStatus {
   int64 observed_generation = 1;
+  // Ready, with GoldenBuilt, Configured and Resized; and TailnetJoined,
+  // for a machine with spec.tailnet, as a box's (BoxStatus.conditions),
+  // which never holds the machine back from READY and goes with
+  // spec.tailnet.
   repeated tower.meta.v1.Condition conditions = 2;
   MachinePhase phase = 3;
   string target = 4;

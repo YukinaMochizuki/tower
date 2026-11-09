@@ -23,7 +23,7 @@ import (
 // Main runs tower-guest with its arguments, returning its exit code.
 func Main(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: tower-guest shim|init|supervise ...")
+		fmt.Fprintln(os.Stderr, "usage: tower-guest shim|init|supervise|dropped|tailnet-up|tailnet-set|tailnet-down ...")
 		return 2
 	}
 	switch args[0] {
@@ -33,6 +33,16 @@ func Main(args []string) int {
 		return initMain(args[1:])
 	case "supervise":
 		return supervise(args[1:])
+	case "dropped":
+		return droppedMain(args[1:])
+	case "tailnet-up":
+		return tailnetUpMain(args[1:], os.Stdin, os.Stderr)
+	case "tailnet-set":
+		return tailnetSetMain(args[1:], os.Stderr)
+	case "tailnet-down":
+		return tailnetDownMain(os.Stderr)
+	case "give-dir":
+		return giveDirMain(args[1:], os.Stderr)
 	case "version":
 		fmt.Println(Version)
 		return 0
@@ -57,6 +67,10 @@ func failed(stderr io.Writer, code int, err error) int {
 
 // shim runs the one operation its stdin's header names.
 func shim(stdin io.Reader, stdout, stderr io.Writer) int {
+	// In a container that joins a tailnet, before anything else.
+	if err := becomeFromEnv(); err != nil {
+		return failed(stderr, ExitCannotStart, err)
+	}
 	in := bufio.NewReader(stdin)
 	h, err := readHeader(in)
 	if err != nil {

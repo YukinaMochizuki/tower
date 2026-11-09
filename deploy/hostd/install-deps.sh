@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Installs what hostd's drivers run on a host (docs/runbook/deploy.md):
 # the packages (ZFS, Docker, git, qemu-img), Cloud Hypervisor and its
-# firmware, and BuildKit as a service, each at the version
-# versions.env pins and checked against its sha256. It leaves Docker with
-# live-restore on, so containers and VMs outlive a restart of dockerd.
+# firmware, BuildKit as a service, and the tailscale boxes run, each at
+# the version versions.env pins and checked against its sha256. It leaves
+# Docker with live-restore on, so containers and VMs outlive a restart of
+# dockerd.
 # Idempotent. Run as root, on Ubuntu or Debian.
 #
 # Ubuntu ships ZFS's kernel module built. Debian ships it as source, in
@@ -108,6 +109,18 @@ if [ ! -x "$bk/bin/buildkitd" ]; then
 	rm -f "$bk.tar.gz"
 fi
 for b in "$bk"/bin/*; do ln -sf "$b" "/usr/local/bin/$(basename "$b")"; done
+
+# tailscale's static build, which hostd binds read-only into each box that
+# joins a tailnet (docs/decisions/tailnet.md); it never runs on the host
+# from here. The link is what hostd's --tailscaled and --tailscale name.
+ts=/usr/local/lib/tower/tailscale-$TOWER_TAILSCALE_VERSION
+if [ ! -x "$ts/tailscaled" ]; then
+	fetch "$TOWER_TAILSCALE_URL" "$TOWER_TAILSCALE_SHA256" "$ts.tgz" 0644
+	mkdir -p "$ts"
+	tar -xzf "$ts.tgz" -C "$ts" --strip-components=1
+	rm -f "$ts.tgz"
+fi
+ln -sfn "$ts" /usr/local/lib/tower/tailscale
 
 # A build step's network (docs/decisions/images.md): a network namespace
 # of its own on the bridge tower-build0, which is no workstream's, whose

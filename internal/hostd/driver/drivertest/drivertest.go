@@ -26,8 +26,8 @@ type Harness struct {
 	Drivers driver.Drivers
 	// Image is a reference by digest the registry holds, whose containers
 	// run the commands the suites name (true, false, exit, echo, env, cat,
-	// emit, sh -c, sleep, children, and as a process serve, tick and
-	// spawn; see the fake's) and echo what they read on EchoPort;
+	// emit, sh -c, sleep, children, test, netadmin, and as a process serve,
+	// tick and spawn; see the fake's) and echo what they read on EchoPort;
 	// MissingImage, one the registry lacks.
 	Image, MissingImage string
 	// BaseImage is what a VM boots, whose guest does the same.
@@ -46,6 +46,10 @@ type Harness struct {
 	// must never be kept. The cases needing them are skipped without.
 	Reopen    func(t *testing.T) driver.Drivers
 	HostFiles string
+	// TailnetKey is an auth key the tailnet accepts, for one join;
+	// TailnetRejectedKey one it refuses. The cases needing them are skipped
+	// without.
+	TailnetKey, TailnetRejectedKey string
 }
 
 // Run runs every driver's suite.
@@ -53,6 +57,7 @@ func Run(t *testing.T, h Harness) {
 	t.Run("Storage", func(t *testing.T) { RunStorage(t, h) })
 	t.Run("Containers", func(t *testing.T) { RunGuests(t, h, h.containers()) })
 	t.Run("ContainerProcesses", func(t *testing.T) { RunProcesses(t, h) })
+	t.Run("ContainerTailnet", func(t *testing.T) { RunTailnet(t, h) })
 	t.Run("VMs", func(t *testing.T) { RunGuests(t, h, h.vms()) })
 	t.Run("VMProcesses", func(t *testing.T) { RunVMProcesses(t, h) })
 	t.Run("Images", func(t *testing.T) { RunImages(t, h) })

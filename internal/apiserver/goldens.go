@@ -748,8 +748,11 @@ func (s *Server) convergeMachine(ctx context.Context, p provider.Provider, ref p
 	if err := s.prepareUser(ctx, p, ref, build.RunAs, "/opt/tower/blueprint.yml", "/opt/tower/golden-vars.json"); err != nil {
 		return err
 	}
-	return s.mustRun(ctx, p, ref, nil, "/opt/tower", asUser(build.RunAs,
-		"ansible-playbook", "--connection=local", "--inventory=localhost,", "--skip-tags=configure", "--extra-vars=@golden-vars.json", "blueprint.yml")...)
+	if err := s.mustRun(ctx, p, ref, nil, "/opt/tower", asUser(build.RunAs,
+		"ansible-playbook", "--connection=local", "--inventory=localhost,", "--skip-tags=configure", "--extra-vars=@golden-vars.json", "blueprint.yml")...); err != nil {
+		return err
+	}
+	return s.mustRun(ctx, p, ref, nil, "/", "sh", "-c", scrubGoldenTailnet, "tower-tailnet", vmTailnetState)
 }
 
 // installAnsible installs ansible-core in a golden's builder where
