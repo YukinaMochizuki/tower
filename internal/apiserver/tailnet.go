@@ -515,13 +515,10 @@ func (s *Server) markTried(ctx context.Context, ref provider.Instance, tn *envv1
 	return s.markGiven(ctx, ref, givenKey, givenOf(in))
 }
 
-// runVM runs a script in a VM as root, a failure quoting its output. As
-// root, not as the blueprint's run_as user, whom an exec in a machine runs
-// as otherwise: the scripts install tailscale, write systemd units and
-// restart tailscaled.
+// runVM runs a script in a VM as root, a failure quoting its output.
 func runVM(ctx context.Context, p provider.Provider, ref provider.Instance, script string, args ...string) error {
 	var out bytes.Buffer
-	code, err := p.Exec(ctx, provider.ExecRequest{Instance: ref, Command: append([]string{"sh", "-c", script, "tower-tailnet"}, args...), AsRoot: true, Stdout: &out, Stderr: &out})
+	code, err := p.Exec(ctx, provider.ExecRequest{Instance: ref, Command: append([]string{"sh", "-c", script, "tower-tailnet"}, args...), Stdout: &out, Stderr: &out})
 	if err != nil {
 		return err
 	}
@@ -543,7 +540,7 @@ func tail(out string) string {
 // vmTailnetStatus reads how a VM's node stands from tailscale status.
 func vmTailnetStatus(ctx context.Context, p provider.Provider, ref provider.Instance) (tailnetStatus, error) {
 	var out bytes.Buffer
-	code, err := p.Exec(ctx, provider.ExecRequest{Instance: ref, Command: []string{"sh", "-c", vmBackendState, "tower-tailnet"}, AsRoot: true, Stdout: &out, Stderr: &out})
+	code, err := p.Exec(ctx, provider.ExecRequest{Instance: ref, Command: []string{"sh", "-c", vmBackendState, "tower-tailnet"}, Stdout: &out, Stderr: &out})
 	if err != nil {
 		return tailnetStatus{}, err
 	}
@@ -623,7 +620,7 @@ func joinVM(ctx context.Context, p provider.Provider, ref provider.Instance, key
 	var out bytes.Buffer
 	code, err := p.Exec(ctx, provider.ExecRequest{
 		Instance: ref, Command: []string{"sh", "-c", joinVMTailnet, "tower-tailnet", tailscaleVersion, tailscaleSHA256, tn.GetHostname(), routes, vmUnits},
-		AsRoot: true, Stdin: strings.NewReader(key + "\n"), Stdout: &out, Stderr: &out,
+		Stdin: strings.NewReader(key + "\n"), Stdout: &out, Stderr: &out,
 	})
 	if err != nil {
 		return tailnetStatus{}, fmt.Errorf("joining: %s: %w", redact(err.Error(), key), errorKind(err))
