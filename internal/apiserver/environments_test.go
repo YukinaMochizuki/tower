@@ -118,6 +118,15 @@ func TestTargetsAreChecked(t *testing.T) {
 		"a grow step that is neither": func(t *targetsv1alpha1.Target) {
 			t.Spec.Settings = &targetsv1alpha1.TargetSettings{BoxWorkspaceDiskGrowStep: "lots"}
 		},
+		"a golden budget that is no quantity": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{GoldenBudget: "lots"}
+		},
+		"a golden budget's low mark over its high one": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{GoldenBudget: "100Gi", GoldenBudgetLow: "120Gi"}
+		},
+		"a golden budget's low mark set alone over tower's high one": func(t *targetsv1alpha1.Target) {
+			t.Spec.Settings = &targetsv1alpha1.TargetSettings{GoldenBudgetLow: "1Ti"}
+		},
 	}
 	for what, mutate := range bad {
 		tg := hangarTarget("new")

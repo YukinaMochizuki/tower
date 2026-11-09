@@ -24,9 +24,6 @@ import (
 	"github.com/YukinaMochizuki/tower/internal/testutil"
 )
 
-// pruneAfter is the golden prune delay of a world.
-const pruneAfter = time.Hour
-
 // controllerMaxWait is how long a controller waits before it checks again
 // a key waiting on something outside it (controller.Controller.MaxWait).
 const controllerMaxWait = 2 * time.Second
@@ -68,7 +65,6 @@ func newWorld(t *testing.T, opts ...worldOption) *world {
 	cfg := []envOption{func(c *apiserver.Config) {
 		c.Clock = clock
 		c.BookmarkClock, c.BookmarkInterval = clockwork.NewRealClock(), 10*time.Millisecond
-		c.GoldenPruneAfter = pruneAfter
 		c.Providers = func(target string) (provider.Provider, error) {
 			if target == "t1" {
 				return w.fake, nil

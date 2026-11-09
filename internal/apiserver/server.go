@@ -87,9 +87,6 @@ type Config struct {
 	// DefaultBoxImage is what a box of a repository without a devcontainer
 	// is made of when it names no fallback_image; empty fails such a box.
 	DefaultBoxImage string
-	// GoldenPruneAfter is how long a golden nothing was made from, and
-	// nothing references, is kept; zero is DefaultGoldenPruneAfter.
-	GoldenPruneAfter time.Duration
 	// PrebuildStepTimeout is how long one of a warm golden's pre-build
 	// steps may run; zero is DefaultPrebuildStepTimeout.
 	PrebuildStepTimeout time.Duration
@@ -155,7 +152,10 @@ type Server struct {
 	controllers                                   []*controller.Controller
 	placementCtrl, repositoryCtrl, boxCtrl        *controller.Controller
 	machineCtrl, goldenCtrl, warmCtrl, targetCtrl *controller.Controller
-	boostCtrl                                     *controller.Controller
+	boostCtrl, goldenBudgetCtrl                   *controller.Controller
+	// goldenShortfalls say which targets' golden budgets last could not
+	// free what they needed (goldenbudget.go).
+	goldenShortfalls goldenShortfalls
 	// boosts are the targets' boosted starts not started yet, and what
 	// keeps their boosts in use (boosts.go).
 	boosts boostQueues
@@ -245,9 +245,6 @@ func New(cfg Config) *Server {
 	}
 	if cfg.PrebuildStepTimeout == 0 {
 		cfg.PrebuildStepTimeout = DefaultPrebuildStepTimeout
-	}
-	if cfg.GoldenPruneAfter == 0 {
-		cfg.GoldenPruneAfter = DefaultGoldenPruneAfter
 	}
 	if cfg.TicketTTL == 0 {
 		cfg.TicketTTL = DefaultTicketTTL
