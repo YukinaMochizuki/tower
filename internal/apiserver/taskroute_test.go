@@ -141,10 +141,14 @@ func TestAutoSendsAHeavyToolToABoost(t *testing.T) {
 		next.GetRouted() != "go test ./...: its last run, on a boost, used 0.5 vCPU on average and peaked at 600Mi, which this 1 vCPU box, holding its processes to 1.2Gi, holds: in the box" {
 		t.Errorf("after a light run on a boost, it answered %v", next)
 	}
-	// Another pattern is another task, with no runs.
+	// Another pattern is another task, with no runs; over a package it
+	// names, its first run is in the box, measured.
 	w.writeBoxFile("dev", "/workspace/internal/x/x.go", "package x\n")
-	if other := w.start(autoStart("dev", "go test ./internal/x/", "")); !strings.HasPrefix(other.GetRouted(), "go test ./internal/x/: no runs recorded yet") || !boosted(other) {
+	if other := w.start(autoStart("dev", "go test ./internal/x/", "")); other.GetRouted() != "go test ./internal/x/: no runs recorded yet; go test of named packages runs in the box first, measured, and decides the next: in the box" || boosted(other) {
 		t.Errorf("another package pattern answered %v", other)
+	}
+	if wide := w.start(autoStart("dev", "go vet ./internal/...", "")); !strings.HasPrefix(wide.GetRouted(), "go vet ./internal/...: no runs recorded yet; go vet is a heavy tool") || !boosted(wide) {
+		t.Errorf("a pattern over many packages answered %v", wide)
 	}
 }
 
@@ -243,9 +247,9 @@ func TestAutoFollowsScripts(t *testing.T) {
 // TestAutoRoutesByRecords: a task with runs is routed by its last ones,
 // not by what it runs: a run in the box that waited for a CPU a fifth of
 // its time, or kept all its CPUs busy, for 30 seconds or more, sends the
-// next to a boost of boost_resources; a peak within 80% of the box's
-// memory, or an OOM, to a boost of 1.5 times the peak; light runs to the
-// box. The records are the repository's, read by each of its boxes.
+// next to a boost of boost_resources; an OOM to a boost of 1.5 times the
+// peak; light runs, and a peak near the box's limit that was not killed,
+// to the box. The records are the repository's, read by each of its boxes.
 func TestAutoRoutesByRecords(t *testing.T) {
 	t.Parallel()
 	w := boostWorld(t, nil)
@@ -270,9 +274,10 @@ func TestAutoRoutesByRecords(t *testing.T) {
 	}{
 		{"make test", true, "make test: of its last 3 runs, one in this 1 vCPU box waited for a CPU 40% of its 1m0s: on a boost of 8 vCPU and 8192Mi"},
 		{"make busy", true, "make busy: its last run kept all the CPUs of this 1 vCPU box busy for 1m0s: on a boost of 8 vCPU and 8192Mi"},
-		// The box of 2Gi holds its processes to 1280Mi; a boost holding
-		// them to 1.5 times a peak T has min(T+768Mi, 2T).
-		{"make mem", true, "make mem: its last run in this box peaked at 1.1Gi, of the 1.2Gi this box holds its processes to: on a boost of 4 vCPU and 2418Mi"},
+		// The box of 2Gi holds its processes to 1280Mi; a peak under it, not
+		// killed, is the page cache. A boost holding them to 1.5 times a
+		// peak T has min(T+768Mi, 2T).
+		{"make mem", false, "make mem: its last run came near neither this box's CPUs nor its memory: in the box"},
 		{"make oom", true, "make oom: its last run in this box ran out of memory at 1.2Gi, of the 1.2Gi this box holds its processes to: on a boost of 5 vCPU and 2568Mi"},
 		{"make lint", false, "make lint: its last run came near neither this box's CPUs nor its memory: in the box"},
 		{"make short", false, "make short: its last run came near neither"},

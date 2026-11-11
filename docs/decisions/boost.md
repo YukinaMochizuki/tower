@@ -124,7 +124,9 @@ work has to find its own way to a boost.
   text, each word held to the plain-name rule `process-usage.md` sets
   for the coarse key; a word that fails it makes the line no task.
 - **A task with no record**: a heavy tool called directly (the list
-  above) goes to a boost of the target's `boost_resources` by its name; a
+  above) goes to a boost of the target's `boost_resources` by its name,
+  go's and cargo's only over a wide scope (a pattern with `...`; cargo
+  without `-p`), as the next section says; a
   script is judged by its text in `package.json`, following the scripts
   it runs, and goes to a boost if it runs a heavy tool (the list above,
   plus `go vet`, `bun test`, and bundlers and builds: `vite build`,
@@ -142,12 +144,13 @@ work has to find its own way to a boost.
   - in the box, waiting for a CPU a fifth of its time or more, or busy on
     all the box's CPUs, for 30 seconds or more: next time a boost of the
     target's `boost_resources`;
-  - a peak within 80% of what the box holds its processes to, or an OOM:
-    a boost that holds them to 1.5 times that peak;
+  - an OOM: a boost that holds them to 1.5 times that peak (a peak alone
+    is no reason, as the next section says);
   - on a boost, using no more CPUs than the box has and a peak the box
     holds its processes to: next time in the box.
 
-  The numbers are a start, to be read again against the records.
+  The numbers are a start, to be read again against the records. They
+  were, on 2026-11-11; see "Read against the records" below.
 - **Each routed exit says why**, in its task's words ("`make test`: of
   its last 3 runs, one in this 1 vCPU box waited for a CPU 40% of its
   1m0s: on a boost of 8 vCPU and 8192Mi").
@@ -246,15 +249,14 @@ fills in or departs from the draft above:
   A make target, or a `just` or `task` recipe, has nothing read: with no
   runs, it runs in the box.
 - **Judging by runs**, the last 3, in this order: a run that ran out of
-  memory, or peaked at 80% or more of what the box now holds its
-  processes to (`processMemoryMax` of its memory), wherever it ran,
-  sends the next to a boost that holds them to 1.5 times the largest
-  such peak (an OOM with no peak counts what the instance it ran on held
-  them to): the least memory M with `processMemoryMax(M)` that large,
-  min(T + 768Mi, 2T) for a limit T, its cpu the target's default moved
-  into hangar's shapes, as a size asked for is, and held to `boost_max`;
-  a box of 2Gi holds its processes to 1280Mi, so a peak of 1100Mi there
-  sends the next to a boost of 2418Mi. Then a run
+  memory, wherever it ran, sends the next to a boost that holds its
+  processes to 1.5 times the largest such peak (an OOM with no peak
+  counts what the instance it ran on held them to): the least memory M
+  with `processMemoryMax(M)` that large, min(T + 768Mi, 2T) for a limit
+  T, its cpu the target's default moved into hangar's shapes, as a size
+  asked for is, and held to `boost_max`; a box of 2Gi holds its
+  processes to 1280Mi, so an OOM at 1200Mi there sends the next to a
+  boost of 2568Mi. Then a run
   in the box of 30 seconds or more that waited for a CPU a fifth of its
   time, or whose CPU time was 90% or more of all the box's CPUs over its
   wall time ("busy on all", read so as a busy run never quite uses them
@@ -581,8 +583,51 @@ What is accepted and built, in the API's terms:
 - A line that runs no task the repository declares, a script of its own
   say, never goes to a boost unless its caller asks. A heavy tool's first
   run, or a script's that runs one, goes to a boost by its name, before
-  any record; a make target's, or a just or task recipe's, first run is
-  in the box, a cost paid once per repository for what it measures.
+  any record, except go's and cargo's over named packages; a make
+  target's, or a just or task recipe's, first run is in the box, a cost
+  paid once per repository for what it measures.
+
+### Read against the records (decided with the human, 2026-11-11)
+
+No start had asked for `auto` by then (none of the 1456 processes tower
+started since 2026-11-02), but `TaskUse` records every box process with
+a task, whatever it asked. Its 133 tasks and 241 runs (arx-os-lab,
+ardge-cloud-service, ardge-cloud-web, arx-platform-*, boxes of 2 vCPU
+and 2Gi) were routed again offline by the rules above. Under the first
+numbers, 61 would go to a boost next, 47 of them by the memory rule.
+What changed, and why:
+
+- **A peak alone no longer sends a task to a boost; an OOM does.**
+  `memory.peak` is the cgroup's, page cache included, and a Go build or
+  test fills the cache up to the limit for the kernel to take back: of
+  196 runs in boxes, 44 peaked at 1024Mi or more (80% of 1280Mi) and 11
+  at the limit itself, and 3 were killed. A peak says how large the
+  limit was, not what the run needed. A signal of memory the run waited
+  for, the cgroup's `memory.pressure`, would tell them apart; it is not
+  measured yet.
+- **go's and cargo's over named packages run in the box first.** A line
+  is its tasks' list, and an agent names other packages each time
+  (`go vet ./a && go test ./b`): 100 of the 133 tasks ran once. Under
+  the first rule 87 of those went to a boost by a heavy tool's name, and
+  33 had ended within 30 seconds in the box, 12 within 10, where a
+  boost adds a sync, and a start when none is warm. A go pattern with
+  `...` or cargo without `-p` still goes to a boost first; `.` (go's
+  default) is one package and runs in the box. Scripts and the other
+  heavy tools are as before.
+- **The CPU rule stays** (a fifth waiting, or 90% of all CPUs, for 30
+  seconds or more): it sent 31 tasks to a boost, each a run that waited
+  for a CPU, `make release` 26% of its 63s, `make run-account-center-e2e`
+  23% of its 7m34s. At 60 seconds it would miss those of 30 to 60
+  seconds waiting a third of their time; at 10% it would send runs that
+  barely waited.
+- **`auto` becomes the default of workstream's `run_async_box`** once a
+  tower with these rules is released: a start that names no boost asks
+  for `auto`, which is advisory and never refused, and `boost: "off"`
+  keeps one in the box.
+
+Under the rules as changed, about 45 of the 133 go to a boost next: 31
+for their CPU wait, 10 whose last run on a boost used more CPUs than the
+box has, 2 for an OOM, 2 for all CPUs busy.
 
 ## Not decided yet
 
@@ -591,4 +636,6 @@ What is accepted and built, in the API's terms:
   Docker or k3s from machines to boosts.
 - Whether a script file the line runs (`./scripts/e2e.sh`) counts as a
   task, keyed by its path.
-- Whether `auto` becomes the default of workstream's `run_async_box`.
+- Whether a run's memory is judged by `memory.pressure` (the time its
+  processes waited for memory), so a run that needed more than the box
+  goes to a boost before it is killed.
