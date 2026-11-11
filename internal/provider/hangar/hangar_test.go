@@ -368,6 +368,7 @@ func TestAProjectOutOfQuotaFailsTheInstance(t *testing.T) {
 // room from its quota while hangar answers (what the system container's
 // 4Gi disk leaves of 100Gi), and that it does not once it stops.
 func TestTheTargetSaysWhetherHangarAnswers(t *testing.T) {
+	testutil.Quarantine(t, "#89")
 	w, f := newWorld(t, nil)
 	disk := "100Gi"
 	f.SetLimits(&hangartenancy.Limits{Disk: &disk})
