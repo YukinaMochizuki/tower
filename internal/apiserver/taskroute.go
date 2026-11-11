@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -30,13 +31,9 @@ const (
 	// CPU time over its wall time must reach to count as all of them busy:
 	// a little below all, as a busy run never quite uses them whole.
 	allCPUsBusy = 900
-	// nearMemory is the share of the memory the box holds its measured
-	// processes to (processMemoryMax), in percent, a peak must reach for
-	// the next run to go to a boost that holds them to memoryGrowth times
-	// it.
-	nearMemory = 80
-	// memoryGrowth is how much more than a run's peak, in percent, the
-	// boost its next run goes to holds its processes to.
+	// memoryGrowth is how much more than the peak of a run killed for its
+	// memory, in percent, the boost its next run goes to holds its
+	// processes to.
 	memoryGrowth = 150
 	// maxSourceBytes bounds a package.json read for routing.
 	maxSourceBytes = 1 << 20
@@ -131,8 +128,10 @@ func (j judge) runs(text string, runs []taskRun) routing {
 	if len(last) == 1 {
 		of = "its last run"
 	}
-	// Memory first: a run near what the box holds its processes to, or
-	// killed for it, wherever it ran.
+	// Memory first: a run killed for it, wherever it ran. A peak alone is
+	// not a need: memory.peak counts the page cache, which a build fills up
+	// to the limit and the kernel takes back (docs/decisions/boost.md,
+	// "Routing by task").
 	limit := uint64(0)
 	if j.box.memory > 0 {
 		limit = uint64(processMemoryMax(int64(min(j.box.memory, 1<<62))))
@@ -152,20 +151,15 @@ func (j judge) runs(text string, runs []taskRun) routing {
 				p = uint64(processMemoryMax(int64(min(m, 1<<62))))
 			}
 		}
-		near := limit > 0 && p*100 >= limit*nearMemory
-		if (!oom && !near) || p <= peak {
+		if !oom || p <= peak {
 			continue
 		}
 		peak = p
-		what := "peaked at"
-		if oom {
-			what = "ran out of memory at"
-		}
 		where := "in this box"
 		if r.RanOn.Kind == ranOnBoost {
 			where = "on a boost"
 		}
-		why = fmt.Sprintf("%s %s %s %s, of the %s this box holds its processes to", of, where, what, bytesText(p), bytesText(limit))
+		why = fmt.Sprintf("%s %s ran out of memory at %s, of the %s this box holds its processes to", of, where, bytesText(p), bytesText(limit))
 	}
 	if peak > 0 {
 		size, err := parseBoostSize("", quantity.FormatMemory(memoryHolding(peak*memoryGrowth/100)), j.set.boostResources)
@@ -213,8 +207,8 @@ func (j judge) runs(text string, runs []taskRun) routing {
 				text, used, formatMilliCPU(j.box.milliCPU), j.onBoost(size))}
 		}
 	}
-	// Its peak is below nearMemory of the box's limit, or the memory rule
-	// above would have kept it on a boost.
+	// It was not killed for its memory, or the memory rule above would have
+	// kept it on a boost.
 	why = "its last run, on a boost, fits this box"
 	if used != "" && latest.MemoryPeak != nil {
 		why = fmt.Sprintf("its last run, on a boost, used %s vCPU on average and peaked at %s, which this %s vCPU box, holding its processes to %s, holds",
@@ -240,16 +234,19 @@ func (j judge) busy(usage, wall time.Duration, cpu string) bool {
 	return int64(usage)*1000*1000 >= int64(wall)*m*allCPUsBusy
 }
 
-// firstRun routes a task with no runs: a heavy tool by its name, a
-// package.json script by its text and the scripts it runs, a make, just
-// or task target to the box, where its first run is measured. Nothing is
-// run to judge a task (docs/decisions/boost.md, "Routing by task").
+// firstRun routes a task with no runs: a heavy tool by its name, go's
+// and cargo's only over a wide scope, a package.json script by its text
+// and the scripts it runs, a make, just or task target to the box, where
+// its first run is measured. Nothing is run to judge a task
+// (docs/decisions/boost.md, "Routing by task").
 func (j judge) firstRun(t taskEntry) routing {
 	text := t.String()
 	size := j.set.boostResources
 	switch {
-	case heavyTool(t):
+	case heavyTool(t) && !narrowScope(t):
 		return routing{boost: true, size: size, why: fmt.Sprintf("%s: no runs recorded yet; %s is a heavy tool: %s", text, t.Tool, j.onBoost(size))}
+	case heavyTool(t):
+		return routing{why: fmt.Sprintf("%s: no runs recorded yet; %s of named packages runs in the box first, measured, and decides the next: in the box", text, t.Tool)}
 	case !t.script():
 		return routing{why: fmt.Sprintf("%s: no runs recorded yet; its first run here is measured, and decides the next: in the box", text)}
 	}
@@ -261,6 +258,20 @@ func (j judge) firstRun(t taskEntry) routing {
 		return routing{boost: true, size: size, why: fmt.Sprintf("%s: no runs recorded yet; its script runs %s, a heavy tool: %s", text, heavy, j.onBoost(size))}
 	}
 	return routing{why: fmt.Sprintf("%s: no runs recorded yet, and its script runs no heavy tool: in the box", text)}
+}
+
+// narrowScope says t is go's or cargo's over packages it names: go with
+// no pattern that matches more than one ("./..."), cargo with -p. Most
+// such lines are seen once, as an agent names other packages each time,
+// and most end within seconds in the box.
+func narrowScope(t taskEntry) bool {
+	switch t.Tool {
+	case "go test", "go build", "go vet":
+		return !strings.Contains(t.Name, "...")
+	case "cargo test", "cargo build":
+		return t.Name != ""
+	}
+	return false
 }
 
 // heavyTool says t is a heavy tool called directly.
