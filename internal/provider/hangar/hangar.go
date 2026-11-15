@@ -163,8 +163,9 @@ type Target struct {
 	vms    vmConns
 	limits processLimits
 	// rootRetry is how long a container no root shim ran in starts its
-	// processes unmeasured before root is tried there again.
-	rootRetry time.Duration
+	// processes unmeasured before root is tried there again, as a
+	// time.Duration: a test sets it as the target runs (retryRoot).
+	rootRetry atomic.Int64
 	procs     processCache
 	streams   *streams.Server
 	sys       systemState
@@ -208,8 +209,8 @@ func New(cfg Config) *Target {
 	t := &Target{
 		cfg: cfg, api: cfg.API, c: cfg.Client, clock: cfg.Clock, log: cfg.Log,
 		mirrorOps: make(chan struct{}, cfg.MirrorOps), backgroundOps: make(chan struct{}, cfg.MirrorOps-kept),
-		rootRetry: rootRetry,
 	}
+	t.rootRetry.Store(int64(rootRetry))
 	if t.clock == nil {
 		t.clock = clockwork.NewRealClock()
 	}

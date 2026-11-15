@@ -45,7 +45,7 @@ func (t *Target) rootStartCondition(uid string) *metav1.Condition {
 	}
 	if w.failed != "" {
 		return &metav1.Condition{Type: InstanceRootStart, Status: metav1.ConditionStatus_CONDITION_STATUS_FALSE, Reason: "NoRoot",
-			Message: w.failed + "; its processes run as its user, unmeasured; root is tried again every " + t.rootRetry.String()}
+			Message: w.failed + "; its processes run as its user, unmeasured; root is tried again every " + t.retryRoot().String()}
 	}
 	return &metav1.Condition{Type: InstanceRootStart, Status: metav1.ConditionStatus_CONDITION_STATUS_TRUE, Reason: "Root",
 		Message: "a root supervisor starts its processes, each as its user"}
