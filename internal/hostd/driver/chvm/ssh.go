@@ -1,6 +1,7 @@
 package chvm
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -98,6 +99,22 @@ func (d *Driver) forget(name string) {
 	}
 }
 
+// watch drops r once its connection ends, by the VM or by its keepalive,
+// so the VM's next operation dials it again. A VM rebooting inside its
+// Cloud Hypervisor keeps its container's start and address, which alone
+// would hand the ended connection out for good (tower#73).
+func (d *Driver) watch(name string, r *readyVM) {
+	r.conn.KeepAlive(d.cfg.KeepAliveEvery, d.cfg.KeepAliveTimeout)
+	go func() {
+		_ = r.conn.Wait()
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		if d.ready[name] == r {
+			delete(d.ready, name)
+		}
+	}()
+}
+
 // readyVM waits until a running VM's ssh answers, copies tower-guest in if
 // its copy is not this hostd's, and returns it; a VM not running is
 // ErrNotRunning.
@@ -132,6 +149,7 @@ func (d *Driver) readyVM(ctx context.Context, name string) (*readyVM, error) {
 	}
 	d.ready[name] = r
 	d.mu.Unlock()
+	d.watch(name, r)
 	return r, nil
 }
 
@@ -148,7 +166,7 @@ func (d *Driver) dialSSH(ctx context.Context, name, addr string) (*vmssh.Conn, e
 		What: "VM " + name, Config: d.sshConfig(hostKey), Addr: addr, ReadyTimeout: d.cfg.ReadyTimeout,
 		Dial: func(ctx context.Context) (net.Conn, error) {
 			var dialer net.Dialer
-			return dialer.DialContext(ctx, "tcp", net.JoinHostPort(addr, "22"))
+			return dialer.DialContext(ctx, "tcp", net.JoinHostPort(addr, cmp.Or(d.sshPort, "22")))
 		},
 		Alive: func(ctx context.Context) error {
 			if g, err := d.Inspect(ctx, name); err != nil {
