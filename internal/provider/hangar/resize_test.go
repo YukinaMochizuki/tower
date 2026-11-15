@@ -86,8 +86,10 @@ func TestAVMIsResizedInHangar(t *testing.T) {
 		t.Errorf("a resize over quota: Resized %v", c)
 	}
 
-	f.SetLimits(nil)
+	// The node fills before the quota lifts: in between, the provider,
+	// reading back often, would apply the 16Gi still asked.
 	f.FillNode("1Gi")
+	f.SetLimits(nil)
 	setResources(t, w, "vm", &envv1alpha1.Resources{Cpu: "4", Memory: "12Gi", Disk: "10Gi"})
 	in = waitSize(t, w, "vm", "4/8192Mi/10Gi", running, "ResizeDoesNotFit")
 	if c := conditions.Find(in.GetStatus().GetConditions(), provider.InstanceResized); !strings.Contains(c.GetMessage(), "has 1Gi of memory free") {
@@ -103,13 +105,13 @@ func TestAVMIsResizedInHangar(t *testing.T) {
 	if c := conditions.Find(in.GetStatus().GetConditions(), provider.InstanceResized); !strings.Contains(c.GetMessage(), "its disk stays 10Gi") {
 		t.Errorf("a disk growth over quota: Resized %v", c)
 	}
-	f.SetLimits(nil)
 
 	// A growth the node has no disk room for is held by hangar, Allocated
 	// False: the VM runs on at its disk, the refusal saying why, until the
-	// node has room.
+	// node has room. The node fills before the quota lifts, the 40Gi still
+	// asked: in between, the provider would grow the disk.
 	f.FillNodeDisk("5Gi")
-	setResources(t, w, "vm", &envv1alpha1.Resources{Cpu: "4", Memory: "12Gi", Disk: "40Gi"})
+	f.SetLimits(nil)
 	in = waitSize(t, w, "vm", "4/12288Mi/10Gi", running, "ResizeDoesNotFit")
 	if c := conditions.Find(in.GetStatus().GetConditions(), provider.InstanceResized); !strings.Contains(c.GetMessage(), "its disk stays 10Gi: node n1 has 5Gi of disk free") {
 		t.Errorf("a disk growth the node has no room for: Resized %v", c)
