@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -348,8 +349,9 @@ func (s *Server) checkReady(ctx context.Context, key controller.Key, m *envv1alp
 // own instance, with its own vars and secrets: the playbook's tasks tagged
 // configure, which its golden phase skipped (convergeMachine); a playbook
 // with none runs nothing here. The secrets' values are
-// opened for the one command and given as its environment alone: they
-// enter no object, no event and no log. It runs as the blueprint's
+// opened for the one command and given as its environment and, in memory
+// in the VM while it runs, as a file of variables (configureSecrets):
+// they enter no object, no event and no log. It runs as the blueprint's
 // run_as user, which its golden has (convergeMachine), root without one.
 func (s *Server) configureMachine(ctx context.Context, key controller.Key, m *envv1alpha1.Machine, in *envv1alpha1.Instance, p provider.Provider, st *envv1alpha1.MachineStatus, not func(envv1alpha1.MachinePhase, string, string)) error {
 	job := "configure/" + key.String()
@@ -424,11 +426,24 @@ func (s *Server) configureMachine(ctx context.Context, key controller.Key, m *en
 			return err
 		}
 		user := spec.GetBlueprint().GetRunAs().GetUser()
-		if err := s.prepareUser(ctx, p, ref, user, "/opt/tower/vars.json", "/opt/tower/blueprint.yml"); err != nil {
-			return err
+		files := []string{"/opt/tower/vars.json", "/opt/tower/blueprint.yml"}
+		args := []string{"ansible-playbook", "--connection=local", "--inventory=localhost,", "--tags=configure", "--extra-vars=@vars.json"}
+		if len(env) > 0 {
+			if err := s.writeConfigureSecrets(ctx, p, ref, env); err != nil {
+				return err
+			}
+			files = append(files, configureSecretsDir, configureSecrets)
+			// After vars.json: a name in both is the secret's.
+			args = append(args, "--extra-vars=@"+configureSecrets)
 		}
-		if err := s.mustRun(ctx, p, ref, env, "/opt/tower", asUser(user,
-			"ansible-playbook", "--connection=local", "--inventory=localhost,", "--tags=configure", "--extra-vars=@vars.json", "blueprint.yml")...); err != nil {
+		err = s.prepareUser(ctx, p, ref, user, files...)
+		if err == nil {
+			err = s.mustRun(ctx, p, ref, env, "/opt/tower", asUser(user, append(args, "blueprint.yml")...)...)
+		}
+		if len(env) > 0 {
+			err = errors.Join(err, s.removeConfigureSecrets(ctx, p, ref))
+		}
+		if err != nil {
 			return err
 		}
 		if err := s.annotateInstance(ctx, key.Project, ref.Name, configuredAnnotation, "true"); err != nil {
@@ -437,6 +452,60 @@ func (s *Server) configureMachine(ctx context.Context, key controller.Key, m *en
 		return s.stepPassed(ctx, step)
 	})
 	return nil
+}
+
+// A machine's configure phase reads its secrets as variables
+// (`{{ NAME }}`, as workstream's own machine driver gives them) from
+// configureSecrets, as well as from its environment: a file in memory in
+// the VM, there only while the phase runs, as no disk holds a secret's
+// value (docs/decisions/secrets.md). It is written after the golden's
+// capture, in the machine's own instance, so no golden holds it.
+const (
+	configureSecretsDir = "/run/tower/configure"
+	configureSecrets    = configureSecretsDir + "/secrets.json"
+)
+
+// memDirScript makes the directory $1, only root's, in memory: a tmpfs of
+// its own unless it is in one already (/run is, on a systemd VM). One it
+// cannot have in memory fails the phase, rather than write a secret to a
+// disk. What an earlier phase left in it (a tower that stopped as it
+// ran, a write cut short) is removed first.
+const memDirScript = `set -eu
+d=$1
+mkdir -p "$d"
+chmod 0700 "$d"
+inmem() { [ "$(stat -f -c %T "$d")" = tmpfs ]; }
+inmem || mount -t tmpfs -o size=1m,mode=0700 tmpfs "$d" || true
+inmem || { echo "$d is not in memory" >&2; exit 1; }
+find "$d" -mindepth 1 -delete
+`
+
+// writeConfigureSecrets writes a configure phase's secrets, by the names
+// they are given as, to configureSecrets.
+func (s *Server) writeConfigureSecrets(ctx context.Context, p provider.Provider, ref provider.Instance, secrets map[string]string) error {
+	if err := s.mustRun(ctx, p, ref, nil, "/", "sh", "-c", memDirScript, "sh", configureSecretsDir); err != nil {
+		return err
+	}
+	b, err := json.Marshal(secrets)
+	if err != nil {
+		return err
+	}
+	if err := p.WriteFile(ctx, ref, configureSecrets, 0o600, 0, bytes.NewReader(b)); err != nil {
+		return errors.Join(err, s.removeConfigureSecrets(ctx, p, ref))
+	}
+	return nil
+}
+
+// removeConfigureSecrets removes configureSecrets once the phase ends, as
+// it ended: a job whose context ended still removes it. A temporary file
+// of a write cut short goes with it.
+func (s *Server) removeConfigureSecrets(ctx context.Context, p provider.Provider, ref provider.Instance) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+	defer cancel()
+	return errors.Join(
+		s.mustRun(ctx, p, ref, nil, "/", "rm", "-rf", "--", configureSecrets),
+		s.mustRun(ctx, p, ref, nil, "/", "find", configureSecretsDir, "-mindepth", "1", "-delete"),
+	)
 }
 
 // resizeOf is the size a machine's instance is to have, from the one it has
