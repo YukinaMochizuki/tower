@@ -3,11 +3,14 @@
 package e2e
 
 import (
+	"encoding/base64"
+	"fmt"
 	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
@@ -31,14 +34,25 @@ const runAsPlaybook = `- hosts: all
       tags: [configure]
       become: false
       ansible.builtin.shell: id -un > ~/configure
+    - name: the machine's secret, as a variable and from the environment
+      tags: [configure]
+      become: false
+      ansible.builtin.shell: echo "{{ TB_SECRET | length }} {{ lookup('env', 'TB_SECRET') | length }}" > ~/secret
 `
+
+// runAsSecret is the machine's secret, which also names a var of the
+// same name: the secret wins.
+const runAsSecret = "a-secret-of-23-letters!"
 
 // TestAMachineRunsAsItsRunAsUser: a blueprint naming a run_as user
 // converges on a Cloud Hypervisor VM as that user, made by tower in the
 // golden's builder: its become task runs as root through sudo, its other
 // tasks of both phases and its ready check write and read that user's
-// home, and root's home holds none of it. What a client then runs, starts
-// and writes in it through tower is the user's as well, in its home.
+// home, and root's home holds none of it. Its configure phase reads its
+// secret as a variable, winning over a var of its name, and from its
+// environment, and leaves no secrets file behind (tower#75). What a
+// client then runs, starts and writes in it through tower is the user's
+// as well, in its home.
 func TestAMachineRunsAsItsRunAsUser(t *testing.T) {
 	w := newWorld(t)
 	m := &envv1alpha1.Machine{
@@ -52,13 +66,20 @@ func TestAMachineRunsAsItsRunAsUser(t *testing.T) {
 				ReadyCheck: &envv1alpha1.ReadyCheck{Command: `test "$(cat ~/configure)" = tbuser`},
 			},
 			Resources: &envv1alpha1.Resources{Cpu: "2", Memory: "2Gi", Disk: "10Gi"},
+			Secrets:   []*envv1alpha1.SecretRef{{Secret: "runas", Key: "value", As: "TB_SECRET"}},
 		},
 	}
+	m.Spec.Vars, _ = structpb.NewStruct(map[string]any{"TB_SECRET": "a var"})
 	mJSON, err := protojson.Marshal(m)
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.admin.must(manifests(t)+"---\n"+string(mJSON)+"\n", "apply", "-f", "-", "-p", "web")
+	secret := `apiVersion: secrets.tower.hangarlab.cloud/v1alpha1
+kind: Secret
+metadata: {name: runas}
+spec: {type: SECRET_TYPE_OPAQUE, data: {value: "` + base64.StdEncoding.EncodeToString([]byte(runAsSecret)) + `"}}
+`
+	w.admin.must(manifests(t)+"---\n"+secret+"---\n"+string(mJSON)+"\n", "apply", "-f", "-", "-p", "web")
 	w.host = w.runHostd()
 	w.admin.must("", "wait", "machine", "runas", "-p", "web", "--for", "condition=Ready", "--timeout", "30m")
 
@@ -77,6 +98,8 @@ echo "user=$(id -un) in $(pwd)"
 echo "become=$(cat /etc/run-as-become)"
 echo "golden=$(cat "$h/golden") $(stat -c %U "$h/golden")"
 echo "configure=$(cat "$h/configure") $(stat -c %U "$h/configure")"
+echo "secret=$(cat "$h/secret")"
+sudo -n test ! -e /run/tower/configure/secrets.json && echo "secrets-file=gone"
 echo "written=$(stat -c %U:%G "$h/written")"
 sudo -n test ! -e /root/golden && sudo -n test ! -e /root/configure && echo "root-home=clean"
 sudo -n true && echo "sudo=ok"`
@@ -85,7 +108,7 @@ sudo -n true && echo "sudo=ok"`
 		t.Fatalf("reading the machine: %q, exit %d, %v", out, code, err)
 	}
 	for _, want := range []string{"home=/home/tbuser", "user=tbuser in /home/tbuser", "become=root", "golden=tbuser tbuser", "configure=tbuser tbuser",
-		"written=tbuser:tbuser", "root-home=clean", "sudo=ok"} {
+		fmt.Sprintf("secret=%d %d", len(runAsSecret), len(runAsSecret)), "secrets-file=gone", "written=tbuser:tbuser", "root-home=clean", "sudo=ok"} {
 		if !strings.Contains(out, want+"\n") {
 			t.Errorf("the machine says %q, not %q", out, want)
 		}

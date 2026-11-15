@@ -27,7 +27,15 @@ boxes in the background, where no intent is in flight.
   every box container has at `/run/tower/secrets`, written at each start;
   the path a secret file asks for is a link to it, so no disk of the host
   holds a value. Machines take no secret files: a VM would need the same
-  in memory first.
+  in memory first. The one file a VM holds is its configure phase's
+  secrets, which a playbook reads as variables
+  (`machine-blueprints.md`): written as root into a directory in memory
+  (`/run/tower/configure`, a tmpfs of its own unless it is in one
+  already; a VM where it cannot be fails the phase before any value is
+  written), while the phase runs, and removed once it ends, passed or
+  failed. One a tower that stopped mid-phase left there stays in the
+  VM's memory until the phase's next attempt, which clears the directory
+  first.
 - **Goldens never see secrets.** A blueprint's secrets are given only in each
   machine's own configure phase.
 - **Privileged boxes run through tower like any box.** Which command may run

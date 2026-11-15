@@ -26,6 +26,18 @@ hostname the same from its golden to every clone of it.
   `--connection=local`, as workstream runs its blueprints. A blueprint is
   carried unchanged; a task needing a machine's vars or secrets is tagged
   `configure`.
+- **A playbook reads a machine's vars and secrets as variables,
+  `{{ NAME }}`, as workstream's own driver gives them.** The golden phase
+  is given the golden vars (`--extra-vars=@golden-vars.json`); the
+  configure phase the machine's vars (`--extra-vars=@vars.json`) and,
+  after them, its secrets by the names they are given as
+  (`--extra-vars=@/run/tower/configure/secrets.json`), so a name in both
+  is the secret's. The secrets file is in memory in the VM, the run_as
+  user's and mode 0600, and is removed once the phase ends, passed or
+  failed (`secrets.md`). Each secret is also in the configure phase's
+  environment, so `lookup('env', 'NAME')` reads it too (tower#75). The
+  file is JSON, so a value that is not UTF-8 reads differently there than
+  in the environment; a binary secret is better kept base64.
 - **Every VM hostd runs has one hostname, `machine`**, set by its
   cloud-init, the same in a golden's builder and in each clone. A machine
   is reached by its alias on its workstream's network, which is its own:

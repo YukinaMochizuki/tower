@@ -17,6 +17,7 @@ import (
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	envv1alpha1 "github.com/YukinaMochizuki/tower/gen/go/tower/environments/v1alpha1"
 	metav1 "github.com/YukinaMochizuki/tower/gen/go/tower/meta/v1"
@@ -394,6 +395,9 @@ func TestAMachineRunsAsItsRunAsUser(t *testing.T) {
 	var ran []string
 	for _, e := range w.fake.Execs() {
 		switch {
+		case len(e.Command) == 5 && e.Command[0] == "sh" && e.Command[4] == "/run/tower/configure":
+			// Where its secrets are written, as root, in memory.
+			ran = append(ran, "in memory "+e.Instance.Name)
 		case len(e.Command) > 4 && e.Command[0] == "sh" && e.Command[1] == "-c" && e.Command[3] == "sh":
 			if e.Command[4] != "dev" || len(e.Env) > 0 {
 				t.Errorf("the user was made as %v with %v", e.Command[3:], e.Env)
@@ -417,7 +421,7 @@ func TestAMachineRunsAsItsRunAsUser(t *testing.T) {
 	}
 	want := []string{
 		"prepare " + builder, "--skip-tags=configure " + builder,
-		"prepare " + st.GetInstance(), "--tags=configure " + st.GetInstance(),
+		"in memory " + st.GetInstance(), "prepare " + st.GetInstance(), "--tags=configure " + st.GetInstance(),
 		"ready " + st.GetInstance(),
 	}
 	if !slices.Equal(ran, want) {
@@ -447,6 +451,124 @@ func TestAMachineRunsAsItsRunAsUser(t *testing.T) {
 	}
 	if !slices.Equal(rootRan, []string{"blueprint.yml", "blueprint.yml", check}) {
 		t.Errorf("a machine without run_as ran %v", rootRan)
+	}
+}
+
+// TestAMachinesSecretsReachItsConfigurePhaseAsVariables: a machine's
+// configure phase reads its secrets as variables, from a file in memory
+// given after vars.json, so a secret wins over a var of its name, as well
+// as from its environment (tower#75). The file is the run_as user's, in a
+// directory made in memory first, and is gone once the phase ends, as it
+// is when the playbook, or handing the files to the user, fails; its
+// golden's builder never had it.
+func TestAMachinesSecretsReachItsConfigurePhaseAsVariables(t *testing.T) {
+	t.Parallel()
+	const secrets = "/run/tower/configure/secrets.json"
+	for _, fail := range []string{"", "playbook", "prepare"} {
+		t.Run("fails="+fail, func(t *testing.T) {
+			t.Parallel()
+			w := newWorld(t)
+			w.mustApply(registry.Secret, secret("web", "k3s", map[string]string{"TOKEN": "t"}))
+			var mu sync.Mutex
+			var during, inBuilder []map[string]string
+			failed := false
+			w.fake.OnCommand(func(req provider.ExecRequest) (int, bool) {
+				golden, configure := slices.Contains(req.Command, "--skip-tags=configure"), slices.Contains(req.Command, "--tags=configure")
+				prepare := len(req.Command) > 4 && req.Command[0] == "sh" && req.Command[4] == "dev" && slices.Contains(req.Command, secrets)
+				if !golden && !configure && !prepare {
+					return 0, false
+				}
+				files := w.fake.Files(req.Instance)
+				mu.Lock()
+				defer mu.Unlock()
+				switch {
+				case golden:
+					inBuilder = append(inBuilder, files)
+				case configure:
+					during = append(during, files)
+				}
+				if !failed && (configure && fail == "playbook" || prepare && fail == "prepare") {
+					failed = true
+					return 2, true
+				}
+				return 0, false
+			})
+			m := machine("dev")
+			m.Spec.Blueprint.RunAs = &envv1alpha1.RunAs{User: "dev"}
+			m.Spec.Vars, _ = structpb.NewStruct(map[string]any{"K3S_TOKEN": "a var", "OTHER": "v"})
+			m.Spec.Secrets = []*envv1alpha1.SecretRef{{Secret: "k3s", Key: "TOKEN", As: "K3S_TOKEN"}}
+			w.mustApply(registry.Machine, m)
+			if fail != "" {
+				// One that failed is configured again once its backoff
+				// passes.
+				w.waitMachine("dev", envv1alpha1.MachinePhase_MACHINE_PHASE_FAILED)
+				w.clock.Advance(11 * time.Minute)
+			}
+			st := w.waitMachineTicking("dev", envv1alpha1.MachinePhase_MACHINE_PHASE_READY).GetStatus()
+			g, _ := w.golden(st.GetGolden())
+			builder := "build-" + g.GetMetadata().GetName()
+
+			mu.Lock()
+			defer mu.Unlock()
+			if want := map[string]int{"": 1, "playbook": 2, "prepare": 1}[fail]; len(during) != want {
+				t.Fatalf("the configure phase's playbook ran %d times, want %d", len(during), want)
+			}
+			for _, files := range during {
+				if got := files[secrets]; got != `{"K3S_TOKEN":"t"}` {
+					t.Errorf("as the configure phase ran, %s held %q", secrets, got)
+				}
+			}
+			if len(inBuilder) != 1 {
+				t.Fatalf("the golden phase ran %d times", len(inBuilder))
+			}
+			for name := range inBuilder[0] {
+				if strings.HasPrefix(name, "/run/tower/configure") {
+					t.Errorf("the golden's builder held %s", name)
+				}
+			}
+			if mode, ok := w.fake.Mode(provider.Instance{Project: "web", Name: st.GetInstance()}, secrets); !ok || mode != 0o600 {
+				t.Errorf("%s was written with mode %v (written: %v)", secrets, mode, ok)
+			}
+			if _, there := w.fake.Files(provider.Instance{Project: "web", Name: st.GetInstance()})[secrets]; there {
+				t.Errorf("%s is left in the machine's instance once configured", secrets)
+			}
+
+			var ran []string
+			for _, e := range w.fake.Execs() {
+				switch {
+				case len(e.Command) == 5 && e.Command[0] == "sh" && e.Command[4] == "/run/tower/configure":
+					ran = append(ran, "in memory "+e.Instance.Name)
+				case len(e.Command) > 4 && e.Command[0] == "sh" && e.Command[3] == "sh":
+					if slices.Contains(e.Command, secrets) != (e.Instance.Name != builder) {
+						t.Errorf("the user was handed %v", e.Command[4:])
+					}
+				case slices.Contains(e.Command, "ansible-playbook"):
+					i := slices.Index(e.Command, "--extra-vars=@vars.json")
+					configure := slices.Contains(e.Command, "--tags=configure")
+					if configure && (i < 0 || e.Command[i+1] != "--extra-vars=@"+secrets || e.Env["K3S_TOKEN"] != "t") {
+						t.Errorf("the configure phase ran as %v with %d variables in its environment", e.Command, len(e.Env))
+					}
+					if !configure && (slices.ContainsFunc(e.Command, func(a string) bool { return strings.Contains(a, "secrets") }) || len(e.Env) > 0) {
+						t.Errorf("the golden phase was given secrets: %v", e.Command)
+					}
+					ran = append(ran, "playbook "+e.Instance.Name)
+				case slices.Equal(e.Command, []string{"rm", "-rf", "--", secrets}):
+					ran = append(ran, "removed "+e.Instance.Name)
+				}
+			}
+			in := st.GetInstance()
+			configured := []string{"in memory " + in, "playbook " + in, "removed " + in}
+			want := append([]string{"playbook " + builder}, configured...)
+			switch fail {
+			case "playbook":
+				want = append(want, configured...)
+			case "prepare":
+				want = append([]string{"playbook " + builder, "in memory " + in, "removed " + in}, configured...)
+			}
+			if !slices.Equal(ran, want) {
+				t.Errorf("ran %v, want %v", ran, want)
+			}
+		})
 	}
 }
 
