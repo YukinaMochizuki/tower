@@ -432,10 +432,16 @@ func (s *Server) machineTailnet(ctx context.Context, key controller.Key, m *envv
 		}
 		act = func(ctx context.Context, ref provider.Instance) (*tailnetStatus, error) {
 			// A reconcile that read the instance before an earlier job
-			// marked it may start this one: the mark, read again, says so.
+			// marked it may start this one: the mark, read again, says so,
+			// and so does how its join stands, joined by that job since.
 			fresh, ok, err := getTyped[*envv1alpha1.Instance](ctx, s, registry.Instance, resource.Key{Project: ref.Project, Name: ref.Name})
 			if err != nil || !ok {
 				return nil, err
+			}
+			var now tailnetStatus
+			_ = json.Unmarshal([]byte(fresh.GetMetadata().GetAnnotations()[tailnetAnnotation]), &now)
+			if !keyWanted(now.Reason) {
+				return &now, nil
 			}
 			if _, pending := s.givenPending(givenOf(fresh), retryKey); pending {
 				return &prior, nil
