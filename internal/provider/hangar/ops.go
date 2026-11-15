@@ -186,6 +186,9 @@ func (t *Target) install(ctx context.Context, r runner, uid string) error {
 // processes unmeasured before root is tried there again (Target.rootRetry).
 const rootRetry = 5 * time.Minute
 
+// retryRoot is the target's rootRetry.
+func (t *Target) retryRoot() time.Duration { return time.Duration(t.rootRetry.Load()) }
+
 // startOps are o, a running container's operations, with its starts run
 // by a root shim where one runs, so what they start is measured, each
 // started as the container's user (guestbin's runas.go). Who that user is,
@@ -201,10 +204,10 @@ func (t *Target) startOps(ctx context.Context, o guestops.Ops, uid string) (gues
 	}
 	now := t.clock.Now()
 	w, ok := t.procs.whoRuns(uid)
-	if !ok || w.due(now, t.rootRetry) {
+	if !ok || w.due(now, t.retryRoot()) {
 		unlock := t.procs.lockWho(uid)
 		defer unlock()
-		if w, ok = t.procs.whoRuns(uid); !ok || w.due(now, t.rootRetry) {
+		if w, ok = t.procs.whoRuns(uid); !ok || w.due(now, t.retryRoot()) {
 			learned, err := learnWho(ctx, r)
 			if err != nil {
 				return guestops.Ops{}, fmt.Errorf("container %s: reading who runs in it: %w", r.container, err)
@@ -213,7 +216,7 @@ func (t *Target) startOps(ctx context.Context, o guestops.Ops, uid string) (gues
 				learned.failedAt = now
 				learned.logged = w.logged
 				if !learned.logged {
-					t.log.Warn("no root shim runs in a container: its processes run unmeasured", "container", r.container, "reason", learned.failed, "retry_every", t.rootRetry)
+					t.log.Warn("no root shim runs in a container: its processes run unmeasured", "container", r.container, "reason", learned.failed, "retry_every", t.retryRoot())
 					learned.logged = true
 				}
 			}

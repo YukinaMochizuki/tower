@@ -128,4 +128,4 @@ func (t *Target) Present(ctx context.Context, from provider.Instance, cred strin
 
 // SetRootRetry sets how long a container no root shim ran in starts its
 // processes unmeasured before root is tried there again.
-func (t *Target) SetRootRetry(d time.Duration) { t.rootRetry = d }
+func (t *Target) SetRootRetry(d time.Duration) { t.rootRetry.Store(int64(d)) }
