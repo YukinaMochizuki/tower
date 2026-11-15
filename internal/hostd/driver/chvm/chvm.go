@@ -26,6 +26,7 @@ package chvm
 import (
 	"archive/tar"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -68,6 +69,11 @@ const Hostname = vmssh.Hostname
 const (
 	DefaultStopGrace    = 60 * time.Second
 	DefaultReadyTimeout = 5 * time.Minute
+	// A VM's connection is asked every DefaultKeepAliveEvery whether its
+	// sshd answers, and closed once it does not within
+	// DefaultKeepAliveTimeout, as the hangar provider's are.
+	DefaultKeepAliveEvery   = 15 * time.Second
+	DefaultKeepAliveTimeout = 15 * time.Second
 	// memoryOverhead is what a VM's container may use beyond its guest's
 	// memory: Cloud Hypervisor and the launcher.
 	memoryOverhead = 512 << 20
@@ -98,6 +104,10 @@ type Config struct {
 	// ReadyTimeout bounds how long an operation in a VM just started waits
 	// for its ssh; zero means DefaultReadyTimeout.
 	ReadyTimeout time.Duration
+	// KeepAliveEvery and KeepAliveTimeout are how often a VM's connection
+	// is asked whether its sshd answers, and how long it has to before the
+	// connection is closed and dialed again; zero means the defaults.
+	KeepAliveEvery, KeepAliveTimeout time.Duration
 	// VMUsers are the ids each VM's Cloud Hypervisor runs as, one each;
 	// zero means DefaultVMUsers. No user or group of the host may have one.
 	VMUsers UserRange
@@ -116,6 +126,9 @@ type Driver struct {
 	// ready are the VMs ssh reaches with tower-guest in place, by name, at
 	// the start they are ready in.
 	ready map[string]*readyVM
+	// sshPort is the port a VM's sshd is dialed on; empty is 22. Tests set
+	// it, as they cannot listen on 22.
+	sshPort string
 }
 
 var _ driver.VMs = (*Driver)(nil)
@@ -139,6 +152,8 @@ func New(ctx context.Context, cfg Config) (*Driver, error) {
 	if cfg.ReadyTimeout == 0 {
 		cfg.ReadyTimeout = DefaultReadyTimeout
 	}
+	cfg.KeepAliveEvery = cmp.Or(cfg.KeepAliveEvery, DefaultKeepAliveEvery)
+	cfg.KeepAliveTimeout = cmp.Or(cfg.KeepAliveTimeout, DefaultKeepAliveTimeout)
 	if cfg.VMUsers == (UserRange{}) {
 		cfg.VMUsers = DefaultVMUsers
 	}
