@@ -179,6 +179,33 @@ func TestABoostedJobIsAsIfItRanInTheBox(t *testing.T) {
 	}
 }
 
+// TestASyncThatFailsOnTheBoostLeavesNothingThere: a sync whose copy to
+// the boost fails once part of it is written there, as one filling the
+// boost's disk does, leaves none of it on the boost, where it would fill
+// the disk the next sync needs; that next one goes through.
+func TestASyncThatFailsOnTheBoostLeavesNothingThere(t *testing.T) {
+	t.Parallel()
+	w := newSyncWorld(t)
+	w.write(w.box, "build.log", "ignored\n")
+	w.fake.FailCopiesInto(w.boost.Name, fmt.Errorf("no space left on device: %w", provider.ErrFailed))
+	req := boostOn("dev", "true")
+	testutil.Eventually(t, "the boosted start refused", func() (bool, string) {
+		res, err := w.as(workstream).envs.StartProcess(t.Context(), connect.NewRequest(req))
+		if err != nil {
+			return true, ""
+		}
+		req.Pending = res.Msg.GetPending().GetTicket()
+		return false, res.Msg.String()
+	})
+	if l := w.leftovers(w.boost); len(l) != 0 {
+		t.Errorf("left on the boost after a sync failed there: %v", l)
+	}
+	w.fake.FailCopiesInto(w.boost.Name, nil)
+	if _, out, exit := w.run(`cat build.log`); out != "ignored\n" || exit.GetCode() != 0 {
+		t.Errorf("the next boosted job saw %q, exit %v", out, exit)
+	}
+}
+
 // TestATrackedFileAnIgnoreRuleMatchesIsSynced: a file the repository
 // tracks though its .gitignore matches it reaches the boost; a job's
 // change to it comes back, and the box's next change to it reaches the

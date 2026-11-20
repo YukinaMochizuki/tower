@@ -699,6 +699,28 @@ func boostAlias(box string) string {
 // boostInstanceName is the name of a boost's Instance.
 func boostInstanceName(box string) string { return childName("boost", box) }
 
+// boostWorkspaceDisk is what a boost's /workspace starts at: the size its
+// box's has grown to, as the target last reported it, when that is more
+// than the box's own start. Its first sync sends the box's ignored files
+// too, at once, faster than a disk started small grows, and a sync that
+// fills it fails.
+func boostWorkspaceDisk(box *envv1alpha1.Box) string {
+	start := box.GetSpec().GetResources().GetDisk()
+	for _, d := range box.GetStatus().GetDisks() {
+		if d.GetPath() != workspace || d.GetSizeIsStart() {
+			continue
+		}
+		grown, err := quantity.Bytes(d.GetSize())
+		if err != nil {
+			continue
+		}
+		if s, err := quantity.Bytes(start); start == "" || (err == nil && grown > s) {
+			return d.GetSize()
+		}
+	}
+	return start
+}
+
 // boostState is the status a reconcile of a boost builds, written once.
 type boostState struct {
 	s  *Server
@@ -1072,7 +1094,7 @@ func (s *Server) makeBoostInstance(ctx context.Context, key controller.Key, b *e
 	boxKey := controller.Key{Project: key.Project, Name: box.GetMetadata().GetName()}
 	// Its box's disk, its own cpu and memory.
 	res := proto.Clone(b.GetSpec().GetResources()).(*envv1alpha1.Resources)
-	res.Disk = box.GetSpec().GetResources().GetDisk()
+	res.Disk = boostWorkspaceDisk(box)
 	is, warm, err := s.boxInstanceSpec(ctx, boxKey, box, p, target, img, res, box.GetStatus().GetWarmGolden())
 	if errors.Is(err, errImageEnv) {
 		bs.cond(BoostReady, false, "ImageUnresolved", "retried: "+err.Error())

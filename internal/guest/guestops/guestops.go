@@ -2,22 +2,27 @@
 // guestbin): the operations done in a running guest (commands, files,
 // copies and processes), each one call of tower-guest shim over a Runner:
 // docker exec in a hostd container, ssh in a hostd VM, hangar's exec in a
-// hangar machine. It turns the shim's exit codes into internal/guest's
-// errors; a Runner's own errors pass through as they are.
+// hangar machine; a Transfer between two guests is a call in each. It
+// turns the shim's exit codes into internal/guest's errors; a Runner's own
+// errors pass through as they are.
 package guestops
 
 import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
+	"path"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/YukinaMochizuki/tower/internal/guest"
 	"github.com/YukinaMochizuki/tower/internal/guest/guestbin"
@@ -237,6 +242,58 @@ func (o Ops) Receive(ctx context.Context, dir, token string, listening func(port
 func (o Ops) Send(ctx context.Context, path, addr, token, to string) error {
 	code, msg, err := o.call(ctx, guestbin.Header{Op: guestbin.OpSend, Path: path, Addr: addr, Token: token, To: to}, nil, nil)
 	return result("sending "+path, code, msg, err)
+}
+
+// receiverGrace is how long a Transfer whose send failed waits for its
+// receiver's own error: one that failed first ends at once; one that never
+// had a connection waits for its sender far longer.
+var receiverGrace = 10 * time.Second
+
+// Transfer copies fromPath in src to toPath in dst, which src reaches at
+// host: dst receives on a one-time token, src sends to it. A send that
+// fails is answered with the receiver's error too, when it has one: a
+// receiver that fails, its disk full say, drops the connection, which the
+// sender sees only as reset. When the sender failed first, the receiver's
+// is a truncated tar, and the sender's says why. A source not there is
+// answered at once, the receiver never having been reached.
+func Transfer(ctx context.Context, src, dst Ops, fromPath, host, toPath string) error {
+	token := rand.Text()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	port := make(chan int, 1)
+	received := make(chan error, 1)
+	go func() {
+		received <- dst.Receive(ctx, path.Dir(toPath), token, func(p int) { port <- p })
+	}()
+	select {
+	case err := <-received:
+		if err == nil {
+			err = errors.New("the receiver ended before it listened")
+		}
+		return err
+	case p := <-port:
+		if err := src.Send(ctx, fromPath, net.JoinHostPort(host, strconv.Itoa(p)), token, path.Base(toPath)); err != nil {
+			// A receiver that failed first ends by itself; cancelled before,
+			// it would answer the cancel instead of its cause. A source not
+			// there is found before the sender connects: its receiver waits
+			// for nobody.
+			grace := receiverGrace
+			if errors.Is(err, fs.ErrNotExist) {
+				grace = 0
+			}
+			select {
+			case rerr := <-received:
+				if rerr != nil {
+					return fmt.Errorf("%w (the sender: %w)", rerr, err)
+				}
+			case <-time.After(grace):
+				cancel()
+				<-received
+			}
+			return err
+		}
+	}
+	return <-received
 }
 
 // HTTPTransfer is a tar taken from a server or posted to it: URL, which

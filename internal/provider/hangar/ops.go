@@ -3,17 +3,14 @@ package hangar
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"net"
 	"path"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -506,28 +503,7 @@ func (t *Target) Copy(ctx context.Context, from provider.Instance, fromPath stri
 		return fmt.Errorf("instance %s/%s has no address yet: %w", to.Project, to.Name, provider.ErrFailed)
 	}
 	fromPath, toPath = path.Clean("/"+fromPath), path.Clean("/"+toPath)
-	token := rand.Text()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	port := make(chan int, 1)
-	received := make(chan error, 1)
-	go func() {
-		received <- dst.Receive(ctx, path.Dir(toPath), token, func(p int) { port <- p })
-	}()
-	select {
-	case err := <-received:
-		if err == nil {
-			err = errors.New("the receiver ended before it listened")
-		}
-		return guestError(err)
-	case p := <-port:
-		if err := src.Send(ctx, fromPath, net.JoinHostPort(addr, strconv.Itoa(p)), token, path.Base(toPath)); err != nil {
-			cancel()
-			<-received
-			return guestError(err)
-		}
-	}
-	return guestError(<-received)
+	return guestError(guestops.Transfer(ctx, src, dst, fromPath, addr, toPath))
 }
 
 // processCache is what the provider keeps of each container, by its
