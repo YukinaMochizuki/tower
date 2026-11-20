@@ -268,7 +268,7 @@ func (s service) Push(ctx context.Context, req *connect.Request[hostdv1.PushRequ
 	m := req.Msg
 	err := s.p.Push(ctx, provider.PushRequest{
 		Instance: instanceOf(m.GetInstance()), Dir: m.GetDir(), Mirror: m.GetMirror(), URL: m.GetUrl(),
-		Token: m.GetToken(), Branch: m.GetBranch(), Lease: m.GetLease(),
+		Token: m.GetToken(), Branch: m.GetBranch(), Lease: m.GetLease(), Commit: m.GetCommit(),
 	})
 	if err != nil {
 		return nil, toConnect(err)

@@ -128,9 +128,10 @@ func (o Ops) Origin(ctx context.Context, mirror string, w io.Writer) error {
 }
 
 // Push takes a checkout's .git, a tar from gitDir, into a mirror and pushes
-// its HEAD to the branch, with --force-with-lease on the lease.
+// its branch of that name (never its HEAD), with --force-with-lease on the
+// lease.
 func (o Ops) Push(ctx context.Context, spec driver.PushSpec, gitDir io.Reader) error {
-	_, err := o.call(ctx, Header{Op: OpPush, Mirror: spec.Mirror, URL: spec.URL, Branch: spec.Branch, Lease: spec.Lease, Env: secret(EnvToken, spec.Token)}, gitDir, nil)
+	_, err := o.call(ctx, Header{Op: OpPush, Mirror: spec.Mirror, URL: spec.URL, Branch: spec.Branch, Lease: spec.Lease, Commit: spec.Commit, Env: secret(EnvToken, spec.Token)}, gitDir, nil)
 	return err
 }
 
@@ -190,12 +191,14 @@ func (o Ops) JoinTailnet(ctx context.Context, hostname, key string) error {
 }
 
 // GrantSpec is what a credential lets one request of a box do: Op on
-// Mirror (at Ref, or for a push to URL's Branch on Lease with Token),
+// Mirror (at Ref, or for a push to URL's Branch on Lease with Token, of
+// the checkout's branch at Commit when set),
 // from Network's address, for TTL. Sources are given the server with it:
 // Network's own, at least.
 type GrantSpec struct {
 	Credential                                 string
 	Op, Mirror, Ref, URL, Branch, Lease, Token string
+	Commit                                     string
 	Network                                    string
 	TTL                                        time.Duration
 	Sources                                    []Source
@@ -208,7 +211,7 @@ func (o Ops) Grant(ctx context.Context, g GrantSpec) error {
 		env[EnvToken] = g.Token
 	}
 	_, err := o.call(ctx, Header{
-		Op: OpGrant, Grant: g.Op, Mirror: g.Mirror, Ref: g.Ref, URL: g.URL, Branch: g.Branch, Lease: g.Lease,
+		Op: OpGrant, Grant: g.Op, Mirror: g.Mirror, Ref: g.Ref, URL: g.URL, Branch: g.Branch, Lease: g.Lease, Commit: g.Commit,
 		Network: g.Network, TTL: int(g.TTL / time.Second), Sources: g.Sources, Env: env,
 	}, nil, nil)
 	return err

@@ -417,8 +417,11 @@ func addFile(tw *tar.Writer, name string, data []byte, mode int64) error {
 }
 
 // Push takes the commits of a checkout's .git into the mirror and pushes
-// its HEAD to the branch, with --force-with-lease on Lease: a lease the
-// mirror does not know as a commit is one the branch is not at.
+// the checkout's branch of that name, with --force-with-lease on Lease: a
+// lease the mirror does not know as a commit is one the branch is not at.
+// The branch, not HEAD: a checkout's HEAD is wherever its last checkout
+// left it (another branch, or a worktree's branch that HEAD never was),
+// and pushing it put one change under another's name.
 func (d *Driver) Push(ctx context.Context, spec driver.PushSpec, gitDir io.Reader) error {
 	r, err := d.mustRepo(ctx, spec.Mirror)
 	if err != nil {
@@ -436,11 +439,21 @@ func (d *Driver) Push(ctx context.Context, spec driver.PushSpec, gitDir io.Reade
 	if err := takeObjects(gitDir, in); err != nil {
 		return err
 	}
-	commit, err := git(ctx, in, nil, "rev-parse", "--verify", "HEAD^{commit}")
+	ref := "refs/heads/" + spec.Branch
+	if _, err := git(ctx, in, nil, "rev-parse", "--verify", "--quiet", ref); err != nil {
+		return fmt.Errorf("the checkout has no branch %s: %w", spec.Branch, driver.ErrNotFound)
+	}
+	// The branch is there; a commit it names that the checkout's objects
+	// lack (an alternate, which takeObjects drops) is a failure, not an
+	// absence.
+	commit, err := git(ctx, in, nil, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
 	if err != nil {
-		return fmt.Errorf("the checkout's HEAD: %w", err)
+		return fmt.Errorf("the checkout's branch %s names a commit its objects lack: %w", spec.Branch, err)
 	}
 	commit = strings.TrimSpace(commit)
+	if spec.Commit != "" && commit != spec.Commit {
+		return fmt.Errorf("the checkout's branch %s is at %s, not %s as asked: nothing was pushed", spec.Branch, commit, spec.Commit)
+	}
 	if _, err := git(ctx, in, nil, "update-ref", "refs/tower/push", commit); err != nil {
 		return err
 	}
@@ -457,7 +470,6 @@ func (d *Driver) Push(ctx context.Context, spec driver.PushSpec, gitDir io.Reade
 		}
 		lease = strings.TrimSpace(full)
 	}
-	ref := "refs/heads/" + spec.Branch
 	_, err = git(ctx, r, d.remoteEnv(spec.Token), "push", "--quiet", "--force-with-lease="+ref+":"+lease, "--", spec.URL, commit+":"+ref)
 	if err != nil {
 		msg := err.Error()

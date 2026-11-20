@@ -46,7 +46,8 @@ service EnvironmentService {
   // FetchOrigin fetches the repositories of a box's checkouts into the
   // target's mirrors, then brings each checkout's origin/* up to them.
   rpc FetchOrigin(FetchOriginRequest) returns (FetchOriginResponse);
-  // Push pushes a branch of a box's checkout to its repository, forcing
+  // Push pushes a branch of a box's checkout to its repository: the commit
+  // the checkout's branch of that name is at, never its HEAD. It forces
   // only with a lease. A repository without a credential is refused.
   rpc Push(PushRequest) returns (PushResponse);
   // IssueTicket returns where to stream to one port of an environment
@@ -269,6 +270,10 @@ message PushRequest {
   // --force-with-lease; empty for a branch that must not exist yet. A
   // branch elsewhere is ABORTED.
   string lease = 4;
+  // The full commit the checkout's branch must be at, when set: what the
+  // caller showed whoever approved the push. A branch elsewhere in the
+  // checkout is refused and nothing is pushed.
+  string commit = 5;
 }
 
 message PushResponse {}

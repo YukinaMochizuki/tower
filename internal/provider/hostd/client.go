@@ -368,7 +368,7 @@ func (c *Client) Push(ctx context.Context, req provider.PushRequest) error {
 	defer k.release()
 	_, err = k.host.Push(ctx, connect.NewRequest(&hostdv1.PushRequest{
 		Instance: instance(req.Instance), Dir: req.Dir, Mirror: req.Mirror, Url: req.URL,
-		Token: req.Token, Branch: req.Branch, Lease: req.Lease,
+		Token: req.Token, Branch: req.Branch, Lease: req.Lease, Commit: req.Commit,
 	}))
 	if err != nil {
 		return k.failed(ctx, err)

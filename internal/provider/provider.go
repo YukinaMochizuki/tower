@@ -231,6 +231,10 @@ type PushRequest struct {
 	// for a branch that must not exist yet: the push forces only with a
 	// lease.
 	Lease string
+	// Commit, when set, is the full commit the checkout's branch must be
+	// at; a branch elsewhere is refused and nothing is pushed. What is
+	// pushed is always the checkout's branch, never its HEAD.
+	Commit string
 }
 
 // Ticket is where a client streams to one port of one instance directly,

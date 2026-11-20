@@ -89,10 +89,15 @@ func TestNoCredentialNorTokenReachesTheBox(t *testing.T) {
 	ctx := t.Context()
 	mirror := fetched(t, w, "api")
 	in, _ := w.Harness().Start(t, "box", container("ws1"))
-	if _, err := w.Target.Checkout(ctx, in, mirror, "", "/workspace"); err != nil {
+	head, err := w.Target.Checkout(ctx, in, mirror, "", "/workspace")
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := w.Target.UpdateOrigin(ctx, in, mirror, "/workspace"); err != nil {
+		t.Fatal(err)
+	}
+	// The branch pushed, made in the checkout as `git branch` would.
+	if err := w.Target.WriteFile(ctx, in, "/workspace/.git/refs/heads/elsewhere", 0o644, 0, strings.NewReader(head+"\n")); err != nil {
 		t.Fatal(err)
 	}
 	const token = "repository-token-never-in-a-box"
@@ -108,7 +113,7 @@ func TestNoCredentialNorTokenReachesTheBox(t *testing.T) {
 		t.Fatalf("the shims carried %d credentials, want 3", len(secrets)-1)
 	}
 	root := f.ContainerRoot("t-" + w.Instance(t, "box").GetMetadata().GetUid())
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || !d.Type().IsRegular() {
 			return err
 		}

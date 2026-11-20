@@ -581,8 +581,16 @@ func testPushNeedsItsLease(t *testing.T, h Harness) {
 		t.Errorf("a push on a lease the branch is not at: %v, want ErrLeaseLost", err)
 	}
 	req.Lease = head
+	// Pinned to a commit the checkout's branch is not at: refused, and
+	// nothing pushed. A provider that dropped the pin on the way to its
+	// driver would push here.
+	req.Commit = strings.Repeat("0", len(head))
+	if err := h.Provider.Push(ctx, req); err == nil {
+		t.Error("a push pinned to a commit the checkout's branch is not at went")
+	}
+	req.Commit = head
 	if err := h.Provider.Push(ctx, req); err != nil {
-		t.Errorf("a push on its lease: %v", err)
+		t.Errorf("a push on its lease, pinned to its branch's commit: %v", err)
 	}
 }
 

@@ -671,6 +671,9 @@ func (h environmentService) Push(ctx context.Context, req *connect.Request[envv1
 	if err := checkBranch(m.GetBranch()); err != nil {
 		return nil, err
 	}
+	if err := checkCommit(m.GetCommit()); err != nil {
+		return nil, err
+	}
 	e, err := h.open(ctx, m.GetEnvironment())
 	if err != nil {
 		return nil, err
@@ -697,10 +700,10 @@ func (h environmentService) Push(ctx context.Context, req *connect.Request[envv1
 	}
 	err = e.p.Push(ctx, provider.PushRequest{
 		Instance: e.ref, Dir: checkoutDir(i, key.Name), Mirror: mirrorName(key.Project, key.Name), URL: repo.GetSpec().GetUrl(),
-		Token: token, Branch: m.GetBranch(), Lease: m.GetLease(),
+		Token: token, Branch: m.GetBranch(), Lease: m.GetLease(), Commit: m.GetCommit(),
 	})
 	s.log.Info("push", "caller", c.String(), "environment", e.String(), "repository", key.Name, "branch", m.GetBranch(),
-		"lease", m.GetLease(), "failed", err != nil)
+		"lease", m.GetLease(), "commit", m.GetCommit(), "failed", err != nil)
 	if err != nil {
 		return nil, providerError(e, err)
 	}
@@ -714,6 +717,19 @@ func checkBranch(b string) error {
 		strings.ContainsAny(b, " :~^?*[\\\x7f") || strings.Contains(b, "..") || strings.Contains(b, "@{") ||
 		strings.HasSuffix(b, "/") || strings.HasSuffix(b, ".lock") || strings.IndexFunc(b, func(r rune) bool { return r < 0x20 }) >= 0 {
 		return invalid("branch %q is not a branch name", b)
+	}
+	return nil
+}
+
+// checkCommit refuses a push's commit that is not a full object name:
+// the checkout's branch is compared to it as it is, so an abbreviation
+// would never match.
+func checkCommit(c string) error {
+	if c == "" {
+		return nil
+	}
+	if (len(c) != 40 && len(c) != 64) || strings.IndexFunc(c, func(r rune) bool { return (r < '0' || r > '9') && (r < 'a' || r > 'f') }) >= 0 {
+		return invalid("commit %q is not a full commit name", c)
 	}
 	return nil
 }

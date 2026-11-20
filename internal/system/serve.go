@@ -189,7 +189,7 @@ func serve(ctx context.Context, cfg Config, h Header, in io.Reader, stderr io.Wr
 		}
 		pr, pw := io.Pipe()
 		go func() { pw.CloseWithError(guestbin.ReadData(in, pw)) }()
-		err = g.Push(ctx, driver.PushSpec{Mirror: h.Mirror, URL: h.URL, Token: h.Env[EnvToken], Branch: h.Branch, Lease: h.Lease}, pr)
+		err = g.Push(ctx, driver.PushSpec{Mirror: h.Mirror, URL: h.URL, Token: h.Env[EnvToken], Branch: h.Branch, Lease: h.Lease, Commit: h.Commit}, pr)
 		_ = pr.CloseWithError(errors.New("push ended"))
 		return Result{}, nil, err
 	case OpBehind:
@@ -256,7 +256,7 @@ func serve(ctx context.Context, cfg Config, h Header, in io.Reader, stderr io.Wr
 		return Result{Tailnet: true}, nil, joinTailnet(ctx, cfg, h)
 	case OpGrant:
 		return Result{}, nil, control(ctx, cfg, http.MethodPost, controlGrantPath, controlGrant{
-			Credential: h.Env[EnvCredential], Op: h.Grant, Mirror: h.Mirror, Ref: h.Ref, URL: h.URL, Branch: h.Branch, Lease: h.Lease,
+			Credential: h.Env[EnvCredential], Op: h.Grant, Mirror: h.Mirror, Ref: h.Ref, URL: h.URL, Branch: h.Branch, Lease: h.Lease, Commit: h.Commit,
 			Token: h.Env[EnvToken], Network: h.Network, TTL: h.TTL, Sources: h.Sources,
 		})
 	case OpRevoke:

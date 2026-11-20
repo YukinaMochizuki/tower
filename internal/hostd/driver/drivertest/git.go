@@ -93,13 +93,16 @@ func RunGit(t *testing.T, h Harness) {
 			t.Errorf("checked out %s at %q, want %q", h.OtherBranch, commit, h.OtherHead)
 		}
 		// A push to it on its tip on the forge, which is the lease workstream
-		// gives, goes: the mirror has that commit.
+		// gives, goes: the mirror has that commit. The checkout of a branch
+		// the mirror does not follow is detached; a push sends a branch, so
+		// the checkout makes one, as `git switch -c` in a box would.
 		keep := map[string]string{}
 		for name, content := range files(t, other.Bytes()) {
 			if strings.HasPrefix(name, ".git/") {
 				keep[name] = content
 			}
 		}
+		keep[".git/refs/heads/"+h.OtherBranch] = h.OtherHead + "\n"
 		spec := driver.PushSpec{Mirror: mirror, URL: h.Remote, Token: token, Branch: h.OtherBranch, Lease: h.OtherHead}
 		mustNot(t, "a push to the other branch on its tip", g.Push(ctx, spec, tarOf(t, keep)))
 	})

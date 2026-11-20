@@ -289,7 +289,7 @@ func (h *Host) Push(ctx context.Context, req provider.PushRequest) error {
 	go func() {
 		pw.CloseWithError(p.g.CopyOut(ctx, p.name, path.Join(path.Clean("/"+req.Dir), ".git"), pw))
 	}()
-	err = h.d.Git.Push(ctx, driver.PushSpec{Mirror: req.Mirror, URL: req.URL, Token: req.Token, Branch: req.Branch, Lease: req.Lease}, pr)
+	err = h.d.Git.Push(ctx, driver.PushSpec{Mirror: req.Mirror, URL: req.URL, Token: req.Token, Branch: req.Branch, Lease: req.Lease, Commit: req.Commit}, pr)
 	_ = pr.CloseWithError(errors.New("push ended"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("%s is no checkout: %w", req.Dir, provider.ErrFailed)
