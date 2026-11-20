@@ -1811,9 +1811,17 @@ func (f *Fake) Push(_ context.Context, req provider.PushRequest) error {
 	if err != nil {
 		return err
 	}
-	commit, ok := local.files[path.Join(path.Clean(req.Dir), ".git/HEAD")]
+	// The checkout's branch of that name; a fake checkout has only HEAD,
+	// which is then its branch.
+	commit, ok := local.files[path.Join(path.Clean(req.Dir), ".git/refs/heads", req.Branch)]
+	if !ok {
+		commit, ok = local.files[path.Join(path.Clean(req.Dir), ".git/HEAD")]
+	}
 	if !ok {
 		return fmt.Errorf("%s is no checkout: %w", req.Dir, provider.ErrFailed)
+	}
+	if req.Commit != "" && strings.TrimSpace(string(commit)) != req.Commit {
+		return fmt.Errorf("the checkout's branch %s is at %s, not %s as asked: nothing was pushed: %w", req.Branch, strings.TrimSpace(string(commit)), req.Commit, provider.ErrFailed)
 	}
 	r := f.remotes[req.URL]
 	if r == nil {

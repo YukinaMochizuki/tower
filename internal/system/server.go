@@ -53,8 +53,8 @@ const (
 // mirror at the ref, or for a push the repository's URL, branch and lease
 // with the token, from the network's address alone, until expires.
 type grant struct {
-	op, mirror, ref, url, branch, lease, token, network string
-	expires                                             time.Time
+	op, mirror, ref, url, branch, lease, commit, token, network string
+	expires                                                     time.Time
 }
 
 // Server serves boxes the mirrors' tars over HTTP, each request on a
@@ -320,7 +320,7 @@ func (s *Server) push(w http.ResponseWriter, r *http.Request) {
 	}
 	git, err := mirrors(r.Context(), s.cfg)
 	if err == nil {
-		err = git.Push(r.Context(), driver.PushSpec{Mirror: g.mirror, URL: g.url, Token: g.token, Branch: g.branch, Lease: g.lease}, r.Body)
+		err = git.Push(r.Context(), driver.PushSpec{Mirror: g.mirror, URL: g.url, Token: g.token, Branch: g.branch, Lease: g.lease, Commit: g.commit}, r.Body)
 	}
 	if err != nil {
 		s.fail(w, r, g, err)
@@ -340,6 +340,7 @@ type controlGrant struct {
 	URL        string   `json:"url,omitempty"`
 	Branch     string   `json:"branch,omitempty"`
 	Lease      string   `json:"lease,omitempty"`
+	Commit     string   `json:"commit,omitempty"`
 	Token      string   `json:"token,omitempty"`
 	Network    string   `json:"network"`
 	TTL        int      `json:"ttl"`
@@ -450,7 +451,7 @@ func (s *Server) grant(c controlGrant) error {
 		s.sources[src.Network] = src
 	}
 	s.grants[sha256.Sum256([]byte(c.Credential))] = grant{
-		op: c.Op, mirror: c.Mirror, ref: c.Ref, url: c.URL, branch: c.Branch, lease: c.Lease, token: c.Token,
+		op: c.Op, mirror: c.Mirror, ref: c.Ref, url: c.URL, branch: c.Branch, lease: c.Lease, commit: c.Commit, token: c.Token,
 		network: c.Network, expires: s.now().Add(ttl),
 	}
 	return nil

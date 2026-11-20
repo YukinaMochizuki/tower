@@ -1521,7 +1521,11 @@ type PushRequest struct {
 	// The commit the branch must be at on the forge for the push to go, as
 	// --force-with-lease; empty for a branch that must not exist yet. A
 	// branch elsewhere is ABORTED.
-	Lease         string `protobuf:"bytes,4,opt,name=lease,proto3" json:"lease,omitempty"`
+	Lease string `protobuf:"bytes,4,opt,name=lease,proto3" json:"lease,omitempty"`
+	// The full commit the checkout's branch must be at, when set: what the
+	// caller showed whoever approved the push. A branch elsewhere in the
+	// checkout is refused and nothing is pushed.
+	Commit        string `protobuf:"bytes,5,opt,name=commit,proto3" json:"commit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1580,6 +1584,13 @@ func (x *PushRequest) GetBranch() string {
 func (x *PushRequest) GetLease() string {
 	if x != nil {
 		return x.Lease
+	}
+	return ""
+}
+
+func (x *PushRequest) GetCommit() string {
+	if x != nil {
+		return x.Commit
 	}
 	return ""
 }
@@ -3422,14 +3433,15 @@ const file_tower_environments_v1alpha1_environment_service_proto_rawDesc = "" +
 	"\n" +
 	"repository\x18\x01 \x01(\tR\n" +
 	"repository\x12\x12\n" +
-	"\x04head\x18\x02 \x01(\tR\x04head\"\xa7\x01\n" +
+	"\x04head\x18\x02 \x01(\tR\x04head\"\xbf\x01\n" +
 	"\vPushRequest\x12J\n" +
 	"\venvironment\x18\x01 \x01(\v2(.tower.environments.v1alpha1.EnvironmentR\venvironment\x12\x1e\n" +
 	"\n" +
 	"repository\x18\x02 \x01(\tR\n" +
 	"repository\x12\x16\n" +
 	"\x06branch\x18\x03 \x01(\tR\x06branch\x12\x14\n" +
-	"\x05lease\x18\x04 \x01(\tR\x05lease\"\x0e\n" +
+	"\x05lease\x18\x04 \x01(\tR\x05lease\x12\x16\n" +
+	"\x06commit\x18\x05 \x01(\tR\x06commit\"\x0e\n" +
 	"\fPushResponse\"t\n" +
 	"\x12IssueTicketRequest\x12J\n" +
 	"\venvironment\x18\x01 \x01(\v2(.tower.environments.v1alpha1.EnvironmentR\venvironment\x12\x12\n" +

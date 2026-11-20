@@ -463,6 +463,10 @@ type PushSpec struct {
 	// Lease is the commit the branch must be at, empty for a branch that
 	// must not exist yet.
 	Lease string
+	// Commit, when set, is the full commit the checkout's branch must be
+	// at: what the caller showed whoever approved the push. A branch
+	// elsewhere is refused and nothing is pushed.
+	Commit string
 }
 
 // Git keeps the host's mirrors, one per repository. A checkout in a guest
@@ -480,8 +484,9 @@ type Git interface {
 	// brings its origin/* up to the mirror and leaves the rest as it is.
 	Origin(ctx context.Context, mirror string, w io.Writer) error
 	// Push takes the commits of a checkout's .git, read as a tar from
-	// gitDir, into the mirror, and pushes its HEAD to the branch with
-	// --force-with-lease on Lease.
+	// gitDir, into the mirror, and pushes the checkout's own branch of
+	// that name, never its HEAD, with --force-with-lease on Lease. A
+	// checkout without the branch is ErrNotFound.
 	Push(ctx context.Context, spec PushSpec, gitDir io.Reader) error
 	// CommitsBehind counts the commits on the mirror's branch since commit.
 	CommitsBehind(ctx context.Context, mirror, commit, branch string) (int, error)

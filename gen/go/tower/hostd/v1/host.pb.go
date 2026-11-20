@@ -2017,7 +2017,9 @@ type PushRequest struct {
 	Branch string `protobuf:"bytes,6,opt,name=branch,proto3" json:"branch,omitempty"`
 	// The commit the branch must be at for the push to go; empty for a
 	// branch that must not exist yet.
-	Lease         string `protobuf:"bytes,7,opt,name=lease,proto3" json:"lease,omitempty"`
+	Lease string `protobuf:"bytes,7,opt,name=lease,proto3" json:"lease,omitempty"`
+	// The full commit the checkout's branch must be at, when set.
+	Commit        string `protobuf:"bytes,8,opt,name=commit,proto3" json:"commit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2097,6 +2099,13 @@ func (x *PushRequest) GetBranch() string {
 func (x *PushRequest) GetLease() string {
 	if x != nil {
 		return x.Lease
+	}
+	return ""
+}
+
+func (x *PushRequest) GetCommit() string {
+	if x != nil {
+		return x.Commit
 	}
 	return ""
 }
@@ -3171,7 +3180,7 @@ const file_tower_hostd_v1_host_proto_rawDesc = "" +
 	"\x06object\x18\x01 \x01(\tR\x06object\x12\x10\n" +
 	"\x03dir\x18\x02 \x01(\bR\x03dir\x12\x12\n" +
 	"\x04size\x18\x03 \x01(\x03R\x04size\x12\x18\n" +
-	"\acontent\x18\x04 \x01(\fR\acontent\"\xc3\x01\n" +
+	"\acontent\x18\x04 \x01(\fR\acontent\"\xdb\x01\n" +
 	"\vPushRequest\x124\n" +
 	"\binstance\x18\x01 \x01(\v2\x18.tower.hostd.v1.InstanceR\binstance\x12\x10\n" +
 	"\x03dir\x18\x02 \x01(\tR\x03dir\x12\x16\n" +
@@ -3179,7 +3188,8 @@ const file_tower_hostd_v1_host_proto_rawDesc = "" +
 	"\x03url\x18\x04 \x01(\tR\x03url\x12\x14\n" +
 	"\x05token\x18\x05 \x01(\tR\x05token\x12\x16\n" +
 	"\x06branch\x18\x06 \x01(\tR\x06branch\x12\x14\n" +
-	"\x05lease\x18\a \x01(\tR\x05lease\"\x0e\n" +
+	"\x05lease\x18\a \x01(\tR\x05lease\x12\x16\n" +
+	"\x06commit\x18\b \x01(\tR\x06commit\"\x0e\n" +
 	"\fPushResponse\"Y\n" +
 	"\rTicketRequest\x124\n" +
 	"\binstance\x18\x01 \x01(\v2\x18.tower.hostd.v1.InstanceR\binstance\x12\x12\n" +

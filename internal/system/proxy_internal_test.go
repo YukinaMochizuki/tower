@@ -1,6 +1,7 @@
 package system
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
 	"context"
@@ -20,6 +21,43 @@ import (
 
 	"github.com/YukinaMochizuki/tower/internal/hostd/driver"
 )
+
+// withBranches is a checkout's tar with branches added at commit, as
+// `git branch` in the checkout would make them.
+func withBranches(t *testing.T, co []byte, commit string, names ...string) *bytes.Buffer {
+	t.Helper()
+	var out bytes.Buffer
+	tw := tar.NewWriter(&out)
+	tr := tar.NewReader(bytes.NewReader(co))
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.Copy(tw, tr); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, n := range names {
+		b := []byte(commit + "\n")
+		if err := tw.WriteHeader(&tar.Header{Name: ".git/refs/heads/" + n, Mode: 0o644, Size: int64(len(b)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return &out
+}
 
 // inProcess runs tower-system's calls in the test's process.
 type inProcess struct{ cfg Config }
@@ -101,10 +139,13 @@ func TestGitReachesRepositoriesThroughTheProxy(t *testing.T) {
 		if _, err := o.Fetch(t.Context(), driver.FetchSpec{Mirror: "web/api", URL: remote, Token: "tok-1"}); err != nil {
 			t.Fatalf("proxy %q: the fetch: %v", p, err)
 		}
-		var co bytes.Buffer
-		if _, err := o.Checkout(t.Context(), "web/api", "", &co); err != nil {
+		var checkout bytes.Buffer
+		head, err := o.Checkout(t.Context(), "web/api", "", &checkout)
+		if err != nil {
 			t.Fatalf("proxy %q: the checkout: %v", p, err)
 		}
+		// A push sends a branch of the checkout: these two, at its head.
+		co := withBranches(t, checkout.Bytes(), head, "from-call", "from-serve")
 		if err := o.Push(t.Context(), driver.PushSpec{Mirror: "web/api", URL: remote, Branch: "from-call", Token: "tok-1"}, bytes.NewReader(co.Bytes())); err != nil {
 			t.Fatalf("proxy %q: the call's push: %v", p, err)
 		}

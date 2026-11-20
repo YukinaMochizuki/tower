@@ -543,7 +543,7 @@ func (t *Target) Push(ctx context.Context, req provider.PushRequest) error {
 	}
 	defer end()
 	gitDir := path.Join(path.Clean("/"+req.Dir), ".git")
-	g := system.GrantSpec{Op: system.GrantPush, Mirror: req.Mirror, URL: req.URL, Token: req.Token, Branch: req.Branch, Lease: req.Lease}
+	g := system.GrantSpec{Op: system.GrantPush, Mirror: req.Mirror, URL: req.URL, Token: req.Token, Branch: req.Branch, Lease: req.Lease, Commit: req.Commit}
 	_, done, why, err := t.overEndpoint(ctx, o, p, box, g, gitDir)
 	if done {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -559,7 +559,7 @@ func (t *Target) Push(ctx context.Context, req provider.PushRequest) error {
 		pw.CloseWithError(err)
 		copied <- err
 	}()
-	err = o.Push(ctx, driver.PushSpec{Mirror: req.Mirror, URL: req.URL, Token: req.Token, Branch: req.Branch, Lease: req.Lease}, t.counted(pr))
+	err = o.Push(ctx, driver.PushSpec{Mirror: req.Mirror, URL: req.URL, Token: req.Token, Branch: req.Branch, Lease: req.Lease, Commit: req.Commit}, t.counted(pr))
 	_ = pr.CloseWithError(errRelayEnded)
 	// The box's side failing ends the system container's call, whose own
 	// error then says only that it was cut short.

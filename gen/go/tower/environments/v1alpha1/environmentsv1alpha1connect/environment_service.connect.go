@@ -96,7 +96,8 @@ type EnvironmentServiceClient interface {
 	// FetchOrigin fetches the repositories of a box's checkouts into the
 	// target's mirrors, then brings each checkout's origin/* up to them.
 	FetchOrigin(context.Context, *connect.Request[v1alpha1.FetchOriginRequest]) (*connect.Response[v1alpha1.FetchOriginResponse], error)
-	// Push pushes a branch of a box's checkout to its repository, forcing
+	// Push pushes a branch of a box's checkout to its repository: the commit
+	// the checkout's branch of that name is at, never its HEAD. It forces
 	// only with a lease. A repository without a credential is refused.
 	Push(context.Context, *connect.Request[v1alpha1.PushRequest]) (*connect.Response[v1alpha1.PushResponse], error)
 	// IssueTicket returns where to stream to one port of an environment
@@ -313,7 +314,8 @@ type EnvironmentServiceHandler interface {
 	// FetchOrigin fetches the repositories of a box's checkouts into the
 	// target's mirrors, then brings each checkout's origin/* up to them.
 	FetchOrigin(context.Context, *connect.Request[v1alpha1.FetchOriginRequest]) (*connect.Response[v1alpha1.FetchOriginResponse], error)
-	// Push pushes a branch of a box's checkout to its repository, forcing
+	// Push pushes a branch of a box's checkout to its repository: the commit
+	// the checkout's branch of that name is at, never its HEAD. It forces
 	// only with a lease. A repository without a credential is refused.
 	Push(context.Context, *connect.Request[v1alpha1.PushRequest]) (*connect.Response[v1alpha1.PushResponse], error)
 	// IssueTicket returns where to stream to one port of an environment

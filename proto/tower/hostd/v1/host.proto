@@ -54,7 +54,7 @@ service HostService {
   // and, if asked, a small file's content.
   rpc ReadMirror(ReadMirrorRequest) returns (ReadMirrorResponse);
   // Push pushes a branch of an instance's checkout through the mirror,
-  // forcing only with a lease.
+  // the checkout's branch and never its HEAD, forcing only with a lease.
   rpc Push(PushRequest) returns (PushResponse);
   // Ticket says where a direct stream to a port of a running instance
   // connects. tower signs the ticket the stream presents there.
@@ -313,6 +313,8 @@ message PushRequest {
   // The commit the branch must be at for the push to go; empty for a
   // branch that must not exist yet.
   string lease = 7;
+  // The full commit the checkout's branch must be at, when set.
+  string commit = 8;
 }
 
 message PushResponse {}

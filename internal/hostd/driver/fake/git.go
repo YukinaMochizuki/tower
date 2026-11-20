@@ -115,9 +115,17 @@ func (g git) Push(_ context.Context, spec driver.PushSpec, gitDir io.Reader) err
 	if err != nil {
 		return err
 	}
-	commit, ok := files[gitHEAD]
+	// The checkout's branch of that name; a fake checkout written by
+	// Checkout has only HEAD, which is then its branch.
+	commit, ok := files[".git/refs/heads/"+spec.Branch]
 	if !ok {
-		return fmt.Errorf("the checkout's .git holds no HEAD")
+		commit, ok = files[gitHEAD]
+	}
+	if !ok {
+		return fmt.Errorf("the checkout has no branch %s: %w", spec.Branch, driver.ErrNotFound)
+	}
+	if spec.Commit != "" && string(bytes.TrimSpace(commit)) != spec.Commit {
+		return fmt.Errorf("the checkout's branch %s is at %s, not %s as asked: nothing was pushed", spec.Branch, bytes.TrimSpace(commit), spec.Commit)
 	}
 	return g.h.change("git.Push", func() error {
 		if _, err := g.mirror(spec.Mirror); err != nil {

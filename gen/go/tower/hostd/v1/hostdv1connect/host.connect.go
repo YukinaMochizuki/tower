@@ -132,7 +132,7 @@ type HostServiceClient interface {
 	// and, if asked, a small file's content.
 	ReadMirror(context.Context, *connect.Request[v1.ReadMirrorRequest]) (*connect.Response[v1.ReadMirrorResponse], error)
 	// Push pushes a branch of an instance's checkout through the mirror,
-	// forcing only with a lease.
+	// the checkout's branch and never its HEAD, forcing only with a lease.
 	Push(context.Context, *connect.Request[v1.PushRequest]) (*connect.Response[v1.PushResponse], error)
 	// Ticket says where a direct stream to a port of a running instance
 	// connects. tower signs the ticket the stream presents there.
@@ -463,7 +463,7 @@ type HostServiceHandler interface {
 	// and, if asked, a small file's content.
 	ReadMirror(context.Context, *connect.Request[v1.ReadMirrorRequest]) (*connect.Response[v1.ReadMirrorResponse], error)
 	// Push pushes a branch of an instance's checkout through the mirror,
-	// forcing only with a lease.
+	// the checkout's branch and never its HEAD, forcing only with a lease.
 	Push(context.Context, *connect.Request[v1.PushRequest]) (*connect.Response[v1.PushResponse], error)
 	// Ticket says where a direct stream to a port of a running instance
 	// connects. tower signs the ticket the stream presents there.
