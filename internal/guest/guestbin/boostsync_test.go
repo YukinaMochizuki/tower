@@ -204,6 +204,32 @@ func (p *pair) send(t *testing.T, shared bool, args ...string) (guestbin.Manifes
 	return m, a
 }
 
+// TestAFileTheBoxExcludesIsNoMismatch: a file the box ignores through its
+// own .git/info/exclude alone, which no sync sends as git's, reaches the
+// boost as any ignored file, and the boost's check finds the tree the
+// box's: it ignores what the box does.
+func TestAFileTheBoxExcludesIsNoMismatch(t *testing.T) {
+	t.Parallel()
+	p := newPair(t)
+	exclude := filepath.Join(p.box, ".git", "info", "exclude")
+	write(t, exclude, "web/preview.html\n.store/\n", 0o644)
+	write(t, filepath.Join(p.box, "web", "preview.html"), "<html></html>\n", 0o644)
+	write(t, filepath.Join(p.box, ".store", "files", "00", "x"), "x\n", 0o644)
+	m, a := p.send(t, false)
+	if len(a.Mismatch) != 0 {
+		t.Fatalf("a sync of files the box excludes: %+v, %+v; want no mismatch", m, a)
+	}
+	if got := read(t, filepath.Join(p.boost, "web", "preview.html")); got != "<html></html>\n" {
+		t.Errorf("web/preview.html on the boost: %q", got)
+	}
+	// Excluded no longer, it is the box's untracked file, on the boost too.
+	write(t, exclude, "", 0o644)
+	write(t, filepath.Join(p.box, "web", "preview.html"), "<html>2</html>\n", 0o644)
+	if m, a := p.send(t, false); len(a.Mismatch) != 0 {
+		t.Errorf("a sync once the box excludes nothing: %+v, %+v; want no mismatch", m, a)
+	}
+}
+
 // job runs line under boost-job on the boost and returns its report's
 // path and the report.
 func (p *pair) job(t *testing.T, line string) (string, guestbin.Report) {
