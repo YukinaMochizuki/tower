@@ -440,9 +440,15 @@ func (d *Driver) Push(ctx context.Context, spec driver.PushSpec, gitDir io.Reade
 		return err
 	}
 	ref := "refs/heads/" + spec.Branch
+	if _, err := git(ctx, in, nil, "rev-parse", "--verify", "--quiet", ref); err != nil {
+		return fmt.Errorf("the checkout has no branch %s: %w", spec.Branch, driver.ErrNotFound)
+	}
+	// The branch is there; a commit it names that the checkout's objects
+	// lack (an alternate, which takeObjects drops) is a failure, not an
+	// absence.
 	commit, err := git(ctx, in, nil, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
 	if err != nil {
-		return fmt.Errorf("the checkout has no branch %s: %w", spec.Branch, driver.ErrNotFound)
+		return fmt.Errorf("the checkout's branch %s names a commit its objects lack: %w", spec.Branch, err)
 	}
 	commit = strings.TrimSpace(commit)
 	if spec.Commit != "" && commit != spec.Commit {
