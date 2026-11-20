@@ -50,6 +50,10 @@ type Manifest struct {
 	// Shared says only what the box changed since its last sync was sent,
 	// a job of the box running on the boost.
 	Shared bool `json:"shared,omitempty"`
+	// Exclude is the box's .git/info/exclude, "" for none, which the boost's
+	// is made before its check, so that it ignores what the box's tree
+	// left out; nil from a tower-guest that did not send it.
+	Exclude *string `json:"exclude,omitempty"`
 	// Sent names the box's manifest as sent, kept in its boost directory
 	// (sent-<id>.manifest): what a later sync, and the write-back of the
 	// job this sync is for, compare the box with.
@@ -355,6 +359,16 @@ func packGit(dir, gitDir, boostDir, out string, bundleAll bool) (*Manifest, int6
 		return nil, 0, nil, err
 	}
 	m := &Manifest{Tree: tree}
+	// What the tree left out as ignored by the box's own exclude file, which
+	// lives in its git directory, never sent with the files.
+	switch b, err := os.ReadFile(filepath.Join(gitDir, "info", "exclude")); {
+	case err == nil:
+		m.Exclude = new(string(b))
+	case errors.Is(err, fs.ErrNotExist):
+		m.Exclude = new("")
+	default:
+		return nil, 0, nil, err
+	}
 	m.Head, _ = gitLine(dir, nil, "rev-parse", "--verify", "-q", "HEAD")
 	m.Branch, _ = gitLine(dir, nil, "symbolic-ref", "-q", "--short", "HEAD")
 	all, err := listTree(dir, tree)
@@ -458,7 +472,7 @@ func boostApply(args []string) (*Applied, error) {
 		return nil, errors.New("--staging is required")
 	}
 	defer func() { _ = os.RemoveAll(*staging) }()
-	_, boostDir, err := boostGitDir(*dir)
+	gitDir, boostDir, err := boostGitDir(*dir)
 	if err != nil {
 		return nil, err
 	}
@@ -507,6 +521,11 @@ func boostApply(args []string) (*Applied, error) {
 	}
 	if a.Files, err = applyTar(root, filepath.Join(*staging, "files.tar")); err != nil {
 		return nil, err
+	}
+	if m.Exclude != nil {
+		if err := writeExclude(gitDir, *m.Exclude); err != nil {
+			return nil, err
+		}
 	}
 	if !*shared {
 		if a.Mismatch, err = checkTree(*dir, boostDir, *staging, &m); err != nil {
@@ -584,6 +603,19 @@ func applyTar(root *os.Root, file string) (int, error) {
 			n++
 		}
 	}
+}
+
+// writeExclude makes the checkout's .git/info/exclude text, the box's, so
+// that git here ignores what it ignores in the box.
+func writeExclude(gitDir, text string) error {
+	f := filepath.Join(gitDir, "info", "exclude")
+	if b, err := os.ReadFile(f); err == nil && string(b) == text {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(f, []byte(text), 0o644)
 }
 
 // checkTree checks the work tree, files made the box's, against the box's
