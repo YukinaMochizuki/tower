@@ -127,9 +127,12 @@ type Fake struct {
 	checkouts    map[provider.Instance]int
 	failCommands []string
 	writeErr     error
-	writeHold    *writeHold
-	diskTotal    uint64
-	diskFree     *uint64
+	// copyErrs fail each copy into an instance, by its name, once what it
+	// sent is written there (FailCopiesInto).
+	copyErrs  map[string]error
+	writeHold *writeHold
+	diskTotal uint64
+	diskFree  *uint64
 	// memoryFree is the memory Report says the host has free (SetMemoryFree).
 	memoryFree  string
 	captureSize func(provider.Instance) uint64
@@ -864,6 +867,18 @@ func (f *Fake) Checkouts(in provider.Instance) int {
 // FailWriteFiles makes every WriteFile fail with err; nil undoes it.
 func (f *Fake) FailWriteFiles(err error) { f.mu.Lock(); f.writeErr = err; f.mu.Unlock() }
 
+// FailCopiesInto makes every Copy into the instance named name fail with
+// err once what it sent is written there, as a receiver whose disk filled
+// leaves what it wrote; nil undoes it.
+func (f *Fake) FailCopiesInto(name string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.copyErrs == nil {
+		f.copyErrs = map[string]error{}
+	}
+	f.copyErrs[name] = err
+}
+
 // writeHold holds each WriteFile, telling held, until release closes or
 // its call ends.
 type writeHold struct {
@@ -1301,11 +1316,15 @@ func (f *Fake) Copy(_ context.Context, from provider.Instance, fromPath string, 
 		return err
 	}
 	fromPath, toPath = path.Clean(fromPath), path.Clean(toPath)
+	failed := f.copyErrs[to.Name]
 	if from, to := f.ws.path(from, fromPath), f.ws.path(to, toPath); from != "" && to != "" {
 		if _, err := os.Lstat(from); err != nil {
 			return fmt.Errorf("%s: %w", fromPath, fs.ErrNotExist)
 		}
-		return copyPath(from, to)
+		if err := copyPath(from, to); err != nil {
+			return err
+		}
+		return failed
 	}
 	found := false
 	for name, b := range src.files {
@@ -1317,7 +1336,7 @@ func (f *Fake) Copy(_ context.Context, from provider.Instance, fromPath string, 
 	if !found {
 		return fmt.Errorf("%s: %w", fromPath, fs.ErrNotExist)
 	}
-	return nil
+	return failed
 }
 
 // under reports whether name is root or a path below it, and the rest.

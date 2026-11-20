@@ -262,6 +262,58 @@ func TestCopy(t *testing.T) {
 	}
 }
 
+// TestTransfer: a directory goes from one guest to another; a receiver
+// that cannot write what it is sent fails the transfer with its own error,
+// not the sender's reset connection.
+func TestTransfer(t *testing.T) {
+	src, dst, ctx := ops(t), ops(t), t.Context()
+	out := filepath.Join(t.TempDir(), "out")
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Large enough that the sender is still writing once the receiver
+	// gives up.
+	if err := os.WriteFile(filepath.Join(out, "big"), bytes.Repeat([]byte("x"), 64<<20), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	into := t.TempDir()
+	if err := guestops.Transfer(ctx, src, dst, out, "127.0.0.1", filepath.Join(into, "in")); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(filepath.Join(into, "in", "big")); err != nil || info.Size() != 64<<20 {
+		t.Errorf("the transfer holds %v, %v", info, err)
+	}
+	// Its directory under a file: the receiver cannot write it.
+	blocked := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocked, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := guestops.Transfer(ctx, src, dst, out, "127.0.0.1", filepath.Join(blocked, "sub", "in"))
+	if err == nil || !strings.Contains(err.Error(), "receiving into") || !strings.Contains(err.Error(), "not a directory") {
+		t.Errorf("a transfer its receiver cannot write: %v, want the receiver's error", err)
+	}
+}
+
+// TestATransferWhoseSenderNeverConnects: a source not there is answered
+// at once, not after the receiver's grace; a sender that cannot reach
+// its receiver is answered with its own error once the grace is over.
+func TestATransferWhoseSenderNeverConnects(t *testing.T) {
+	src, dst, ctx := ops(t), ops(t), t.Context()
+	guestops.SetReceiverGrace(t, 2*time.Minute)
+	start := time.Now()
+	err := guestops.Transfer(ctx, src, dst, filepath.Join(t.TempDir(), "none"), "127.0.0.1", filepath.Join(t.TempDir(), "in"))
+	if !errors.Is(err, fs.ErrNotExist) || time.Since(start) > time.Minute {
+		t.Errorf("a transfer of a source not there: %v after %v, want NotExist at once", err, time.Since(start))
+	}
+
+	guestops.SetReceiverGrace(t, 100*time.Millisecond)
+	out := t.TempDir()
+	err = guestops.Transfer(ctx, src, dst, out, "host.invalid", filepath.Join(t.TempDir(), "in"))
+	if err == nil || !strings.Contains(err.Error(), "sending "+out) || strings.Contains(err.Error(), "receiving into") {
+		t.Errorf("a transfer whose sender cannot reach its receiver: %v, want the sender's error alone", err)
+	}
+}
+
 func startProc(t *testing.T, o guestops.Ops, spec guest.ProcessSpec) string {
 	t.Helper()
 	if spec.LogCap == 0 {

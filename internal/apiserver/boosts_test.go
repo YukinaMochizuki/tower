@@ -640,6 +640,30 @@ func TestABoostKeepsWhatItWasMadeOf(t *testing.T) {
 	})
 }
 
+// TestABoostsWorkspaceStartsAtItsBoxs: a boost's /workspace starts at
+// the size its box's has grown to, which a sync fills at once, faster
+// than the disk grows; it grows as the box's does.
+func TestABoostsWorkspaceStartsAtItsBoxs(t *testing.T) {
+	t.Parallel()
+	w := boostWorld(t, nil)
+	box := w.readyBox("dev")
+	boxIn, _ := w.instance(box.GetStatus().GetInstance())
+	w.fake.GrowDisks(provider.Instance{Project: "web", Name: box.GetStatus().GetInstance()}, "14Gi", "4Gi")
+	testutil.Eventually(t, "the box's /workspace at its grown size", func() (bool, string) {
+		d := w.box("dev").GetStatus().GetDisks()
+		return len(d) > 0 && d[0].GetSize() == "14Gi" && !d[0].GetSizeIsStart(), fmt.Sprint(d)
+	})
+	w.startBoosted(boostOn("dev", "true"))
+	b, _ := w.boost("dev")
+	in, ok := w.instance(b.GetStatus().GetInstance())
+	if !ok {
+		t.Fatalf("the boost's instance %q is not there", b.GetStatus().GetInstance())
+	}
+	if got := in.GetSpec(); got.GetResources().GetDisk() != "14Gi" || !proto.Equal(got.GetDiskGrowth(), boxIn.GetSpec().GetDiskGrowth()) {
+		t.Errorf("the boost's disk %q, growth %v; want 14Gi, as its box's grows (%v)", got.GetResources().GetDisk(), got.GetDiskGrowth(), boxIn.GetSpec().GetDiskGrowth())
+	}
+}
+
 // TestARetireRacingAStartLeavesTheBoost: a process started on an idle
 // boost between its exits being read and its deletion being decided
 // keeps it; the start is not lost to a boost deleted under it.

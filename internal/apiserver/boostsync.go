@@ -287,6 +287,12 @@ func (s *Server) syncBoost(ctx context.Context, e *environment, b *envv1alpha1.B
 		}
 		a, err := s.applySync(ctx, e, boostRef, stage, &m, known && rec.Head == m.Head && !bundleAll, shared)
 		clean(e.ref)
+		if err != nil {
+			// What reached the boost of a copy or apply that failed, which
+			// boost-apply removes only when it runs: left there, it fills the
+			// disk the next sync needs.
+			clean(boostRef)
+		}
 		switch {
 		case errors.Is(err, errNoHead) && !bundleAll:
 			// The boost lacks what the bundle needs: HEAD's whole history,
