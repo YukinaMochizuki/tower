@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -192,17 +193,34 @@ type dnsServer struct {
 	answered atomic.Int32
 }
 
+// udpAndTCPOnOnePort listens on 127.0.0.1 over UDP and TCP on one port, as
+// a DNS server does. The kernel picks the UDP port; the same number over
+// TCP may be another test's listener already, so a taken one is given up
+// for another.
+func udpAndTCPOnOnePort(t *testing.T) (net.PacketConn, net.Listener) {
+	t.Helper()
+	for range 20 {
+		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := pc.LocalAddr().(*net.UDPAddr).Port
+		l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err == nil {
+			return pc, l
+		}
+		_ = pc.Close()
+		if !errors.Is(err, syscall.EADDRINUSE) {
+			t.Fatal(err)
+		}
+	}
+	t.Fatal("no port free over both UDP and TCP in 20 tries")
+	return nil, nil
+}
+
 func newDNSServer(t *testing.T, a netip.Addr) *dnsServer {
 	t.Helper()
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := pc.LocalAddr().(*net.UDPAddr).Port
-	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-	if err != nil {
-		t.Fatal(err)
-	}
+	pc, l := udpAndTCPOnOnePort(t)
 	t.Cleanup(func() { _ = pc.Close(); _ = l.Close() })
 	s := &dnsServer{addr: pc.LocalAddr().String()}
 	answer := func(q []byte) []byte {
