@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"sync"
 	"time"
 
@@ -42,6 +43,10 @@ type useRecord struct {
 	// Seconds the box ran, and since when it runs uncounted.
 	Seconds int64     `json:"seconds"`
 	Since   time.Time `json:"since,omitzero"`
+	// Addons and FallbackImage are the box's, for one made of its
+	// repository's devcontainer only (prebuildAddonImages).
+	Addons        []string `json:"addons,omitempty"`
+	FallbackImage string   `json:"fallbackImage,omitempty"`
 }
 
 // lastUses are boxes' uses through Touch since the last flush, the calls
@@ -297,10 +302,17 @@ func (s *Server) useRecords(ctx context.Context, project string) ([]useRecord, e
 }
 
 // boxOpened makes the box's use record as it first runs, under its first
-// checkout's repository.
-func (s *Server) boxOpened(ctx context.Context, key controller.Key, repository string) error {
+// checkout's repository, with the add-ons its image was made with.
+func (s *Server) boxOpened(ctx context.Context, key controller.Key, spec *envv1alpha1.BoxSpec) error {
 	now := s.clock.Now()
-	data, err := json.Marshal(useRecord{Repository: repository, Opened: now, LastUse: now, Since: now})
+	r := useRecord{Opened: now, LastUse: now, Since: now}
+	if cs := spec.GetCheckouts(); len(cs) > 0 {
+		r.Repository = cs[0].GetRepository()
+	}
+	if spec.GetImage() == "" && spec.GetImageBuild() == nil {
+		r.Addons, r.FallbackImage = spec.GetAddons(), spec.GetFallbackImage()
+	}
+	data, err := json.Marshal(r)
 	if err != nil {
 		return err
 	}
@@ -327,7 +339,7 @@ func (s *Server) updateUseRecord(ctx context.Context, key controller.Key, change
 		}
 		before := r
 		change(&r)
-		if r == before {
+		if reflect.DeepEqual(r, before) {
 			return nil
 		}
 		data, err := json.Marshal(r)

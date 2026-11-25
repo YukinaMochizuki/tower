@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -163,6 +165,17 @@ func (s *Server) reconcileWarm(ctx context.Context, key controller.Key) error {
 			break
 		}
 		kept = more
+	}
+	records := map[string][]useRecord{}
+	for _, c := range candidates {
+		r, ok := records[c.project]
+		if !ok {
+			if r, err = s.useRecords(ctx, c.project); err != nil {
+				return err
+			}
+			records[c.project] = r
+		}
+		s.prebuildAddonImages(ctx, t, set, c, r)
 	}
 	var waiting error
 	for i, c := range candidates {
@@ -340,6 +353,90 @@ func (s *Server) annotateGolden(ctx context.Context, g *envv1alpha1.Golden, k, v
 	g.Metadata.Annotations[k] = v
 	_, err := s.backend(registry.Golden).Apply(s.system(ctx), g)
 	return err
+}
+
+// addonImageCache holds, per repository on a target and add-on set, when
+// prebuildAddonImages last looked at it and at which head, and the head
+// waiting to settle.
+type addonImageCache struct {
+	mu sync.Mutex
+	by map[string]addonImageAt
+}
+
+type addonImageAt struct {
+	head, settling string
+	at, since      time.Time
+}
+
+// addonSetsUsed are the repository's non-empty add-on sets asked for since
+// from, each as the last box that asked for it recorded it.
+func addonSetsUsed(records []useRecord, repository string, from time.Time) map[string]useRecord {
+	sets := map[string]useRecord{}
+	for _, r := range records {
+		if r.Repository != repository || len(r.Addons) == 0 || r.LastUse.Before(from) {
+			continue
+		}
+		k := strings.Join(r.Addons, ",")
+		if last, ok := sets[k]; !ok || r.LastUse.After(last.LastUse) {
+			sets[k] = r
+		}
+	}
+	return sets
+}
+
+// prebuildAddonImages makes the image golden of each add-on set used
+// within warm_window of the head, once it has settled, as a box would
+// (docs/decisions/box-addons.md).
+func (s *Server) prebuildAddonImages(ctx context.Context, t *targetsv1alpha1.Target, set settings, c warmCandidate, records []useRecord) {
+	target := t.GetMetadata().GetName()
+	head := mirrorHead(c.repo, target)
+	if head == "" {
+		return
+	}
+	now := s.clock.Now()
+	sets := addonSetsUsed(records, c.name(), now.Add(-set.warmWindow))
+	if len(sets) == 0 {
+		return
+	}
+	p, err := s.providerFor(target)
+	if err != nil {
+		return
+	}
+	cache := &s.addonImages
+	for _, k := range slices.Sorted(maps.Keys(sets)) {
+		id := strings.Join([]string{c.project, target, c.name(), k}, "/")
+		cache.mu.Lock()
+		if cache.by == nil {
+			cache.by = map[string]addonImageAt{}
+		}
+		e := cache.by[id]
+		if e.head != head && e.settling != head {
+			e.settling, e.since = head, now
+		}
+		cache.by[id] = e
+		cache.mu.Unlock()
+		// A new head waits warm_settle, so a burst of commits builds once;
+		// the same head is looked at again each warm_settle, for a base tag
+		// moved under it.
+		if e.head != head && now.Sub(e.since) < set.warmSettle || e.head == head && now.Sub(e.at) < set.warmSettle {
+			continue
+		}
+		r := sets[k]
+		spec := &envv1alpha1.BoxSpec{Checkouts: []*envv1alpha1.Checkout{{Repository: c.name()}}, Addons: r.Addons, FallbackImage: r.FallbackImage}
+		name, _, _, err := s.boxImageGolden(ctx, p, c.project, target, spec, false)
+		switch {
+		case err == nil && name != "":
+			s.log.Debug("an add-on image is made of the repository's head", "project", c.project, "repository", c.name(), "addons", k, "golden", name)
+		case err != nil && !errors.Is(err, devcontainer.ErrUnresolvable) && !errors.Is(err, devcontainer.ErrCommitMissing):
+			// Tried again at the next look, not at every reconcile.
+			s.log.Warn("could not make an add-on image ahead of its boxes", "project", c.project, "repository", c.name(), "addons", k, "err", err)
+		}
+		cache.mu.Lock()
+		e = cache.by[id]
+		e.head, e.at = head, now
+		cache.by[id] = e
+		cache.mu.Unlock()
+	}
 }
 
 // warmInputsCache holds, per mirror, the pre-build inputs of the last

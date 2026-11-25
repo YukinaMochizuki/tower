@@ -387,11 +387,7 @@ func (s *Server) boxSteps(ctx context.Context, key controller.Key, box *envv1alp
 		bs.cond(BoxSetUp, true, "SetUp", "")
 	}
 	if st.Phase != envv1alpha1.BoxPhase_BOX_PHASE_READY {
-		repo := ""
-		if cs := spec.GetCheckouts(); len(cs) > 0 {
-			repo = cs[0].GetRepository()
-		}
-		if err := s.boxOpened(ctx, key, repo); err != nil {
+		if err := s.boxOpened(ctx, key, spec); err != nil {
 			return err
 		}
 	}
