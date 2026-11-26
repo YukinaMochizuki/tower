@@ -27,6 +27,27 @@ its own host.
   add-ons installed in the order asked for, the base's `USER` restored
   after them, and an apt-based base checked before any installer runs.
 
+- **An add-on set's image is made ahead of its boxes, for the sets a
+  repository is used with** (decided with the human, 2026-11-25). Each
+  box's use record keeps the add-ons it asked for, when its image is its
+  repository's devcontainer's. The warm controller makes the image golden
+  of each set the repository's boxes asked for within the target's
+  `warm_window`, of its branch's head, as a box asking for it would
+  (`prebuildAddonImages`), once a new head has been the head for
+  `warm_settle`, so a burst of commits builds once; the same head is
+  looked at again each `warm_settle`, which finds a base tag moved under
+  it. So a new base is built ahead, not in the next box: a browser layer
+  on a new base took 3 to 9 minutes of a box's open. A set no box asked
+  for within the window is not made, so a repository holds an image for
+  each add-on set it is used with rather than one for every set there is.
+  The set without add-ons is left to `keepWarm`, which makes it for a warm
+  repository. A failed look is tried again at the next, not at every
+  reconcile. Nothing reclaims these goldens: an image golden holds no disk
+  on the target, so the golden budget does not weigh it, and tower deletes
+  no image from its registry. Each used set leaves one Golden and one
+  registry image per change of its repository's image inputs, until
+  registry pruning exists.
+
 Not fetched from workstream at build time: tower builds on the target,
 which has no reason to reach workstream, and an add-on that changed under
 a box would change what an image golden of the same inputs holds.

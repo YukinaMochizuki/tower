@@ -191,6 +191,9 @@ type Server struct {
 	// warmInputs are the pre-build inputs of each mirror's last head read,
 	// which its commit alone decides.
 	warmInputs warmInputsCache
+	// addonImages are the heads the add-on images of each repository's
+	// add-on sets were last made of (prebuildAddonImages).
+	addonImages addonImageCache
 	// beforeIdleStop, if set, runs between a box's idle stop being decided
 	// and its being written, for tests.
 	beforeIdleStop atomic.Pointer[func(controller.Key)]
